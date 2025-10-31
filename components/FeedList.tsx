@@ -13,7 +13,7 @@ type Post = {
   created_at: string;
 };
 
-export default function FeedList() {
+export default function FeedList({ refreshKey = 0 }: { refreshKey?: number }) {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -28,6 +28,7 @@ export default function FeedList() {
   useEffect(() => {
     let mounted = true;
     (async () => {
+      setLoading(true);
       const { data, error } = await supabase
         .from("posts")
         .select("id, user_id, caption:content, video_url, poster_url, created_at")
@@ -47,9 +48,9 @@ export default function FeedList() {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [refreshKey]); // 👈 re-fetch when refreshKey changes
 
-  // Observe sections to decide which one is "active" (most visible)
+  // Observe sections to decide which one is "active"
   useEffect(() => {
     if (!sectionRefs.current.length) return;
 
@@ -79,11 +80,7 @@ export default function FeedList() {
         });
         if (!rafId) rafId = requestAnimationFrame(updateActive);
       },
-      {
-        // Tight thresholds so the active card switches only when the next
-        // card crosses ~half screen (TikTok-like feel)
-        threshold: [0, 0.25, 0.5, 0.55, 0.6, 0.75, 1],
-      }
+      { threshold: [0, 0.25, 0.5, 0.55, 0.6, 0.75, 1] }
     );
 
     sectionRefs.current.forEach((el) => el && io.observe(el));
@@ -115,12 +112,12 @@ export default function FeedList() {
     <div className="h-[100svh] w-full overflow-y-scroll snap-y snap-mandatory [scrollSnapStop:always]">
       {list.map((p, i) => (
         <section
-          key={`${p.id}-${i}`} // unique key
+          key={`${p.id}-${i}`}
           ref={setSectionRef(i)}
           data-index={i}
           className="snap-start h-[100svh] w-full flex items-stretch justify-center"
         >
-          <VideoCard post={p} active={activeIndex === i} /> {/* only the most visible plays */}
+          <VideoCard post={p} active={activeIndex === i} />
         </section>
       ))}
     </div>

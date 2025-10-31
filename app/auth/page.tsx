@@ -6,279 +6,139 @@ import { supabase } from "@/lib/supabaseClient";
 
 export default function AuthPage() {
   const router = useRouter();
-
-  // Build a redirectTo that works on laptop (localhost) and phone (LAN IP)
-  const [redirectTo, setRedirectTo] = useState<string | null>(null);
-  useEffect(() => {
-    setRedirectTo(`${window.location.origin}/auth/callback`);
-  }, []);
-
-  // ---------- Redirect-on-load logic ----------
   const [checking, setChecking] = useState(true);
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!mounted) return;
-
-      if (!session) {
-        setChecking(false); // show auth UI
-        return;
-      }
-
-      // Signed in — check profile.interests
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("interests")
-        .eq("id", session.user.id)
-        .maybeSingle();
-
-      if (error) {
-        console.error("Profile check error:", error);
-        setChecking(false);
-        return;
-      }
-
-      const interests = Array.isArray(profile?.interests)
-        ? profile!.interests
-        : [];
-
-      if (!interests || interests.length === 0) {
-        router.replace("/onboarding");
-      } else {
-        router.replace("/dashboard");
-      }
-    })();
-
-    return () => {
-      mounted = false;
-    };
-  }, [router]);
-
-  // ---------- UI state ----------
   const [input, setInput] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
-  const [isVisible, setIsVisible] = useState(false);
-
-  // SMS OTP state
-  const [codeSent, setCodeSent] = useState(false);
-  const [otp, setOtp] = useState("");
-  const [phoneForOtp, setPhoneForOtp] = useState<string | null>(null);
 
   useEffect(() => {
-    const timer = setTimeout(() => setIsVisible(true), 100);
-    return () => clearTimeout(timer);
-  }, []);
+    (async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return setChecking(false);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("interests")
+        .eq("id", session.user.id)
+        .maybeSingle();
+      if (profile?.interests?.length) router.replace("/dashboard");
+      else router.replace("/onboarding");
+    })();
+  }, [router]);
 
-  function normalizePhone(raw: string) {
-    const s = raw.trim();
-    if (s.startsWith("+")) return s;
-    const digits = s.replace(/\D/g, "");
-    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-    if (digits.length === 10) return `+1${digits}`;
-    return s.startsWith("+") ? s : `+${digits || s}`;
-  }
+  const currentOrigin =
+    typeof window !== "undefined" ? window.location.origin : "http://localhost:3000";
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
-    setMsg(null);
     setSending(true);
-
-    const raw = input.trim();
-    const isPhone =
-      raw.startsWith("+") || (/^\D*\d[\d\D]*$/.test(raw) && !raw.includes("@"));
-
+    const isEmail = input.includes("@");
     try {
-      if (isPhone) {
-        const phone = normalizePhone(raw);
-        const { error } = await supabase.auth.signInWithOtp({
-          phone,
+      if (isEmail) {
+        await supabase.auth.signInWithOtp({
+          email: input,
+          options: { emailRedirectTo: `${currentOrigin}/auth` },
+        });
+        setMsg("📧 Check your email for the sign-in link.");
+      } else {
+        await supabase.auth.signInWithOtp({
+          phone: input,
           options: { channel: "sms" },
         });
-        if (error) throw error;
-        setPhoneForOtp(phone);
-        setCodeSent(true);
-        setMsg("📲 We sent you a 6-digit code via SMS.");
-      } else {
-        const { error } = await supabase.auth.signInWithOtp({
-          email: raw,
-          options: {
-            emailRedirectTo: redirectTo ?? undefined, // ★ changed
-          },
-        });
-        if (error) throw error;
-        setMsg("📧 Check your inbox for the sign-in link!");
+        setMsg("📲 Check your phone for the 6-digit code.");
       }
     } catch (err: any) {
-      setMsg(err?.message ?? "Something went wrong.");
+      setMsg(err.message);
     } finally {
       setSending(false);
     }
-  }
-
-  async function verifySmsCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!phoneForOtp) return setMsg("Missing phone number.");
-    if (!otp) return setMsg("Enter the 6-digit code.");
-
-    setSending(true);
-    setMsg(null);
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone: phoneForOtp,
-        token: otp,
-        type: "sms",
-      });
-      if (error) throw error;
-      window.location.href = "/auth";
-    } catch (err: any) {
-      setMsg(err?.message ?? "Invalid code.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function resetSmsFlow() {
-    setCodeSent(false);
-    setOtp("");
-    setPhoneForOtp(null);
-    setMsg(null);
   }
 
   async function oauth(provider: "google" | "apple") {
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: {
-        redirectTo: redirectTo ?? undefined, // ★ changed
-      },
+      options: { redirectTo: `${currentOrigin}/auth` },
     });
     if (error) alert(error.message);
   }
 
-  if (checking || !redirectTo) {
+  if (checking) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-white">
-        <p className="text-sm text-gray-600">Loading…</p>
+      <main className="min-h-screen grid place-items-center bg-white text-gray-800">
+        <p>Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-white">
-      <div
-        className={`w-[360px] max-w-full px-6 py-8 text-center rounded-xl transition-all duration-700 ease-out ${
-          isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-3"
-        }`}
-      >
-        <h1 className="text-[24px] font-black text-zinc-900 uppercase whitespace-nowrap text-center -ml-[24px]">
-          CONTINUE TO CREATORNET
-        </h1>
-        <p className="mt-2 text-[16px] font-semibold text-[#6B47DC]">
-          Scroll, Learn, Earn.
+    <main className="min-h-screen flex items-center justify-center bg-white text-gray-900">
+      <div className="w-full max-w-[380px] mx-auto text-center px-6">
+        <h1 className="text-xl font-extrabold">SIGN UP FOR CREATORNET</h1>
+        <p className="mt-1 text-[15px] text-gray-600 font-medium">
+          <span className="text-[#7D5BD6]">Scroll</span>, Learn, Earn.
         </p>
 
         <button
           onClick={() => setShowForm(!showForm)}
-          className="w-full mt-6 py-3 text-[16px] font-semibold text-white bg-[#9370DB] rounded-md shadow-md hover:brightness-95 active:brightness-90 transition"
+          className="mt-6 w-full py-3 rounded-md bg-[#7D5BD6] text-white font-semibold hover:brightness-95 active:brightness-90 transition"
         >
           Phone or Email
         </button>
 
-        <div className="text-sm text-gray-500 my-4">or</div>
+        <div className="flex items-center gap-2 my-5 text-xs text-gray-400">
+          <span className="flex-1 h-px bg-gray-200" />
+          or
+          <span className="flex-1 h-px bg-gray-200" />
+        </div>
 
+        {/* Apple button */}
         <button
           onClick={() => oauth("apple")}
-          className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-md py-2.5 mb-2 bg-white hover:bg-gray-50 transition"
+          className="w-full h-11 flex items-center justify-center gap-2 border border-gray-300 rounded-md hover:bg-gray-50 transition"
         >
-          <AppleIcon className="w-5 h-5 text-black" />
-          <span className="font-medium text-gray-800 text-[15px]">
-            Continue with Apple
-          </span>
+          <AppleIcon className="w-5 h-5" />
+          <span className="text-sm font-medium">Continue with Apple</span>
         </button>
 
+        {/* Google button */}
         <button
           onClick={() => oauth("google")}
-          className="w-full flex items-center justify-center gap-2 border border-gray-300 rounded-md py-2.5 bg-white hover:bg-gray-50 transition"
+          className="mt-2 w-full h-11 flex items-center justify-center gap-2 border border-gray-300 rounded-md hover:bg-gray-50 transition"
         >
           <GoogleIcon className="w-5 h-5" />
-          <span className="font-medium text-gray-800 text-[15px]">
-            Continue with Google
-          </span>
+          <span className="text-sm font-medium">Continue with Google</span>
         </button>
 
         {showForm && (
-          <div className="mt-6 text-left">
-            {!codeSent ? (
-              <form onSubmit={handleSignIn} className="space-y-3">
-                <label className="block text-sm text-gray-700">
-                  Phone or Email
-                </label>
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="you@example.com or +15551234567"
-                  required
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/30 focus:border-[#9370DB]"
-                />
-                <button
-                  type="submit"
-                  disabled={sending}
-                  className="w-full py-2.5 text-white bg-zinc-900 rounded-md font-semibold hover:bg-zinc-800 disabled:opacity-60 transition"
-                >
-                  {sending ? "Sending…" : "Send sign-in link or code"}
-                </button>
-                {msg && (
-                  <p className="text-xs text-center text-gray-600 mt-1">
-                    {msg}
-                  </p>
-                )}
-              </form>
-            ) : (
-              <form onSubmit={verifySmsCode} className="space-y-3">
-                <label className="block text-sm text-gray-700">
-                  Enter 6-digit code
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                  placeholder="123456"
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 tracking-[0.3em] focus:outline-none focus:ring-4 focus:ring-[#9370DB]/30 focus:border-[#9370DB]"
-                />
-                <button
-                  type="submit"
-                  disabled={sending}
-                  className="w-full py-2.5 text-white bg-zinc-900 rounded-md font-semibold hover:bg-zinc-800 disabled:opacity-60 transition"
-                >
-                  {sending ? "Verifying…" : "Verify & continue"}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetSmsFlow}
-                  className="w-full text-center text-xs text-gray-600 underline"
-                >
-                  Resend or change number
-                </button>
-                {msg && (
-                  <p className="text-xs text-center text-gray-600 mt-1">
-                    {msg}
-                  </p>
-                )}
-              </form>
-            )}
-          </div>
+          <form onSubmit={handleSignIn} className="mt-6 space-y-3 text-left">
+            <label className="block text-sm text-gray-600">Phone or Email</label>
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="you@example.com or +15551234567"
+              className="w-full h-11 rounded-md border border-gray-300 px-3 text-gray-900 focus:ring-2 focus:ring-[#7D5BD6]/50 focus:border-[#7D5BD6]"
+            />
+            <button
+              type="submit"
+              disabled={sending}
+              className="w-full h-11 rounded-md bg-[#7D5BD6] text-white font-semibold disabled:opacity-60"
+            >
+              {sending ? "Sending…" : "Send link"}
+            </button>
+            {msg && <p className="text-sm text-center text-gray-600">{msg}</p>}
+          </form>
         )}
 
-        <p className="mt-6 text-xs text-gray-500">
-          By continuing, you agree to our{" "}
+        <p className="mt-5 text-sm text-gray-500">
+          Have an account?{" "}
+          <a href="#" className="text-[#7D5BD6] hover:underline">
+            Log in
+          </a>
+        </p>
+        <p className="mt-2 text-[12px] text-gray-400">
+          By signing up, you agree to our{" "}
           <a href="#" className="underline">
             Terms
           </a>
@@ -297,10 +157,15 @@ export default function AuthPage() {
   );
 }
 
-/* ---------- Inline Icons ---------- */
+/* === icons === */
 function AppleIcon({ className = "" }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
       <path d="M16.356 1.43c.02 1.2-.443 2.28-.998 3.01-.61.78-1.69 1.38-2.7 1.31-.12-1.02.44-2.28 1-3.01.62-.79 1.71-1.39 2.7-1.31ZM21.88 18.02c-.49 1.14-1.08 2.28-1.95 3.19-.83.87-1.78 1.76-3.12 1.79-1.36.03-1.8-.58-3.35-.58-1.56 0-2.03.56-3.38.6-1.38.03-2.44-.94-3.27-1.8-1.8-1.92-3.2-5.42-2.03-8.3.88-2.17 2.8-3.55 4.77-3.58 1.38-.03 2.52.68 3.34.68.83 0 2.27-.84 3.83-.72.65.03 2.47.26 3.64 2.03-3.09 1.67-2.59 6.06.92 7.4Z" />
     </svg>
   );

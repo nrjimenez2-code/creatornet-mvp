@@ -14,7 +14,8 @@ type PostForCard = {
 
 type VideoCardProps = {
   post: PostForCard;
-  active?: boolean;               // parent (FeedList) controls which one plays
+  active?: boolean;               // parent controls which one plays
+  // 👇 allow these (optional) so other files can pass them without type errors
   initialLikes?: number;
   initiallyLiked?: boolean;
   onLikeToggled?: (liked: boolean) => void;
@@ -23,6 +24,10 @@ type VideoCardProps = {
 export default function VideoCard({
   post,
   active = false,
+  // these are currently unused, but accepted to satisfy callers
+  initialLikes,
+  initiallyLiked,
+  onLikeToggled,
 }: VideoCardProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
@@ -36,35 +41,33 @@ export default function VideoCard({
 
   return (
     <div className="relative h-screen w-full overflow-hidden bg-black">
-      {/* VIDEO - always contain to prevent cropping/zoom */}
+      {/* VIDEO - contain to prevent crop; iOS-friendly attributes */}
       <video
         ref={videoRef}
         src={post.video_url}
         poster={post.poster_url ?? undefined}
-        playsInline
         muted
+        playsInline
+        // @ts-ignore - iOS specific non-standard attr
+        webkit-playsinline="true"
         loop
-        // object-contain guarantees no zoom-in crop; shows black bars when needed
+        preload="metadata"
         className="h-full w-full object-contain object-center bg-black"
       />
 
       {/* RIGHT ACTIONS */}
       <div className="absolute right-3 bottom-32 z-30 flex flex-col items-center gap-6 text-white/95">
-        {/* Profile bubble */}
         <div className="w-12 h-12 rounded-full bg-white/10 border border-white/20 backdrop-blur-sm grid place-items-center">
           <User className="w-6 h-6" />
         </div>
-        {/* Like */}
         <div className="flex flex-col items-center gap-1">
           <Heart className="w-8 h-8" />
-          <span className="text-xs font-semibold opacity-90">0</span>
+          <span className="text-xs font-semibold opacity-90">{initialLikes ?? 0}</span>
         </div>
-        {/* Comment */}
         <div className="flex flex-col items-center gap-1">
           <MessageCircle className="w-8 h-8" />
           <span className="text-xs font-semibold opacity-90">120</span>
         </div>
-        {/* Share */}
         <div className="flex flex-col items-center gap-1">
           <Share2 className="w-7 h-7" />
           <span className="text-xs font-semibold opacity-90">3.0k</span>
@@ -81,9 +84,7 @@ export default function VideoCard({
         <div className="text-[15px] font-semibold mb-1">
           @{post.user_id ?? "unknown_user"}
         </div>
-        <div className="text-sm text-white/90 leading-snug">
-          {post.caption}
-        </div>
+        <div className="text-sm text-white/90 leading-snug">{post.caption}</div>
       </div>
     </div>
   );

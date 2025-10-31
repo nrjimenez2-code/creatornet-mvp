@@ -6,8 +6,8 @@ import VideoCard from "./VideoCard";
 
 type Post = {
   id: string;
-  user_id: string;
-  caption: string;
+  user_id: string | null;
+  caption: string;            // <- comes from DB column `content`
   video_url: string;
   poster_url: string | null;
   created_at: string;
@@ -31,28 +31,38 @@ export default function PostList() {
     const start = reset ? 0 : from;
     const end = start + pageSize - 1;
 
+    // 🔑 Only select needed columns; alias `content` as `caption`
     const { data, error } = await supabase
       .from("posts")
-      .select("*")
+      .select("id, user_id, caption:content, video_url, poster_url, created_at")
       .order("created_at", { ascending: false })
       .range(start, end);
 
-    if (!error && data) {
+    if (error) {
+      console.error("posts select error:", error);
+      setLoading(false);
+      return;
+    }
+
+    if (data) {
       setPosts((prev) => (reset ? (data as Post[]) : [...prev, ...(data as Post[])]));
       setFrom(end + 1);
-      // fetch likes counts in one go
-      const ids = data.map((d) => d.id);
+
+      // fetch likes counts for these ids
+      const ids = (data as any[]).map((d) => d.id);
       if (ids.length) {
-        const { data: counts } = await supabase
+        const { data: counts, error: countsErr } = await supabase
           .from("post_likes")
-          .select("post_id, count:post_id", { count: "exact", head: false })
+          .select("post_id")
           .in("post_id", ids);
 
-        const countsMap: Record<string, number> = {};
-        counts?.forEach((row: any) => {
-          countsMap[row.post_id] = (countsMap[row.post_id] ?? 0) + 1;
-        });
-        setLikes((prev) => ({ ...prev, ...countsMap }));
+        if (!countsErr && counts) {
+          const countsMap: Record<string, number> = {};
+          counts.forEach((row: any) => {
+            countsMap[row.post_id] = (countsMap[row.post_id] ?? 0) + 1;
+          });
+          setLikes((prev) => ({ ...prev, ...countsMap }));
+        }
 
         if (me) {
           const { data: mine } = await supabase
@@ -67,22 +77,35 @@ export default function PostList() {
         }
       }
     }
+
     setLoading(false);
   }
 
   useEffect(() => {
     loadPage(true);
-    // realtime: new posts
+
+    // realtime inserts
     const ch = supabase
       .channel("posts-feed")
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "posts" },
         (payload) => {
-          setPosts((p) => [payload.new as Post, ...p]);
+          // payload.new has `content` not `caption`; map it for local state
+          const p = payload.new as any;
+          const mapped: Post = {
+            id: p.id,
+            user_id: p.user_id ?? null,
+            caption: p.content ?? "",
+            video_url: p.video_url,
+            poster_url: p.poster_url ?? null,
+            created_at: p.created_at,
+          };
+          setPosts((prev) => [mapped, ...prev]);
         }
       )
       .subscribe();
+
     return () => {
       supabase.removeChannel(ch);
     };
@@ -91,14 +114,15 @@ export default function PostList() {
 
   // Infinite loader
   useEffect(() => {
-    if (!loadMoreRef.current) return;
+    const el = loadMoreRef.current;
+    if (!el) return;
     const io = new IntersectionObserver(
       (entries) => {
         if (entries[0]?.isIntersecting) loadPage(false);
       },
       { rootMargin: "200px" }
     );
-    io.observe(loadMoreRef.current);
+    io.observe(el);
     return () => io.disconnect();
   }, [loadMoreRef.current]);
 
@@ -113,11 +137,11 @@ export default function PostList() {
             post={p}
             initialLikes={likes[p.id] ?? 0}
             initiallyLiked={!!likedByMe[p.id]}
-            onLikeToggled={(liked) =>
-            setLikes((prev) => ({
-              ...prev,
-              [p.id]: Math.max(0, (prev[p.id] ?? 0) + (liked ? 1 : -1)),
-            }))
+            onLikeToggled={(liked: boolean) =>
+              setLikes((prev) => ({
+                ...prev,
+                [p.id]: Math.max(0, (prev[p.id] ?? 0) + (liked ? 1 : -1)),
+              }))
             }
           />
         ))}
@@ -125,12 +149,14 @@ export default function PostList() {
 
       {/* load more sentinel */}
       <div ref={loadMoreRef} className="h-12" />
+
       {loading && (
         <p className="text-center text-sm text-gray-500 mt-4">Loading…</p>
       )}
+
       {!loading && list.length === 0 && (
         <div className="rounded-xl border border-dashed border-gray-300 p-10 text-center text-gray-600">
-          No posts yet. Be the first to share something!
+          No videos yet — post one from the dashboard!
         </div>
       )}
     </div>
