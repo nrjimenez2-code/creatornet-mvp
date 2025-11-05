@@ -21,9 +21,7 @@ const FALLBACK_TAGS = [
 
 type Tag = (typeof FALLBACK_TAGS)[number];
 
-type Props = {
-  onPosted?: () => void;
-};
+type Props = { onPosted?: () => void };
 
 type Product = {
   id: string;
@@ -81,17 +79,26 @@ async function fetchMyProducts(): Promise<Product[]> {
   return (data?.items ?? []) as Product[];
 }
 
+/** Accept ANY https URL; auto-prefix missing scheme. */
+function normalizeBookingUrl(u: string): string | null {
+  const raw = (u || "").trim();
+  if (!raw) return null;
+  const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const url = new URL(withScheme);
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /* ------------------------------------------------------------------ */
 /* Large-file aware Storage upload                                    */
 /* ------------------------------------------------------------------ */
 
 const SIMPLE_UPLOAD_MAX = 20 * 1024 * 1024; // 20 MB
+const UPLOAD_TIMEOUT_MS = 60_000; // guard against “hangs”
 
-/**
- * Uploads to Supabase Storage and automatically switches to signed
- * upload for larger files. Public buckets return a publicUrl; the
- * private "premium" bucket returns only a storage path.
- */
 async function uploadToBucketPath(
   supabase: ReturnType<typeof createClient>,
   bucket: "videos" | "thumbnails" | "premium",
@@ -109,16 +116,16 @@ async function uploadToBucketPath(
       ? "video/mp4"
       : "application/octet-stream");
 
-  if (file.size <= SIMPLE_UPLOAD_MAX) {
-    // Simple upload path (fast for small/medium files)
+  const doSimple = async () => {
     const { error } = await supabase.storage.from(bucket).upload(path, file, {
       cacheControl: "3600",
       upsert: false,
       contentType,
     });
     if (error) throw error;
-  } else {
-    // Signed upload path (reliable for big videos)
+  };
+
+  const doSigned = async () => {
     const { data: signed, error: signErr } = await supabase.storage
       .from(bucket)
       .createSignedUploadUrl(path);
@@ -128,11 +135,24 @@ async function uploadToBucketPath(
       .from(bucket)
       .uploadToSignedUrl(signed.path, signed.token, file, { contentType });
     if (upErr) throw upErr;
+  };
+
+  // Timeout guard so UI can't get stuck if Storage stalls
+  const withTimeout = <T,>(p: Promise<T>) =>
+    Promise.race<T>([
+      p,
+      new Promise<T>((_, rej) =>
+        setTimeout(() => rej(new Error("Upload timed out")), UPLOAD_TIMEOUT_MS)
+      ),
+    ]);
+
+  if (file.size <= SIMPLE_UPLOAD_MAX) {
+    await withTimeout(doSimple());
+  } else {
+    await withTimeout(doSigned());
   }
 
-  if (bucket === "premium") {
-    return { path }; // keep private
-  }
+  if (bucket === "premium") return { path }; // keep private
 
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return { path, publicUrl: data.publicUrl };
@@ -157,6 +177,10 @@ export default function PostComposer({ onPosted }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [productId, setProductId] = useState<string | null>(null);
   const [attachBuy, setAttachBuy] = useState<boolean>(false);
+
+  // Booking (optional)
+  const [attachBooking, setAttachBooking] = useState<boolean>(false);
+  const [bookingUrl, setBookingUrl] = useState<string>("");
 
   // Inline product creation
   const [newProdOpen, setNewProdOpen] = useState(false);
@@ -208,9 +232,19 @@ export default function PostComposer({ onPosted }: Props) {
   }, []);
 
   const chars = caption.trim().length;
+
+  // valid if: required fields ok AND (booking disabled OR booking blank OR valid https)
+  const bookingNormalized = normalizeBookingUrl(bookingUrl);
+  const bookingRaw = (bookingUrl || "").trim();
   const canPost = useMemo(
-    () => !!userId && !!videoFile && !!selectedTag && chars > 0 && chars <= 300,
-    [userId, videoFile, selectedTag, chars]
+    () =>
+      !!userId &&
+      !!videoFile &&
+      !!selectedTag &&
+      chars > 0 &&
+      chars <= 300 &&
+      (!attachBooking || bookingRaw === "" || !!bookingNormalized),
+    [userId, videoFile, selectedTag, chars, attachBooking, bookingRaw, bookingNormalized]
   );
 
   async function handleCreateProduct() {
@@ -250,6 +284,13 @@ export default function PostComposer({ onPosted }: Props) {
 
   async function handlePost() {
     if (!userId || !videoFile || !selectedTag) return;
+
+    // If a non-empty URL is provided but invalid, block and alert.
+    if (attachBooking && bookingRaw !== "" && !bookingNormalized) {
+      alert("Please enter a valid https booking link (or leave it blank to auto-route).");
+      return;
+    }
+
     setPosting(true);
 
     try {
@@ -276,7 +317,16 @@ export default function PostComposer({ onPosted }: Props) {
       const price_cents =
         dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
 
-      // 5) insert post
+      // 5) Compute final booking target:
+      // - If checkbox enabled and field blank -> internal router
+      // - If field had a valid https -> use that
+      // - Else null (checkbox off)
+      const finalBookingUrl =
+        attachBooking
+          ? bookingNormalized || `/api/book?creator_id=${userId}`
+          : null;
+
+      // 6) insert post
       const { error: insErr } = await supabase.from("posts").insert([
         {
           creator_id: userId,
@@ -288,11 +338,13 @@ export default function PostComposer({ onPosted }: Props) {
           interests: [selectedTag],
           product_id: attachBuy ? productId : null, // controls CTA
           price_cents,
+          allow_booking: attachBooking || null,
+          booking_url: finalBookingUrl,
         },
       ]);
       if (insErr) throw insErr;
 
-      // 6) reset UI
+      // 7) reset UI
       setTitle("");
       setCaption("");
       setPriceDollars("");
@@ -302,6 +354,8 @@ export default function PostComposer({ onPosted }: Props) {
       setSelectedTag(null);
       setProductId(null);
       setAttachBuy(false);
+      setAttachBooking(false);
+      setBookingUrl("");
 
       onPosted?.();
     } catch (err: any) {
@@ -357,9 +411,7 @@ export default function PostComposer({ onPosted }: Props) {
             checked={attachBuy}
             onChange={(e) => setAttachBuy(e.target.checked)}
           />
-          <span className="text-sm text-gray-800">
-            Attach “Buy / Book” to this post
-          </span>
+          <span className="text-sm text-gray-800">Attach “Buy / Book” to this post</span>
         </label>
 
         {attachBuy && (
@@ -377,9 +429,7 @@ export default function PostComposer({ onPosted }: Props) {
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.title}
-                    {p.price_cents != null
-                      ? ` — $${(p.price_cents / 100).toFixed(0)}`
-                      : ""}
+                    {p.price_cents != null ? ` — $${(p.price_cents / 100).toFixed(0)}` : ""}
                   </option>
                 ))}
               </select>
@@ -426,8 +476,42 @@ export default function PostComposer({ onPosted }: Props) {
             )}
 
             <p className="text-xs text-gray-500">
-              Tip: If you leave the post price empty, we’ll use the attached
-              product’s price. You can still override with a custom price above.
+              Tip: If you leave the post price empty, we’ll use the attached product’s price.
+              You can still override with a custom price above.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Booking option */}
+      <div className="mt-3">
+        <label className="inline-flex items-center gap-2 select-none">
+          <input
+            type="checkbox"
+            className="h-4 w-4"
+            checked={attachBooking}
+            onChange={(e) => setAttachBooking(e.target.checked)}
+          />
+          <span className="text-sm text-gray-800">
+            Offer “Book a free call” on this post
+          </span>
+        </label>
+
+        {attachBooking && (
+          <div className="mt-2">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Booking URL
+            </label>
+            <input
+              value={bookingUrl}
+              onChange={(e) => setBookingUrl(e.target.value)}
+              placeholder="https://your-booking-link.com/... (leave blank to auto-route to your team)"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Buyers who choose “Book” go through a $0 Stripe checkout and are then redirected here.
+              Any secure (https) link works — Calendly, Cal.com, Google Meet, your closer’s CRM, etc.
+              Leave blank to automatically route to your team’s closer.
             </p>
           </div>
         )}
@@ -459,9 +543,7 @@ export default function PostComposer({ onPosted }: Props) {
         {/* Public promo video */}
         <label className="flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
           <span className="truncate">
-            {videoFile
-              ? `🎬 ${videoFile.name}`
-              : "🎬 Choose .mp4 video (promo/public)"}
+            {videoFile ? `🎬 ${videoFile.name}` : "🎬 Choose .mp4 video (promo/public)"}
           </span>
           <input
             type="file"
@@ -474,9 +556,7 @@ export default function PostComposer({ onPosted }: Props) {
         {/* Public thumbnail */}
         <label className="flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
           <span className="truncate">
-            {thumbFile
-              ? `🖼️ ${thumbFile.name}`
-              : "🖼️ Optional thumbnail (.jpg/.png)"}
+            {thumbFile ? `🖼️ ${thumbFile.name}` : "🖼️ Optional thumbnail (.jpg/.png)"}
           </span>
           <input
             type="file"
@@ -489,9 +569,7 @@ export default function PostComposer({ onPosted }: Props) {
         {/* Private premium file */}
         <label className="flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 sm:col-span-2">
           <span className="truncate">
-            {premiumFile
-              ? `🔒 premium: ${premiumFile.name}`
-              : "🔒 Premium .mp4 (private, optional)"}
+            {premiumFile ? `🔒 premium: ${premiumFile.name}` : "🔒 Premium .mp4 (private, optional)"}
           </span>
           <input
             type="file"
