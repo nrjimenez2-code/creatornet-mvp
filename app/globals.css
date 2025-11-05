@@ -1,26 +1,28 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
 
-/* Theme */
-:root {
-  --background: #000;
-  --foreground: #ededed;
+/* -------- Default app appearance -------- */
+:root, html, body {
+  background: #ffffff;
+  color: #0a0a0a;
 }
 
-html, body {
-  height: 100%;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* Smooth anchor/keyboard scrolling (pairs nicely with snap) */
+html { scroll-behavior: smooth; }
+
+/* Prevent huge SVGs or stretched media */
+img, svg, video, canvas {
+  max-width: 100%;
+  height: auto;
 }
 
-/* Mobile viewport + safe area */
-:root { --vh: 1vh; }
-html, body { background: #000; }
-.safe-screen {
-  min-height: 100dvh;
-  min-height: calc(var(--vh, 1vh) * 100);
-  padding-bottom: env(safe-area-inset-bottom);
-  padding-top: env(safe-area-inset-top);
+/* -------- Utilities -------- */
+
+/* Hide scrollbars but keep scroll functionality (used by the feed) */
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Optional: subtle focus ring for keyboard users */
+:focus-visible {
+  outline: 2px solid rgba(147, 112, 219, 0.6); /* #9370DB at ~60% */
+  outline-offset: 2px;
 }

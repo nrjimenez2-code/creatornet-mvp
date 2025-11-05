@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
+import { createClient } from "@/lib/supabaseClient";
 
 type Interest =
   | "Entrepreneurship"
@@ -27,22 +27,22 @@ const OPTIONS: Interest[] = [
 
 export default function Page() {
   const router = useRouter();
+  const supabase = createClient();
 
   const [userId, setUserId] = useState<string | null>(null);
-  const [loadingUser, setLoadingUser] = useState(true);
   const [username, setUsername] = useState("");
   const [usernameOk, setUsernameOk] = useState<boolean | null>(null);
   const [usernameErr, setUsernameErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<Interest[]>([]);
   const [saving, setSaving] = useState(false);
 
-  // Load user
+  // Load user id once
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
       setUserId(data.user?.id ?? null);
-      setLoadingUser(false);
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const debounced = useDebounced(username, 350);
@@ -84,7 +84,7 @@ export default function Page() {
     return () => {
       cancelled = true;
     };
-  }, [debounced, userId]);
+  }, [debounced, userId, supabase]);
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
@@ -124,7 +124,7 @@ export default function Page() {
     <main className="min-h-screen bg-white flex items-center justify-center">
       {/* container */}
       <div className="w-[420px]">
-        {/* ✅ Title moved further left */}
+        {/* Title */}
         <h1 className="text-[32px] font-extrabold text-[#7E5CE6] tracking-wide uppercase whitespace-nowrap text-left -ml-4">
           CHOOSE YOUR INTERESTS
         </h1>
@@ -142,12 +142,11 @@ export default function Page() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="yourname"
-              className={`mt-1 w-full rounded-md border px-3 py-2 text-gray-900 focus:ring-4
-                ${
-                  usernameOk === false
-                    ? "border-red-400 focus:ring-red-200"
-                    : "border-gray-300 focus:ring-[#9370DB]/30"
-                }`}
+              className={`mt-1 w-full rounded-md border px-3 py-2 text-gray-900 focus:ring-4 ${
+                usernameOk === false
+                  ? "border-red-400 focus:ring-red-200"
+                  : "border-gray-300 focus:ring-[#9370DB]/30"
+              }`}
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
@@ -193,7 +192,6 @@ export default function Page() {
             })}
           </div>
 
-          {/* ✅ Bottom button now says "Continue" */}
           <button
             type="submit"
             disabled={!canContinue || saving}
