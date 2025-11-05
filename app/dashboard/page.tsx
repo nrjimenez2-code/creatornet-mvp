@@ -2,12 +2,14 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import PostComposerModal from "@/components/PostComposerModal";
 import type { Tab } from "@/components/VideoCard";
 import ContinueWatching from "@/components/ContinueWatching";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("following");
 
@@ -58,7 +60,7 @@ export default function DashboardPage() {
               {/* Profile */}
               <button
                 type="button"
-                onClick={() => (window.location.href = "/profile")}
+                onClick={() => router.push("/profile")}
                 className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Profile
@@ -67,10 +69,28 @@ export default function DashboardPage() {
               {/* Analytics */}
               <button
                 type="button"
-                onClick={() => (window.location.href = "/analytics")}
+                onClick={() => router.push("/analytics")}
                 className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Analytics
+              </button>
+
+              {/* Library */}
+              <button
+                type="button"
+                onClick={() => router.push("/library")}
+                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              >
+                Library
+              </button>
+
+              {/* Closers */}
+              <button
+                type="button"
+                onClick={() => router.push("/closers")}
+                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              >
+                Closers
               </button>
             </nav>
           </div>
