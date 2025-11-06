@@ -1,144 +1,57 @@
-"use client";
+// app/closers/page.tsx
+import { cookies } from "next/headers";
+import { createServerClient } from "@supabase/ssr";
+import ClosersClient, { CloserRow } from "@/components/ClosersClient";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
-import { supabaseBrowser } from "@/lib/supabaseBrowser";
+export default async function ClosersPage() {
+  // SSR Supabase with cookie adapter (works in Edge/Node runtimes)
+  const jar = await cookies();
+  const cookieAdapter: any = {
+    get: (n: string) => jar.get(n)?.value,
+    set: (n: string, v: string, o?: any) => jar.set(n, v, o as any),
+    remove: (n: string, o?: any) => jar.set(n, "", { ...(o || {}), maxAge: 0 }),
+  };
 
-type CloserRow = {
-  creator_id: string;
-  name: string | null;
-  booking_url: string | null;
-  weight: number | null;
-  active: boolean | null;
-};
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: cookieAdapter }
+  );
 
-export default function ClosersPage() {
-  const supabase = supabaseBrowser();
+  const { data: auth } = await supabase.auth.getUser();
+  const user = auth?.user ?? null;
 
-  const [loading, setLoading] = useState(true);
-  const [sessionUserId, setSessionUserId] = useState<string | null>(null);
-  const [rows, setRows] = useState<CloserRow[]>([]);
-  const [err, setErr] = useState<string | null>(null);
+  let initialRows: CloserRow[] = [];
+  if (user) {
+    const { data } = await supabase
+      .from("closers")
+      .select("id,name,booking_url,weight,active")
+      .eq("creator_id", user.id)
+      .order("weight", { ascending: true });
 
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
-      // 1) Get session safely (don’t throw if still restoring)
-      const { data: s } = await supabase.auth.getSession();
-      const uid = s?.session?.user?.id ?? null;
-      if (cancelled) return;
-
-      setSessionUserId(uid);
-
-      if (!uid) {
-        setLoading(false);
-        return; // not signed in — render CTA below
-      }
-
-      // 2) Load closers for this creator/user
-      const { data, error } = await supabase
-        .from("closers")
-        .select("creator_id,name,booking_url,weight,active")
-        .eq("creator_id", uid);
-
-      if (cancelled) return;
-
-      if (error) setErr(error.message);
-      else setRows(data ?? []);
-
-      setLoading(false);
-    })();
-
-    // keep session in sync if they sign in/out
-    const { data: sub } = supabase.auth.onAuthStateChange((_evt, sess) => {
-      setSessionUserId(sess?.user?.id ?? null);
-    });
-
-    return () => {
-      cancelled = true;
-      sub.subscription.unsubscribe();
-    };
-  }, [supabase]);
+    initialRows = (data ?? []).map((r: any) => ({
+      id: String(r.id),
+      name: (r.name ?? "").toString(),
+      booking_url: (r.booking_url ?? "").toString(),
+      weight: Number.isFinite(r.weight) ? Number(r.weight) : 1,
+      active: !!r.active,
+    }));
+  }
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-2xl font-semibold mb-4">Closers</h1>
+    <main className="mx-auto max-w-4xl px-6 py-10">
+      <h1 className="text-2xl font-semibold mb-6">Closers</h1>
 
-      {/* Not signed in */}
-      {!sessionUserId && !loading && (
-        <div className="rounded-lg border bg-white p-4">
-          <p className="text-red-600 font-medium mb-2">You must be signed in.</p>
-          <Link
-            href="/auth"
-            className="inline-flex items-center rounded-md bg-black px-3 py-1.5 text-white"
-          >
-            Go to sign in
-          </Link>
+      {!user && (
+        <div className="mb-6 rounded-md border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+          You must be signed in.{" "}
+          <a className="underline" href="/auth">
+            Go to sign in.
+          </a>
         </div>
       )}
 
-      {/* Loading */}
-      {loading && (
-        <div className="rounded-lg border bg-white p-4 text-gray-600">
-          Loading…
-        </div>
-      )}
-
-      {/* Error */}
-      {err && (
-        <div className="rounded-lg border bg-white p-4 text-red-600">
-          {err}
-        </div>
-      )}
-
-      {/* Table */}
-      {!loading && sessionUserId && !err && (
-        <div className="rounded-lg border bg-white">
-          <div className="px-4 py-3 border-b font-medium">Your booking targets</div>
-          {rows.length === 0 ? (
-            <div className="p-4 text-gray-600">
-              No closers yet. Add a row in <code>public.closers</code> for your
-              <code>creator_id</code> with a valid <code>booking_url</code>, or we’ll
-              add an editor UI here later.
-            </div>
-          ) : (
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50">
-                  <th className="px-4 py-2 text-left">Name</th>
-                  <th className="px-4 py-2 text-left">Booking URL</th>
-                  <th className="px-4 py-2 text-left">Weight</th>
-                  <th className="px-4 py-2 text-left">Active</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} className="border-t">
-                    <td className="px-4 py-2">{r.name ?? "—"}</td>
-                    <td className="px-4 py-2">
-                      {r.booking_url ? (
-                        <a
-                          href={r.booking_url}
-                          target="_blank"
-                          className="text-indigo-600 underline"
-                          rel="noreferrer"
-                        >
-                          {r.booking_url}
-                        </a>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
-                    <td className="px-4 py-2">{r.weight ?? 0}</td>
-                    <td className="px-4 py-2">{r.active ? "Yes" : "No"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-    </div>
+      <ClosersClient userId={user?.id ?? null} initialRows={initialRows} />
+    </main>
   );
 }
