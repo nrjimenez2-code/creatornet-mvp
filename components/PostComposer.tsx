@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { extractHashtags } from "@/lib/hashtags";
 
 /* ------------------------------------------------------------------ */
 /* Constants / types                                                  */
@@ -137,7 +138,6 @@ async function uploadToBucketPath(
     if (upErr) throw upErr;
   };
 
-  // Timeout guard so UI can't get stuck if Storage stalls
   const withTimeout = <T,>(p: Promise<T>) =>
     Promise.race<T>([
       p,
@@ -197,6 +197,9 @@ export default function PostComposer({ onPosted }: Props) {
   const [posting, setPosting] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [creatingProduct, setCreatingProduct] = useState(false);
+
+  // Derived: hashtags from caption (kept up to date as you type)
+  const hashtags = useMemo(() => extractHashtags(caption), [caption]);
 
   // Load auth + interests
   useEffect(() => {
@@ -317,29 +320,27 @@ export default function PostComposer({ onPosted }: Props) {
       const price_cents =
         dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
 
-      // 5) Compute final booking target:
-      // - If checkbox enabled and field blank -> internal router
-      // - If field had a valid https -> use that
-      // - Else null (checkbox off)
+      // 5) Compute final booking target
       const finalBookingUrl =
         attachBooking
           ? bookingNormalized || `/api/book?creator_id=${userId}`
           : null;
 
-      // 6) insert post
+      // 6) insert post (✅ now includes hashtags)
       const { error: insErr } = await supabase.from("posts").insert([
         {
           creator_id: userId,
           title: title.trim() || null,
           content: caption.trim(),
-          video_url, // public promo
-          poster_url, // optional
-          premium_path, // private storage path if provided
+          video_url,             // public promo
+          poster_url,            // optional
+          premium_path,          // private storage path if provided
           interests: [selectedTag],
           product_id: attachBuy ? productId : null, // controls CTA
           price_cents,
           allow_booking: attachBooking || null,
           booking_url: finalBookingUrl,
+          hashtags,              // ✅ store extracted hashtags (text[])
         },
       ]);
       if (insErr) throw insErr;
@@ -385,7 +386,7 @@ export default function PostComposer({ onPosted }: Props) {
         value={caption}
         onChange={(e) => setCaption(e.target.value)}
         maxLength={300}
-        placeholder="Share a tip, a lesson, or a quick insight…"
+        placeholder="Share a tip, a lesson, or a quick insight…  (use #tags like #daytrading #smma)"
         className="mt-3 w-full rounded-md border border-gray-300 px-3 py-3 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/25"
         rows={3}
       />
