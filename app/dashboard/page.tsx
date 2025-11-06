@@ -1,7 +1,7 @@
-// app/dashboard/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import PostComposerModal from "@/components/PostComposerModal";
@@ -13,6 +13,14 @@ export default function DashboardPage() {
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("following");
 
+  // Prefetch heavy routes so clicks feel instant
+  useEffect(() => {
+    router.prefetch("/dashboard/analytics");
+    router.prefetch("/library");   // top-level
+    router.prefetch("/closers");   // top-level
+    router.prefetch("/profile");
+  }, [router]);
+
   return (
     <section className="min-h-screen px-0">
       <div className="mx-auto grid grid-cols-[240px_1fr] gap-6 px-0 pr-6 md:pr-8 lg:pr-10">
@@ -20,7 +28,7 @@ export default function DashboardPage() {
         <aside className="hidden md:block sticky top-6 self-start">
           <div className="w-[240px] ml-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <nav className="space-y-2 text-sm">
-              {/* Search */}
+              {/* Search (non-routing) */}
               <button
                 type="button"
                 className="flex items-center gap-2 w-full rounded-lg bg-gray-100 px-3 py-2 font-medium text-gray-900 text-left"
@@ -31,7 +39,7 @@ export default function DashboardPage() {
                 Search
               </button>
 
-              {/* Discover */}
+              {/* Discover (tab switch) */}
               <button
                 type="button"
                 onClick={() => setActiveTab("discover")}
@@ -44,7 +52,7 @@ export default function DashboardPage() {
                 Discover
               </button>
 
-              {/* Following */}
+              {/* Following (tab switch) */}
               <button
                 type="button"
                 onClick={() => setActiveTab("following")}
@@ -58,40 +66,40 @@ export default function DashboardPage() {
               </button>
 
               {/* Profile */}
-              <button
-                type="button"
-                onClick={() => router.push("/profile")}
-                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              <Link
+                href="/profile"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Profile
-              </button>
+              </Link>
 
-              {/* Analytics */}
-              <button
-                type="button"
-                onClick={() => router.push("/analytics")}
-                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              {/* Analytics (under /dashboard) */}
+              <Link
+                href="/dashboard/analytics"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Analytics
-              </button>
+              </Link>
 
-              {/* Library */}
-              <button
-                type="button"
-                onClick={() => router.push("/library")}
-                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              {/* Library (TOP-LEVEL route) */}
+              <Link
+                href="/library"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Library
-              </button>
+              </Link>
 
-              {/* Closers */}
-              <button
-                type="button"
-                onClick={() => router.push("/closers")}
-                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              {/* Closers (TOP-LEVEL route) */}
+              <Link
+                href="/closers"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Closers
-              </button>
+              </Link>
             </nav>
           </div>
         </aside>
