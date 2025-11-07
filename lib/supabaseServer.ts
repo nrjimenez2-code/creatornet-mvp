@@ -3,9 +3,9 @@ import { cookies } from "next/headers";
 import { createServerClient as createServerClientLib } from "@supabase/ssr";
 
 /**
- * Server Supabase client with safe cookie adapter for Next 16.
- * - Uses async cookie access (cookies() is a Promise in your setup)
- * - Swallows cookie writes in RSC renders to avoid runtime errors
+ * Server Supabase client with a safe cookie adapter (Next 16 friendly).
+ * - Works when cookies() can't be mutated (RSC renders) by swallowing writes.
+ * - Supports async cookie access shapes expected by @supabase/ssr.
  */
 export function createServerClient() {
   const cookieAdapter = {
@@ -18,7 +18,7 @@ export function createServerClient() {
         const store = await cookies();
         store.set(name, value, options as any);
       } catch {
-        // In RSC renders, Next disallows cookie mutations — ignore.
+        // In RSC render phases, Next disallows cookie mutations — ignore.
       }
     },
     remove: async (name: string, options?: any) => {
@@ -26,7 +26,7 @@ export function createServerClient() {
         const store = await cookies();
         store.set(name, "", { ...(options || {}), maxAge: 0 } as any);
       } catch {
-        // Ignore in RSC renders.
+        // Ignore where cookie mutations aren't allowed.
       }
     },
   };
@@ -37,3 +37,6 @@ export function createServerClient() {
     { cookies: cookieAdapter }
   );
 }
+
+/** Back-compat alias so older imports keep working */
+export const createSupabaseServer = createServerClient;
