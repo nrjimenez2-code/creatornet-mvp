@@ -5,7 +5,7 @@ import { createServerClient } from "@/lib/supabaseServer";
 type PostHit = {
   id: string;
   caption: string | null;
-  media_url: string | null;   // from video_url
+  media_url: string | null; // from video_url
   creator_id: string;
   created_at: string;
   creator: {
@@ -40,9 +40,15 @@ type RawRow = {
 export async function POST(req: Request) {
   try {
     const supabase = createServerClient();
-    const { q } = (await req.json().catch(() => ({}))) as { q?: string };
 
+    const { q } = (await req.json().catch(() => ({}))) as { q?: string };
     const query = (q ?? "").trim();
+
+    // Always return JSON shape
+    if (!query) {
+      return NextResponse.json({ items: [] });
+    }
+
     const isHashtag = query.startsWith("#");
     const tag = isHashtag ? query.slice(1).toLowerCase() : "";
 
@@ -67,9 +73,11 @@ export async function POST(req: Request) {
       .limit(30);
 
     if (isHashtag && tag) {
+      // assumes a text[] column named 'hashtags'
       sel = sel.overlaps("hashtags", [tag]);
     } else if (query) {
       const like = `%${query}%`;
+      // assumes optional 'niche' column; safe even if only 'caption' exists
       sel = sel.or(`caption.ilike.${like},niche.ilike.${like}`);
     }
 
@@ -79,28 +87,26 @@ export async function POST(req: Request) {
     }
 
     // Normalize creator to a single object (or null) and rename video_url -> media_url
-    const items: PostHit[] = (data as RawRow[] | null)?.map((r) => {
-      const rawCreator = r.creator;
-      const c =
-        Array.isArray(rawCreator)
-          ? rawCreator[0] ?? null
-          : rawCreator ?? null;
+    const items: PostHit[] =
+      (data as RawRow[] | null)?.map((r) => {
+        const rawCreator = r.creator;
+        const c = Array.isArray(rawCreator) ? rawCreator[0] ?? null : rawCreator ?? null;
 
-      return {
-        id: r.id,
-        caption: r.caption ?? null,
-        media_url: r.video_url ?? null,
-        creator_id: r.creator_id,
-        created_at: r.created_at,
-        creator: c
-          ? {
-              username: c.username ?? null,
-              tagline: c.tagline ?? null,
-              avatar_url: c.avatar_url ?? null,
-            }
-          : null,
-      };
-    }) ?? [];
+        return {
+          id: r.id,
+          caption: r.caption ?? null,
+          media_url: r.video_url ?? null,
+          creator_id: r.creator_id,
+          created_at: r.created_at,
+          creator: c
+            ? {
+                username: c.username ?? null,
+                tagline: c.tagline ?? null,
+                avatar_url: c.avatar_url ?? null,
+              }
+            : null,
+        };
+      }) ?? [];
 
     return NextResponse.json({ items });
   } catch (err: any) {

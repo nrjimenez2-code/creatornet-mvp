@@ -42,6 +42,15 @@ function cleanTitle(s: unknown): string {
   return str.slice(0, 120) || "CreatorNet Video";
 }
 
+type CheckoutBody = {
+  type?: "purchase" | "booking";
+  postId?: string;
+  amountCents?: number;
+  title?: string;
+  creatorId?: string;
+  bookingRedirectUrl?: string;
+};
+
 /* ----------------------------------------------------------------------------
  * Route
  * --------------------------------------------------------------------------*/
@@ -70,11 +79,11 @@ export async function POST(req: Request) {
     }
 
     // --- Parse body ---
-    const body = (await req.json().catch(() => ({}))) as any;
+    const body = ((await req.json().catch(() => ({}))) ?? {}) as CheckoutBody;
 
-    const type = body?.type as "purchase" | "booking" | undefined;
-    const postId: string | null =
-      typeof body?.postId === "string" && body.postId.trim()
+    const type = body.type;
+    const postId =
+      typeof body.postId === "string" && body.postId.trim()
         ? body.postId.trim()
         : null;
 
@@ -91,15 +100,15 @@ export async function POST(req: Request) {
      * PURCHASE (paid)
      * --------------------------------------------------------------------*/
     if (type === "purchase") {
-      const amountRaw = Number(body?.amountCents);
+      const amountRaw = Number(body.amountCents);
       const amountCents =
         Number.isInteger(amountRaw) && amountRaw >= 50 && amountRaw <= 1_000_000
           ? amountRaw
-          : 2900; // sensible default
+          : 2900; // sensible default (e.g., $29.00)
 
-      const title = cleanTitle(body?.title);
-      const creatorId: string | undefined =
-        typeof body?.creatorId === "string" && body.creatorId
+      const title = cleanTitle(body.title);
+      const creatorId =
+        typeof body.creatorId === "string" && body.creatorId
           ? body.creatorId
           : undefined;
 
@@ -117,19 +126,21 @@ export async function POST(req: Request) {
           },
         ],
         customer_email: user.email || undefined,
+
+        // ✅ Critical: used by your webhook to record purchases & boost feed
         metadata: {
           buyer_id: user.id,
           post_id: postId,
           creator_id: creatorId || "",
           flow: "purchase",
         },
+
         success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&post_id=${encodeURIComponent(
           postId
         )}`,
         cancel_url: `${baseUrl}/watch/${encodeURIComponent(postId)}`,
       });
 
-      // Stripe should always return a URL for Checkout; still guard just in case.
       if (!session?.url) {
         return NextResponse.json(
           { error: "Stripe did not return a checkout URL." },
@@ -144,14 +155,14 @@ export async function POST(req: Request) {
      * BOOKING (free; setup mode)
      * --------------------------------------------------------------------*/
     if (type === "booking") {
-      const creatorId: string | undefined =
-        typeof body?.creatorId === "string" && body.creatorId
+      const creatorId =
+        typeof body.creatorId === "string" && body.creatorId
           ? body.creatorId
           : undefined;
 
       // Client may pass a relative "/api/book?..."; make absolute for Stripe.
       const provided =
-        typeof body?.bookingRedirectUrl === "string"
+        typeof body.bookingRedirectUrl === "string"
           ? body.bookingRedirectUrl
           : "";
 
@@ -165,6 +176,8 @@ export async function POST(req: Request) {
         mode: "setup",
         payment_method_types: ["card"],
         customer_email: user.email || undefined,
+
+        // ✅ Critical: used by your webhook to log $0 bookings as “votes”
         metadata: {
           buyer_id: user.id,
           post_id: postId,
@@ -172,6 +185,7 @@ export async function POST(req: Request) {
           flow: "booking",
           booking_redirect_url: absoluteRedirect,
         },
+
         success_url: absoluteRedirect,
         cancel_url: `${baseUrl}/watch/${encodeURIComponent(postId)}`,
       });
@@ -186,7 +200,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ url: session.url, id: session.id });
     }
 
-    return NextResponse.json({ error: "Unsupported checkout type" }, { status: 400 });
+    return NextResponse.json(
+      { error: "Unsupported checkout type" },
+      { status: 400 }
+    );
   } catch (err: any) {
     // Surface Stripe 4xx errors transparently; everything else => 500
     console.error("[checkout] error:", {

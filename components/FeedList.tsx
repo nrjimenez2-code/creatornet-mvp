@@ -37,6 +37,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Kept for dependency parity with your original code
   const orderBy = useMemo(
     () => ({ column: "created_at" as const, asc: false }),
     [activeTab]
@@ -48,44 +49,56 @@ export default function FeedList({ activeTab }: FeedListProps) {
     (async () => {
       setLoading(true);
 
-      const { data, error } = await supabase
-        .from("posts")
-        .select(
-          [
-            "id",
-            "creator_id",
-            "product_id",
-            "price_cents",
-            "title",
-            "video_url",
-            "poster_url",
-            "content",
-            "interests",
-            "created_at",
-            "likes_count",
-            "comments_count",
-            "shares_count",
-            "allow_booking",
-            "booking_url",
-          ].join(",")
-        )
-        // cast to any to avoid ParseQuery<> mismatch noise
-        .order(orderBy.column as any, { ascending: orderBy.asc });
+      // ✅ Get current viewer to personalize relevance
+      const { data: authRes } = await supabase.auth.getUser();
+      const viewerId = authRes?.user?.id ?? null;
 
-      if (cancelled) return;
+      // ✅ Ranked feed via RPC (personalized)
+      const { data, error } = await supabase.rpc("get_feed_v1", {
+        p_user_id: viewerId, // personalization ON
+        p_limit: 20,
+      });
 
-      if (error) {
-        console.error("Feed load error:", error);
-        setItems([]);
-      } else {
-        const rows = (data ?? []) as unknown as PostRow[];
-        const safe = rows.filter((p) => p?.video_url || p?.poster_url);
-        setItems(safe);
+      let mapped: PostRow[] = [];
+
+      if (!error && Array.isArray(data)) {
+        mapped = data
+          .map((r: any) => {
+            return {
+              id: r.post_id as string,
+              creator_id: (r.creator_id as string) ?? null,
+              product_id: null, // not included in rpc v1 (can extend later)
+              price_cents: (r.price_cents as number) ?? 0,
+              title: (r.title as string) ?? null,
+              video_url: (r.video_url as string) ?? null,
+              poster_url: (r.poster_url as string) ?? null,
+              // Use title as caption for now (rpc doesn't return content/body)
+              content: (r.title as string) ?? "",
+              interests: (r.tags as string[]) ?? [],
+              created_at: null,
+
+              // Not provided by rpc v1 — safe defaults
+              likes_count: 0,
+              comments_count: 0,
+              shares_count: 0,
+
+              // Booking not wired in rpc v1 — safe defaults
+              allow_booking: false,
+              booking_url: null,
+            } satisfies PostRow;
+          })
+          // keep only items with media
+          .filter((p) => p.video_url || p.poster_url);
+      } else if (error) {
+        console.error("Feed RPC error:", error);
       }
 
+      if (cancelled) return;
+      setItems(mapped);
       setLoading(false);
     })();
 
+    // Keep your realtime watcher — lets new/edited posts show up quickly
     const channel = supabase
       .channel("posts-realtime")
       .on(
@@ -152,8 +165,8 @@ export default function FeedList({ activeTab }: FeedListProps) {
           typeof p.booking_url === "string" &&
           p.booking_url.length > 0;
 
-        // Only render CTA if the post is buyable OR bookable
-        const showCTA = sellable || allowBooking;
+        // Only render CTA if the post is buyable OR bookable (or has price from RPC)
+        const showCTA = sellable || allowBooking || price > 0;
 
         return (
           <section

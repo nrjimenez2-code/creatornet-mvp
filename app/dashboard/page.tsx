@@ -18,10 +18,10 @@ export default function DashboardPage() {
   // Prefetch heavy routes so clicks feel instant
   useEffect(() => {
     router.prefetch("/dashboard/analytics");
-    router.prefetch("/library");   // top-level
-    router.prefetch("/closers");   // top-level
+    router.prefetch("/library");               // top-level
+    router.prefetch("/dashboard/closers");     // new Bookings page
     router.prefetch("/profile");
-    router.prefetch("/search");    // search results page
+    router.prefetch("/search");                // search results page
   }, [router]);
 
   return (
@@ -96,13 +96,13 @@ export default function DashboardPage() {
                 Library
               </Link>
 
-              {/* Closers (TOP-LEVEL route) */}
+              {/* Bookings (replaces old Closers) */}
               <Link
-                href="/closers"
+                href="/dashboard/closers"
                 prefetch
                 className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
-                Closers
+                Bookings
               </Link>
             </nav>
           </div>
