@@ -1,15 +1,28 @@
-// app/dashboard/page.tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import PostComposerModal from "@/components/PostComposerModal";
 import type { Tab } from "@/components/VideoCard";
 import ContinueWatching from "@/components/ContinueWatching";
+import SearchDrawer from "@/components/SearchDrawer";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("following");
+
+  // Prefetch heavy routes so clicks feel instant
+  useEffect(() => {
+    router.prefetch("/dashboard/analytics");
+    router.prefetch("/library");               // top-level
+    router.prefetch("/dashboard/closers");     // new Bookings page
+    router.prefetch("/profile");
+    router.prefetch("/search");                // search results page
+  }, [router]);
 
   return (
     <section className="min-h-screen px-0">
@@ -18,9 +31,10 @@ export default function DashboardPage() {
         <aside className="hidden md:block sticky top-6 self-start">
           <div className="w-[240px] ml-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
             <nav className="space-y-2 text-sm">
-              {/* Search */}
+              {/* Search opens slide-out drawer */}
               <button
                 type="button"
+                onClick={() => setIsSearchOpen(true)}
                 className="flex items-center gap-2 w-full rounded-lg bg-gray-100 px-3 py-2 font-medium text-gray-900 text-left"
               >
                 <svg viewBox="0 0 24 24" className="h-4 w-4 fill-current">
@@ -29,7 +43,7 @@ export default function DashboardPage() {
                 Search
               </button>
 
-              {/* Discover */}
+              {/* Discover (tab switch) */}
               <button
                 type="button"
                 onClick={() => setActiveTab("discover")}
@@ -42,7 +56,7 @@ export default function DashboardPage() {
                 Discover
               </button>
 
-              {/* Following */}
+              {/* Following (tab switch) */}
               <button
                 type="button"
                 onClick={() => setActiveTab("following")}
@@ -56,22 +70,40 @@ export default function DashboardPage() {
               </button>
 
               {/* Profile */}
-              <button
-                type="button"
-                onClick={() => (window.location.href = "/profile")}
-                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              <Link
+                href="/profile"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Profile
-              </button>
+              </Link>
 
-              {/* Analytics */}
-              <button
-                type="button"
-                onClick={() => (window.location.href = "/analytics")}
-                className="w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              {/* Analytics (under /dashboard) */}
+              <Link
+                href="/dashboard/analytics"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
               >
                 Analytics
-              </button>
+              </Link>
+
+              {/* Library (TOP-LEVEL route) */}
+              <Link
+                href="/library"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              >
+                Library
+              </Link>
+
+              {/* Bookings (replaces old Closers) */}
+              <Link
+                href="/dashboard/closers"
+                prefetch
+                className="block w-full rounded-lg px-3 py-2 text-left text-gray-700 hover:bg-gray-50 transition"
+              >
+                Bookings
+              </Link>
             </nav>
           </div>
         </aside>
@@ -79,16 +111,16 @@ export default function DashboardPage() {
         {/* MAIN / FEED COLUMN */}
         <div className="min-h-[calc(100vh-40px)] flex flex-col items-stretch justify-start py-2">
           <div className="w-full max-w-[1280px]">
-            {/* Continue Watching rail */}
             <ContinueWatching />
-
-            {/* Feed */}
             <div className="mt-6">
               <FeedList activeTab={activeTab} onChangeTab={setActiveTab} />
             </div>
           </div>
         </div>
       </div>
+
+      {/* SEARCH DRAWER */}
+      <SearchDrawer open={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
       {/* CREATE POST FAB */}
       <button

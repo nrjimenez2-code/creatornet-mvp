@@ -9,17 +9,31 @@ type VideoCardProps = {
   creator?: string;
   caption?: string;
   hashtags?: string;
+
+  // legacy single CTA support
   ctaLabel?: string;
   onCta?: () => void;
-  showCTA?: boolean;             // ✅ added prop
+  showCTA?: boolean;
+
+  // chrome
   activeTab?: Tab;
   onChangeTab?: (t: Tab) => void;
+
+  // social counts
   likes?: number | string;
   comments?: number | string;
   shares?: number | string;
   onLike?: () => Promise<void> | void;
   onComment?: () => Promise<void> | void;
   onShare?: () => Promise<void> | void;
+
+  // checkout + booking
+  postId?: string | null;
+  creatorId?: string | null;
+  priceCents?: number | null;         // e.g., 2900 => $29.00
+  titleForCheckout?: string | null;
+  allowBooking?: boolean;             // controls whether Book is offered
+  bookingRedirectUrl?: string | null; // optional deep link after $0 booking
 };
 
 export default function VideoCard({
@@ -30,7 +44,7 @@ export default function VideoCard({
   hashtags = "#tag1 #tag2",
   ctaLabel = "Buy / Book",
   onCta,
-  showCTA = false,               // ✅ default false
+  showCTA = false,
   activeTab = "following",
   onChangeTab,
   likes = 0,
@@ -39,14 +53,125 @@ export default function VideoCard({
   onLike,
   onComment,
   onShare,
+
+  // checkout/booking
+  postId = null,
+  creatorId = null,
+  priceCents = 2900,
+  titleForCheckout = null,
+  allowBooking = false,
+  bookingRedirectUrl = null,
 }: VideoCardProps) {
   const [lk, setLk] = React.useState<number>(toNum(likes));
   const [cm, setCm] = React.useState<number>(toNum(comments));
   const [sh, setSh] = React.useState<number>(toNum(shares));
 
+  const [loading, setLoading] = React.useState<"buy" | "book" | null>(null);
+  const [menuOpen, setMenuOpen] = React.useState(false); // for Buy/Book popover
+
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+
   React.useEffect(() => setLk(toNum(likes)), [likes]);
   React.useEffect(() => setCm(toNum(comments)), [comments]);
   React.useEffect(() => setSh(toNum(shares)), [shares]);
+
+  // close the little menu on outside click
+  React.useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!wrapperRef.current) return;
+      if (wrapperRef.current.contains(e.target as Node)) return;
+      setMenuOpen(false);
+    }
+    if (menuOpen) document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
+
+  // ----- Client actions (calls your /api/checkout route) -----
+  async function createCheckoutSession(payload: any) {
+    const res = await fetch("/api/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    });
+
+    // Read as text first, then try JSON so we never crash on empty/non-JSON bodies.
+    let data: any = null;
+    let raw = "";
+    try {
+      raw = await res.text();
+      data = raw ? JSON.parse(raw) : null;
+    } catch {
+      data = null;
+    }
+
+    if (!res.ok) {
+      const msg =
+        (data && (data.error || data.message)) ||
+        `Failed to create checkout session (HTTP ${res.status})`;
+      throw new Error(msg);
+    }
+
+    const url = typeof data?.url === "string" ? data.url : "";
+
+    // Guard: only redirect if we received a proper absolute URL
+    if (!url || !(url.startsWith("http://") || url.startsWith("https://"))) {
+      throw new Error("Not a valid checkout URL returned from server.");
+    }
+
+    try {
+      if (data?.id) localStorage.setItem("last_checkout_session", String(data.id));
+    } catch {}
+
+    // Redirect to Stripe
+    window.location.assign(url);
+  }
+
+  async function handleBuy() {
+    if (!postId) return onCta?.();
+    try {
+      setLoading("buy");
+      await createCheckoutSession({
+        type: "purchase",
+        postId,
+        amountCents: Number.isFinite(priceCents) ? priceCents : 2900,
+        title: titleForCheckout ?? caption ?? "CreatorNet Video",
+        creatorId: creatorId ?? undefined,
+      });
+    } catch (e) {
+      console.error("[buy] error:", e);
+      setLoading(null);
+      alert((e as Error).message || "Failed to start checkout.");
+    }
+  }
+
+  async function handleBook() {
+    if (!postId) return onCta?.();
+    try {
+      setLoading("book");
+
+      // Prefer explicit link if provided; otherwise use round-robin router.
+      const redir =
+        bookingRedirectUrl ??
+        `/api/book?creator_id=${encodeURIComponent(creatorId || "")}&post_id=${encodeURIComponent(
+          postId
+        )}`;
+
+      await createCheckoutSession({
+        type: "booking",
+        postId,
+        creatorId: creatorId ?? undefined,
+        bookingRedirectUrl: redir,
+      });
+    } catch (e) {
+      console.error("[book] error:", e);
+      setLoading(null);
+      alert((e as Error).message || "Failed to start booking.");
+    }
+  }
+
+  // render one CTA pill; if booking enabled, it expands to let user choose
+  const canShowCTA = Boolean(showCTA && postId);
 
   return (
     <div
@@ -57,6 +182,7 @@ export default function VideoCard({
         rounded-3xl bg-black shadow-[0_10px_40px_rgba(0,0,0,0.45)] overflow-hidden
         relative
       "
+      ref={wrapperRef}
     >
       {/* Media */}
       <div className="absolute inset-0 flex items-center justify-center bg-black overflow-hidden">
@@ -159,14 +285,82 @@ export default function VideoCard({
 
       {/* CTA + meta */}
       <div className="absolute left-4 right-[84px] bottom-4 space-y-3">
-        {showCTA && (                                  // ✅ only render if true
-          <button
-            onClick={onCta}
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/95 text-black text-sm font-semibold hover:bg-white transition shadow-sm"
-          >
-            <CartIcon />
-            {ctaLabel}
-          </button>
+        {canShowCTA ? (
+          <div className="relative inline-block">
+            {/* Single pill (click = buy OR open menu if booking enabled) */}
+            <button
+              type="button"
+              disabled={loading !== null}
+              onClick={() => {
+                if (allowBooking) setMenuOpen((v) => !v);
+                else void handleBuy();
+              }}
+              className="
+                inline-flex items-center gap-2 px-3 py-1.5 rounded-full
+                bg-white/95 text-black text-sm font-semibold hover:bg-white
+                transition shadow-sm disabled:opacity-70 disabled:cursor-not-allowed
+              "
+              aria-haspopup={allowBooking ? "menu" : undefined}
+              aria-expanded={allowBooking ? menuOpen : undefined}
+            >
+              <CartIcon />
+              {loading === "buy"
+                ? "Loading…"
+                : allowBooking
+                ? `Buy ${priceCentsToUSD(priceCents)} / Book`
+                : `Buy ${priceCentsToUSD(priceCents)}`}
+              {allowBooking && (
+                <svg viewBox="0 0 24 24" className="h-4 w-4">
+                  <path d="M7 10l5 5 5-5z" />
+                </svg>
+              )}
+            </button>
+
+            {/* Tiny popover for Buy/Book when enabled */}
+            {allowBooking && menuOpen && (
+              <div
+                role="menu"
+                className="
+                  absolute z-20 mt-2 w-40 rounded-xl bg-white shadow-lg ring-1 ring-black/5
+                  overflow-hidden
+                "
+              >
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void handleBuy();
+                  }}
+                  disabled={loading !== null}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-70"
+                >
+                  {loading === "buy" ? "Buying…" : `Buy ${priceCentsToUSD(priceCents)}`}
+                </button>
+                <div className="h-px bg-gray-200" />
+                <button
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void handleBook();
+                  }}
+                  disabled={loading !== null}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-70"
+                >
+                  {loading === "book" ? "Booking…" : "Book Free Call"}
+                </button>
+              </div>
+            )}
+          </div>
+        ) : (
+          showCTA && (
+            <button
+              onClick={onCta}
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/95 text-black text-sm font-semibold hover:bg-white transition shadow-sm"
+            >
+              <CartIcon />
+              {ctaLabel}
+            </button>
+          )
         )}
 
         <div className="text-white/95">
@@ -224,12 +418,16 @@ function formatNum(n: number | string) {
   if (num >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
   return String(num);
 }
+function priceCentsToUSD(cents: number | null | undefined) {
+  const n = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
+  return `$${(n / 100).toFixed(2)}`;
+}
 
 /* Icons */
 function UserIcon() {
   return (
     <svg viewBox="0 0 24 24" className="h-full w-full fill-current">
-      <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z" />
+      <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0 0-2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z" />
     </svg>
   );
 }
