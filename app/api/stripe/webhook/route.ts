@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 
-export const runtime = "nodejs"; // raw body required for Stripe verify
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // --- ENV ---
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
@@ -12,18 +13,22 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // --- Clients ---
-const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" as any });
+// NOTE: do NOT pin apiVersion to avoid TS literal mismatches with installed types.
+const stripe = new Stripe(STRIPE_SECRET_KEY);
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-// ---------- utils ----------
+// ---------- helpers ----------
 function jerr(stage: string, msg: string, status = 400) {
   console.error(`[webhook] ${stage}: ${msg}`);
   return NextResponse.json({ ok: false, stage, error: msg }, { status });
 }
 
-async function fetchCreatorIdIfMissing(post_id: string | null, creator_id: string | null) {
+async function fetchCreatorIdIfMissing(
+  post_id: string | null,
+  creator_id: string | null
+) {
   if (creator_id || !post_id) return creator_id || null;
   const { data, error } = await admin
     .from("posts")
@@ -37,11 +42,7 @@ async function fetchCreatorIdIfMissing(post_id: string | null, creator_id: strin
   return (data?.creator_id as string | undefined) ?? null;
 }
 
-/**
- * Link the newest unmatched booking (within 14 days) to a paid purchase.
- * - Updates BOTH sides if `purchases.booking_id` column exists.
- * - If that column doesn't exist, we still mark the booking side (non-fatal).
- */
+/** Link newest unlinked booking to a purchase (soft-fail if column missing). */
 async function linkBookingIfAny(opts: {
   buyer_id: string | null;
   creator_id: string | null;
@@ -52,38 +53,36 @@ async function linkBookingIfAny(opts: {
   const { buyer_id, creator_id, post_id, purchase_id, lookbackDays = 14 } = opts;
   if (!buyer_id || !creator_id) return;
 
-  // Find recent, unmatched bookings for this buyer/creator (prefer same post)
   const { data: rows, error: findErr } = await admin
     .from("bookings")
     .select("id, created_at, post_id")
     .eq("buyer_id", buyer_id)
     .eq("creator_id", creator_id)
-    .is("linked_order_id", null) // column name from our schema; we store the purchase id here
+    .is("linked_order_id", null)
     .order("created_at", { ascending: false })
     .limit(8);
 
   if (findErr || !rows?.length) return;
 
   const cutoff = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
-  // prefer same post; otherwise the newest within window
   const candidate =
-    (post_id && rows.find(b => b.post_id === post_id && new Date(b.created_at).getTime() >= cutoff)) ||
-    rows.find(b => new Date(b.created_at).getTime() >= cutoff) ||
+    (post_id &&
+      rows.find(
+        (b) => b.post_id === post_id && new Date(b.created_at).getTime() >= cutoff
+      )) ||
+    rows.find((b) => new Date(b.created_at).getTime() >= cutoff) ||
     null;
 
   if (!candidate) return;
 
-  // Try to set purchases.booking_id if the column exists (ignore if it doesn't)
   try {
     await admin.from("purchases").update({ booking_id: candidate.id as any }).eq("id", purchase_id);
   } catch (e: any) {
-    // Non-fatal if the project doesn't have purchases.booking_id column
     if (!/column .*booking_id.* does not exist/i.test(String(e?.message))) {
       console.warn("[webhook] purchases.booking_id update warning:", e?.message || e);
     }
   }
 
-  // Always mark the booking as linked → store the purchase id in linked_order_id
   const { error: updBookingErr } = await admin
     .from("bookings")
     .update({ linked_order_id: purchase_id, status: "completed" })
@@ -93,7 +92,73 @@ async function linkBookingIfAny(opts: {
   }
 }
 
-// ---------- business logic ----------
+// ---------- fulfillment helpers ----------
+async function getProductLinks(product_id: string | null) {
+  if (!product_id) return null;
+  const { data, error } = await admin
+    .from("products")
+    .select("id, title, price_cents, discord_invite_url, whop_listing_url")
+    .eq("id", product_id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data;
+}
+
+async function attachFulfillmentIfEmpty(purchaseId: string, productId: string | null) {
+  if (!productId) return;
+
+  // fetch current purchase; avoid double-setting
+  const { data: existing, error: exErr } = await admin
+    .from("purchases")
+    .select("id, fulfillment, fulfillment_url")
+    .eq("id", purchaseId)
+    .maybeSingle();
+  if (exErr) {
+    console.warn("[webhook] attachFulfillmentIfEmpty fetch purchase error:", exErr.message);
+    return;
+  }
+  if (existing?.fulfillment_url) return; // already set
+
+  const product = await getProductLinks(productId);
+  if (!product) return;
+
+  let fulfillment: "discord" | "whop" | null = null;
+  let fulfillment_url: string | null = null;
+
+  if (product.discord_invite_url) {
+    fulfillment = "discord";
+    fulfillment_url = product.discord_invite_url;
+  } else if (product.whop_listing_url) {
+    fulfillment = "whop";
+    fulfillment_url = product.whop_listing_url;
+  } else {
+    return; // no links configured; skip quietly
+  }
+
+  const payload = {
+    source: "product",
+    product_id: product.id,
+    title: product.title,
+    price_cents: product.price_cents,
+    note: "creator-supplied fulfillment link",
+  };
+
+  const { error: updErr } = await admin
+    .from("purchases")
+    .update({
+      fulfillment,
+      fulfillment_url,
+      fulfillment_payload: payload,
+      first_access_at: new Date().toISOString(),
+    })
+    .eq("id", purchaseId);
+
+  if (updErr) {
+    console.warn("[webhook] attachFulfillmentIfEmpty update error:", updErr.message);
+  }
+}
+
+// ---------- legacy (post/booking) flow ----------
 async function insertBookingFromSession(session: Stripe.Checkout.Session) {
   const buyer_id = (session.metadata?.buyer_id as string) || null;
   const post_id = (session.metadata?.post_id as string) || null;
@@ -120,7 +185,6 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
 }
 
 async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
-  // pull metadata
   const buyer_id = (session.metadata?.buyer_id as string) || null;
   const post_id = (session.metadata?.post_id as string) || null;
   const creator_id_meta = (session.metadata?.creator_id as string) || null;
@@ -136,16 +200,7 @@ async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
 
   const currency = session.currency || "usd";
 
-  if (!buyer_id || !post_id) {
-    // don’t throw—just log (bad metadata shouldn’t crash retries)
-    console.warn("[webhook] missing metadata buyer_id/post_id on session", {
-      session_id: session.id,
-      buyer_id,
-      post_id,
-    });
-  }
-
-  // 1) If row exists by session_id → done
+  // If purchase already recorded by session_id → done
   {
     const { data, error } = await admin
       .from("purchases")
@@ -153,10 +208,10 @@ async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
       .eq("session_id", session.id)
       .maybeSingle();
     if (error) throw new Error(`select by session_id: ${error.message}`);
-    if (data) return; // already recorded
+    if (data) return data.id as string;
   }
 
-  // 2) If row exists by payment_intent_id → update session_id and status
+  // Update existing purchase by payment_intent, else insert fresh
   if (payment_intent_id) {
     const { data, error } = await admin
       .from("purchases")
@@ -169,31 +224,27 @@ async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
       const { error: updErr } = await admin
         .from("purchases")
         .update({
+          buyer_id,
+          creator_id,
+          post_id,
           session_id: session.id,
           status: "paid",
           amount_cents,
           currency,
         })
         .eq("id", data.id);
-      if (updErr) throw new Error(`update existing purchase: ${updErr.message}`);
+      if (updErr) throw new Error(`update purchase: ${updErr.message}`);
 
-      // Link booking → purchase (existing row)
-      await linkBookingIfAny({
-        buyer_id,
-        creator_id,
-        post_id,
-        purchase_id: data.id,
-      });
-      return;
+      await linkBookingIfAny({ buyer_id, creator_id, post_id, purchase_id: data.id });
+      return data.id as string;
     }
   }
 
-  // 3) Insert a fresh row
   const { data: ins, error: insErr } = await admin
     .from("purchases")
     .insert({
       buyer_id,
-      creator_id,           // will be null if unknown; ok
+      creator_id,
       post_id,
       session_id: session.id,
       payment_intent_id,
@@ -204,21 +255,171 @@ async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
     .select("id")
     .maybeSingle();
 
-  if (insErr) {
-    // In case of race/idempotency, safe to ignore unique violation
-    if (!/duplicate|unique/i.test(insErr.message)) {
-      throw new Error(`insert purchase failed: ${insErr.message}`);
-    }
+  if (insErr && !/duplicate|unique/i.test(insErr.message)) {
+    throw new Error(`insert purchase failed: ${insErr.message}`);
   }
 
-  // Link booking → purchase (new row)
   if (ins?.id) {
-    await linkBookingIfAny({
+    await linkBookingIfAny({ buyer_id, creator_id, post_id, purchase_id: ins.id });
+    return ins.id as string;
+  }
+  return null;
+}
+
+// ---------- product (course/mentorship) flow ----------
+function safeJson(val: any) {
+  try {
+    return JSON.parse(JSON.stringify(val ?? null));
+  } catch {
+    return null;
+  }
+}
+
+/** Seed/attach purchase rows for product checkouts (one-time or subscription). Returns purchase id if available. */
+async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session): Promise<string | null> {
+  const buyer_id = (session.metadata?.buyer_id as string) || null;
+  const product_id = (session.metadata?.product_id as string) || null;
+  const post_id = (session.metadata?.post_id as string) || null;
+  const creator_id = (session.metadata?.creator_id as string) || null;
+
+  const target_months =
+    Number((session.metadata?.plan_months as string) || "1") > 0
+      ? Number(session.metadata?.plan_months as string)
+      : 1;
+
+  const payment_intent_id =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent as any)?.id || null;
+
+  const subscription_id = (session.subscription as string) || null;
+  const amount_cents = typeof session.amount_total === "number" ? session.amount_total : null;
+  const currency = session.currency || "usd";
+
+  if (!buyer_id || !product_id) {
+    console.warn("[webhook] product seed skipped (missing buyer_id/product_id)", {
+      session_id: session.id,
       buyer_id,
-      creator_id,
-      post_id,
-      purchase_id: ins.id,
+      product_id,
     });
+    return null;
+  }
+
+  // Prefer to find by subscription for subs; else by session_id
+  const findBy = subscription_id ? { subscription_id } : { session_id: session.id };
+
+  const { data: existing, error: findErr } = await admin
+    .from("purchases")
+    .select("id")
+    .match(findBy)
+    .maybeSingle();
+  if (findErr) throw new Error(`seed find error: ${findErr.message}`);
+
+  if (existing?.id) {
+    const { data: upd, error: updErr } = await admin
+      .from("purchases")
+      .update({
+        buyer_id,
+        product_id,
+        post_id,
+        creator_id,
+        session_id: session.id,
+        subscription_id,
+        payment_intent_id,
+        amount_cents,
+        currency,
+        target_months,
+        // status: set below according to mode
+        status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
+      })
+      .eq("id", existing.id)
+      .select("id")
+      .maybeSingle();
+    if (updErr) throw new Error(`seed update error: ${updErr.message}`);
+    return upd?.id ?? existing.id;
+  }
+
+  const { data: ins, error: insErr } = await admin
+    .from("purchases")
+    .insert({
+      buyer_id,
+      product_id,
+      post_id,
+      creator_id,
+      session_id: session.id,
+      subscription_id,
+      payment_intent_id,
+      amount_cents,
+      currency,
+      target_months,
+      paid_count: subscription_id ? 0 : 1,
+      status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
+      fulfillment_payload: safeJson({ note: "seeded" }),
+    })
+    .select("id")
+    .maybeSingle();
+
+  if (insErr && !/duplicate|unique/i.test(insErr.message)) {
+    throw new Error(`seed insert error: ${insErr.message}`);
+  }
+
+  return ins?.id ?? null;
+}
+
+/** Advance subscription / record payment for invoice events. Also attach fulfillment on first success. */
+async function handleInvoicePaymentSucceeded(inv: any) {
+  const payment_intent_id =
+    typeof inv?.payment_intent === "string"
+      ? inv.payment_intent
+      : inv?.payment_intent?.id ?? null;
+
+  const subscription_id =
+    typeof inv?.subscription === "string" ? inv.subscription : null;
+
+  let purchase: any = null;
+
+  if (subscription_id) {
+    const { data } = await admin
+      .from("purchases")
+      .select("id, product_id, paid_count, target_months, fulfillment_url")
+      .eq("subscription_id", subscription_id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    purchase = data || null;
+  }
+
+  if (!purchase && payment_intent_id) {
+    const { data } = await admin
+      .from("purchases")
+      .select("id, product_id, paid_count, target_months, fulfillment_url")
+      .eq("payment_intent_id", payment_intent_id)
+      .maybeSingle();
+    purchase = data || null;
+  }
+
+  if (!purchase) {
+    console.warn("[webhook] invoice.payment_succeeded: no purchase found", {
+      subscription_id,
+      payment_intent_id,
+    });
+    return;
+  }
+
+  const paid_count = (purchase.paid_count || 0) + 1;
+  const target = purchase.target_months || 1;
+
+  await admin
+    .from("purchases")
+    .update({
+      paid_count,
+      status: paid_count >= target ? "complete" : "active",
+    })
+    .eq("id", purchase.id);
+
+  // Attach fulfillment link if not yet set (first successful payment)
+  if (!purchase.fulfillment_url) {
+    await attachFulfillmentIfEmpty(purchase.id, purchase.product_id);
   }
 }
 
@@ -228,30 +429,23 @@ async function markRefunded(payment_intent_id: string | null) {
     .from("purchases")
     .update({ status: "refunded" })
     .eq("payment_intent_id", payment_intent_id);
-  if (error) {
-    // non-fatal
-    console.warn("[webhook] markRefunded error:", error.message);
-  }
+  if (error) console.warn("[webhook] markRefunded error:", error.message);
 }
 
 // ---------- route ----------
 export async function POST(req: NextRequest) {
-  // Ensure envs exist
   if (!STRIPE_SECRET_KEY) return jerr("env", "Missing STRIPE_SECRET_KEY", 500);
   if (!STRIPE_WEBHOOK_SECRET) return jerr("env", "Missing STRIPE_WEBHOOK_SECRET", 500);
   if (!SUPABASE_URL) return jerr("env", "Missing NEXT_PUBLIC_SUPABASE_URL", 500);
   if (!SUPABASE_SERVICE_ROLE_KEY) return jerr("env", "Missing SUPABASE_SERVICE_ROLE_KEY", 500);
 
-  // Stripe requires the raw body to verify the signature
   const sig = req.headers.get("stripe-signature");
   if (!sig) return jerr("verify", "Missing stripe-signature header");
 
   let event: Stripe.Event;
-
   try {
-    // App Router: req.text() preserves the raw bytes for signature verification
-    const raw = await req.text();
-    event = stripe.webhooks.constructEvent(raw, sig, STRIPE_WEBHOOK_SECRET);
+    const rawBody = await req.text(); // IMPORTANT: raw body for signature verification
+    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
   } catch (e: any) {
     return jerr("verify", e?.message || "Invalid signature", 400);
   }
@@ -261,15 +455,41 @@ export async function POST(req: NextRequest) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
 
-        // $0 verified booking → insert booking record on completion
+        // Free booking flow (setup mode)
         if (session.mode === "setup") {
           await insertBookingFromSession(session);
+          break;
         }
 
-        // Paid purchase → upsert purchase + link to recent booking
-        if (session.mode === "payment" && session.payment_status === "paid") {
-          await upsertPurchaseFromSession(session);
+        // Product flow (one-time or subscription start)
+        if (session.metadata?.product_id) {
+          const purchaseId = await seedPurchaseFromProductSession(session);
+
+          // One-time payments become active immediately - attach fulfillment now
+          if (
+            purchaseId &&
+            session.mode === "payment" &&
+            session.payment_status === "paid"
+          ) {
+            const product_id = (session.metadata?.product_id as string) || null;
+            await attachFulfillmentIfEmpty(purchaseId, product_id);
+          }
+
+          // For subscriptions, fulfillment attaches on first invoice.payment_succeeded
+          break;
         }
+
+        // Legacy post purchase flow
+        if (session.mode === "payment" && session.payment_status === "paid") {
+          const id = await upsertPurchaseFromSession(session);
+          // (No product_id here; legacy flow stays unchanged)
+          void id; // noop
+        }
+        break;
+      }
+
+      case "invoice.payment_succeeded": {
+        await handleInvoicePaymentSucceeded(event.data.object);
         break;
       }
 
@@ -278,22 +498,21 @@ export async function POST(req: NextRequest) {
         const pi =
           typeof charge.payment_intent === "string"
             ? charge.payment_intent
-            : (charge.payment_intent as any)?.id;
-        await markRefunded(pi || null);
+            : (charge.payment_intent as any)?.id || null;
+        await markRefunded(pi);
         break;
       }
 
       default: {
-        // No-op for other events (but keep log for observability)
         console.log("[webhook] unhandled event:", event.type);
       }
     }
 
+    // ACK
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[webhook] handler error:", e?.message || e);
-    // Respond 200 so Stripe doesn’t hammer retries forever if it’s a data issue.
-    // If you want Stripe to retry on server errors, return 500 instead.
+    // Return 200 so Stripe doesn't retry forever if we had a data issue.
     return NextResponse.json({ ok: false, error: "handler error" }, { status: 200 });
   }
 }
