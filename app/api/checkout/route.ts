@@ -1,116 +1,91 @@
 // app/api/checkout/route.ts
-import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import "server-only";
 import Stripe from "stripe";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
-export const runtime = "nodejs"; // Stripe requires the Node runtime
+export const runtime = "nodejs";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  // @ts-ignore: exact literal can vary by patchlevel
-  apiVersion: "2024-06-20",
-});
+// Let SDK use its bundled API version (avoids TS mismatch errors)
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 
-/* ----------------------------------------------------------------------------
- * Helpers
- * --------------------------------------------------------------------------*/
-
-function resolveBaseUrl(req: Request): string {
-  const envBase =
-    process.env.NEXT_PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_SITE_URL;
-  if (envBase) return envBase.replace(/\/$/, "");
-  const origin = req.headers.get("origin");
-  if (origin) return origin.replace(/\/$/, "");
-  return "http://localhost:3000";
+// Admin Supabase client (bypasses RLS for server routes)
+function supabaseAdmin() {
+  return createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 }
 
-/** If `raw` is relative (e.g. "/api/book?..."), prefix with `base`. */
-function absolutizeMaybe(
-  raw: string | undefined | null,
-  base: string
-): string | undefined {
-  if (!raw) return undefined;
-  const s = raw.trim();
-  if (!s) return undefined;
-  if (/^https?:\/\//i.test(s)) return s; // already absolute
-  if (s.startsWith("/")) return `${base}${s}`; // relative path
-  return undefined; // anything else = invalid for Stripe
-}
-
-function cleanTitle(s: unknown): string {
-  const str = (typeof s === "string" ? s : "CreatorNet Video").trim();
-  return str.slice(0, 120) || "CreatorNet Video";
-}
-
-type CheckoutBody = {
-  type?: "purchase" | "booking";
-  postId?: string;
-  amountCents?: number;
-  title?: string;
-  creatorId?: string;
-  bookingRedirectUrl?: string;
+type BodyBase = {
+  post_id?: string;
+  creator_id?: string;
+  titleForCheckout?: string;
 };
 
-/* ----------------------------------------------------------------------------
- * Route
- * --------------------------------------------------------------------------*/
+type ProductPayload = BodyBase & {
+  type: "product";
+  product_id: string;
+};
+
+type PlanPayload = BodyBase & {
+  type: "installments";
+  product_id: string;
+  plan_months: number;
+  plan_price_cents: number; // cents per installment
+};
+
+type BookingPayload = BodyBase & {
+  type: "booking";
+  bookingRedirectUrl: string;
+};
+
+type Payload = ProductPayload | PlanPayload | BookingPayload;
 
 export async function POST(req: Request) {
+  const supabase = supabaseAdmin();
+  const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+
+  let body: Payload;
   try {
-    // --- Supabase SSR auth (cookie adapter that can read/write) ---
-    const store = await cookies();
-    const cookieAdapter: any = {
-      get: (n: string) => store.get(n)?.value,
-      set: (n: string, v: string, o?: any) => store.set(n, v, o as any),
-      remove: (n: string, o?: any) =>
-        store.set(n, "", { ...(o || {}), maxAge: 0 }),
+    body = (await req.json()) as Payload;
+  } catch {
+    return new Response("Invalid JSON", { status: 400 });
+  }
+
+  if (!body?.type) return new Response("Missing type", { status: 400 });
+
+  async function writePending(session_id: string, amount_cents: number, currency: string) {
+    const insert = {
+      session_id,
+      status: "pending",
+      product_id: (body as any).product_id ?? null,
+      post_id: body.post_id ?? null,
+      creator_id: body.creator_id ?? null,
+      amount_cents,
+      currency,
     };
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: cookieAdapter }
-    );
-
-    const { data: auth } = await supabase.auth.getUser();
-    const user = auth?.user;
-    if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    const { error } = await supabase.from("purchases").insert(insert).select("id").single();
+    if (error && !`${error.message}`.toLowerCase().includes("duplicate")) {
+      throw new Error(`Failed to write pending purchase: ${error.message}`);
     }
+  }
 
-    // --- Parse body ---
-    const body = ((await req.json().catch(() => ({}))) ?? {}) as CheckoutBody;
+  try {
+    // ---- ONE-TIME PRODUCT ----
+    if (body.type === "product") {
+      const { data: prod, error } = await supabase
+        .from("products")
+        .select("id,title,amount_cents,currency")
+        .eq("id", body.product_id)
+        .single();
+      if (error) throw new Error(`Load product failed: ${error.message}`);
+      if (!prod) throw new Error("Product not found");
 
-    const type = body.type;
-    const postId =
-      typeof body.postId === "string" && body.postId.trim()
-        ? body.postId.trim()
-        : null;
-
-    if (!type || !postId) {
-      return NextResponse.json(
-        { error: "type and postId are required" },
-        { status: 400 }
-      );
-    }
-
-    const baseUrl = resolveBaseUrl(req);
-
-    /* ----------------------------------------------------------------------
-     * PURCHASE (paid)
-     * --------------------------------------------------------------------*/
-    if (type === "purchase") {
-      const amountRaw = Number(body.amountCents);
-      const amountCents =
-        Number.isInteger(amountRaw) && amountRaw >= 50 && amountRaw <= 1_000_000
-          ? amountRaw
-          : 2900; // sensible default (e.g., $29.00)
-
-      const title = cleanTitle(body.title);
-      const creatorId =
-        typeof body.creatorId === "string" && body.creatorId
-          ? body.creatorId
-          : undefined;
+      const amount_cents = Number(prod.amount_cents ?? 0);
+      const currency = (prod.currency as string) ?? "usd";
+      if (!Number.isFinite(amount_cents) || amount_cents < 50) {
+        throw new Error("Invalid amount (Stripe min 50¢)");
+      }
 
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
@@ -118,116 +93,80 @@ export async function POST(req: Request) {
         line_items: [
           {
             price_data: {
-              currency: "usd",
-              product_data: { name: title },
-              unit_amount: amountCents,
+              currency,
+              product_data: { name: body.titleForCheckout || prod.title || "Purchase" },
+              unit_amount: amount_cents,
             },
             quantity: 1,
           },
         ],
-        customer_email: user.email || undefined,
-
-        // ✅ Critical: used by your webhook to record purchases & boost feed
+        // **add metadata so /success can route to unlocked content**
         metadata: {
-          buyer_id: user.id,
-          post_id: postId,
-          creator_id: creatorId || "",
-          flow: "purchase",
+          product_id: body.product_id,
+          post_id: body.post_id || "",
+          creator_id: body.creator_id || "",
         },
-
-        success_url: `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&post_id=${encodeURIComponent(
-          postId
-        )}`,
-        cancel_url: `${baseUrl}/watch/${encodeURIComponent(postId)}`,
+        success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${site}/`,
       });
 
-      if (!session?.url) {
-        return NextResponse.json(
-          { error: "Stripe did not return a checkout URL." },
-          { status: 502 }
-        );
-      }
-
-      return NextResponse.json({ url: session.url, id: session.id });
+      await writePending(session.id, amount_cents, currency);
+      return Response.json({ url: session.url, session_id: session.id });
     }
 
-    /* ----------------------------------------------------------------------
-     * BOOKING (free; setup mode)
-     * --------------------------------------------------------------------*/
-    if (type === "booking") {
-      const creatorId =
-        typeof body.creatorId === "string" && body.creatorId
-          ? body.creatorId
-          : undefined;
+    // ---- INSTALLMENTS (temporary: single payment until subs are ready) ----
+    if (body.type === "installments") {
+      const months = Number(body.plan_months);
+      const per_cents = Number(body.plan_price_cents);
+      if (!Number.isFinite(months) || months < 1) throw new Error("plan_months invalid");
+      if (!Number.isFinite(per_cents) || per_cents < 50) throw new Error("plan_price_cents invalid (>=50)");
 
-      // Client may pass a relative "/api/book?..."; make absolute for Stripe.
-      const provided =
-        typeof body.bookingRedirectUrl === "string"
-          ? body.bookingRedirectUrl
-          : "";
+      const { data: prod, error } = await supabase
+        .from("products")
+        .select("id,title,currency")
+        .eq("id", body.product_id)
+        .single();
+      if (error) throw new Error(`Load product failed: ${error.message}`);
 
-      const absoluteRedirect =
-        absolutizeMaybe(provided, baseUrl) ||
-        `${baseUrl}/success?session_id={CHECKOUT_SESSION_ID}&post_id=${encodeURIComponent(
-          postId
-        )}&flow=booking`;
+      const currency = (prod?.currency as string) ?? "usd";
 
       const session = await stripe.checkout.sessions.create({
-        mode: "setup",
+        mode: "payment",
         payment_method_types: ["card"],
-        customer_email: user.email || undefined,
-
-        // ✅ Critical: used by your webhook to log $0 bookings as “votes”
+        line_items: [
+          {
+            price_data: {
+              currency,
+              product_data: { name: body.titleForCheckout || prod?.title || "Installment" },
+              unit_amount: per_cents,
+            },
+            quantity: 1,
+          },
+        ],
         metadata: {
-          buyer_id: user.id,
-          post_id: postId,
-          creator_id: creatorId || "",
-          flow: "booking",
-          booking_redirect_url: absoluteRedirect,
+          product_id: body.product_id,
+          post_id: body.post_id || "",
+          creator_id: body.creator_id || "",
+          plan_months: String(months),
+          plan_price_cents: String(per_cents),
         },
-
-        success_url: absoluteRedirect,
-        cancel_url: `${baseUrl}/watch/${encodeURIComponent(postId)}`,
+        success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${site}/`,
       });
 
-      if (!session?.url) {
-        return NextResponse.json(
-          { error: "Stripe did not return a checkout URL." },
-          { status: 502 }
-        );
-      }
-
-      return NextResponse.json({ url: session.url, id: session.id });
+      await writePending(session.id, per_cents, currency);
+      return Response.json({ url: session.url, session_id: session.id });
     }
 
-    return NextResponse.json(
-      { error: "Unsupported checkout type" },
-      { status: 400 }
-    );
-  } catch (err: any) {
-    // Surface Stripe 4xx errors transparently; everything else => 500
-    console.error("[checkout] error:", {
-      message: err?.message,
-      type: err?.type,
-      code: err?.code,
-      statusCode: err?.statusCode,
-    });
-
-    if (err?.statusCode && err.statusCode >= 400 && err.statusCode < 500) {
-      return NextResponse.json(
-        { error: err.message || "Invalid Stripe request" },
-        { status: err.statusCode }
-      );
+    // ---- BOOKING (no Stripe) ----
+    if (body.type === "booking") {
+      if (!body.bookingRedirectUrl) throw new Error("bookingRedirectUrl required");
+      return Response.json({ url: body.bookingRedirectUrl, session_id: null });
     }
 
-    return NextResponse.json(
-      { error: "Failed to create checkout session" },
-      { status: 500 }
-    );
+    return new Response("Unsupported type", { status: 400 });
+  } catch (e: any) {
+    const msg = e?.message || "Checkout error";
+    return Response.json({ error: msg }, { status: 500 });
   }
-}
-
-/** Optional: 405 for other methods to make failures clearer in dev. */
-export async function GET() {
-  return NextResponse.json({ error: "Method Not Allowed" }, { status: 405 });
 }

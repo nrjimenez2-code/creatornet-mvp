@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import VideoCard from "./VideoCard";
 import { createClient } from "@/lib/supabaseClient";
 
@@ -8,7 +8,7 @@ export type Tab = "following" | "discover";
 
 type FeedListProps = {
   activeTab: Tab;
-  onChangeTab: (t: Tab) => void;
+  onChangeTab: (t: Tab) => void; // kept for API stability
 };
 
 export type PostRow = {
@@ -22,11 +22,11 @@ export type PostRow = {
   content: string | null;
   interests: string[] | null;
   created_at: string | null;
+
   likes_count?: number | null;
   comments_count?: number | null;
   shares_count?: number | null;
 
-  // booking flags/links
   allow_booking?: boolean | null;
   booking_url?: string | null;
 };
@@ -37,68 +37,57 @@ export default function FeedList({ activeTab }: FeedListProps) {
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Kept for dependency parity with your original code
-  const orderBy = useMemo(
-    () => ({ column: "created_at" as const, asc: false }),
-    [activeTab]
-  );
-
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       setLoading(true);
 
-      // ✅ Get current viewer to personalize relevance
       const { data: authRes } = await supabase.auth.getUser();
       const viewerId = authRes?.user?.id ?? null;
 
-      // ✅ Ranked feed via RPC (personalized)
       const { data, error } = await supabase.rpc("get_feed_v1", {
-        p_user_id: viewerId, // personalization ON
+        p_user_id: viewerId,
         p_limit: 20,
       });
 
-      let mapped: PostRow[] = [];
-
-      if (!error && Array.isArray(data)) {
-        mapped = data
-          .map((r: any) => {
-            return {
-              id: r.post_id as string,
-              creator_id: (r.creator_id as string) ?? null,
-              product_id: null, // not included in rpc v1 (can extend later)
-              price_cents: (r.price_cents as number) ?? 0,
-              title: (r.title as string) ?? null,
-              video_url: (r.video_url as string) ?? null,
-              poster_url: (r.poster_url as string) ?? null,
-              // Use title as caption for now (rpc doesn't return content/body)
-              content: (r.title as string) ?? "",
-              interests: (r.tags as string[]) ?? [],
-              created_at: null,
-
-              // Not provided by rpc v1 — safe defaults
-              likes_count: 0,
-              comments_count: 0,
-              shares_count: 0,
-
-              // Booking not wired in rpc v1 — safe defaults
-              allow_booking: false,
-              booking_url: null,
-            } satisfies PostRow;
-          })
-          // keep only items with media
-          .filter((p) => p.video_url || p.poster_url);
-      } else if (error) {
+      if (error) {
         console.error("Feed RPC error:", error);
       }
 
-      if (cancelled) return;
-      setItems(mapped);
-      setLoading(false);
+      let mapped: PostRow[] = [];
+      if (Array.isArray(data)) {
+        mapped = data
+          .map((r: any) => ({
+            id: r.post_id as string,
+            creator_id: (r.creator_id as string) ?? null,
+            product_id: (r.product_id as string) ?? null,
+            price_cents: (r.price_cents as number) ?? 0,
+            title: (r.title as string) ?? null,
+            video_url: (r.video_url as string) ?? null,
+            poster_url: (r.poster_url as string) ?? null,
+            content: (r.title as string) ?? "",
+            interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+            created_at: null, // rpc doesn't return it; fine for now
+
+            likes_count: (r.likes_count as number) ?? 0,
+            comments_count: (r.comments_count as number) ?? 0,
+            shares_count: (r.shares_count as number) ?? 0,
+
+            allow_booking: (r.allow_booking as boolean) ?? false,
+            booking_url: (r.booking_url as string) ?? null,
+          }))
+          // keep only items with media
+          .filter((p: PostRow) => p.video_url || p.poster_url);
+      }
+
+      if (!cancelled) {
+        setItems(mapped);
+        setLoading(false);
+      }
     })();
 
-    // Keep your realtime watcher — lets new/edited posts show up quickly
+    // realtime: reflect inserts/updates/deletes on posts
     const channel = supabase
       .channel("posts-realtime")
       .on(
@@ -106,25 +95,61 @@ export default function FeedList({ activeTab }: FeedListProps) {
         { event: "*", schema: "public", table: "posts" },
         (payload) => {
           setItems((prev) => {
-            const row = (payload.new || payload.old) as PostRow;
-            if (!row?.id) return prev;
+            const row = (payload.new || payload.old) as any;
+            const postId = row?.id as string | undefined;
+            if (!postId) return prev;
 
+            // delete -> drop
             if (payload.eventType === "DELETE") {
-              return prev.filter((p) => p.id !== row.id);
+              return prev.filter((p) => p.id !== postId);
             }
 
             // hide if media missing
             if (!row.video_url && !row.poster_url) {
-              return prev.filter((p) => p.id !== row.id);
+              return prev.filter((p) => p.id !== postId);
             }
 
-            const i = prev.findIndex((p) => p.id === row.id);
+            const i = prev.findIndex((p) => p.id === postId);
             if (i >= 0) {
               const next = [...prev];
-              next[i] = { ...prev[i], ...(payload.new as PostRow) };
+              next[i] = {
+                ...next[i],
+                // only merge known fields
+                title: row.title ?? next[i].title,
+                video_url: row.video_url ?? next[i].video_url,
+                poster_url: row.poster_url ?? next[i].poster_url,
+                price_cents: row.price_cents ?? next[i].price_cents,
+                product_id: row.product_id ?? next[i].product_id,
+                allow_booking:
+                  row.allow_booking ?? next[i].allow_booking ?? false,
+                booking_url: row.booking_url ?? next[i].booking_url,
+                interests: Array.isArray(row.interests)
+                  ? row.interests
+                  : next[i].interests,
+              };
               return next;
             }
-            return [row, ...prev];
+            // add to top for new posts
+            return [
+              {
+                id: postId,
+                creator_id: row.creator_id ?? null,
+                product_id: row.product_id ?? null,
+                price_cents: row.price_cents ?? 0,
+                title: row.title ?? null,
+                video_url: row.video_url ?? null,
+                poster_url: row.poster_url ?? null,
+                content: row.title ?? "",
+                interests: Array.isArray(row.interests) ? row.interests : [],
+                created_at: row.created_at ?? null,
+                likes_count: 0,
+                comments_count: 0,
+                shares_count: 0,
+                allow_booking: row.allow_booking ?? false,
+                booking_url: row.booking_url ?? null,
+              },
+              ...prev,
+            ];
           });
         }
       )
@@ -134,7 +159,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, orderBy.column, orderBy.asc, supabase]);
+  }, [activeTab, supabase]);
 
   if (loading && items.length === 0) {
     return (
@@ -165,7 +190,6 @@ export default function FeedList({ activeTab }: FeedListProps) {
           typeof p.booking_url === "string" &&
           p.booking_url.length > 0;
 
-        // Only render CTA if the post is buyable OR bookable (or has price from RPC)
         const showCTA = sellable || allowBooking || price > 0;
 
         return (
@@ -193,14 +217,15 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 comments={p.comments_count ?? 0}
                 shares={p.shares_count ?? 0}
 
-                // CTA visibility + data
+                // CTA & commerce
                 showCTA={showCTA}
                 postId={p.id}
+                productId={p.product_id ?? null}
                 creatorId={p.creator_id ?? null}
                 priceCents={price}
                 titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
 
-                // booking controls
+                // booking
                 allowBooking={allowBooking}
                 bookingRedirectUrl={allowBooking ? p.booking_url! : null}
               />

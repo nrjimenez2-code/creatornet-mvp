@@ -1,107 +1,93 @@
 // app/api/confirm-purchase/route.ts
+import Stripe from "stripe";
+import { NextResponse } from "next/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
+
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
-import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
+// Use bundled version
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
+const supabase = createAdminClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
-/**
- * ENV REQUIRED:
- *  - STRIPE_SECRET_KEY=sk_...
- *  - NEXT_PUBLIC_SUPABASE_URL
- *  - SUPABASE_SERVICE_ROLE_KEY   (service role, not anon)
- */
+async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.Session) {
+  const payment_intent_id =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent as any)?.id ?? null;
 
-const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  const amount_cents = typeof session.amount_total === "number" ? session.amount_total : null;
+  const currency = session.currency ?? null;
+  const meta = (session.metadata || {}) as Record<string, string | undefined>;
+  const product_id = meta.product_id ?? null;
+  const post_id = meta.post_id ?? null;
+  const creator_id = meta.creator_id ?? null;
 
-if (!STRIPE_SECRET_KEY || STRIPE_SECRET_KEY.startsWith("pk_")) {
-  throw new Error("STRIPE_SECRET_KEY missing or not a secret key.");
+  // find existing purchase by session or PI
+  let purchaseId: string | null = null;
+
+  const bySession = await supabase
+    .from("purchases")
+    .select("id")
+    .eq("session_id", sessionId)
+    .maybeSingle();
+  if (!bySession.error && bySession.data?.id) purchaseId = bySession.data.id;
+
+  if (!purchaseId && payment_intent_id) {
+    const byPi = await supabase
+      .from("purchases")
+      .select("id")
+      .eq("payment_intent_id", payment_intent_id)
+      .maybeSingle();
+    if (!byPi.error && byPi.data?.id) {
+      purchaseId = byPi.data.id;
+      await supabase.from("purchases").update({ session_id: sessionId }).eq("id", byPi.data.id);
+    }
+  }
+
+  const updateFields: Record<string, any> = {
+    status: "paid",
+    paid_at: new Date().toISOString(),
+    amount_cents,
+    currency,
+    product_id,
+    post_id,
+    creator_id,
+    payment_intent_id,
+  };
+
+  if (purchaseId) {
+    await supabase.from("purchases").update(updateFields).eq("id", purchaseId);
+  } else {
+    await supabase
+      .from("purchases")
+      .insert({ session_id: sessionId, ...updateFields })
+      .select("id")
+      .single();
+  }
+
+  return { post_id, product_id, creator_id };
 }
-if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("Supabase URL / SERVICE ROLE key missing.");
-}
 
-// IMPORTANT: do NOT pass apiVersion to avoid TS literal mismatches
-const stripe = new Stripe(STRIPE_SECRET_KEY);
-
-// Service-role client (bypasses RLS for server-side writes)
-const svc = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
+// Manual confirm (client calls this on /success)
 export async function POST(req: Request) {
   try {
-    const { session_id } = (await req.json()) as { session_id?: string };
-    if (!session_id) {
-      return NextResponse.json({ ok: false, error: "Missing session_id" }, { status: 400 });
-    }
+    const { session_id } = await req.json();
+    if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
 
-    // Fetch the Checkout Session from Stripe
     const session = await stripe.checkout.sessions.retrieve(session_id);
-
-    // Pull metadata (set during checkout) and payment info
-    const meta = (session.metadata ?? {}) as {
-      post_id?: string;
-      buyer_id?: string;
-      creator_id?: string;
-    };
-
-    const amount_total = session.amount_total ?? null;
-    const currency = (session.currency ?? "usd").toLowerCase();
-
-    const stripe_session_id = session.id;
-    const stripe_payment_intent =
-      typeof session.payment_intent === "string"
-        ? session.payment_intent
-        : session.payment_intent?.id ?? null;
-
-    // Coerce post_id if your schema uses numeric ids
-    const post_id =
-      meta.post_id && !Number.isNaN(Number(meta.post_id))
-        ? Number(meta.post_id)
-        : meta.post_id ?? null;
-
-    // Idempotent upsert in case webhook races this request
-    const { error } = await svc
-      .from("purchases")
-      .upsert(
-        {
-          post_id,
-          buyer_id: meta.buyer_id ?? null,
-          creator_id: meta.creator_id ?? null,
-          amount_cents: amount_total ?? null,
-          currency,
-          stripe_session_id,
-          stripe_payment_intent,
-          status: "paid",
-        },
-        {
-          // prefer PI; otherwise fall back to session id
-          onConflict: stripe_payment_intent ? "stripe_payment_intent" : "stripe_session_id",
-          ignoreDuplicates: false,
-        }
+    if (!(session.status === "complete" || session.payment_status === "paid")) {
+      return NextResponse.json(
+        { error: `Session not paid. status=${session.status}, payment_status=${session.payment_status}` },
+        { status: 409 }
       );
-
-    if (error) {
-      console.error("confirm-purchase upsert error:", error);
-      // still respond ok=false so UI can retry/backoff
-      return NextResponse.json({ ok: false, error: "Upsert failed" }, { status: 200 });
     }
 
-    return NextResponse.json(
-      {
-        ok: true,
-        session_id: stripe_session_id,
-        amount_total,
-        currency,
-        post_id: post_id ?? null,
-        creator_id: meta.creator_id ?? null,
-        buyer_id: meta.buyer_id ?? null,
-      },
-      { status: 200 }
-    );
+    const meta = await upsertPaidBySession(session_id, session);
+    return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
   } catch (e: any) {
-    console.error("confirm-purchase error:", e?.message || e);
-    return NextResponse.json({ ok: false, error: "Failed to confirm" }, { status: 500 });
+    return NextResponse.json({ error: e?.message || "Failed to confirm purchase" }, { status: 500 });
   }
 }
