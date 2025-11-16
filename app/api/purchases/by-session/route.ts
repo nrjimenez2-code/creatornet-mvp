@@ -2,11 +2,11 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL =
+const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_UR;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
+const SERVICE_KEY: string | undefined = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!SUPABASE_URL) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) environment variable.");
