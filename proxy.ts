@@ -1,10 +1,10 @@
-// middleware.ts (project root)
+// proxy.ts (project root)
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 const protectedPaths = ["/profile", "/analytics", "/closers"];
 
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   if (!protectedPaths.some((p) => pathname.startsWith(p))) return;
 

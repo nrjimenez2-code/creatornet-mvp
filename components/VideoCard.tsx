@@ -1,6 +1,7 @@
 // components/VideoCard.tsx  (READY TO REPLACE)
 "use client";
 import React from "react";
+import FollowButton from "./FollowButton";
 
 export type Tab = "following" | "discover";
 
@@ -38,6 +39,10 @@ type VideoCardProps = {
 
   allowBooking?: boolean;
   bookingRedirectUrl?: string | null;
+
+  productType?: string | null;
+  showFollowButton?: boolean;
+  isFollowingCreator?: boolean;
 };
 
 export default function VideoCard(props: VideoCardProps) {
@@ -71,6 +76,10 @@ export default function VideoCard(props: VideoCardProps) {
 
     allowBooking = false,
     bookingRedirectUrl = null,
+
+    productType = null,
+    showFollowButton = false,
+    isFollowingCreator = false,
   } = props;
 
   const [lk, setLk] = React.useState<number>(toNum(likes));
@@ -81,6 +90,7 @@ export default function VideoCard(props: VideoCardProps) {
   const wrapperRef = React.useRef<HTMLDivElement | null>(null);
 
   const hasPlan = !!(planMonths && planPriceCents && planMonths > 1 && planPriceCents > 0);
+  const showBookOption = productType === "course" || productType === "mentorship";
 
   React.useEffect(() => setLk(toNum(likes)), [likes]);
   React.useEffect(() => setCm(toNum(comments)), [comments]);
@@ -210,8 +220,8 @@ export default function VideoCard(props: VideoCardProps) {
     <div
       className="
         mx-auto
-        w-full max-w-[520px] aspect-[9/16]
-        lg:max-w-[1100px] lg:h-[92vh] lg:aspect-auto
+        w-full max-w-[480px] aspect-[9/16]
+        lg:max-w-[780px] lg:h-[95vh] lg:aspect-auto
         rounded-3xl bg-black shadow-[0_10px_40px_rgba(0,0,0,0.45)] overflow-hidden
         relative
       "
@@ -262,48 +272,65 @@ export default function VideoCard(props: VideoCardProps) {
       </div>
 
       {/* CTA + meta */}
-      <div className="absolute left-4 right-[84px] bottom-4 space-y-3">
-        {canShowCTA ? (
-          <div className="relative inline-block">
-            <button
-              type="button"
-              disabled={loading !== null}
-              onClick={() => setMenuOpen(v => !v)}
-              className="
-                inline-flex items-center gap-2 px-3 py-1.5 rounded-full
-                bg-white/95 text-black text-sm font-semibold hover:bg-white
-                transition shadow-sm disabled:opacity-70 disabled:cursor-not-allowed
-              "
-              aria-haspopup="menu"
-              aria-expanded={menuOpen}
-            >
-              <CartIcon />
-              {loading === "buy" || loading === "plan" ? "Loading…" :
-                hasPlan ? `Buy ${priceCentsToUSD(priceCents)} • or Plan` : `Buy ${priceCentsToUSD(priceCents)}`}
-              <svg viewBox="0 0 24 24" className="h-4 w-4"><path d="M7 10l5 5 5-5z" /></svg>
-            </button>
+          <div className="absolute left-4 right-[84px] bottom-20 space-y-3">
+        <div className="flex items-center gap-3">
+          {canShowCTA ? (
+            <div className="relative inline-block">
+              <button
+                type="button"
+                disabled={loading !== null}
+                onClick={() => setMenuOpen(v => !v)}
+                className="
+                  inline-flex items-center gap-2 px-3 py-1.5 rounded-full
+                  bg-white/95 text-black text-sm font-semibold hover:bg-white
+                  transition shadow-sm disabled:opacity-70 disabled:cursor-not-allowed
+                "
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+              >
+                <CartIcon />
+                {loading === "buy" || loading === "plan" ? "Loading…" :
+                  hasPlan ? `Buy ${priceCentsToUSD(priceCents)} • or Plan` : `Buy ${priceCentsToUSD(priceCents)}`}
+                <svg viewBox="0 0 24 24" className="h-4 w-4"><path d="M7 10l5 5 5-5z" /></svg>
+              </button>
 
-            {menuOpen && (
-              <div role="menu" className="absolute z-20 mt-2 w-56 rounded-xl bg-white shadow-lg ring-1 ring-black/5 overflow-hidden">
-                <button role="menuitem" onClick={() => { setMenuOpen(false); void handleBuy(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-70">
-                  {loading === "buy" ? "Starting…" : `Pay in full ${priceCentsToUSD(priceCents)}`}
-                </button>
-                {hasPlan && (<>
-                  <div className="h-px bg-gray-200" />
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); void handlePlan(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm hover:bg-gray-100 disabled:opacity-70">
-                    {loading === "plan" ? "Starting…" : `Pay monthly ${priceCentsToUSD(planPriceCents)} × ${planMonths}`}
+              {menuOpen && (
+                <div role="menu" className="absolute z-20 mt-2 w-56 rounded-xl bg-white shadow-lg ring-1 ring-black/5 overflow-hidden">
+                  <button role="menuitem" onClick={() => { setMenuOpen(false); void handleBuy(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-70">
+                    {loading === "buy" ? "Starting…" : `Pay in full ${priceCentsToUSD(priceCents)}`}
                   </button>
-                </>)}
-              </div>
-            )}
-          </div>
-        ) : (
-          showCTA && (
-            <button onClick={onCta} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/95 text-black text-sm font-semibold hover:bg-white transition shadow-sm">
-              <CartIcon /> {ctaLabel}
-            </button>
-          )
-        )}
+                  {hasPlan && (<>
+                    <div className="h-px bg-gray-200" />
+                    <button role="menuitem" onClick={() => { setMenuOpen(false); void handlePlan(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-70">
+                      {loading === "plan" ? "Starting…" : `Pay monthly ${priceCentsToUSD(planPriceCents)} × ${planMonths}`}
+                    </button>
+                  </>)}
+                  {showBookOption && (
+                    <>
+                      <div className="h-px bg-gray-200" />
+                      <button role="menuitem" onClick={() => { setMenuOpen(false); void handleBook(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-70">
+                        {loading === "book" ? "Starting…" : "Book"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            showCTA && (
+              <button onClick={onCta} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/95 text-black text-sm font-semibold hover:bg-white transition shadow-sm">
+                <CartIcon /> {ctaLabel}
+              </button>
+            )
+          )}
+
+          {showFollowButton && creatorId ? (
+            <FollowButton
+              creatorId={creatorId}
+              initiallyFollowing={isFollowingCreator}
+            />
+          ) : null}
+        </div>
 
         <div className="text-white/95">
           <div className="text-[15px] font-semibold">{creator}</div>

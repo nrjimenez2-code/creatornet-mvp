@@ -50,6 +50,7 @@ async function createProductViaAPI(input: {
   priceDollars?: string;
   description?: string;
   type?: "video" | "course" | "mentorship";
+  creator_id?: string;
 }): Promise<Product> {
   const res = await fetch("/api/products", {
     method: "POST",
@@ -60,6 +61,7 @@ async function createProductViaAPI(input: {
       description: input.description ?? "",
       type: input.type ?? "video",
       price_cents: dollarsToCents(input.priceDollars ?? ""),
+      creator_id: input.creator_id,
     }),
   });
 
@@ -186,6 +188,7 @@ export default function PostComposer({ onPosted }: Props) {
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProdTitle, setNewProdTitle] = useState("");
   const [newProdPrice, setNewProdPrice] = useState<string>(""); // dollars
+  const [newProdType, setNewProdType] = useState<"video" | "course" | "mentorship">("video");
 
   // Assets
   const [videoFile, setVideoFile] = useState<File | null>(null); // promo/public
@@ -264,7 +267,8 @@ export default function PostComposer({ onPosted }: Props) {
       const newProduct = await createProductViaAPI({
         title: t,
         priceDollars: newProdPrice,
-        type: "video",
+        type: newProdType,
+        creator_id: userId ?? undefined,
       });
 
       setProducts((prev) => [newProduct, ...prev]);
@@ -278,6 +282,7 @@ export default function PostComposer({ onPosted }: Props) {
       setNewProdOpen(false);
       setNewProdTitle("");
       setNewProdPrice("");
+      setNewProdType("video");
     } catch (e: any) {
       alert(e?.message || "Failed to create product");
     } finally {
@@ -452,6 +457,18 @@ export default function PostComposer({ onPosted }: Props) {
                   placeholder="Product title (e.g., 1-Hour Masterclass)"
                   className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
                 />
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-gray-600 shrink-0">Type</label>
+                  <select
+                    value={newProdType}
+                    onChange={(e) => setNewProdType(e.target.value as "video" | "course" | "mentorship")}
+                    className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+                  >
+                    <option value="video">Video</option>
+                    <option value="course">Course</option>
+                    <option value="mentorship">Mentorship</option>
+                  </select>
+                </div>
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-gray-600 shrink-0">$</label>
                   <input

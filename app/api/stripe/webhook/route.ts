@@ -11,6 +11,7 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const PLATFORM_FEE_RATE = 0.12;
 
 // --- Clients ---
 // NOTE: do NOT pin apiVersion to avoid TS literal mismatches with installed types.
@@ -97,8 +98,8 @@ async function getProductLinks(product_id: string | null) {
   if (!product_id) return null;
   const { data, error } = await admin
     .from("products")
-    .select("id, title, price_cents, discord_invite_url, whop_listing_url")
-    .eq("id", product_id)
+    .select("product_id, title, price_cents, amount_cents, discord_invite_url, whop_listing_url")
+    .eq("product_id", product_id)
     .maybeSingle();
   if (error || !data) return null;
   return data;
@@ -137,9 +138,9 @@ async function attachFulfillmentIfEmpty(purchaseId: string, productId: string | 
 
   const payload = {
     source: "product",
-    product_id: product.id,
+    product_id: product.product_id,
     title: product.title,
-    price_cents: product.price_cents,
+    price_cents: product.price_cents ?? product.amount_cents ?? null,
     note: "creator-supplied fulfillment link",
   };
 
@@ -366,6 +367,88 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
   return ins?.id ?? null;
 }
 
+async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Promise<boolean> {
+  const bookingPaymentId = (session.metadata?.booking_payment_id as string) || null;
+  if (!bookingPaymentId) return false;
+
+  // Ensure purchase row exists for this session if product metadata is provided
+  let purchaseId: string | null = null;
+  if (session.metadata?.product_id) {
+    try {
+      purchaseId = await seedPurchaseFromProductSession(session);
+      if (
+        purchaseId &&
+        session.mode === "payment" &&
+        session.payment_status === "paid"
+      ) {
+        const product_id = (session.metadata?.product_id as string) || null;
+        await attachFulfillmentIfEmpty(purchaseId, product_id);
+      }
+    } catch (err: any) {
+      console.warn("[webhook] seed purchase for booking payment failed:", err?.message || err);
+    }
+  }
+
+  const planType = (session.metadata?.plan_type as string) || "full";
+  const bookingId = (session.metadata?.booking_id as string) || null;
+
+  const payment_intent_id =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent as any)?.id ?? null;
+
+  const subscription_id =
+    typeof session.subscription === "string" ? session.subscription : null;
+
+  const amount_total_cents =
+    typeof session.amount_total === "number" ? session.amount_total : null;
+
+  const nowIso = new Date().toISOString();
+  const updates: Record<string, any> = {
+    stripe_checkout_session_id: session.id,
+    stripe_payment_intent_id: payment_intent_id,
+    stripe_subscription_id: subscription_id,
+    currency: session.currency || "usd",
+    updated_at: nowIso,
+  };
+
+  if (planType === "installment" && amount_total_cents != null) {
+    updates.installment_amount_cents = amount_total_cents;
+  } else if (planType === "full" && amount_total_cents != null) {
+    updates.amount_total_cents = amount_total_cents;
+  }
+
+  if (session.url) {
+    updates.link_url = session.url;
+  }
+
+  if (session.payment_status === "paid") {
+    updates.status = "completed";
+    updates.completed_at = nowIso;
+  }
+
+  const { error } = await admin
+    .from("booking_payments")
+    .update(updates)
+    .eq("id", bookingPaymentId);
+
+  if (error) {
+    console.warn("[webhook] booking payment update failed:", error.message);
+  }
+
+  if (bookingId && session.payment_status === "paid") {
+    const { error: bookingError } = await admin
+      .from("bookings")
+      .update({ status: "completed" })
+      .eq("id", bookingId);
+    if (bookingError) {
+      console.warn("[webhook] booking status update failed:", bookingError.message);
+    }
+  }
+
+  return true;
+}
+
 /** Advance subscription / record payment for invoice events. Also attach fulfillment on first success. */
 async function handleInvoicePaymentSucceeded(inv: any) {
   const payment_intent_id =
@@ -417,6 +500,49 @@ async function handleInvoicePaymentSucceeded(inv: any) {
     })
     .eq("id", purchase.id);
 
+  const bookingPaymentId =
+    (inv?.metadata?.booking_payment_id as string) ||
+    (inv?.lines?.data?.[0]?.price?.metadata?.booking_payment_id as string) ||
+    null;
+
+  if (bookingPaymentId) {
+    const nowIso = new Date().toISOString();
+    const updates: Record<string, any> = {
+      stripe_payment_intent_id: payment_intent_id,
+      updated_at: nowIso,
+      status: "completed",
+      completed_at: nowIso,
+    };
+    if (subscription_id) {
+      updates.stripe_subscription_id = subscription_id;
+    }
+    if (typeof inv?.amount_paid === "number") {
+      updates.installment_amount_cents = inv.amount_paid;
+    }
+
+    const { error: bpError } = await admin
+      .from("booking_payments")
+      .update(updates)
+      .eq("id", bookingPaymentId);
+    if (bpError) {
+      console.warn(
+        "[webhook] booking_payment update (invoice) failed:",
+        bpError.message
+      );
+    }
+
+    const bookingIdMeta = (inv?.metadata?.booking_id as string) || null;
+    if (bookingIdMeta) {
+      const { error: bookingErr } = await admin
+        .from("bookings")
+        .update({ status: "completed" })
+        .eq("id", bookingIdMeta);
+      if (bookingErr) {
+        console.warn("[webhook] booking status update failed:", bookingErr.message);
+      }
+    }
+  }
+
   // Attach fulfillment link if not yet set (first successful payment)
   if (!purchase.fulfillment_url) {
     await attachFulfillmentIfEmpty(purchase.id, purchase.product_id);
@@ -458,6 +584,11 @@ export async function POST(req: NextRequest) {
         // Free booking flow (setup mode)
         if (session.mode === "setup") {
           await insertBookingFromSession(session);
+          break;
+        }
+
+        const handledBookingPayment = await handleBookingPaymentSession(session);
+        if (handledBookingPayment) {
           break;
         }
 
