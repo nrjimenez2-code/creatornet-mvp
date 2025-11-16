@@ -1,6 +1,6 @@
 // app/success/page.tsx
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
 
@@ -26,7 +26,7 @@ type ConfirmSuccess = {
 
 type ConfirmResp = ConfirmSuccess | { error: string };
 
-export default function SuccessPage() {
+function SuccessPage() {
   const router = useRouter();
   const params = useSearchParams();
   const supabase = useMemo(() => createBrowserClient(), []);
@@ -276,5 +276,13 @@ export default function SuccessPage() {
         )}
       </div>
     </main>
+  );
+}
+
+export default function SuccessPageWrapper() {
+  return (
+    <Suspense fallback={<main className="min-h-[70vh] flex items-center justify-center text-sm text-gray-500">Loading…</main>}>
+      <SuccessPage />
+    </Suspense>
   );
 }
