@@ -18,8 +18,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="bg-white">
-      <body className="min-h-svh bg-white text-gray-900 antialiased" suppressHydrationWarning>
+    <html lang="en" className="bg-black">
+      <body className="min-h-svh bg-black text-gray-900 antialiased" suppressHydrationWarning>
         {/* Keep Supabase client + server sessions in sync */}
         <Suspense fallback={null}>
           <SupabaseAuthSync />

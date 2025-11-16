@@ -75,8 +75,8 @@ export async function POST(req: Request) {
     if (body.type === "product") {
       const { data: prod, error } = await supabase
         .from("products")
-        .select("id,title,amount_cents,currency")
-        .eq("id", body.product_id)
+        .select("product_id,title,amount_cents,currency")
+        .eq("product_id", body.product_id)
         .single();
       if (error) throw new Error(`Load product failed: ${error.message}`);
       if (!prod) throw new Error("Product not found");
@@ -123,8 +123,8 @@ export async function POST(req: Request) {
 
       const { data: prod, error } = await supabase
         .from("products")
-        .select("id,title,currency")
-        .eq("id", body.product_id)
+        .select("product_id,title,currency")
+        .eq("product_id", body.product_id)
         .single();
       if (error) throw new Error(`Load product failed: ${error.message}`);
 
@@ -161,7 +161,31 @@ export async function POST(req: Request) {
     // ---- BOOKING (no Stripe) ----
     if (body.type === "booking") {
       if (!body.bookingRedirectUrl) throw new Error("bookingRedirectUrl required");
-      return Response.json({ url: body.bookingRedirectUrl, session_id: null });
+
+      const raw = body.bookingRedirectUrl.trim();
+      let bookingUrl: string;
+      try {
+        const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+        if (parsed.protocol !== "https:") throw new Error("bookingRedirectUrl must be https");
+        bookingUrl = parsed.toString();
+      } catch {
+        throw new Error("bookingRedirectUrl must be a valid https URL");
+      }
+
+      const session = await stripe.checkout.sessions.create({
+        mode: "setup",
+        payment_method_types: ["card"],
+        metadata: {
+          kind: "booking",
+          booking_redirect_url: bookingUrl,
+          post_id: body.post_id || "",
+          creator_id: body.creator_id || "",
+        },
+        success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}&kind=booking`,
+        cancel_url: `${site}/`,
+      });
+
+      return Response.json({ url: session.url, session_id: session.id });
     }
 
     return new Response("Unsupported type", { status: 400 });

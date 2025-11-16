@@ -27,6 +27,7 @@ async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.S
 
   // find existing purchase by session or PI
   let purchaseId: string | null = null;
+  let status: string | null = null;
 
   const bySession = await supabase
     .from("purchases")
@@ -59,16 +60,26 @@ async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.S
   };
 
   if (purchaseId) {
-    await supabase.from("purchases").update(updateFields).eq("id", purchaseId);
+    const { data: updRow, error: updErr } = await supabase
+      .from("purchases")
+      .update(updateFields)
+      .eq("id", purchaseId)
+      .select("id,status")
+      .single();
+    if (updErr) throw new Error(updErr.message);
+    status = updRow?.status ?? "paid";
   } else {
-    await supabase
+    const { data: ins, error: insErr } = await supabase
       .from("purchases")
       .insert({ session_id: sessionId, ...updateFields })
-      .select("id")
+      .select("id,status")
       .single();
+    if (insErr) throw new Error(insErr.message);
+    purchaseId = ins?.id ?? null;
+    status = ins?.status ?? "paid";
   }
 
-  return { post_id, product_id, creator_id };
+  return { purchase_id: purchaseId, status: status ?? "paid", post_id, product_id, creator_id };
 }
 
 // Manual confirm (client calls this on /success)
@@ -78,6 +89,32 @@ export async function POST(req: Request) {
     if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
 
     const session = await stripe.checkout.sessions.retrieve(session_id);
+    if (
+      session.mode === "setup" ||
+      session.payment_status === "no_payment_required" ||
+      session.metadata?.kind === "booking"
+    ) {
+      const redirectUrl =
+        (session.metadata?.booking_redirect_url as string) ||
+        (session.metadata?.bookingRedirectUrl as string) ||
+        "";
+      const postIdMeta =
+        (session.metadata?.post_id as string) || (session.metadata?.postId as string) || "";
+      const creatorIdMeta =
+        (session.metadata?.creator_id as string) || (session.metadata?.creatorId as string) || "";
+      return NextResponse.json(
+        {
+          ok: true,
+          session_id,
+          kind: "booking",
+          booking_redirect_url: redirectUrl,
+          post_id: postIdMeta || null,
+          creator_id: creatorIdMeta || null,
+        },
+        { status: 200 }
+      );
+    }
+
     if (!(session.status === "complete" || session.payment_status === "paid")) {
       return NextResponse.json(
         { error: `Session not paid. status=${session.status}, payment_status=${session.payment_status}` },
@@ -86,7 +123,26 @@ export async function POST(req: Request) {
     }
 
     const meta = await upsertPaidBySession(session_id, session);
-    return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
+    let product: Record<string, any> | null = null;
+    if (meta.product_id) {
+      const { data: prodRow } = await supabase
+        .from("products")
+        .select("product_id, type, discord_invite_url, whop_listing_url, title")
+        .eq("product_id", meta.product_id)
+        .maybeSingle();
+      if (prodRow) {
+        product = {
+          id: prodRow.product_id,
+          type: prodRow.type,
+          discord_invite_url: prodRow.discord_invite_url,
+          whop_listing_url: prodRow.whop_listing_url,
+          title: prodRow.title,
+        };
+      }
+    }
+
+    // return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
+    return NextResponse.json({ ok: true, session_id, ...meta, product }, { status: 200 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Failed to confirm purchase" }, { status: 500 });
   }

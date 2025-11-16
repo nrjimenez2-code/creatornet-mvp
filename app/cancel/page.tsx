@@ -7,7 +7,7 @@ export const metadata = {
 
 // Static is fine here
 export const dynamic = "force-static";
-export const revalidate = false as const;
+export const revalidate = false;
 
 export default function CancelPage() {
   return (

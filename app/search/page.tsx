@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 // import { createBrowserClient } from "@/lib/supabaseBrowser"; // not used here
@@ -39,7 +39,7 @@ const TRENDING_DEFAULT = [
   "Digital Marketing",
 ];
 
-export default function SearchPage() {
+function SearchPage() {
   const sp = useSearchParams();
   const router = useRouter();
   const qParam = sp.get("q") ?? "";
@@ -328,6 +328,14 @@ export default function SearchPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function SearchPageWrapper() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-gray-500">Loading search…</div>}>
+      <SearchPage />
+    </Suspense>
   );
 }
 

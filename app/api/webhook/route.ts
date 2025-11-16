@@ -50,7 +50,7 @@ export async function POST(req: Request) {
           const { data: product } = await supabase
             .from("products")
             .select("deliver_url")
-            .eq("id", productId)
+            .eq("product_id", productId)
             .single();
           deliverUrl = product?.deliver_url ?? null;
         }

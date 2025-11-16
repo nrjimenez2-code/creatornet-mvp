@@ -23,6 +23,9 @@ export type PostRow = {
   interests: string[] | null;
   created_at: string | null;
 
+  product_type?: string | null;
+
+  is_following?: boolean | null;
   likes_count?: number | null;
   comments_count?: number | null;
   shares_count?: number | null;
@@ -46,7 +49,8 @@ export default function FeedList({ activeTab }: FeedListProps) {
       const { data: authRes } = await supabase.auth.getUser();
       const viewerId = authRes?.user?.id ?? null;
 
-      const { data, error } = await supabase.rpc("get_feed_v1", {
+      const rpcName = activeTab === "discover" ? "get_feed_discover" : "get_feed_following";
+      const { data, error } = await supabase.rpc(rpcName, {
         p_user_id: viewerId,
         p_limit: 20,
       });
@@ -57,28 +61,43 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
       let mapped: PostRow[] = [];
       if (Array.isArray(data)) {
-        mapped = data
-          .map((r: any) => ({
-            id: r.post_id as string,
-            creator_id: (r.creator_id as string) ?? null,
-            product_id: (r.product_id as string) ?? null,
-            price_cents: (r.price_cents as number) ?? 0,
-            title: (r.title as string) ?? null,
-            video_url: (r.video_url as string) ?? null,
-            poster_url: (r.poster_url as string) ?? null,
-            content: (r.title as string) ?? "",
-            interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
-            created_at: null, // rpc doesn't return it; fine for now
+        mapped = await Promise.all(
+          data
+            .map((r: any) => {
+              const postId = (r.post_id as string) ?? (r.id as string) ?? "";
+              return {
+                id: postId,
+                creator_id: (r.creator_id as string) ?? null,
+                product_id: (r.product_id as string) ?? null,
+                price_cents: (r.price_cents as number) ?? 0,
+                title: (r.title as string) ?? null,
+                video_url: (r.video_url as string) ?? null,
+                poster_url: (r.poster_url as string) ?? null,
+                content: (r.title as string) ?? "",
+                interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+                created_at: null, // rpc doesn't return it; fine for now
 
-            likes_count: (r.likes_count as number) ?? 0,
-            comments_count: (r.comments_count as number) ?? 0,
-            shares_count: (r.shares_count as number) ?? 0,
+                likes_count: (r.likes_count as number) ?? 0,
+                comments_count: (r.comments_count as number) ?? 0,
+                shares_count: (r.shares_count as number) ?? 0,
 
-            allow_booking: (r.allow_booking as boolean) ?? false,
-            booking_url: (r.booking_url as string) ?? null,
-          }))
-          // keep only items with media
-          .filter((p: PostRow) => p.video_url || p.poster_url);
+                allow_booking: (r.allow_booking as boolean) ?? false,
+                booking_url: (r.booking_url as string) ?? null,
+                is_following: (r.is_following as boolean) ?? false,
+              };
+            })
+            // keep only items with media
+            .filter((p: PostRow) => p.video_url || p.poster_url)
+            .map(async (p) => {
+              if (!p.product_id) return p;
+              const { data: prod } = await supabase
+                .from("products")
+                .select("type")
+                .eq("product_id", p.product_id)
+                .maybeSingle();
+              return { ...p, product_type: prod?.type ?? null };
+            })
+        );
       }
 
       if (!cancelled) {
@@ -126,6 +145,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 interests: Array.isArray(row.interests)
                   ? row.interests
                   : next[i].interests,
+                is_following: next[i].is_following,
               };
               return next;
             }
@@ -145,8 +165,8 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 likes_count: 0,
                 comments_count: 0,
                 shares_count: 0,
-                allow_booking: row.allow_booking ?? false,
-                booking_url: row.booking_url ?? null,
+                product_type: (row.product_type as string | null) ?? null,
+                is_following: false,
               },
               ...prev,
             ];
@@ -179,10 +199,10 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
   return (
     <div
-      className="h-[calc(100vh-64px)] overflow-y-auto snap-y snap-mandatory px-3 [&::-webkit-scrollbar]:hidden"
+      className="h-screen overflow-y-auto snap-y snap-mandatory px-3 [&::-webkit-scrollbar]:hidden"
       style={{ scrollbarWidth: "none" }}
     >
-      {items.map((p) => {
+      {items.map((p, idx) => {
         const price = typeof p.price_cents === "number" ? p.price_cents : 0;
         const sellable = !!p.product_id;
         const allowBooking =
@@ -194,8 +214,8 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
         return (
           <section
-            key={p.id}
-            className="snap-start min-h-[calc(100vh-64px)] flex items-center justify-center py-4"
+            key={`${p.id}-${idx}`}
+            className="snap-start min-h-screen flex items-start justify-center pt-8"
           >
             <div className="relative w-full">
               <VideoCard
@@ -224,6 +244,11 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 creatorId={p.creator_id ?? null}
                 priceCents={price}
                 titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
+
+                productType={p.product_type ?? null}
+
+                showFollowButton={activeTab === "discover"}
+                isFollowingCreator={p.is_following ?? false}
 
                 // booking
                 allowBooking={allowBooking}
