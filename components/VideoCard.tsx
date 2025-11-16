@@ -1,5 +1,5 @@
-// components/VideoCard.tsx  (READY TO REPLACE)
 "use client";
+// components/VideoCard.tsx  (READY TO REPLACE)
 import React from "react";
 import FollowButton from "./FollowButton";
 
@@ -152,7 +152,7 @@ export default function VideoCard(props: VideoCardProps) {
       await createCheckoutSession({
         type: "product",
         product_id: String(pid),
-        post_id: postId ?? null,
+        post_id: postId ?? undefined,
         creator_id: creatorId ?? null,
         titleForCheckout: titleForCheckout ?? undefined,
       });
@@ -177,7 +177,7 @@ export default function VideoCard(props: VideoCardProps) {
         // IMPORTANT: server expects "plan" + plan_amount_cents
         type: "plan",
         product_id: String(pid),
-        post_id: postId ?? null,
+        post_id: postId ?? undefined,
         creator_id: creatorId ?? null,
         plan_months: planMonths,
         plan_amount_cents: planPriceCents, // ← match server param name
@@ -195,17 +195,18 @@ export default function VideoCard(props: VideoCardProps) {
       onCta?.();
       return;
     }
+    if (!bookingRedirectUrl) {
+      alert("No booking link is configured for this post.");
+      return;
+    }
     try {
       setLoading("book");
-      const redir =
-        bookingRedirectUrl ??
-        `/api/book?creator_id=${encodeURIComponent(creatorId || "")}&post_id=${encodeURIComponent(postId)}`;
-
       await createCheckoutSession({
         type: "booking",
         post_id: postId,
         creator_id: creatorId ?? undefined,
-        bookingRedirectUrl: redir,
+        bookingRedirectUrl,
+        creator_id: creatorId ?? undefined,
       });
     } catch (e) {
       console.error("[book] error:", e);

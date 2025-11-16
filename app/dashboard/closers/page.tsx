@@ -235,13 +235,19 @@ export default function ClosersManagerPage() {
     setBookingsLoading(true);
     setBookingsError(null);
     try {
-      if (!accessToken) {
+      let token = accessToken;
+      if (!token) {
+        const { data } = await supabase.auth.getSession();
+        token = data.session?.access_token ?? null;
+        if (token) setAccessToken(token);
+      }
+      if (!token) {
         throw new Error("Missing auth session. Please sign in again.");
       }
       const res = await fetch("/api/bookings/list", {
         credentials: "include",
         headers: {
-          Authorization: `Bearer ${accessToken}`,
+          Authorization: `Bearer ${token}`,
         },
       });
       const data = await res.json().catch(() => ({}));
@@ -255,7 +261,7 @@ export default function ClosersManagerPage() {
     } finally {
       setBookingsLoading(false);
     }
-  }, [accessToken]);
+  }, [accessToken, supabase]);
 
   useEffect(() => {
     if (creatorId && accessToken) {

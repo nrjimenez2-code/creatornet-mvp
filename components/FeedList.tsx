@@ -63,26 +63,29 @@ export default function FeedList({ activeTab }: FeedListProps) {
       if (Array.isArray(data)) {
         mapped = await Promise.all(
           data
-            .map((r: any) => ({
-              id: r.post_id as string,
-              creator_id: (r.creator_id as string) ?? null,
-              product_id: (r.product_id as string) ?? null,
-              price_cents: (r.price_cents as number) ?? 0,
-              title: (r.title as string) ?? null,
-              video_url: (r.video_url as string) ?? null,
-              poster_url: (r.poster_url as string) ?? null,
-              content: (r.title as string) ?? "",
-              interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
-              created_at: null, // rpc doesn't return it; fine for now
+            .map((r: any) => {
+              const postId = (r.post_id as string) ?? (r.id as string) ?? "";
+              return {
+                id: postId,
+                creator_id: (r.creator_id as string) ?? null,
+                product_id: (r.product_id as string) ?? null,
+                price_cents: (r.price_cents as number) ?? 0,
+                title: (r.title as string) ?? null,
+                video_url: (r.video_url as string) ?? null,
+                poster_url: (r.poster_url as string) ?? null,
+                content: (r.title as string) ?? "",
+                interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+                created_at: null, // rpc doesn't return it; fine for now
 
-              likes_count: (r.likes_count as number) ?? 0,
-              comments_count: (r.comments_count as number) ?? 0,
-              shares_count: (r.shares_count as number) ?? 0,
+                likes_count: (r.likes_count as number) ?? 0,
+                comments_count: (r.comments_count as number) ?? 0,
+                shares_count: (r.shares_count as number) ?? 0,
 
-              allow_booking: (r.allow_booking as boolean) ?? false,
-              booking_url: (r.booking_url as string) ?? null,
-              is_following: (r.is_following as boolean) ?? false,
-            }))
+                allow_booking: (r.allow_booking as boolean) ?? false,
+                booking_url: (r.booking_url as string) ?? null,
+                is_following: (r.is_following as boolean) ?? false,
+              };
+            })
             // keep only items with media
             .filter((p: PostRow) => p.video_url || p.poster_url)
             .map(async (p) => {
@@ -199,7 +202,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
       className="h-screen overflow-y-auto snap-y snap-mandatory px-3 [&::-webkit-scrollbar]:hidden"
       style={{ scrollbarWidth: "none" }}
     >
-      {items.map((p) => {
+      {items.map((p, idx) => {
         const price = typeof p.price_cents === "number" ? p.price_cents : 0;
         const sellable = !!p.product_id;
         const allowBooking =
@@ -211,7 +214,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
         return (
           <section
-            key={p.id}
+            key={`${p.id}-${idx}`}
             className="snap-start min-h-screen flex items-start justify-center pt-8"
           >
             <div className="relative w-full">
