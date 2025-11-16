@@ -10,13 +10,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 const PLATFORM_FEE_RATE = 0.12;
 
-type ProductRow = {
-  product_id: string;
-  title: string | null;
-  amount_cents: number;
-  currency: string | null;
-};
-
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ bookingId: string }> }
@@ -103,7 +96,12 @@ export async function POST(
       .from("products")
       .select("product_id, title, amount_cents, currency")
       .eq("product_id", post.product_id)
-      .maybeSingle<ProductRow>();
+      .maybeSingle<{
+        product_id: string;
+        title: string | null;
+        amount_cents: number;
+        currency: string | null;
+      }>();
 
     if (productError) throw productError;
     if (!product) {
@@ -253,21 +251,6 @@ export async function POST(
     );
   }
 }
-
-type BookingRow = {
-  id: string;
-  post_id: string;
-  buyer_id: string;
-  creator_id: string;
-  status: string;
-};
-
-type ProductRow = {
-  product_id: string;
-  title: string | null;
-  amount_cents: number;
-  currency: string | null;
-};
 
 type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
