@@ -10,14 +10,6 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 const PLATFORM_FEE_RATE = 0.12;
 
-type BookingRow = {
-  id: string;
-  post_id: string;
-  buyer_id: string;
-  creator_id: string;
-  status: string;
-};
-
 type ProductRow = {
   product_id: string;
   title: string | null;
@@ -76,7 +68,13 @@ export async function POST(
       .from("bookings")
       .select("id, post_id, buyer_id, creator_id, status")
       .eq("id", bookingId)
-      .maybeSingle<BookingRow>();
+      .maybeSingle<{
+        id: string;
+        post_id: string;
+        buyer_id: string;
+        creator_id: string;
+        status: string;
+      }>();
 
     if (bookingError) throw bookingError;
     if (!booking) {
