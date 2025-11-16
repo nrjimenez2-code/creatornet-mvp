@@ -206,7 +206,6 @@ export default function VideoCard(props: VideoCardProps) {
         post_id: postId,
         creator_id: creatorId ?? undefined,
         bookingRedirectUrl,
-        creator_id: creatorId ?? undefined,
       });
     } catch (e) {
       console.error("[book] error:", e);
