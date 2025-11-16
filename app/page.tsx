@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0 as const;
+export const revalidate = 0;
 
 export default async function Home() {
   const supabase = await createSupabaseServer();

@@ -6,7 +6,7 @@ import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfileStarRating from "@/components/ProfileStarRating";
 
-export const revalidate = 0 as const;
+export const revalidate = 0;
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
