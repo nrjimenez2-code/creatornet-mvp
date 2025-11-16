@@ -1,7 +1,6 @@
 // app/api/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabaseServer";
-
 function dollarsToCents(d: unknown): number | null {
   const s = String(d ?? "").trim();
   if (!s) return null;
@@ -44,7 +43,7 @@ export async function GET() {
     }
 
     const sel = [
-      "id",
+      "product_id:id",
       "title",
       "type",
       "price_cents",
@@ -122,6 +121,7 @@ export async function POST(req: Request) {
       description,
       type,
       price_cents,
+      amount_cents: price_cents ?? 0,
       plan_months: Number.isFinite(plan_months) && plan_months > 0 ? plan_months : 1,
       fulfillment,
       discord_channel_id,
@@ -131,7 +131,7 @@ export async function POST(req: Request) {
     };
 
     const sel = [
-      "id",
+      "product_id:id",
       "title",
       "type",
       "price_cents",

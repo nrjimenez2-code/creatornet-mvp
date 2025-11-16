@@ -45,7 +45,7 @@ export async function GET(req: Request) {
   const { data: product, error: productErr } = await admin
     .from("products")
     .select("*")
-    .eq("id", purchase.product_id)
+    .eq("product_id", purchase.product_id)
     .maybeSingle();
 
   if (productErr) {
