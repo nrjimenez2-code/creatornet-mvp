@@ -77,26 +77,18 @@ export async function GET(_req: NextRequest, ctx: any) {
   let allowed = post.creator_id === user.id;
 
   if (!allowed) {
-    const { data: purchase, error: pErr } = await supabase
+    const { data: purchase, error: purchaseError } = await admin
       .from("purchases")
       .select("id")
       .eq("post_id", postId)
       .eq("user_id", user.id)
       .maybeSingle();
 
-    if (!pErr && purchase) allowed = true;
+    if (!purchaseError && purchase) allowed = true;
   }
 
   if (!allowed) {
     return NextResponse.json({ error: "Payment required" }, { status: 402 });
-  }
-
-  const { data: signed, error: signErr } = await supabaseAdmin.storage
-    .from("premium")
-    .createSignedUrl(post.premium_path as string, 60 * 60);
-
-  if (signErr || !signed?.signedUrl) {
-    return NextResponse.json({ error: "Could not sign URL" }, { status: 500 });
   }
 
   const { data: signed, error: signErr } = await admin.storage
