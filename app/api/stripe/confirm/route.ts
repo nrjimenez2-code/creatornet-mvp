@@ -38,10 +38,11 @@ export async function POST(req: Request) {
     }
 
     // ✅ Create Supabase client with SERVICE ROLE key (bypasses RLS)
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false, autoRefreshToken: false } }
+);
 
     // Extract metadata
     const buyer_id = session.metadata?.buyer_id;
