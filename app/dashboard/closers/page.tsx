@@ -343,8 +343,29 @@ export default function ClosersManagerPage() {
       if (!window.confirm("Remove this booking and any generated links?")) return;
       setDeletingId(bookingId);
       try {
-        await supabase.from("booking_payments").delete().eq("booking_id", bookingId);
-        await supabase.from("bookings").delete().eq("id", bookingId);
+        let currentToken = accessToken;
+        if (!currentToken) {
+          const { data: sessionData } = await supabase.auth.getSession();
+          currentToken = sessionData.session?.access_token ?? null;
+          if (currentToken) {
+            setAccessToken(currentToken);
+          }
+        }
+        if (!currentToken) {
+          throw new Error("Missing auth session. Please sign in again.");
+        }
+        const res = await fetch(`/api/bookings/${bookingId}`, {
+          method: "DELETE",
+          credentials: "include",
+          headers: {
+            ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(data?.error || `Failed to remove booking (${res.status})`);
+        }
+
         setBookings((prev) => prev.filter((bundle) => bundle.booking.id !== bookingId));
         if (latestLink?.bookingId === bookingId) {
           setLatestLink(null);
@@ -357,7 +378,7 @@ export default function ClosersManagerPage() {
         setDeletingId(null);
       }
     },
-    [latestLink, supabase]
+    [accessToken, latestLink, supabase]
   );
 
   const testRoundRobin = async () => {
