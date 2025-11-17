@@ -189,29 +189,17 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     return;
   }
 
-const { data: existing } = await admin
-    .from("bookings")
-    .select("id")
-    .eq("buyer_id", buyer_id)
-    .eq("creator_id", creator_id)
-    .eq("post_id", post_id)
-    .eq("status", "booked")
-    .maybeSingle();
-  if (!existing?.id) {
   const { error: insertErr } = await admin
-      .from("bookings")
-      .insert({
-        post_id,
-        buyer_id,
-        creator_id,
-        status: "booked",
-      })
-      .select("id")
-      .maybeSingle();
+    .from("bookings")
+    .insert({
+      post_id,
+      buyer_id,
+      creator_id,
+      status: "booked",
+    })
+    .select("id")
+    .maybeSingle();
   if (insertErr) console.error("[webhook] insert booking failed:", insertErr.message);
-  }
-  
-  if (error) console.error("[webhook] insert booking failed:", error.message);
 }
 
 async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
