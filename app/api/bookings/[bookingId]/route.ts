@@ -19,9 +19,9 @@ type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { bookingId?: string } }
+  { params }: { params: Promise<{ bookingId: string }> }
 ) {
-  const bookingId = params?.bookingId;
+  const { bookingId } = await params;
   if (!bookingId) {
     return NextResponse.json({ error: "Missing booking id" }, { status: 400 });
   }
