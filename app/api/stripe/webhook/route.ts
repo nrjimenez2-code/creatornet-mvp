@@ -197,7 +197,7 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
       creator_id,
       status: "booked",
     })
-    .returns("id")
+    .select("id")
     .maybeSingle();
   if (error) console.error("[webhook] insert booking failed:", error.message);
 }
