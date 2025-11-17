@@ -198,7 +198,7 @@ const { data: existing } = await admin
     .eq("status", "booked")
     .maybeSingle();
   if (!existing?.id) {
-    const { error } = await admin
+  const { error: insertErr } = await admin
       .from("bookings")
       .insert({
         post_id,
@@ -208,7 +208,7 @@ const { data: existing } = await admin
       })
       .select("id")
       .maybeSingle();
-    if (error) console.error("[webhook] insert booking failed:", error.message);
+  if (insertErr) console.error("[webhook] insert booking failed:", insertErr.message);
   }
   
   if (error) console.error("[webhook] insert booking failed:", error.message);
