@@ -177,7 +177,7 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
   }
 
   // Avoid duplicates if booking already seeded client-side
-  const { data: existing } = await admin
+  const { data: existingBooking } = await admin
     .from("bookings")
     .select("id")
     .eq("buyer_id", buyer_id)
@@ -185,17 +185,21 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     .eq("post_id", post_id)
     .eq("status", "booked")
     .maybeSingle();
-  if (existing?.id) {
+  if (existingBooking?.id) {
     return;
   }
 
-  const { error } = await admin.from("bookings").insert({
-    post_id,
-    buyer_id,
-    creator_id,
-    status: "booked",
-  });
-  if (error) console.error("[webhook] insert booking failed:", error.message);
+  const { error: insertErr } = await admin
+    .from("bookings")
+    .insert({
+      post_id,
+      buyer_id,
+      creator_id,
+      status: "booked",
+    })
+    .select("id")
+    .maybeSingle();
+  if (insertErr) console.error("[webhook] insert booking failed:", insertErr.message);
 }
 
 async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
