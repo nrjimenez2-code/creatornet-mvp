@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import jwt from "jsonwebtoken";
 
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const JWT_SECRET =
+  process.env.SUPABASE_JWT_SECRET || "super-secret-jwt-token-with-at-least-32-characters-long";
 
 if (!SUPABASE_URL) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) environment variable.");
@@ -34,18 +37,14 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = decodeUserId(accessToken);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  const {
-    data: { user },
-    error: authError,
-  } = await admin.auth.getUser(accessToken);
-
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   try {
     const { data: booking, error: bookingError } = await admin
@@ -59,7 +58,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     }
 
-    if (booking.creator_id !== user.id) {
+    if (booking.creator_id !== userId) {
       return NextResponse.json(
         { error: "Forbidden", details: "You do not own this booking." },
         { status: 403 }
@@ -87,6 +86,7 @@ export async function DELETE(
       throw bookingDeleteError;
     }
 
+    console.log("[booking-delete] removed", { bookingId, creatorId: userId });
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     console.error("[booking-delete] error:", {
@@ -161,5 +161,15 @@ function normalizeBase64(input: string): string {
   const padding = replaced.length % 4;
   if (padding === 0) return replaced;
   return replaced.padEnd(replaced.length + (4 - padding), "=");
+}
+
+function decodeUserId(token: string): string | null {
+  try {
+    const decoded = jwt.decode(token) as jwt.JwtPayload;
+    return typeof decoded?.sub === "string" ? decoded.sub : null;
+  } catch (err) {
+    console.warn("[booking-delete] decodeUserId failed:", err);
+    return null;
+  }
 }
 
