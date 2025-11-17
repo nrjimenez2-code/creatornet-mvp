@@ -34,18 +34,14 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const userId = decodeUserId(accessToken);
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  const {
-    data: { user },
-    error: authError,
-  } = await admin.auth.getUser(accessToken);
-
-  if (authError || !user) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
 
   try {
     const { data: booking, error: bookingError } = await admin
@@ -59,7 +55,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     }
 
-    if (booking.creator_id !== user.id) {
+    if (booking.creator_id !== userId) {
       return NextResponse.json(
         { error: "Forbidden", details: "You do not own this booking." },
         { status: 403 }
@@ -78,15 +74,13 @@ export async function DELETE(
       throw paymentDeleteError;
     }
 
-    const { error: bookingDeleteError } = await admin
-      .from("bookings")
-      .delete()
-      .eq("id", bookingId);
+    const { error: bookingDeleteError } = await admin.from("bookings").delete().eq("id", bookingId);
 
     if (bookingDeleteError) {
       throw bookingDeleteError;
     }
 
+    console.log("[booking-delete] removed", { bookingId, creatorId: userId });
     return NextResponse.json({ ok: true });
   } catch (error: any) {
     console.error("[booking-delete] error:", {
@@ -163,3 +157,16 @@ function normalizeBase64(input: string): string {
   return replaced.padEnd(replaced.length + (4 - padding), "=");
 }
 
+function decodeUserId(token: string): string | null {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+    const normalized = normalizeBase64(payload);
+    const json = Buffer.from(normalized, "base64").toString("utf8");
+    const parsed = JSON.parse(json);
+    return typeof parsed?.sub === "string" ? parsed.sub : null;
+  } catch (err) {
+    console.warn("[booking-delete] decodeUserId failed:", err);
+    return null;
+  }
+}
