@@ -189,12 +189,16 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     return;
   }
 
-  const { error } = await admin.from("bookings").insert({
-    post_id,
-    buyer_id,
-    creator_id,
-    status: "booked",
-  });
+  const { error } = await admin
+    .from("bookings")
+    .insert({
+      post_id,
+      buyer_id,
+      creator_id,
+      status: "booked",
+    })
+    .returns("id")
+    .maybeSingle();
   if (error) console.error("[webhook] insert booking failed:", error.message);
 }
 
