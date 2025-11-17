@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
-import jwt from "jsonwebtoken";
 
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const JWT_SECRET =
-  process.env.SUPABASE_JWT_SECRET || "super-secret-jwt-token-with-at-least-32-characters-long";
 
 if (!SUPABASE_URL) {
   throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) environment variable.");
@@ -162,8 +159,12 @@ function normalizeBase64(input: string): string {
 
 function decodeUserId(token: string): string | null {
   try {
-    const decoded = jwt.decode(token) as jwt.JwtPayload;
-    return typeof decoded?.sub === "string" ? decoded.sub : null;
+    const [, payload] = token.split(".");
+    if (!payload) return null;
+    const normalized = normalizeBase64(payload);
+    const json = Buffer.from(normalized, "base64").toString("utf8");
+    const parsed = JSON.parse(json);
+    return typeof parsed?.sub === "string" ? parsed.sub : null;
   } catch (err) {
     console.warn("[booking-delete] decodeUserId failed:", err);
     return null;
