@@ -77,10 +77,7 @@ export async function DELETE(
       throw paymentDeleteError;
     }
 
-    const { error: bookingDeleteError } = await admin
-      .from("bookings")
-      .delete()
-      .eq("id", bookingId);
+    const { error: bookingDeleteError } = await admin.from("bookings").delete().eq("id", bookingId);
 
     if (bookingDeleteError) {
       throw bookingDeleteError;
@@ -172,4 +169,3 @@ function decodeUserId(token: string): string | null {
     return null;
   }
 }
-
