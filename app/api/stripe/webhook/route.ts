@@ -176,6 +176,19 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     return;
   }
 
+  // Avoid duplicates if booking already seeded client-side
+  const { data: existing } = await admin
+    .from("bookings")
+    .select("id")
+    .eq("buyer_id", buyer_id)
+    .eq("creator_id", creator_id)
+    .eq("post_id", post_id)
+    .eq("status", "booked")
+    .maybeSingle();
+  if (existing?.id) {
+    return;
+  }
+
   const { error } = await admin.from("bookings").insert({
     post_id,
     buyer_id,
