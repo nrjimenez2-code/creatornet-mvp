@@ -6,14 +6,7 @@ const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
-const SERVICE_KEY: string | undefined = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!SUPABASE_URL) {
-  throw new Error("Missing NEXT_PUBLIC_SUPABASE_URL (or SUPABASE_URL) environment variable.");
-}
-if (!SERVICE_KEY) {
-  throw new Error("Missing SUPABASE_SERVICE_ROLE_KEY environment variable.");
-}
+const SERVICE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
