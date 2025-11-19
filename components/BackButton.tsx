@@ -9,21 +9,23 @@ interface BackButtonProps {
   scroll?: boolean;
 }
 
-export default function BackButton({ className, hrefOverride, scroll = true }: BackButtonProps) {
+export default function BackButton({ 
+  className, 
+  hrefOverride, 
+  scroll 
+}: BackButtonProps) {
   const router = useRouter();
 
   const handleClick = useCallback(() => {
-    if (hrefOverride) {
-      router.push(hrefOverride);
-    } else if (typeof window !== "undefined" && window.history.length > 1) {
+    if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
-      router.push("/");
+      router.push(hrefOverride || "/");
     }
   }, [router, hrefOverride]);
 
   const defaultClassName = "inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none";
-  const buttonClassName = className || defaultClassName;
+  const buttonClassName = className ?? defaultClassName;
 
   return (
     <div className="mb-6">
