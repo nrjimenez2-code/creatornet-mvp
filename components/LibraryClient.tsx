@@ -122,10 +122,13 @@ export default function LibraryClient() {
     <main className="min-h-screen bg-white">
       <div className="mx-auto max-w-5xl px-4 py-8">
         <div className="flex items-center justify-between">
+          <div>
+            <Link href="/dashboard" className="rounded-md bg-[#7E5CE6] px-3 py-2 text-white text-sm">
+              Back to dashboard
+            </Link>
+          </div>
           <h1 className="text-2xl font-bold">Your Library</h1>
-          <Link href="/dashboard" className="rounded-md bg-[#7E5CE6] px-3 py-2 text-white text-sm">
-            Back to dashboard
-          </Link>
+          <div />
         </div>
 
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -133,7 +136,7 @@ export default function LibraryClient() {
             const price = post.price_cents ? `$${(post.price_cents / 100).toFixed(0)}` : "";
             return (
               <article key={purchase.id} className="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-                <div className="aspect-video bg-black/5">
+                <div className="aspect-[9/16] bg-black/5">
                   {post.poster_url ? (
                     // poster thumbnail
                     // eslint-disable-next-line @next/next/no-img-element
