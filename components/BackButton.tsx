@@ -3,16 +3,27 @@
 import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 
-export default function BackButton() {
+interface BackButtonProps {
+  className?: string;
+  hrefOverride?: string;
+  scroll?: boolean;
+}
+
+export default function BackButton({ className, hrefOverride, scroll = true }: BackButtonProps) {
   const router = useRouter();
 
   const handleClick = useCallback(() => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
+    if (hrefOverride) {
+      router.push(hrefOverride);
+    } else if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
       router.push("/");
     }
-  }, [router]);
+  }, [router, hrefOverride]);
+
+  const defaultClassName = "inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none";
+  const buttonClassName = className || defaultClassName;
 
   return (
     <div className="mb-6">
@@ -21,7 +32,7 @@ export default function BackButton() {
         onClick={handleClick}
         aria-label="Go back"
         suppressHydrationWarning
-        className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none"
+        className={buttonClassName}
       >
         <svg
           width="18"
