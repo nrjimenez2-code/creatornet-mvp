@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FeedList from "@/components/FeedList";
@@ -10,14 +10,40 @@ import type { Tab } from "@/components/VideoCard";
 import SearchDrawer from "@/components/SearchDrawer";
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
+import { createClient } from "@/lib/supabaseClient";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const supabase = useMemo(() => createClient(), []);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("discover");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
   // Prefetch heavy routes so clicks feel instant
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const user = data?.user;
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("avatar_url")
+        .eq("id", user.id)
+        .maybeSingle();
+      if (!cancelled) {
+        setAvatarUrl(
+          (profile?.avatar_url as string | null) ||
+            (user.user_metadata?.avatar_url as string | null) ||
+            null
+        );
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [supabase]);
   // useEffect(() => {
   //   router.prefetch("/dashboard/analytics");
   //   router.prefetch("/library");               // top-level
@@ -94,9 +120,20 @@ export default function DashboardPage() {
                 href="/profile"
                 className="flex items-center gap-3 rounded-xl px-3 py-2 text-white/70 transition hover:bg-white/10 hover:text-white"
               >
-                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                  <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
-                </svg>
+                <span className="relative h-9 w-9 rounded-full border border-white/25 bg-white/10 overflow-hidden flex items-center justify-center">
+                  {avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarUrl}
+                      alt="Profile avatar"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+                      <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
+                    </svg>
+                  )}
+                </span>
                 Profile
               </Link>
 

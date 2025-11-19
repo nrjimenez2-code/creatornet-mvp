@@ -1,20 +1,44 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState, type KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 
 interface ProfileStarRatingProps {
   userId: string;
   rating: number;
   reviewCount: number;
+  enableNavigation?: boolean;
 }
 
-export default function ProfileStarRating({ userId, rating, reviewCount }: ProfileStarRatingProps) {
+export default function ProfileStarRating({
+  userId,
+  rating,
+  reviewCount,
+  enableNavigation = true,
+}: ProfileStarRatingProps) {
   const supabase = createClient();
   const [currentRating, setCurrentRating] = useState(Number(rating) || 0);
   const [currentCount, setCurrentCount] = useState(Number(reviewCount) || 0);
   const [hoverValue, setHoverValue] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const router = useRouter();
+
+  const handleNavigate = useCallback(() => {
+    if (!enableNavigation || !userId) return;
+    router.push(`/creators/${userId}/reviews`);
+  }, [enableNavigation, router, userId]);
+
+  const handleSummaryKey = useCallback(
+    (event: KeyboardEvent<HTMLDivElement>) => {
+      if (!enableNavigation) return;
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        handleNavigate();
+      }
+    },
+    [enableNavigation, handleNavigate]
+  );
 
   async function setRating(value: number) {
     if (!userId || loading) return;
@@ -67,10 +91,20 @@ export default function ProfileStarRating({ userId, rating, reviewCount }: Profi
   if (currentCount === 0 && currentRating === 0) {
     return (
       <div className="flex items-center gap-2 text-white/70">
-        <span className="text-sm">Be the first to review</span>
-        <div className="flex items-center gap-1">
-          {[1].map(renderStar)}
+        <div
+          role={enableNavigation ? "button" : undefined}
+          tabIndex={enableNavigation ? 0 : undefined}
+          onClick={enableNavigation ? handleNavigate : undefined}
+          onKeyDown={enableNavigation ? handleSummaryKey : undefined}
+          className={`text-sm ${
+            enableNavigation
+              ? "cursor-pointer underline decoration-dotted decoration-white/40 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+              : ""
+          }`}
+        >
+          Be the first to review
         </div>
+        <div className="flex items-center gap-1">{[1].map(renderStar)}</div>
       </div>
     );
   }
@@ -80,7 +114,17 @@ export default function ProfileStarRating({ userId, rating, reviewCount }: Profi
       <div className="flex items-center gap-1">
         {[1].map(renderStar)}
       </div>
-      <div className="text-sm text-white/70">
+      <div
+        role={enableNavigation ? "button" : undefined}
+        tabIndex={enableNavigation ? 0 : undefined}
+        onClick={enableNavigation ? handleNavigate : undefined}
+        onKeyDown={enableNavigation ? handleSummaryKey : undefined}
+        className={`text-sm text-white/70 ${
+          enableNavigation
+            ? "cursor-pointer underline decoration-dotted decoration-white/40 underline-offset-4 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
+            : ""
+        }`}
+      >
         {currentRating.toFixed(1)} <span className="text-xs ml-1">({currentCount} reviews)</span>
       </div>
     </div>

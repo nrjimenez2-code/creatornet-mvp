@@ -173,19 +173,6 @@ export default function EditProfilePage() {
         </div>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Tagline</label>
-          <input
-            value={tagline}
-            onChange={(e) => setTagline(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
-            inputMode="text"
-            maxLength={160}
-            suppressHydrationWarning
-          />
-          <p className="mt-1 text-xs text-gray-500">{tagline.length}/160</p>
-        </div>
-
-        <div>
           <label className="block text-sm font-medium mb-1">Bio</label>
           <textarea
             value={bio}

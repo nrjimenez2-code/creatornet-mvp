@@ -174,7 +174,7 @@ function SearchPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search creators, skills, or topics (e.g., fitness, AI, editing)."
-              className="w-full rounded-full border px-5 py-3 pl-11 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
+              className="w-full rounded-full border px-5 py-3 pl-11 bg-white text-black outline-none focus:ring-2 focus:ring-[#7F5CE6]"
               inputMode="search"
             />
             <svg
@@ -209,10 +209,10 @@ function SearchPage() {
               <button
                 key={c}
                 onClick={() => pick(c)}
-                className={`px-3 py-1.5 rounded-full border text-sm ${
+                className={`px-3 py-1.5 rounded-full border text-sm transition ${
                   query.toLowerCase() === c.toLowerCase()
                     ? "bg-[#7F5CE6] text-white border-[#7F5CE6]"
-                    : "bg-white hover:bg-gray-50"
+                    : "bg-white text-gray-800 hover:bg-gray-100"
                 }`}
               >
                 {c}
@@ -253,7 +253,7 @@ function SearchPage() {
                 <button
                   key={s}
                   onClick={() => pick(s)}
-                  className="text-left rounded-lg border px-3 py-2 hover:bg-gray-50"
+                  className="text-left rounded-lg border px-3 py-2 bg-white text-gray-900 hover:bg-gray-50"
                 >
                   {s}
                 </button>
@@ -267,7 +267,7 @@ function SearchPage() {
                 <button
                   key={t}
                   onClick={() => pick(t)}
-                  className="text-left rounded-lg border px-3 py-2 hover:bg-gray-50"
+                  className="text-left rounded-lg border px-3 py-2 bg-white text-gray-900 hover:bg-gray-50"
                 >
                   {t}
                 </button>
@@ -281,13 +281,13 @@ function SearchPage() {
       {!!query && (
         <div className="mx-auto max-w-6xl px-4 py-5">
           {/* Tabs */}
-          <div className="flex gap-6 border-b mb-4">
+          <div className="flex gap-6 border-b border-gray-200 mb-4">
             {(["for-you", "creators", "videos", "tags"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`py-2 -mb-px border-b-2 ${
-                  tab === t ? "border-black font-semibold" : "border-transparent text-gray-500"
+                  tab === t ? "border-black text-black font-semibold" : "border-transparent text-gray-500 hover:text-gray-700"
                 }`}
               >
                 {t === "for-you" ? "For you" : t[0].toUpperCase() + t.slice(1)}
@@ -369,7 +369,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className="px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-sm"
+      className="px-3 py-1.5 rounded-full border text-sm bg-white text-gray-800 hover:bg-gray-100"
     >
       {children}
     </button>

@@ -86,56 +86,56 @@ export default async function ProfilePage() {
 
           <h1 className="mt-6 text-3xl font-semibold">{displayName}</h1>
           <p className="text-white/70">@{username}</p>
-          {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
-          <p className="mt-4 max-w-2xl text-sm text-white/80">{bio}</p>
+          <p className="mt-2 text-sm text-white/60">{bio}</p>
 
-          <div className="mt-6 flex flex-wrap items-center justify-center gap-12 pl-75 text-sm text-white/80">
-            <div className="text-center min-w-[85px]">
-              <span className="block text-lg font-semibold text-white">{postsCount}</span>
+          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80">
+            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[390px]">
+              <span className="text-lg font-semibold text-white">{postsCount}</span>
               posts
             </div>
-            <div className="text-center min-w-[90px]">
-              <span className="block text-lg font-semibold text-white">{followersCount}</span>
+            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[395px]">
+              <span className="text-lg font-semibold text-white">{followersCount}</span>
               followers
             </div>
-            <div className="text-center min-w-[90px]">
-              <span className="block text-lg font-semibold text-white">{followingCount}</span>
+            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[400px]">
+              <span className="text-lg font-semibold text-white">{followingCount}</span>
               following
             </div>
-            <div className="flex items-center pl-32">
-              <ProfileStarRating
-                userId={user.id}
-                rating={rating}
-                reviewCount={reviewCount}
-              />
+            <div className="ml-auto flex items-center gap-2">
+              <ProfileStarRating userId={user.id} rating={rating} reviewCount={reviewCount} />
             </div>
           </div>
 
         </div>
 
-        <div className="mt-12 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
           {posts.length === 0 ? (
             <p className="col-span-full text-center text-white/60">
               You haven&apos;t posted yet. Share your first product or video!
             </p>
           ) : (
             posts.map((post) => (
-              <article
+              <Link
                 key={post.id}
-                className="relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/30"
+                href={{
+                  pathname: `/watch/${post.id}`,
+                  query: { fromProfile: "1" },
+                }}
+                scroll={false}
+                className="group relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/30 transition hover:border-white/40"
               >
                 {post.poster_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={post.poster_url}
                     alt="Post thumbnail"
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover transition group-hover:scale-105"
                     loading="lazy"
                   />
                 ) : post.video_url ? (
                   <video
                     src={post.video_url}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover transition group-hover:scale-105"
                     muted
                     loop
                     playsInline
@@ -143,10 +143,11 @@ export default async function ProfilePage() {
                 ) : (
                   <div className="text-xs text-white/50">No media</div>
                 )}
-              </article>
+              </Link>
             ))
           )}
         </div>
+
       </div>
     </section>
   );

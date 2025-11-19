@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import VideoCard from "./VideoCard";
 import { createClient } from "@/lib/supabaseClient";
 
@@ -16,6 +16,8 @@ export type PostRow = {
   creator_id: string | null;
   product_id: string | null;
   price_cents: number | null;
+  creator_name?: string | null;
+  creator_avatar_url?: string | null;
   title: string | null;
   video_url: string | null;
   poster_url: string | null;
@@ -39,6 +41,9 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [globalSoundOn, setGlobalSoundOn] = useState(false);
+  const [activePostId, setActivePostId] = useState<string | null>(null);
+  const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -61,48 +66,127 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
       let mapped: PostRow[] = [];
       if (Array.isArray(data)) {
-        mapped = await Promise.all(
-          data
-            .map((r: any) => {
-              const postId = (r.post_id as string) ?? (r.id as string) ?? "";
-              return {
-                id: postId,
-                creator_id: (r.creator_id as string) ?? null,
-                product_id: (r.product_id as string) ?? null,
-                price_cents: (r.price_cents as number) ?? 0,
-                title: (r.title as string) ?? null,
-                video_url: (r.video_url as string) ?? null,
-                poster_url: (r.poster_url as string) ?? null,
-                content: (r.title as string) ?? "",
-                interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
-                created_at: null, // rpc doesn't return it; fine for now
+        const baseRows: PostRow[] = data
+          .map((r: any) => {
+            const postId = (r.post_id as string) ?? (r.id as string) ?? "";
+            const derivedName =
+              (r.creator_name as string) ??
+              (r.full_name as string) ??
+              (r.username as string) ??
+              null;
+            const derivedAvatar = (r.avatar_url as string) ?? null;
+            return {
+              id: postId,
+              creator_id: (r.creator_id as string) ?? null,
+              product_id: (r.product_id as string) ?? null,
+              price_cents: (r.price_cents as number) ?? 0,
+              title: (r.title as string) ?? null,
+              video_url: (r.video_url as string) ?? null,
+              poster_url: (r.poster_url as string) ?? null,
+              content: (r.title as string) ?? "",
+              interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+              created_at: null,
+              likes_count: (r.likes_count as number) ?? 0,
+              comments_count: (r.comments_count as number) ?? 0,
+              shares_count: (r.shares_count as number) ?? 0,
+              allow_booking: (r.allow_booking as boolean) ?? false,
+              booking_url: (r.booking_url as string) ?? null,
+              is_following: (r.is_following as boolean) ?? false,
+              creator_name: derivedName,
+              creator_avatar_url: derivedAvatar,
+            };
+          })
+          .filter((p) => p.video_url || p.poster_url);
 
-                likes_count: (r.likes_count as number) ?? 0,
-                comments_count: (r.comments_count as number) ?? 0,
-                shares_count: (r.shares_count as number) ?? 0,
-
-                allow_booking: (r.allow_booking as boolean) ?? false,
-                booking_url: (r.booking_url as string) ?? null,
-                is_following: (r.is_following as boolean) ?? false,
-              };
-            })
-            // keep only items with media
-            .filter((p: PostRow) => p.video_url || p.poster_url)
-            .map(async (p) => {
-              if (!p.product_id) return p;
-              const { data: prod } = await supabase
-                .from("products")
-                .select("type")
-                .eq("product_id", p.product_id)
-                .maybeSingle();
-              return { ...p, product_type: prod?.type ?? null };
-            })
+        const productIds = Array.from(
+          new Set(
+            baseRows
+              .map((p) => p.product_id)
+              .filter((id): id is string => Boolean(id))
+          )
         );
+        const creatorIds = Array.from(
+          new Set(
+            baseRows
+              .map((p) => p.creator_id)
+              .filter((id): id is string => Boolean(id))
+          )
+        );
+
+        const productPromise = productIds.length
+          ? supabase
+              .from("products")
+              .select("product_id, type")
+              .in("product_id", productIds)
+          : Promise.resolve(null);
+        const profilePromise = creatorIds.length
+          ? supabase
+              .from("profiles")
+              .select("id, full_name, username, avatar_url")
+              .in("id", creatorIds)
+          : Promise.resolve(null);
+
+        const [productRes, profileRes] = await Promise.all([
+          productPromise,
+          profilePromise,
+        ]);
+
+        const productTypeMap = new Map<string, string | null>();
+        if (productRes?.error) {
+          console.error("Product lookup error:", productRes.error);
+        } else if (productRes?.data) {
+          for (const row of productRes.data) {
+            const typed = row as { product_id: string; type?: string | null };
+            productTypeMap.set(typed.product_id, typed.type ?? null);
+          }
+        }
+
+        const profileMap = new Map<
+          string,
+          { full_name: string | null; username: string | null; avatar_url: string | null }
+        >();
+        if (profileRes?.error) {
+          console.error("Profile lookup error:", profileRes.error);
+        } else if (profileRes?.data) {
+          for (const row of profileRes.data) {
+            const typed = row as {
+              id: string;
+              full_name?: string | null;
+              username?: string | null;
+              avatar_url?: string | null;
+            };
+            profileMap.set(typed.id, {
+              full_name: typed.full_name ?? null,
+              username: typed.username ?? null,
+              avatar_url: typed.avatar_url ?? null,
+            });
+          }
+        }
+
+        mapped = baseRows.map((p) => {
+          const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
+          return {
+            ...p,
+            product_type: p.product_id
+              ? productTypeMap.get(p.product_id) ?? null
+              : null,
+            creator_name:
+              profile?.full_name ??
+              profile?.username ??
+              p.creator_name ??
+              null,
+            creator_avatar_url:
+              profile?.avatar_url ?? p.creator_avatar_url ?? null,
+          };
+        });
       }
 
       if (!cancelled) {
         setItems(mapped);
         setLoading(false);
+        if (mapped.length) {
+          setActivePostId((prev) => prev ?? mapped[0]?.id ?? null);
+        }
       }
     })();
 
@@ -181,6 +265,28 @@ export default function FeedList({ activeTab }: FeedListProps) {
     };
   }, [activeTab, supabase]);
 
+  useEffect(() => {
+    if (!items.length) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible) {
+          const id = (visible.target as HTMLElement).dataset.postId;
+          if (id) {
+            setActivePostId((prev) => (prev === id ? prev : id));
+          }
+        }
+      },
+      { threshold: 0.6 }
+    );
+
+    sectionRefs.current.forEach((node) => observer.observe(node));
+
+    return () => observer.disconnect();
+  }, [items]);
+
   if (loading && items.length === 0) {
     return (
       <div className="w-full flex justify-center py-10 text-sm text-gray-500">
@@ -204,6 +310,8 @@ export default function FeedList({ activeTab }: FeedListProps) {
     >
       {items.map((p, idx) => {
         const price = typeof p.price_cents === "number" ? p.price_cents : 0;
+        const isActive = activePostId === p.id;
+        const isSoundOn = globalSoundOn && isActive;
         const sellable = !!p.product_id;
         const allowBooking =
           !!p.allow_booking &&
@@ -216,6 +324,15 @@ export default function FeedList({ activeTab }: FeedListProps) {
           <section
             key={`${p.id}-${idx}`}
             className="snap-start min-h-screen flex items-start justify-center pt-8"
+            data-post-id={p.id}
+            ref={(el) => {
+              const map = sectionRefs.current;
+              if (el) {
+                map.set(p.id, el);
+              } else {
+                map.delete(p.id);
+              }
+            }}
           >
             <div className="relative w-full">
               <VideoCard
@@ -224,7 +341,8 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 poster={p.poster_url || "/file.svg"}
 
                 // meta
-                creator={"Noah Jimenez"}
+                creator={p.creator_name ?? "Creator"}
+                creatorAvatarUrl={p.creator_avatar_url ?? null}
                 caption={p.content || ""}
                 hashtags={
                   Array.isArray(p.interests) && p.interests.length
@@ -253,6 +371,9 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 // booking
                 allowBooking={allowBooking}
                 bookingRedirectUrl={allowBooking ? p.booking_url! : null}
+                soundEnabled={isSoundOn}
+                onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+                tapToTogglePlayback
               />
             </div>
           </section>

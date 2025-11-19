@@ -150,6 +150,7 @@ export default function Page() {
               autoCapitalize="off"
               autoCorrect="off"
               spellCheck={false}
+              suppressHydrationWarning
             />
             {helperText && (
               <p
@@ -185,6 +186,7 @@ export default function Page() {
                       ? "bg-[#7E5CE6] text-white border-[#7E5CE6]"
                       : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
                   }`}
+                  suppressHydrationWarning
                 >
                   {opt}
                 </button>
