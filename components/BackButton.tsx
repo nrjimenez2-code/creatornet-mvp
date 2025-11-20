@@ -17,10 +17,12 @@ export default function BackButton({
   const router = useRouter();
 
   const handleClick = useCallback(() => {
-    if (typeof window !== "undefined" && window.history.length > 1) {
+    if (hrefOverride) {
+      router.push(hrefOverride);
+    } else if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
-      router.push(hrefOverride || "/");
+      router.push("/");
     }
   }, [router, hrefOverride]);
 
