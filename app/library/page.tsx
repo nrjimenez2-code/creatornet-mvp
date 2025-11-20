@@ -73,7 +73,7 @@ function LibraryCard({
 
   return (
     <div
-      className="w-full border rounded-xl overflow-hidden hover:shadow-lg transition bg-white"
+      className="w-full border border-gray-700 rounded-xl overflow-hidden hover:shadow-lg transition bg-black"
       onMouseEnter={() => onPrefetch(item.post_id)}
       onTouchStart={() => onPrefetch(item.post_id)}
     >
@@ -102,21 +102,21 @@ function LibraryCard({
 
       {showProgress && (
         <div className="px-4 pt-3">
-          <div className="h-2 w-full bg-gray-200 rounded">
+          <div className="h-2 w-full bg-gray-700 rounded">
             <div className="h-2 bg-black rounded" style={{ width: `${pct}%` }} />
           </div>
-          <div className="mt-1 text-[11px] text-gray-500">
+          <div className="mt-1 text-[11px] text-gray-400">
             {fmt(item.position_seconds)} / {fmt(item.duration_seconds)}
           </div>
         </div>
       )}
 
       <div className="p-3">
-        <h2 className="font-medium text-xs mb-2 line-clamp-2">{item.title}</h2>
+        <h2 className="font-medium text-xs mb-2 line-clamp-2 text-white">{item.title}</h2>
         <Link
           href={`/watch/${item.post_id}`}
           prefetch
-          className="inline-block bg-black text-white text-xs px-3 py-1.5 rounded-md hover:opacity-90"
+          className="inline-block bg-gray-800 text-white text-xs px-3 py-1.5 rounded-md hover:opacity-90"
         >
           {pct > 0 && pct < 95 ? "Resume" : "Watch"}
         </Link>
@@ -135,7 +135,7 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // cache prefetches per session (ref so it doesn’t reset on re-render)
+  // cache prefetches per session (ref so it doesn't reset on re-render)
   const prefetchedRef = useRef<Set<string>>(new Set());
   const prefetchWatch = (postId: string) => {
     const s = prefetchedRef.current;
@@ -309,9 +309,9 @@ export default function LibraryPage() {
     return (
       <main className="p-6 text-center text-gray-500">
         <BackButton hrefOverride="/dashboard" />
-        You haven’t purchased any videos yet.
+        You haven't purchased any videos yet.
         <div className="mt-4">
-          <BackButton />
+          <BackButton hrefOverride="/dashboard" />
           <Link
             href="/dashboard"
             className="inline-block px-4 py-2 bg-black text-white rounded-md hover:opacity-90"
@@ -346,7 +346,7 @@ export default function LibraryPage() {
       )}
 
       <section>
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2">
           {items.map((item) => (
             <LibraryCard
               key={item.id}
