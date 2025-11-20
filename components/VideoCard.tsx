@@ -377,7 +377,7 @@ export default function VideoCard(props: VideoCardProps) {
       </div>
 
       {/* Action rail (mobile overlay) */}
-      <div className="absolute right-4 bottom-6 flex flex-col items-end gap-4 z-30 md:hidden">
+      <div className="absolute right-4 bottom-6 flex flex-col items-end gap-4 z-30 md:hidden" style={{ bottom: '120px' }}>
         <div className="self-end translate-x-0.5">
           <CreatorAvatarButton
             avatarUrl={creatorAvatarUrl}
@@ -500,7 +500,7 @@ export default function VideoCard(props: VideoCardProps) {
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-20" />
       </div>
       {/* Desktop action rail */}
-      <div className="hidden md:flex flex-col items-center gap-5 pb-6">
+      <div className="hidden md:flex flex-col items-center gap-3 pb-6" style={{ marginTop: '650px' }}>
         <CreatorAvatarButton
           avatarUrl={creatorAvatarUrl}
           creatorName={creator}
