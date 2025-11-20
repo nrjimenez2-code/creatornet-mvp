@@ -65,19 +65,19 @@ export default function DashboardPage() {
             </nav>
           </div>
           */}
-          <div className="w-[260px] rounded-3xl border border-white/10 bg-black/70 px-6 py-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur">
-            <div className="flex items-center pb-6">
+          <div className="w-[260px] rounded-3xl border border-white/10 bg-black/70 px-6 pt-4 pb-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur">
+            <div className="flex items-center pb-4 border-b border-white/10">
               <img
                 src="/creatornet-mark.png"
                 alt="CreatorNet mark"
-                className="h-20 w-auto mix-blend-screen brightness-125 drop-shadow-[0_0_30px_rgba(120,120,255,0.4)]"
+                className="h-20 w-auto"
               />
             </div>
 
             <button
               type="button"
               onClick={() => setIsSearchOpen(true)}
-              className="mb-6 flex w-full items-center gap-3 rounded-full bg-white/10 px-4 py-2 text-sm text-white/70 transition hover:bg-white/15"
+              className="relative -mt-4 flex w-full items-center gap-3 rounded-full border border-white/25 bg-black px-4 py-2 text-sm text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition hover:bg-black/80"
             >
               <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
                 <path d="M21 20.3 16.8 16a7.5 7.5 0 1 0-.8.8L20.3 21l.7-.7zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z" />
@@ -85,7 +85,7 @@ export default function DashboardPage() {
               <span className="text-white/80">Search</span>
             </button>
 
-            <nav className="flex flex-col gap-2 text-[15px] font-medium">
+            <nav className="mt-6 flex flex-col gap-2 text-[15px] font-medium">
               <button
                 type="button"
                 onClick={() => setActiveTab("discover")}
