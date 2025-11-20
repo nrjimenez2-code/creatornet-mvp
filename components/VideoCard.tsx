@@ -323,13 +323,14 @@ export default function VideoCard(props: VideoCardProps) {
   const canShowCTA = Boolean(showCTA && (postId || productId));
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] items-end justify-center gap-4">
+    <div className="mx-auto flex w-full h-full max-w-[1200px] items-center justify-center gap-4 px-3">
       <div
         className="
           relative
           w-full max-w-[1080px]
           aspect-[9/16]
-          lg:h-[90vh] lg:w-auto
+          min-h-[90vh]
+          lg:min-h-[100vh] lg:w-auto
           rounded-3xl bg-black shadow-[0_10px_40px_rgba(0,0,0,0.45)] overflow-hidden
         "
         ref={wrapperRef}
@@ -568,9 +569,9 @@ function ActionStat({ children, count, onClick, ariaLabel }: ActionStatProps) {
       type="button"
       onClick={onClick}
       aria-label={ariaLabel || "action"}
-      className="group flex items-center gap-1.5 text-white/90 hover:text-white transition"
+      className="group flex flex-col items-center gap-1 text-white/90 hover:text-white transition"
     >
-      <span className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/30 backdrop-blur-sm group-hover:bg-white/15 transition">
+      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1f1f1f] group-hover:bg-[#2b2b2b] transition overflow-hidden">
         <div className="h-5 w-5">{children}</div>
       </span>
       {typeof count !== "undefined" ? (
@@ -674,9 +675,9 @@ function priceCentsToUSD(cents?: number | null) {
 
 /* Icons */
 function UserIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0 0-2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>)}
-function HeartIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M12 21s-7.5-4.8-9.6-8.2C.4 10.3 2 6.5 5.6 6.1A5 5 0 0 1 12 8.6a5 5 0 0 1 6.4-2.5c3.6.4 5.2 4.2 3.2 6.7C19.5 16.2 12 21 12 21z"/></svg>)}
-function ChatIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M2 4h20v12H7l-5 5V4z"/></svg>)}
-function ShareIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M18 8a3 3 0 1 0-2.8-4H12v4h3.2A3 3 0 0 0 18 8zM6 14a3 3 0 1 0 2.8 4H12v-4H8.8A3 3 0 0 0 6 14zm12 0a3 3 0 1 0 0 6a3 3 0 0 0 0-6zM12 7l4 5h-3v4h-2v-4H8l4-5z"/></svg>)}
+function HeartIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>)}
+function ChatIcon(){return(<img src="/msg.png" alt="Comments" className="h-full w-full object-contain" />)}
+function ShareIcon(){return(<img src="/image.png" alt="Share" className="h-full w-full object-contain" />)}
 function CartIcon(){return(<svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M7 4h14l-1.5 9H8.6L7 4zM3 4h2l3 12h10v2H7a2 2 0 0 1-2-1.5L3 4zM9 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3zM17 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z"/></svg>)}
 function PlusIcon(){return(<svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M11 4h2v16h-2zM4 11h16v2H4z"/></svg>)}
 function SoundOnIcon(){return(<svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="m3 9v6h4l5 5V4L7 9H3zm13.5 3a3.5 3.5 0 0 0-2.5-3.347v6.694A3.5 3.5 0 0 0 16.5 12zm-2.5-7.857v2.126A6.5 6.5 0 0 1 19 12a6.5 6.5 0 0 1-5 6.357v2.126A8.5 8.5 0 0 0 21 12a8.5 8.5 0 0 0-7-7.857z"/></svg>)}

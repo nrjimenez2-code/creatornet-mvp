@@ -52,7 +52,7 @@ export default function PostComposerModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Create a new post"
@@ -64,21 +64,21 @@ export default function PostComposerModal({
       <div
         ref={dialogRef}
         tabIndex={-1}
-        className="w-[min(720px,95vw)] max-h-[92vh] overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl outline-none"
+        className="w-[min(720px,95vw)] max-h-[92vh] overflow-y-auto rounded-2xl bg-[#060606] p-5 shadow-2xl outline-none border border-white/10 text-white"
       >
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">New post</h3>
+          <h3 className="text-lg font-semibold tracking-wide">New post</h3>
           <button
             type="button"
             onClick={close}
-            className="rounded-md p-2 text-gray-600 hover:bg-gray-100"
+            className="rounded-full p-2 text-white/80 hover:bg-white/10 transition"
             aria-label="Close"
           >
             ✕
           </button>
         </div>
 
-        <div className="mt-3">
+        <div className="mt-4">
           <PostComposer
             onPosted={() => {
               close();

@@ -305,7 +305,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
   return (
     <div
-      className="h-screen overflow-y-auto snap-y snap-mandatory px-3 [&::-webkit-scrollbar]:hidden"
+      className="h-screen overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
       style={{ scrollbarWidth: "none" }}
     >
       {items.map((p, idx) => {
@@ -323,7 +323,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
         return (
           <section
             key={`${p.id}-${idx}`}
-            className="snap-start min-h-screen flex items-start justify-center pt-8"
+            className="snap-start snap-always h-screen w-full flex items-center justify-center"
             data-post-id={p.id}
             ref={(el) => {
               const map = sectionRefs.current;
@@ -334,7 +334,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
               }
             }}
           >
-            <div className="relative w-full">
+            <div className="relative w-full h-full flex items-center justify-center">
               <VideoCard
                 // media
                 src={p.video_url || undefined}

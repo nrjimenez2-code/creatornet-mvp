@@ -377,63 +377,78 @@ export default function PostComposer({ onPosted }: Props) {
   /* ------------------------------------------------------------------ */
 
   return (
-    <div className="rounded-xl border border-gray-200 shadow-sm p-4">
+    <div className="rounded-2xl border border-white/10 bg-[#050505] p-5 text-white">
       {/* Title */}
-      <input
-        value={title}
-        onChange={(e) => setTitle(e.target.value)}
-        placeholder="Title (optional)"
-        className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
-      />
-
-      {/* Caption */}
-      <textarea
-        value={caption}
-        onChange={(e) => setCaption(e.target.value)}
-        maxLength={300}
-        placeholder="Share a tip, a lesson, or a quick insight…  (use #tags like #daytrading #smma)"
-        className="mt-3 w-full rounded-md border border-gray-300 px-3 py-3 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/25"
-        rows={3}
-      />
-
-      {/* Price override */}
-      <div className="mt-3 flex items-center gap-2">
-        <label className="text-sm text-gray-600">$</label>
+      <div className="space-y-1.5">
+        <label className="text-sm font-semibold text-white/80">
+          Title (optional)
+        </label>
         <input
-          inputMode="decimal"
-          value={priceDollars}
-          onChange={(e) => setPriceDollars(e.target.value)}
-          placeholder="Price (optional, e.g. 25 for $25.00)"
-          className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="What are you sharing?"
+          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
         />
       </div>
 
+      {/* Caption */}
+      <div className="mt-4 space-y-1.5">
+        <label className="text-sm font-semibold text-white/80">
+          Caption / Description
+        </label>
+        <textarea
+          value={caption}
+          onChange={(e) => setCaption(e.target.value)}
+          maxLength={300}
+          placeholder="Share a tip, a lesson, or a quick insight…  (use #tags like #daytrading #smma)"
+          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-3 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
+          rows={3}
+        />
+      </div>
+
+      {/* Price override */}
+      <div className="mt-4 space-y-1.5">
+        <label className="text-sm font-semibold text-white/80">
+          Price (USD)
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-white/60">$</span>
+          <input
+            inputMode="decimal"
+            value={priceDollars}
+            onChange={(e) => setPriceDollars(e.target.value)}
+            placeholder="Optional, e.g. 25 for $25"
+            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
+          />
+        </div>
+      </div>
+
       {/* Product attach */}
-      <div className="mt-3">
-        <label className="inline-flex items-center gap-2 select-none">
+      <div className="mt-4 space-y-2">
+        <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
           <input
             type="checkbox"
-            className="h-4 w-4"
+            className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
             checked={attachBuy}
             onChange={(e) => setAttachBuy(e.target.checked)}
           />
-          <span className="text-sm text-gray-800">Attach “Buy / Book” to this post</span>
+          Attach “Buy / Book” to this post
         </label>
 
         {attachBuy && (
-          <div className="mt-2 space-y-2">
+          <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
             <div className="flex gap-2">
               <select
                 value={productId ?? ""}
                 onChange={(e) => setProductId(e.target.value || null)}
-                className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+                className="flex-1 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                 disabled={loadingProducts}
               >
-                <option value="">
+                <option className="bg-black text-white" value="">
                   {loadingProducts ? "Loading…" : "Select a product…"}
                 </option>
                 {products.map((p) => (
-                  <option key={p.id} value={p.id}>
+                  <option className="bg-black text-white" key={p.id} value={p.id}>
                     {p.title}
                     {p.price_cents != null ? ` — $${(p.price_cents / 100).toFixed(0)}` : ""}
                   </option>
@@ -443,100 +458,100 @@ export default function PostComposer({ onPosted }: Props) {
               <button
                 type="button"
                 onClick={() => setNewProdOpen((v) => !v)}
-                className="rounded-md border px-3 py-2 text-sm hover:bg-gray-50"
+                className="rounded-lg border border-white/20 px-3 py-2 text-sm text-white hover:bg-white/10"
               >
                 {newProdOpen ? "Cancel" : "New"}
               </button>
             </div>
 
             {newProdOpen && (
-              <div className="rounded-lg border p-3 space-y-2">
+              <div className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3">
                 <input
                   value={newProdTitle}
                   onChange={(e) => setNewProdTitle(e.target.value)}
                   placeholder="Product title (e.g., 1-Hour Masterclass)"
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+                  className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                 />
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600 shrink-0">Type</label>
+                  <label className="text-sm text-white/60 shrink-0">Type</label>
                   <select
                     value={newProdType}
                     onChange={(e) => setNewProdType(e.target.value as "video" | "course" | "mentorship")}
-                    className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+                    className="flex-1 rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                   >
-                    <option value="video">Video</option>
-                    <option value="course">Course</option>
-                    <option value="mentorship">Mentorship</option>
+                    <option className="bg-black text-white" value="video">
+                      Video
+                    </option>
+                    <option className="bg-black text-white" value="course">
+                      Course
+                    </option>
+                    <option className="bg-black text-white" value="mentorship">
+                      Mentorship
+                    </option>
                   </select>
                 </div>
                 <div className="flex items-center gap-2">
-                  <label className="text-sm text-gray-600 shrink-0">$</label>
+                  <label className="text-sm text-white/60 shrink-0">$</label>
                   <input
                     inputMode="decimal"
                     value={newProdPrice}
                     onChange={(e) => setNewProdPrice(e.target.value)}
                     placeholder="Price (optional)"
-                    className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+                    className="flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                   />
                   <button
                     type="button"
                     onClick={handleCreateProduct}
                     disabled={creatingProduct}
-                    className="rounded-md bg-[#9370DB] px-3 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-60"
+                    className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:opacity-90 disabled:opacity-60"
                   >
                     {creatingProduct ? "Creating…" : "Create"}
                   </button>
                 </div>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-white/50">
                   Dollars are auto-converted to cents and saved on the product.
                 </p>
               </div>
             )}
 
-            <p className="text-xs text-gray-500">
-              Tip: If you leave the post price empty, we’ll use the attached product’s price.
-              You can still override with a custom price above.
+            <p className="text-xs text-white/50">
+              Tip: leave the post price blank to reuse the attached product price. You can still override above.
             </p>
           </div>
         )}
       </div>
 
       {/* Booking option */}
-      <div className="mt-3">
-        <label className="inline-flex items-center gap-2 select-none">
+      <div className="mt-4 space-y-2">
+        <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
           <input
             type="checkbox"
-            className="h-4 w-4"
+            className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
             checked={attachBooking}
             onChange={(e) => setAttachBooking(e.target.checked)}
           />
-          <span className="text-sm text-gray-800">
-            Offer “Book a free call” on this post
-          </span>
+          Offer “Book a free call” on this post
         </label>
 
         {attachBooking && (
-          <div className="mt-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Booking URL
-            </label>
+          <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+            <label className="text-sm font-semibold text-white/80">Booking URL</label>
             <input
               value={bookingUrl}
               onChange={(e) => setBookingUrl(e.target.value)}
-              placeholder="https://your-booking-link.com/... (leave blank to auto-route to your team)"
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:outline-none focus:ring-4 focus:ring-[#9370DB]/20"
+              placeholder="https://your-booking-link.com (leave blank to auto-route)"
+              className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
             />
-            <p className="mt-1 text-xs text-gray-500">
-              Buyers who choose “Book” go through a $0 Stripe checkout and are then redirected here.
-              Any secure (https) link works — Calendly, Cal.com, Google Meet, your closer’s CRM, etc.
-              Leave blank to automatically route to your team’s closer.
+            <p className="text-xs text-white/50">
+              Buyers who pick “Book” go through a $0 checkout, then get redirected here. Use any https link
+              (Calendly, Cal.com, CRM, etc.).
             </p>
           </div>
         )}
       </div>
 
       {/* Tags */}
-      <div className="flex flex-wrap gap-2 mt-3">
+      <div className="mt-4 flex flex-wrap gap-2">
         {myTags.map((t) => {
           const active = t === selectedTag;
           return (
@@ -547,7 +562,7 @@ export default function PostComposer({ onPosted }: Props) {
               className={`px-3 py-1.5 rounded-full text-sm border transition ${
                 active
                   ? "bg-[#7E5CE6] text-white border-[#7E5CE6]"
-                  : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  : "bg-black/40 text-white border-white/20 hover:bg-black/60"
               }`}
             >
               {t}
@@ -557,9 +572,8 @@ export default function PostComposer({ onPosted }: Props) {
       </div>
 
       {/* Uploaders */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
-        {/* Public promo video */}
-        <label className="flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60">
           <span className="truncate">
             {videoFile ? `🎬 ${videoFile.name}` : "🎬 Choose .mp4 video (promo/public)"}
           </span>
@@ -571,8 +585,7 @@ export default function PostComposer({ onPosted }: Props) {
           />
         </label>
 
-        {/* Public thumbnail */}
-        <label className="flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60">
           <span className="truncate">
             {thumbFile ? `🖼️ ${thumbFile.name}` : "🖼️ Optional thumbnail (.jpg/.png)"}
           </span>
@@ -584,8 +597,7 @@ export default function PostComposer({ onPosted }: Props) {
           />
         </label>
 
-        {/* Private premium file */}
-        <label className="flex items-center justify-between gap-3 rounded-md border border-gray-300 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 sm:col-span-2">
+        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60 sm:col-span-2">
           <span className="truncate">
             {premiumFile ? `🔒 premium: ${premiumFile.name}` : "🔒 Premium .mp4 (private, optional)"}
           </span>
@@ -599,12 +611,12 @@ export default function PostComposer({ onPosted }: Props) {
       </div>
 
       {/* Footer */}
-      <div className="mt-3 flex items-center justify-between">
-        <span className="text-xs text-gray-500">{chars} / 300</span>
+      <div className="mt-4 flex items-center justify-between text-sm">
+        <span className="text-xs text-white/50">{chars} / 300</span>
         <button
           onClick={handlePost}
           disabled={!canPost || posting}
-          className="px-4 py-2 rounded-md bg-[#9370DB] text-white text-sm font-semibold hover:brightness-95 disabled:opacity-60"
+          className="rounded-full bg-[#7E5CE6] px-5 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50"
         >
           {posting ? "Posting…" : "Post"}
         </button>

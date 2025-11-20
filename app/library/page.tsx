@@ -13,6 +13,7 @@ type LibraryItem = {
   post_id: string;
   title: string;
   poster_url: string | null;
+  video_url: string | null;
   created_at?: string | null;
   position_seconds?: number | null;
   duration_seconds?: number | null;
@@ -72,23 +73,32 @@ function LibraryCard({
 
   return (
     <div
-      className="border rounded-lg overflow-hidden hover:shadow-md transition"
+      className="w-full border rounded-xl overflow-hidden hover:shadow-lg transition bg-white"
       onMouseEnter={() => onPrefetch(item.post_id)}
       onTouchStart={() => onPrefetch(item.post_id)}
     >
-      {item.poster_url ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.poster_url}
-          alt={item.title}
-          className="w-full h-48 object-cover bg-gray-50"
-          loading="lazy"
-        />
-      ) : (
-        <div className="w-full h-48 bg-gray-100 flex items-center justify-center text-gray-400 text-sm">
-          No thumbnail
-        </div>
-      )}
+      <div className="aspect-[4/3] w-full bg-gray-100">
+        {item.poster_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.poster_url}
+            alt={item.title}
+            className="h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : item.video_url ? (
+          <video
+            src={item.video_url}
+            className="h-full w-full object-cover"
+            muted
+            playsInline
+          />
+        ) : (
+          <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">
+            No thumbnail
+          </div>
+        )}
+      </div>
 
       {showProgress && (
         <div className="px-4 pt-3">
@@ -101,12 +111,12 @@ function LibraryCard({
         </div>
       )}
 
-      <div className="p-4">
-        <h2 className="font-medium text-sm mb-2 line-clamp-2">{item.title}</h2>
+      <div className="p-3">
+        <h2 className="font-medium text-xs mb-2 line-clamp-2">{item.title}</h2>
         <Link
           href={`/watch/${item.post_id}`}
           prefetch
-          className="inline-block bg-black text-white text-sm px-3 py-2 rounded-md hover:opacity-90"
+          className="inline-block bg-black text-white text-xs px-3 py-1.5 rounded-md hover:opacity-90"
         >
           {pct > 0 && pct < 95 ? "Resume" : "Watch"}
         </Link>
@@ -163,7 +173,8 @@ export default function LibraryPage() {
               posts (
                 id,
                 title,
-                poster_url
+                poster_url,
+                video_url
               )
             `
           )
@@ -186,6 +197,7 @@ export default function LibraryPage() {
             created_at: row.created_at ?? null,
             title: row.posts?.title ?? "Untitled",
             poster_url: row.posts?.poster_url ?? null,
+            video_url: row.posts?.video_url ?? null,
           })) ?? [];
 
         // 2) Optional progress
@@ -253,7 +265,21 @@ export default function LibraryPage() {
   if (loading) {
     return (
       <main className="mx-auto max-w-6xl p-6">
-        <BackButton />
+        <div className="w-full flex justify-start">
+          <div className="inline-flex -translate-x-20 transform">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+        </div>
+        <div className="w-full flex justify-start">
+          <div className="inline-flex -translate-x-20 transform">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+        </div>
+      <div className="w-full flex justify-start">
+        <div className="inline-flex -translate-x-20 transform">
+          <BackButton hrefOverride="/dashboard" />
+        </div>
+      </div>
         <ContinueSkeleton />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -267,10 +293,10 @@ export default function LibraryPage() {
   if (error) {
     return (
       <main className="p-6 text-center text-red-500">
-        <BackButton />
+        <BackButton hrefOverride="/dashboard" />
         Error: {error}
         <div className="mt-4">
-          <BackButton />
+          <BackButton hrefOverride="/dashboard" />
           <Link href="/dashboard" className="underline text-sm">
             Back to dashboard
           </Link>
@@ -282,7 +308,7 @@ export default function LibraryPage() {
   if (items.length === 0) {
     return (
       <main className="p-6 text-center text-gray-500">
-        <BackButton />
+        <BackButton hrefOverride="/dashboard" />
         You haven’t purchased any videos yet.
         <div className="mt-4">
           <BackButton />
@@ -299,10 +325,11 @@ export default function LibraryPage() {
 
   return (
     <main className="mx-auto max-w-6xl p-6">
-      <BackButton />
+      <div className="-ml-[4.7in]">
+        <BackButton hrefOverride="/dashboard" />
+      </div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-semibold">Your Library</h1>
-        <BackButton />
       </div>
 
       {continueItems.length > 0 && (
@@ -310,7 +337,7 @@ export default function LibraryPage() {
           <h2 className="text-base font-medium mb-3">Continue watching</h2>
           <div className="flex gap-4 overflow-x-auto pb-1">
             {continueItems.map((it) => (
-              <div key={`cw-${it.id}`} className="min-w-[240px] max-w-[280px]">
+              <div key={`cw-${it.id}`} className="min-w-[210px] max-w-[220px]">
                 <LibraryCard item={it} onPrefetch={prefetchWatch} />
               </div>
             ))}
@@ -319,7 +346,7 @@ export default function LibraryPage() {
       )}
 
       <section>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
           {items.map((item) => (
             <LibraryCard
               key={item.id}

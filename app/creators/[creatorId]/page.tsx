@@ -2,6 +2,8 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
 import ProfileStarRating from "@/components/ProfileStarRating";
+import ProfileShareButton from "@/components/ProfileShareButton";
+import ProfilePostsGallery from "@/components/ProfilePostsGallery";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
@@ -87,12 +89,18 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const canFollow = false;
 
   return (
-    <section className="px-4 pb-16 pt-10 text-white">
+    <section className="px-4 pb-16 pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        <BackButton />
+        <div className="-ml-[4.5in]">
+          <BackButton />
+        </div>
 
-        <div className="mt-6 flex flex-col items-center text-center">
-          <div className="h-44 w-44 rounded-full bg-white/10 overflow-hidden border border-white/20 shadow-[0_0_60px_rgba(127,92,230,0.35)]">
+        <div className="absolute top-10 left-4 z-10 translate-x-[18.5in]">
+          <ProfileShareButton />
+        </div>
+
+        <div className="-mt-12 flex flex-col items-center text-center">
+          <div className="h-64 w-64 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -113,19 +121,19 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           <p className="mt-4 max-w-2xl text-sm text-white/80">{bio}</p>
 
           <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80">
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[390px]">
+            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[425px]">
               <span className="text-lg font-semibold text-white">
                 {posts.length}
               </span>
               posts
             </div>
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[395px]">
+            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[415px]">
               <span className="text-lg font-semibold text-white">
                 {followersCount}
               </span>
               followers
             </div>
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[400px]">
+            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[415px]">
               <span className="text-lg font-semibold text-white">
                 {followingCount}
               </span>
@@ -143,45 +151,13 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           {/* Follow button intentionally removed per latest spec */}
         </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {posts.length === 0 ? (
-            <p className="col-span-full text-center text-white/60">
-              This creator hasn&apos;t posted yet.
-            </p>
-          ) : (
-            posts.map((post) => (
-              <Link
-                key={post.id}
-                href={{
-                  pathname: `/watch/${post.id}`,
-                  query: { fromProfile: "1", creator: creatorId },
-                }}
-                scroll={false}
-                className="group relative flex aspect-square items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-black/30 transition hover:border-white/50"
-              >
-                {post.poster_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={post.poster_url}
-                    alt="Post thumbnail"
-                    className="h-full w-full object-cover transition group-hover:scale-105"
-                    loading="lazy"
-                  />
-                ) : post.video_url ? (
-                  <video
-                    src={post.video_url}
-                    className="h-full w-full object-cover transition group-hover:scale-105"
-                    muted
-                    loop
-                    playsInline
-                  />
-                ) : (
-                  <div className="text-xs text-white/50">No media</div>
-                )}
-              </Link>
-            ))
-          )}
-        </div>
+        {posts.length === 0 ? (
+          <p className="col-span-full text-center text-white/60">
+            This creator hasn&apos;t posted yet.
+          </p>
+        ) : (
+          <ProfilePostsGallery posts={posts} />
+        )}
       </div>
     </section>
   );

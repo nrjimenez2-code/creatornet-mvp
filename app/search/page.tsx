@@ -162,23 +162,32 @@ function SearchPage() {
 
   // UI
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-black text-white">
       {/* Top search bar */}
-      <div className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b">
-        <form
-          onSubmit={onSubmit}
-          className="mx-auto max-w-3xl px-4 py-3 flex items-center gap-3"
-        >
+      <div className="sticky top-0 z-30 bg-black border-b border-white/10">
+        <div className="px-4 py-3 flex items-center gap-3">
+          <Link
+            href="/dashboard"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6" />
+            </svg>
+          </Link>
+          <form
+            onSubmit={onSubmit}
+            className="flex flex-1 items-center gap-3 max-w-4xl ml-120"
+          >
           <div className="flex-1 relative">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search creators, skills, or topics (e.g., fitness, AI, editing)."
-              className="w-full rounded-full border px-5 py-3 pl-11 bg-white text-black outline-none focus:ring-2 focus:ring-[#7F5CE6]"
+              className="w-full rounded-full border border-white/20 px-5 py-3 pl-11 bg-black text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
               inputMode="search"
             />
             <svg
-              className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-500"
+              className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-white/60"
               viewBox="0 0 24 24"
               fill="currentColor"
             >
@@ -187,11 +196,12 @@ function SearchPage() {
           </div>
           <button
             type="submit"
-            className="rounded-full bg-[#7F5CE6] text-white px-5 py-2.5 font-medium"
+            className="rounded-full bg-white text-black px-5 py-2.5 font-medium"
           >
             Search
           </button>
         </form>
+        </div>
 
         {/* Niche filter chips (horizontal) */}
         <div className="mx-auto max-w-4xl px-4 pb-3 overflow-x-auto">
@@ -212,7 +222,7 @@ function SearchPage() {
                 className={`px-3 py-1.5 rounded-full border text-sm transition ${
                   query.toLowerCase() === c.toLowerCase()
                     ? "bg-[#7F5CE6] text-white border-[#7F5CE6]"
-                    : "bg-white text-gray-800 hover:bg-gray-100"
+                    : "bg-black text-white border-white/20 hover:bg-black/70"
                 }`}
               >
                 {c}
@@ -230,7 +240,7 @@ function SearchPage() {
               {recent.length ? (
                 recent.map((r) => <Chip key={r} onClick={() => pick(r)}>{r}</Chip>)
               ) : (
-                <p className="text-sm text-gray-500">No searches yet.</p>
+                  <p className="text-sm text-white/50">No searches yet.</p>
               )}
             </div>
           </Section>
@@ -253,7 +263,7 @@ function SearchPage() {
                 <button
                   key={s}
                   onClick={() => pick(s)}
-                  className="text-left rounded-lg border px-3 py-2 bg-white text-gray-900 hover:bg-gray-50"
+                  className="text-left rounded-lg border border-white/20 px-3 py-2 bg-black text-white hover:bg-black/70"
                 >
                   {s}
                 </button>
@@ -267,7 +277,7 @@ function SearchPage() {
                 <button
                   key={t}
                   onClick={() => pick(t)}
-                  className="text-left rounded-lg border px-3 py-2 bg-white text-gray-900 hover:bg-gray-50"
+                  className="text-left rounded-lg border border-white/20 px-3 py-2 bg-black text-white hover:bg-black/70"
                 >
                   {t}
                 </button>
@@ -281,13 +291,13 @@ function SearchPage() {
       {!!query && (
         <div className="mx-auto max-w-6xl px-4 py-5">
           {/* Tabs */}
-          <div className="flex gap-6 border-b border-gray-200 mb-4">
+          <div className="flex gap-6 border-b border-white/15 mb-4">
             {(["for-you", "creators", "videos", "tags"] as const).map((t) => (
               <button
                 key={t}
                 onClick={() => setTab(t)}
                 className={`py-2 -mb-px border-b-2 ${
-                  tab === t ? "border-black text-black font-semibold" : "border-transparent text-gray-500 hover:text-gray-700"
+                  tab === t ? "border-white text-white font-semibold" : "border-transparent text-white/50 hover:text-white/80"
                 }`}
               >
                 {t === "for-you" ? "For you" : t[0].toUpperCase() + t.slice(1)}
@@ -295,7 +305,7 @@ function SearchPage() {
             ))}
           </div>
 
-          {loading && <p className="text-sm text-gray-500">Searching…</p>}
+          {loading && <p className="text-sm text-white/60">Searching…</p>}
 
           {/* Creators strip (top 5) - not populated yet from API */}
           {!loading && (tab === "for-you" || tab === "creators") && (
@@ -306,7 +316,7 @@ function SearchPage() {
                   <CreatorCard key={c.id} c={c} />
                 ))}
                 {!creators.length && (
-                  <p className="text-sm text-gray-500">No creators yet.</p>
+                  <p className="text-sm text-white/60">No creators yet.</p>
                 )}
               </div>
             </div>
@@ -321,7 +331,7 @@ function SearchPage() {
           )}
 
           {tab === "tags" && (
-            <div className="text-sm text-gray-600">
+            <div className="text-sm text-white/60">
               Tags view coming next; we’ll index hashtags and show their top posts.
             </div>
           )}
@@ -333,7 +343,7 @@ function SearchPage() {
 
 export default function SearchPageWrapper() {
   return (
-    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-gray-500">Loading search…</div>}>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center text-sm text-white/60">Loading search…</div>}>
       <SearchPage />
     </Suspense>
   );
@@ -369,7 +379,7 @@ function Chip({
   return (
     <button
       onClick={onClick}
-      className="px-3 py-1.5 rounded-full border text-sm bg-white text-gray-800 hover:bg-gray-100"
+      className="px-3 py-1.5 rounded-full border border-white/20 text-sm bg-black text-white hover:bg-black/70"
     >
       {children}
     </button>
@@ -380,16 +390,16 @@ function CreatorCard({ c }: { c: Creator }) {
   return (
     <Link
       href={`/profile?u=${encodeURIComponent(c.username || c.id)}`}
-      className="rounded-xl border p-3 hover:bg-gray-50 flex gap-3"
+      className="rounded-xl border border-white/10 p-3 hover:bg-white/5 flex gap-3"
     >
-      <div className="h-10 w-10 rounded-full bg-gray-200 overflow-hidden">
+      <div className="h-10 w-10 rounded-full bg-white/10 overflow-hidden">
         {c.avatar_url ? (
           <img src={c.avatar_url} alt="" className="h-full w-full object-cover" />
         ) : null}
       </div>
       <div className="min-w-0">
-        <div className="font-medium truncate">@{c.username || "creator"}</div>
-        <div className="text-xs text-gray-500 line-clamp-2">
+        <div className="font-medium truncate text-white">@{c.username || "creator"}</div>
+        <div className="text-xs text-white/60 line-clamp-2">
           {c.tagline || "—"}
         </div>
       </div>

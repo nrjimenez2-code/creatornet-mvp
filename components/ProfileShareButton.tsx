@@ -16,12 +16,24 @@ export default function ProfileShareButton() {
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="rounded-full border border-white/30 bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/20 transition"
-    >
-      {copied ? "Link copied" : "Share profile"}
-    </button>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="rounded-full p-2.5 text-white hover:bg-white/10 transition"
+        aria-label={copied ? "Link copied" : "Share profile"}
+      >
+        <img
+          src="/image.png"
+          alt="Share"
+          className="w-6 h-6 object-contain rounded-lg"
+        />
+      </button>
+      {copied && (
+        <div className="absolute top-full right-0 mt-2 px-3 py-1.5 bg-black/90 text-white text-xs rounded-md whitespace-nowrap border border-white/20 z-50">
+          Profile link copied
+        </div>
+      )}
+    </div>
   );
 }

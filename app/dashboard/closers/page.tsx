@@ -414,7 +414,7 @@ export default function ClosersManagerPage() {
 
       {/* Add form */}
       <div className="rounded-xl border p-4 mb-6 space-y-3">
-        <h2 className="font-semibold">Add booking destination</h2>
+        <h2 className="font-semibold text-white">Add booking destination</h2>
         <div className="grid sm:grid-cols-2 gap-3">
           <input
             value={newName}
@@ -484,7 +484,7 @@ export default function ClosersManagerPage() {
       {/* Table */}
       <div className="rounded-xl border overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-[#181818] text-white">
             <tr className="text-left">
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Booking URL</th>
@@ -570,7 +570,7 @@ export default function ClosersManagerPage() {
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <div className="text-xs uppercase text-white/60">Buyer</div>
-                      <div className="font-medium text-sm text-white">{buyerName}</div>
+                      <div className="font-medium text-sm">{buyerName}</div>
                     </div>
                     <div>
                       <div className="text-xs uppercase text-white/60">Created</div>
@@ -588,14 +588,14 @@ export default function ClosersManagerPage() {
                         onClick={() => handleDeleteBooking(bundle.booking.id)}
                         disabled={deletingId === bundle.booking.id}
                         aria-label="Delete booking"
-                          className="rounded-full border border-red-400 bg-white/20 p-1 text-red-300 transition hover:bg-red-500 hover:text-white disabled:opacity-50"
+                        className="rounded-full border border-[#7E5CE6] bg-white/10 p-1 text-[#CDB7FF] transition hover:bg-[#7E5CE6] hover:text-white disabled:opacity-50"
                       >
                         <TrashIcon className="h-4 w-4" />
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-white">
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
                     <span className="font-medium">Product:</span>
                     <span>{productTitle}</span>
                     {totalAmount ? (
@@ -607,7 +607,7 @@ export default function ClosersManagerPage() {
 
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button
-                      className="rounded-full bg-white px-4 py-2 text-sm text-black disabled:opacity-50"
+                      className="rounded-full bg-[#7E5CE6] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       disabled={generatingLinkKey === `${bundle.booking.id}:full`}
                       onClick={() => handleGenerateLink(bundle.booking.id, "full")}
                     >
@@ -616,7 +616,7 @@ export default function ClosersManagerPage() {
                         : "Generate full payment link"}
                     </button>
                     <button
-                      className="rounded-full border border-white/40 px-4 py-2 text-sm text-white disabled:opacity-50"
+                      className="rounded-full bg-[#7E5CE6] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       disabled={generatingLinkKey === `${bundle.booking.id}:installment`}
                       onClick={() => handleGenerateLink(bundle.booking.id, "installment")}
                     >
@@ -648,7 +648,7 @@ export default function ClosersManagerPage() {
                             key={payment.id}
                             className="flex flex-wrap items-center gap-3 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm text-white"
                           >
-                            <span className="font-semibold capitalize text-white">
+                            <span className="font-semibold capitalize">
                               {payment.plan_type}
                             </span>
                             <span className="text-white/70 capitalize">{paidLabel}</span>
@@ -712,9 +712,9 @@ export default function ClosersManagerPage() {
       </section>
 
       {/* How to use */}
-      <div className="text-xs text-gray-600 mt-6">
+      <div className="text-xs text-white/70 mt-6">
         <p className="mb-2 font-medium">Use this CTA URL in your posts/buttons:</p>
-        <code className="block break-all rounded-lg bg-gray-100 px-3 py-2">
+        <code className="block break-all rounded-lg bg-black/70 border border-white/20 px-3 py-2 text-white">
           {creatorId
             ? `/api/book?creator_id=${creatorId}&post_id=<optional_post_id>`
             : `/api/book?creator_id=<your_id>&post_id=<optional_post_id>`}
