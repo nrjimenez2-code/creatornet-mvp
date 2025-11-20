@@ -135,7 +135,7 @@ export default function LibraryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // cache prefetches per session (ref so it doesn’t reset on re-render)
+  // cache prefetches per session (ref so it doesn't reset on re-render)
   const prefetchedRef = useRef<Set<string>>(new Set());
   const prefetchWatch = (postId: string) => {
     const s = prefetchedRef.current;
@@ -309,7 +309,7 @@ export default function LibraryPage() {
     return (
       <main className="p-6 text-center text-gray-500">
         <BackButton hrefOverride="/dashboard" />
-        You haven’t purchased any videos yet.
+        You haven't purchased any videos yet.
         <div className="mt-4">
           <BackButton hrefOverride="/dashboard" />
           <Link
