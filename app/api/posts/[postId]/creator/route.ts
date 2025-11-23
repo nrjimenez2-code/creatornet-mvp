@@ -6,9 +6,9 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function GET(
   _req: Request,
-  { params }: { params: { postId: string } }
+  { params }: { params: Promise<{ postId: string }> }
 ) {
-  const postId = params?.postId;
+  const { postId } = await params;
 
   if (!postId) {
     return NextResponse.json(

@@ -44,9 +44,8 @@ async function getUserFromRequest(req: NextRequest) {
   return data.user;
 }
 
-export async function GET(_req: NextRequest, ctx: any) {
-  // Pull postId without giving TS anything to “helpfully” retype
-  const postId = String(ctx?.params?.postId || "");
+export async function GET(_req: NextRequest, { params }: { params: Promise<{ postId: string }> }) {
+  const { postId } = await params;
 
   if (!postId) {
     return NextResponse.json({ error: "Missing postId" }, { status: 400 });
