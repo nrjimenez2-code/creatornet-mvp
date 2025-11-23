@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import PostComposerModal from "@/components/PostComposerModal";
-import type { Tab } from "@/components/VideoCard";
 // import ContinueWatching from "@/components/ContinueWatching";
 import SearchDrawer from "@/components/SearchDrawer";
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import { createClient } from "@/lib/supabaseClient";
+
+type Tab = "following" | "discover";
 
 export default function DashboardPage() {
   const router = useRouter();
