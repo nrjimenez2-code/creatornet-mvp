@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import BackButton from "@/components/BackButton";
 
 type Post = {
   id: string;
@@ -154,16 +155,13 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
 
       {isOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
-          <button
-            type="button"
-            onClick={closeModal}
-            className="absolute top-4 left-4 z-10 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-            aria-label="Back to profile"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </button>
+          <div className="absolute top-4 left-4 z-10 [&>div]:mb-0">
+            <BackButton 
+              hrefOverride={undefined}
+              className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none"
+              onClick={closeModal}
+            />
+          </div>
 
           <div
             ref={scrollRef}
