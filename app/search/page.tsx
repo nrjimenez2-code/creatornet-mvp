@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import BackButton from "@/components/BackButton";
 // import { createBrowserClient } from "@/lib/supabaseBrowser"; // not used here
 import { debounce } from "@/lib/utils"; // keep your helper
 
@@ -166,14 +167,9 @@ function SearchPage() {
       {/* Top search bar */}
       <div className="sticky top-0 z-30 bg-black border-b border-white/10">
         <div className="px-4 py-3 flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 text-white/80 hover:bg-white/10"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-              <path d="M15 18l-6-6 6-6" />
-            </svg>
-          </Link>
+          <div className="[&>div]:mb-0">
+            <BackButton hrefOverride="/dashboard" className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none" />
+          </div>
           <form
             onSubmit={onSubmit}
             className="flex flex-1 items-center gap-3 max-w-4xl ml-120"
