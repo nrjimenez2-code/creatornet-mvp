@@ -15,7 +15,8 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default withSentryConfig(nextConfig, {
+// Sentry config - sourcemap upload will be skipped if SENTRY_AUTH_TOKEN is not set
+const sentryConfig = {
   // For all available options, see:
   // https://www.npmjs.com/package/@sentry/webpack-plugin#options
 
@@ -32,10 +33,6 @@ export default withSentryConfig(nextConfig, {
   // Upload a larger set of source maps for prettier stack traces (increases build time)
   widenClientFileUpload: true,
 
-  // Disable sourcemap upload if auth token is not available (prevents build failures)
-  // Only upload sourcemaps if SENTRY_AUTH_TOKEN is set
-  dryRun: !process.env.SENTRY_AUTH_TOKEN,
-
   // Uncomment to route browser requests to Sentry through a Next.js rewrite to circumvent ad-blockers.
   // This can increase your server load as well as your hosting bill.
   // Note: Check that the configured route will not match with your Next.js middleware, otherwise reporting of client-
@@ -50,4 +47,9 @@ export default withSentryConfig(nextConfig, {
   // https://docs.sentry.io/product/crons/
   // https://vercel.com/docs/cron-jobs
   automaticVercelMonitors: true,
-});
+};
+
+// Only wrap with Sentry if auth token is available, otherwise use plain config
+export default process.env.SENTRY_AUTH_TOKEN
+  ? withSentryConfig(nextConfig, sentryConfig)
+  : nextConfig;
