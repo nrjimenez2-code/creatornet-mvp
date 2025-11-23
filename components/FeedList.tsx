@@ -31,6 +31,7 @@ export type PostRow = {
   likes_count?: number | null;
   comments_count?: number | null;
   shares_count?: number | null;
+  is_liked?: boolean | null;
 
   allow_booking?: boolean | null;
   booking_url?: string | null;
@@ -214,6 +215,21 @@ export default function FeedList({ activeTab }: FeedListProps) {
           }
         }
 
+        // Fetch user's like status for all posts
+        const postIds = normalizedRows.map((p) => p.id);
+        let likedPostIds = new Set<string>();
+        if (viewerId && postIds.length > 0) {
+          const { data: likesData } = await supabase
+            .from("likes")
+            .select("post_id")
+            .eq("user_id", viewerId)
+            .in("post_id", postIds);
+          
+          if (likesData) {
+            likedPostIds = new Set(likesData.map((l) => l.post_id as string));
+          }
+        }
+
         mapped = normalizedRows.map((p) => {
           const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
           return {
@@ -228,8 +244,44 @@ export default function FeedList({ activeTab }: FeedListProps) {
               null,
             creator_avatar_url:
               profile?.avatar_url ?? p.creator_avatar_url ?? null,
+            is_liked: likedPostIds.has(p.id),
           };
         });
+
+        // For "following" tab: only show posts from creators the user follows
+        if (activeTab === "following") {
+          if (!viewerId) {
+            // Not logged in, show no posts
+            mapped = [];
+          } else {
+            // Fetch the list of creators the user follows
+            const { data: followsData, error: followsError } = await supabase
+              .from("follows")
+              .select("following_id")
+              .eq("follower_id", viewerId);
+
+            if (followsError) {
+              console.error("Error fetching follows:", followsError);
+              mapped = [];
+            } else if (!followsData || followsData.length === 0) {
+              // User is not following anyone, show no posts
+              mapped = [];
+            } else {
+              const followedCreatorIds = new Set(
+                followsData
+                  .map((f) => f.following_id as string)
+                  .filter((id): id is string => Boolean(id))
+              );
+              // Filter to only include posts from followed creators (exclude own posts)
+              mapped = mapped.filter(
+                (p) => 
+                  p.creator_id && 
+                  p.creator_id !== viewerId &&
+                  followedCreatorIds.has(p.creator_id)
+              );
+            }
+          }
+        }
       }
 
       if (!cancelled) {
@@ -406,6 +458,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 likes={p.likes_count ?? 0}
                 comments={p.comments_count ?? 0}
                 shares={p.shares_count ?? 0}
+                isLiked={p.is_liked ?? false}
 
                 // CTA & commerce
                 showCTA={showCTA}

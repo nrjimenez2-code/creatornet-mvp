@@ -58,11 +58,11 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         .order("created_at", { ascending: false }),
       admin
         .from("follows")
-        .select("id", { count: "exact", head: true })
+        .select("follower_id", { count: "exact", head: true })
         .eq("following_id", creatorId),
       admin
         .from("follows")
-        .select("id", { count: "exact", head: true })
+        .select("following_id", { count: "exact", head: true })
         .eq("follower_id", creatorId),
       admin.rpc("get_profile_rating", { p_profile_id: creatorId }),
       followStatusPromise,
@@ -96,11 +96,11 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         <BackButton hrefOverride="/dashboard" />
       </div>
       <div className="max-w-6xl mx-auto">
-        <div className="absolute top-10 left-4 z-10 translate-x-[18.5in] mt-[0.1in]">
+        <div className="absolute top-10 right-4 z-10">
           <ProfileShareButton />
         </div>
 
-        <div className="-mt-12 flex flex-col items-center text-center translate-y-[0.5in]">
+        <div className="-mt-12 flex flex-col items-center text-center translate-y-8">
           <div className="h-48 w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -153,7 +153,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         </div>
 
         {canFollow && (
-          <div className="mt-4 mb-2 flex justify-start -translate-y-[0.3in]">
+          <div className="mt-4 mb-2 flex justify-start -translate-y-[0.4in]">
             <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
           </div>
         )}

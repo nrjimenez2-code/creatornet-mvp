@@ -30,3 +30,13 @@ img, svg, video, canvas {
   outline: 2px solid rgba(147, 112, 219, 0.6); /* #9370DB at ~60% */
   outline-offset: 2px;
 }
+
+/* Slide in from right animation */
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

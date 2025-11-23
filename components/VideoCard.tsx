@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import CommentPanel from "./CommentPanel";
 
 type VideoCardProps = {
   src?: string;
@@ -21,6 +22,7 @@ type VideoCardProps = {
   likes?: number | string;
   comments?: number | string;
   shares?: number | string;
+  isLiked?: boolean;
   isActive?: boolean;
   defaultMuted?: boolean;
   onBuy?: () => void;
@@ -69,6 +71,7 @@ export default function VideoCard(props: VideoCardProps) {
     likes,
     comments,
     shares,
+    isLiked = false,
     isActive,
     defaultMuted = true,
     onBuy,
@@ -111,9 +114,11 @@ export default function VideoCard(props: VideoCardProps) {
   const [lk, setLk] = useState(() => toNum(likeCount ?? likes ?? 0));
   const [cm, setCm] = useState(() => toNum(commentCount ?? comments ?? 0));
   const [sh, setSh] = useState(() => toNum(shareCount ?? shares ?? 0));
+  const [liked, setLiked] = useState(isLiked);
   const [isFollowing, setIsFollowing] = useState(Boolean(isFollowingCreator));
   const [followLoading, setFollowLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
 
@@ -131,6 +136,10 @@ export default function VideoCard(props: VideoCardProps) {
   useEffect(() => {
     setLk(toNum(likeCount ?? likes ?? 0));
   }, [likeCount, likes]);
+
+  useEffect(() => {
+    setLiked(isLiked);
+  }, [isLiked]);
 
   useEffect(() => {
     setCm(toNum(commentCount ?? comments ?? 0));
@@ -308,22 +317,74 @@ export default function VideoCard(props: VideoCardProps) {
   }, [onToggleSound]);
 
   const handleLike = useCallback(async () => {
-    setLk((v) => v + 1);
-    try {
-      await onLike?.();
-    } catch {
-      setLk((v) => Math.max(0, v - 1));
+    if (!postId) {
+      // Fallback to old behavior if no postId
+      setLk((v) => v + 1);
+      try {
+        await onLike?.();
+      } catch {
+        setLk((v) => Math.max(0, v - 1));
+      }
+      return;
     }
-  }, [onLike]);
+
+    // Optimistic update
+    const wasLiked = liked;
+    const previousCount = lk;
+    setLiked(!wasLiked);
+    setLk((v) => wasLiked ? Math.max(0, v - 1) : v + 1);
+
+    try {
+      const apiUrl = typeof window !== "undefined" 
+        ? `${window.location.origin}/api/posts/${postId}/like`
+        : `/api/posts/${postId}/like`;
+      
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        // Update with server response
+        setLiked(data.liked);
+        setLk(data.likes_count ?? previousCount);
+      } else {
+        // Revert on error
+        setLiked(wasLiked);
+        setLk(previousCount);
+        console.error("Like error:", data.error || "Unknown error");
+      }
+    } catch (err) {
+      // Revert on error
+      setLiked(wasLiked);
+      setLk(previousCount);
+      console.error("Failed to toggle like:", err);
+    }
+  }, [onLike, postId, liked, lk]);
 
   const handleComment = useCallback(async () => {
-    setCm((v) => v + 1);
-    try {
-      await onComment?.();
-    } catch {
-      setCm((v) => Math.max(0, v - 1));
+    if (postId) {
+      // Open comment panel if we have a postId
+      setCommentPanelOpen(true);
+    } else {
+      // Fallback to old behavior if no postId
+      setCm((v) => v + 1);
+      try {
+        await onComment?.();
+      } catch {
+        setCm((v) => Math.max(0, v - 1));
+      }
     }
-  }, [onComment]);
+  }, [onComment, postId]);
+
+  const handleCommentAdded = useCallback((newCount?: number) => {
+    // Update comment count with server value
+    if (postId && typeof newCount === "number") {
+      setCm(newCount);
+    }
+  }, [postId]);
 
   const handleShare = useCallback(async () => {
     setSh((v) => v + 1);
@@ -677,7 +738,7 @@ export default function VideoCard(props: VideoCardProps) {
                 handleFollow();
               }}
               disabled={followLoading}
-              className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-[#4A35C7] text-white flex items-center justify-center border-2 border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10 -translate-x-[1.003em]"
+              className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-[#4A35C7] text-white flex items-center justify-center border-2 border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10 -translate-x-[calc(1.003em+0.029in)]"
               aria-label={`Follow ${displayCreator}`}
             >
               <Plus className="h-3 w-3" />
@@ -692,7 +753,7 @@ export default function VideoCard(props: VideoCardProps) {
             className="h-[48px] w-[48px] rounded-full border border-white/10 text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
             style={{ backgroundColor: "#1A1F22" }}
           >
-            <Heart className="h-6 w-6 fill-current" />
+            <Heart className={`h-6 w-6 ${liked ? "fill-red-500 text-red-500" : "fill-current"}`} />
           </button>
           <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
             {formatCount(lk)}
@@ -729,6 +790,16 @@ export default function VideoCard(props: VideoCardProps) {
           </span>
         </div>
       </div>
+
+      {/* Comment Panel */}
+      {postId && (
+        <CommentPanel
+          postId={postId}
+          isOpen={commentPanelOpen}
+          onClose={() => setCommentPanelOpen(false)}
+          onCommentAdded={handleCommentAdded}
+        />
+      )}
     </div>
   );
 }

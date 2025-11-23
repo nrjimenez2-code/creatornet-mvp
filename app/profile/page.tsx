@@ -33,11 +33,11 @@ export default async function ProfilePage() {
       .order("created_at", { ascending: false }),
     supabase
       .from("follows")
-      .select("id", { count: "exact", head: true })
+      .select("follower_id", { count: "exact", head: true })
       .eq("following_id", user.id),
     supabase
       .from("follows")
-      .select("id", { count: "exact", head: true })
+      .select("following_id", { count: "exact", head: true })
       .eq("follower_id", user.id),
     supabase.rpc("get_profile_rating", { p_profile_id: user.id }),
   ]);
@@ -59,14 +59,14 @@ export default async function ProfilePage() {
   return (
     <section className="px-4 pb-16 pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        <div className="-translate-x-[3.6in]">
+        <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
           <BackButton hrefOverride="/dashboard" />
         </div>
 
-        <div className="absolute top-10 left-4 z-10 translate-x-[17in] mt-[0.1in]">
+        <div className="absolute top-10 left-4 z-10 translate-x-[calc(100vw-8rem-12rem+0.80in)]">
           <ProfileShareButton />
         </div>
-        <div className="absolute top-12 right-4 z-10 -translate-x-[0.79in]">
+        <div className="absolute top-12 right-4 z-10 -translate-x-12 -translate-y-[0.08in]">
           <Link
             href="/profile/edit"
             className="rounded-md bg-[#4A35C7] px-4 py-1 text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
@@ -75,7 +75,7 @@ export default async function ProfilePage() {
           </Link>
         </div>
 
-        <div className="flex flex-col items-center text-center -mt-12 translate-y-[0.5in]">
+        <div className="flex flex-col items-center text-center -mt-12 translate-y-12">
           <div className="h-48 w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
