@@ -43,7 +43,62 @@ type Payload = ProductPayload | PlanPayload | BookingPayload;
 
 export async function POST(req: Request) {
   const supabase = supabaseAdmin();
-  const site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  
+  // CRITICAL: Detect site URL from request URL to support localhost testing
+  // This ensures Stripe redirects back to the same origin (localhost or Vercel)
+  let site = "http://localhost:3000"; // Default to localhost
+  
+  try {
+    // Use the request URL to determine the origin
+    const requestUrl = new URL(req.url);
+    let hostname = requestUrl.hostname;
+    const port = requestUrl.port || (requestUrl.protocol === "https:" ? "443" : "80");
+    
+    // Normalize 0.0.0.0 to localhost (browsers can't access 0.0.0.0)
+    if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
+      hostname = "localhost";
+    }
+    
+    // Build the site URL
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      site = `http://localhost:3000`;
+    } else {
+      // For other hosts (like Vercel), use the actual host
+      site = `${requestUrl.protocol}//${hostname}${port && port !== "80" && port !== "443" ? `:${port}` : ""}`;
+    }
+  } catch {
+    // Fallback: try origin header
+    const origin = req.headers.get("origin");
+    if (origin) {
+      try {
+        const url = new URL(origin);
+        let hostname = url.hostname;
+        
+        // Normalize 0.0.0.0 to localhost
+        if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
+          hostname = "localhost";
+        }
+        
+        if (hostname === "localhost" || hostname === "127.0.0.1") {
+          site = `http://localhost:3000`;
+        } else {
+          site = `${url.protocol}//${url.host}`;
+        }
+      } catch {
+        // If all else fails, use env or default
+        site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+      }
+    } else {
+      site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+    }
+  }
+  
+  console.log("[checkout] 🔧 Using site URL:", site, { 
+    requestUrl: req.url,
+    origin: req.headers.get("origin"),
+    referer: req.headers.get("referer"),
+    hasEnv: !!process.env.NEXT_PUBLIC_SITE_URL 
+  });
 
   let body: Payload;
   try {
@@ -161,6 +216,23 @@ export async function POST(req: Request) {
     // ---- BOOKING (no Stripe) ----
     if (body.type === "booking") {
       if (!body.bookingRedirectUrl) throw new Error("bookingRedirectUrl required");
+      if (!body.post_id) throw new Error("post_id is required for booking");
+
+      // Validate post exists and get creator_id if not provided
+      let creator_id = body.creator_id;
+      if (!creator_id || !body.post_id) {
+        const { data: post, error: postErr } = await supabase
+          .from("posts")
+          .select("id, creator_id")
+          .eq("id", body.post_id)
+          .single();
+        if (postErr || !post) {
+          throw new Error(`Post not found: ${postErr?.message || "Invalid post_id"}`);
+        }
+        if (!creator_id) {
+          creator_id = post.creator_id;
+        }
+      }
 
       const raw = body.bookingRedirectUrl.trim();
       let bookingUrl: string;
@@ -172,18 +244,24 @@ export async function POST(req: Request) {
         throw new Error("bookingRedirectUrl must be a valid https URL");
       }
 
+      console.log("[checkout] creating booking session with:", {
+        post_id: body.post_id,
+        creator_id: creator_id,
+        booking_redirect_url: bookingUrl,
+      });
       const session = await stripe.checkout.sessions.create({
         mode: "setup",
         payment_method_types: ["card"],
         metadata: {
           kind: "booking",
           booking_redirect_url: bookingUrl,
-          post_id: body.post_id || "",
-          creator_id: body.creator_id || "",
+          post_id: String(body.post_id),
+          creator_id: String(creator_id),
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}&kind=booking`,
         cancel_url: `${site}/`,
       });
+      console.log("[checkout] booking session created:", { session_id: session.id, metadata: session.metadata });
 
       return Response.json({ url: session.url, session_id: session.id });
     }

@@ -125,7 +125,7 @@ export default function Page() {
       {/* container */}
       <div className="w-[420px]">
         {/* Title */}
-        <h1 className="text-[32px] font-extrabold text-[#7E5CE6] tracking-wide uppercase whitespace-nowrap text-left -ml-4">
+        <h1 className="text-[32px] font-extrabold text-[#4A35C7] tracking-wide uppercase whitespace-nowrap text-left -ml-4">
           CHOOSE YOUR INTERESTS
         </h1>
 
@@ -183,7 +183,7 @@ export default function Page() {
                   }
                   className={`rounded-md border px-4 py-3 text-sm font-medium transition ${
                     active
-                      ? "bg-[#7E5CE6] text-white border-[#7E5CE6]"
+                      ? "bg-[#4A35C7] text-white border-[#4A35C7]"
                       : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
                   }`}
                   suppressHydrationWarning

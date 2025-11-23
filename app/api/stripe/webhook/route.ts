@@ -161,18 +161,85 @@ async function attachFulfillmentIfEmpty(purchaseId: string, productId: string | 
 
 // ---------- legacy (post/booking) flow ----------
 async function insertBookingFromSession(session: Stripe.Checkout.Session) {
-  const buyer_id = (session.metadata?.buyer_id as string) || null;
+  // For setup sessions, get buyer_id from customer email or metadata
+  let buyer_id = (session.metadata?.buyer_id as string) || null;
+  
+  // If no buyer_id in metadata, try to get from customer
+  if (!buyer_id && session.customer) {
+    try {
+      const customer = typeof session.customer === "string" 
+        ? await stripe.customers.retrieve(session.customer)
+        : session.customer;
+      
+      if (customer && !customer.deleted && customer.email) {
+        // Try to find user by email
+        const { data: profile } = await admin
+          .from("profiles")
+          .select("id")
+          .eq("email", customer.email)
+          .maybeSingle();
+        if (profile?.id) {
+          buyer_id = profile.id;
+        }
+      }
+    } catch (err) {
+      console.warn("[webhook] failed to get buyer from customer:", err);
+    }
+  }
+  
   const post_id = (session.metadata?.post_id as string) || null;
   const creator_id_meta = (session.metadata?.creator_id as string) || null;
   const creator_id = await fetchCreatorIdIfMissing(post_id, creator_id_meta);
 
+  // Fetch post/product details for logging
+  let postDetails: any = null;
+  let productDetails: any = null;
+  if (post_id) {
+    const { data: postData } = await admin
+      .from("posts")
+      .select("id, title, product_id")
+      .eq("id", post_id)
+      .maybeSingle();
+    postDetails = postData;
+    
+    if (postData?.product_id) {
+      const { data: prodData } = await admin
+        .from("products")
+        .select("product_id, title, amount_cents")
+        .eq("product_id", postData.product_id)
+        .maybeSingle();
+      productDetails = prodData;
+    }
+  }
+
+  console.log("[webhook] insertBookingFromSession - DETAILS:", {
+    buyer_id,
+    creator_id,
+    post_id,
+    session_id: session.id,
+    mode: session.mode,
+    post_title: postDetails?.title || "N/A",
+    product_id: postDetails?.product_id || "N/A",
+    product_title: productDetails?.title || "N/A",
+    product_amount: productDetails?.amount_cents || "N/A",
+    metadata: session.metadata,
+  });
+
   if (!buyer_id || !creator_id) {
-    console.warn("[webhook] booking insert skipped: missing buyer_id/creator_id", {
+    console.error("[webhook] ❌ NOT INSERTED - missing buyer_id/creator_id", {
+      reason: !buyer_id ? "buyer_id missing" : "creator_id missing",
       buyer_id,
       creator_id,
       post_id,
+      post_title: postDetails?.title || "N/A",
+      product_title: productDetails?.title || "N/A",
       session_id: session.id,
+      customer: session.customer,
+      customer_email: session.customer_email,
+      note: "Seed endpoint should handle this via client-side",
     });
+    // For setup sessions without buyer_id, the seed endpoint should handle it
+    // Don't fail here, just log and let the client-side seed handle it
     return;
   }
 
@@ -186,10 +253,18 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     .eq("status", "booked")
     .maybeSingle();
   if (existingBooking?.id) {
+    console.log("[webhook] ✅ ALREADY EXISTS - booking not inserted (duplicate)", {
+      booking_id: existingBooking.id,
+      post_id,
+      post_title: postDetails?.title || "N/A",
+      product_title: productDetails?.title || "N/A",
+      buyer_id,
+      creator_id,
+    });
     return;
   }
 
-  const { error: insertErr } = await admin
+  const { data: inserted, error: insertErr } = await admin
     .from("bookings")
     .insert({
       post_id,
@@ -199,7 +274,31 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     })
     .select("id")
     .maybeSingle();
-  if (insertErr) console.error("[webhook] insert booking failed:", insertErr.message);
+  
+  if (insertErr) {
+    console.error("[webhook] ❌ NOT INSERTED - database error", {
+      reason: insertErr.message,
+      post_id,
+      post_title: postDetails?.title || "N/A",
+      product_title: productDetails?.title || "N/A",
+      product_amount: productDetails?.amount_cents || "N/A",
+      buyer_id,
+      creator_id,
+      error_code: (insertErr as any)?.code,
+      error_details: (insertErr as any)?.details,
+    });
+  } else {
+    console.log("[webhook] ✅ INSERTED - booking created successfully", {
+      booking_id: inserted?.id,
+      post_id,
+      post_title: postDetails?.title || "N/A",
+      product_title: productDetails?.title || "N/A",
+      product_amount: productDetails?.amount_cents || "N/A",
+      buyer_id,
+      creator_id,
+      status: "booked",
+    });
+  }
 }
 
 async function upsertPurchaseFromSession(session: Stripe.Checkout.Session) {
@@ -577,29 +676,61 @@ async function markRefunded(payment_intent_id: string | null) {
 
 // ---------- route ----------
 export async function POST(req: NextRequest) {
-  if (!STRIPE_SECRET_KEY) return jerr("env", "Missing STRIPE_SECRET_KEY", 500);
-  if (!STRIPE_WEBHOOK_SECRET) return jerr("env", "Missing STRIPE_WEBHOOK_SECRET", 500);
-  if (!SUPABASE_URL) return jerr("env", "Missing NEXT_PUBLIC_SUPABASE_URL", 500);
-  if (!SUPABASE_SERVICE_ROLE_KEY) return jerr("env", "Missing SUPABASE_SERVICE_ROLE_KEY", 500);
+  console.log("[webhook] 🔔 WEBHOOK REQUEST RECEIVED - Starting webhook handler");
+  
+  if (!STRIPE_SECRET_KEY) {
+    console.error("[webhook] ❌ Missing STRIPE_SECRET_KEY");
+    return jerr("env", "Missing STRIPE_SECRET_KEY", 500);
+  }
+  if (!STRIPE_WEBHOOK_SECRET) {
+    console.error("[webhook] ❌ Missing STRIPE_WEBHOOK_SECRET");
+    return jerr("env", "Missing STRIPE_WEBHOOK_SECRET", 500);
+  }
+  if (!SUPABASE_URL) {
+    console.error("[webhook] ❌ Missing NEXT_PUBLIC_SUPABASE_URL");
+    return jerr("env", "Missing NEXT_PUBLIC_SUPABASE_URL", 500);
+  }
+  if (!SUPABASE_SERVICE_ROLE_KEY) {
+    console.error("[webhook] ❌ Missing SUPABASE_SERVICE_ROLE_KEY");
+    return jerr("env", "Missing SUPABASE_SERVICE_ROLE_KEY", 500);
+  }
 
   const sig = req.headers.get("stripe-signature");
-  if (!sig) return jerr("verify", "Missing stripe-signature header");
+  if (!sig) {
+    console.error("[webhook] ❌ Missing stripe-signature header");
+    return jerr("verify", "Missing stripe-signature header", 400);
+  }
 
+  console.log("[webhook] 📝 Verifying webhook signature...");
   let event: Stripe.Event;
   try {
     const rawBody = await req.text(); // IMPORTANT: raw body for signature verification
     event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+    console.log("[webhook] ✅ Signature verified successfully");
   } catch (e: any) {
+    console.error("[webhook] ❌ Signature verification failed:", e?.message);
     return jerr("verify", e?.message || "Invalid signature", 400);
   }
 
+  console.log("[webhook] 🎯 Processing event type:", event.type, "Event ID:", event.id);
+  
   try {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+        
+        console.log("[webhook] ✅ SAVE BUTTON CLICKED - checkout.session.completed", {
+          session_id: session.id,
+          mode: session.mode,
+          payment_status: session.payment_status,
+          metadata: session.metadata,
+          customer: session.customer,
+          customer_email: session.customer_email,
+        });
 
         // Free booking flow (setup mode)
         if (session.mode === "setup") {
+          console.log("[webhook] 🎯 Processing setup session for booking");
           await insertBookingFromSession(session);
           break;
         }
@@ -652,14 +783,15 @@ export async function POST(req: NextRequest) {
       }
 
       default: {
-        console.log("[webhook] unhandled event:", event.type);
+        console.log("[webhook] ⚠️ Unhandled event type:", event.type, "Event ID:", event.id);
       }
     }
 
+    console.log("[webhook] ✅ Event processed successfully, returning ACK");
     // ACK
     return NextResponse.json({ ok: true });
   } catch (e: any) {
-    console.error("[webhook] handler error:", e?.message || e);
+    console.error("[webhook] ❌ Handler error:", e?.message || e, "Stack:", e?.stack);
     // Return 200 so Stripe doesn't retry forever if we had a data issue.
     return NextResponse.json({ ok: false, error: "handler error" }, { status: 200 });
   }

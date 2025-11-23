@@ -61,21 +61,33 @@ export default function FeedList({ activeTab }: FeedListProps) {
       });
 
       if (error) {
+        // eslint-disable-next-line no-console
         console.error("Feed RPC error:", error);
       }
 
       let mapped: PostRow[] = [];
       if (Array.isArray(data)) {
-        const baseRows: PostRow[] = data
-          .map((r: any) => {
-            const postId = (r.post_id as string) ?? (r.id as string) ?? "";
+        const baseRows: PostRow[] = [];
+
+        for (const r of data) {
+          const postId =
+            ((r.post_id as string | null | undefined) ??
+              (r.id as string | null | undefined)) ||
+            null;
+
+          if (!postId) {
+            console.warn("[FeedList] skipping row without post id", r);
+            continue;
+          }
+
             const derivedName =
               (r.creator_name as string) ??
               (r.full_name as string) ??
               (r.username as string) ??
               null;
             const derivedAvatar = (r.avatar_url as string) ?? null;
-            return {
+
+          const row: PostRow = {
               id: postId,
               creator_id: (r.creator_id as string) ?? null,
               product_id: (r.product_id as string) ?? null,
@@ -95,19 +107,58 @@ export default function FeedList({ activeTab }: FeedListProps) {
               creator_name: derivedName,
               creator_avatar_url: derivedAvatar,
             };
-          })
-          .filter((p) => p.video_url || p.poster_url);
+
+          if (row.video_url || row.poster_url) {
+            baseRows.push(row);
+          }
+        }
+
+        let resolvedCreators: Record<string, string> = {};
+        const missingCreatorPosts = baseRows
+          .filter((row) => !row.creator_id)
+          .map((row) => row.id);
+
+        if (missingCreatorPosts.length) {
+          try {
+            const res = await fetch("/api/posts/creators", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ postIds: missingCreatorPosts }),
+            });
+            if (res.ok) {
+              const payload = (await res.json()) as {
+                creators?: Record<string, string>;
+              };
+              resolvedCreators = payload?.creators ?? {};
+            } else {
+              console.warn(
+                "[FeedList] failed to resolve creator IDs",
+                missingCreatorPosts
+              );
+            }
+          } catch (err) {
+            console.error(
+              "[FeedList] error resolving creator IDs:",
+              err
+            );
+          }
+        }
+
+        const normalizedRows = baseRows.map((row) => ({
+          ...row,
+          creator_id: row.creator_id ?? resolvedCreators[row.id] ?? null,
+        }));
 
         const productIds = Array.from(
           new Set(
-            baseRows
+            normalizedRows
               .map((p) => p.product_id)
               .filter((id): id is string => Boolean(id))
           )
         );
         const creatorIds = Array.from(
           new Set(
-            baseRows
+            normalizedRows
               .map((p) => p.creator_id)
               .filter((id): id is string => Boolean(id))
           )
@@ -163,7 +214,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
           }
         }
 
-        mapped = baseRows.map((p) => {
+        mapped = normalizedRows.map((p) => {
           const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
           return {
             ...p,
@@ -305,7 +356,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
   return (
     <div
-      className="h-screen overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
+    className="h-screen overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
       style={{ scrollbarWidth: "none" }}
     >
       {items.map((p, idx) => {
@@ -323,7 +374,7 @@ export default function FeedList({ activeTab }: FeedListProps) {
         return (
           <section
             key={`${p.id}-${idx}`}
-            className="snap-start snap-always h-screen w-full flex items-center justify-center"
+               className="snap-start snap-always h-screen w-full flex items-center justify-center py-24"
             data-post-id={p.id}
             ref={(el) => {
               const map = sectionRefs.current;
@@ -334,8 +385,9 @@ export default function FeedList({ activeTab }: FeedListProps) {
               }
             }}
           >
-            <div className="relative w-full h-full flex items-center justify-center">
+               <div className="relative w-full h-full flex items-center justify-center px-24">
               <VideoCard
+  
                 // media
                 src={p.video_url || undefined}
                 poster={p.poster_url || "/file.svg"}
@@ -371,8 +423,9 @@ export default function FeedList({ activeTab }: FeedListProps) {
                 // booking
                 allowBooking={allowBooking}
                 bookingRedirectUrl={allowBooking ? p.booking_url! : null}
-                soundEnabled={isSoundOn}
+                soundEnabled={globalSoundOn}
                 onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+                defaultMuted={!globalSoundOn}
                 tapToTogglePlayback
               />
             </div>

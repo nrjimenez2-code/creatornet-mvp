@@ -5,12 +5,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import PostComposerModal from "@/components/PostComposerModal";
-import type { Tab } from "@/components/VideoCard";
 // import ContinueWatching from "@/components/ContinueWatching";
 import SearchDrawer from "@/components/SearchDrawer";
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import { createClient } from "@/lib/supabaseClient";
+
+type Tab = "following" | "discover";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -192,8 +193,8 @@ export default function DashboardPage() {
         onClick={() => setIsComposerOpen(true)}
         className="
           hidden md:flex fixed left-5 bottom-5 z-40
-          h-10 rounded-full bg-[#7F5CE6] px-4 text-white text-sm font-semibold
-          shadow-lg shadow-[#7F5CE6]/30 hover:brightness-95 items-center gap-2
+          h-10 rounded-full bg-[#4A35C7] px-4 text-white text-sm font-semibold
+          shadow-lg shadow-[#4A35C7]/30 hover:brightness-95 items-center gap-2
         "
       >
         <span className="text-lg leading-none">+</span>

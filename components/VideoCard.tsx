@@ -1,10 +1,9 @@
 "use client";
-// components/VideoCard.tsx  (READY TO REPLACE)
-import React from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
 
-export type Tab = "following" | "discover";
+import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
+import { supabase } from "@/lib/supabaseClient";
 
 type VideoCardProps = {
   src?: string;
@@ -13,41 +12,44 @@ type VideoCardProps = {
   creatorAvatarUrl?: string | null;
   caption?: string;
   hashtags?: string;
-
-  ctaLabel?: string;
-  onCta?: () => void;
-  showCTA?: boolean;
-
-  activeTab?: Tab;
-  onChangeTab?: (t: Tab) => void;
-
+  title?: string;
+  creatorName?: string;
+  avatarUrl?: string | null;
+  likeCount?: number;
+  commentCount?: number;
+  shareCount?: number;
   likes?: number | string;
   comments?: number | string;
   shares?: number | string;
-  onLike?: () => Promise<void> | void;
-  onComment?: () => Promise<void> | void;
-  onShare?: () => Promise<void> | void;
-
+  isActive?: boolean;
+  defaultMuted?: boolean;
+  onBuy?: () => void;
+  onBook?: () => void;
+  followable?: boolean;
+  onFollow?: () => void;
   postId?: string | null;
-  productId?: string | null;   // required for Buy in full
+  productId?: string | null;
   creatorId?: string | null;
-
-  priceCents?: number | null;          // full price
+  priceCents?: number | null;
   titleForCheckout?: string | null;
-
-  // Installment plan (optional)
-  planMonths?: number | null;          // e.g., 5
-  planPriceCents?: number | null;      // e.g., 100000 for $1,000/mo
-
+  planMonths?: number | null;
+  planPriceCents?: number | null;
   allowBooking?: boolean;
   bookingRedirectUrl?: string | null;
-
   productType?: string | null;
   showFollowButton?: boolean;
   isFollowingCreator?: boolean;
   soundEnabled?: boolean;
   onToggleSound?: () => void;
   tapToTogglePlayback?: boolean;
+  onLike?: () => Promise<void> | void;
+  onComment?: () => Promise<void> | void;
+  onShare?: () => Promise<void> | void;
+  showCTA?: boolean;
+  ctaLabel?: string;
+  onCta?: () => void;
+  activeTab?: "following" | "discover";
+  onChangeTab?: (t: "following" | "discover") => void;
 };
 
 export default function VideoCard(props: VideoCardProps) {
@@ -58,59 +60,91 @@ export default function VideoCard(props: VideoCardProps) {
     creatorAvatarUrl = null,
     caption = "Quick tip goes here",
     hashtags = "#tag1 #tag2",
-    ctaLabel = "Buy / Book",
-    onCta,
-    showCTA = false,
-    activeTab = "following",
-    onChangeTab,
-    likes = 0,
-    comments = 0,
-    shares = 0,
-    onLike,
-    onComment,
-    onShare,
-
+    title,
+    creatorName,
+    avatarUrl,
+    likeCount,
+    commentCount,
+    shareCount,
+    likes,
+    comments,
+    shares,
+    isActive,
+    defaultMuted = true,
+    onBuy,
+    onBook,
+    followable,
+    onFollow,
     postId = null,
     productId = null,
     creatorId = null,
-
-    priceCents = 2900,
+    priceCents = null,
     titleForCheckout = null,
-
     planMonths = null,
     planPriceCents = null,
-
     allowBooking = false,
     bookingRedirectUrl = null,
-
     productType = null,
     showFollowButton = false,
     isFollowingCreator = false,
     soundEnabled = false,
     onToggleSound,
-    tapToTogglePlayback = false,
+    tapToTogglePlayback = true,
+    onLike,
+    onComment,
+    onShare,
+    showCTA = false,
+    ctaLabel = "Buy / Book",
+    onCta,
+    activeTab,
+    onChangeTab,
   } = props;
 
   const router = useRouter();
-  const [lk, setLk] = React.useState<number>(toNum(likes));
-  const [cm, setCm] = React.useState<number>(toNum(comments));
-  const [sh, setSh] = React.useState<number>(toNum(shares));
-  const [loading, setLoading] = React.useState<"buy" | "book" | "plan" | null>(null);
-  const [menuOpen, setMenuOpen] = React.useState(false);
-  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
-  const [isFollowing, setIsFollowing] = React.useState<boolean>(Boolean(isFollowingCreator));
-  const [followLoading, setFollowLoading] = React.useState(false);
-  const videoRef = React.useRef<HTMLVideoElement | null>(null);
-  const [isPaused, setIsPaused] = React.useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isMuted, setIsMuted] = useState(defaultMuted);
+  const [isPaused, setIsPaused] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [videoSrc, setVideoSrc] = useState<string | undefined>(undefined);
+  const [lk, setLk] = useState(() => toNum(likeCount ?? likes ?? 0));
+  const [cm, setCm] = useState(() => toNum(commentCount ?? comments ?? 0));
+  const [sh, setSh] = useState(() => toNum(shareCount ?? shares ?? 0));
+  const [isFollowing, setIsFollowing] = useState(Boolean(isFollowingCreator));
+  const [followLoading, setFollowLoading] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
 
-  const hasPlan = !!(planMonths && planPriceCents && planMonths > 1 && planPriceCents > 0);
-  const showBookOption = productType === "course" || productType === "mentorship";
+  const displayTitle = title ?? caption ?? "";
+  const displayCreator = creatorName ?? creator ?? "Creator";
+  const displayAvatar = avatarUrl ?? creatorAvatarUrl ?? null;
+  const canFollow = followable ?? showFollowButton ?? false;
 
-  React.useEffect(() => setLk(toNum(likes)), [likes]);
-  React.useEffect(() => setCm(toNum(comments)), [comments]);
-  React.useEffect(() => setSh(toNum(shares)), [shares]);
+  const formatCount = (n: number): string => {
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(n);
+  };
 
-  React.useEffect(() => {
+  useEffect(() => {
+    setLk(toNum(likeCount ?? likes ?? 0));
+  }, [likeCount, likes]);
+
+  useEffect(() => {
+    setCm(toNum(commentCount ?? comments ?? 0));
+  }, [commentCount, comments]);
+
+  useEffect(() => {
+    setSh(toNum(shareCount ?? shares ?? 0));
+  }, [shareCount, shares]);
+
+  useEffect(() => {
+    setIsFollowing(Boolean(isFollowingCreator));
+  }, [isFollowingCreator]);
+
+  useEffect(() => {
     function onDoc(e: MouseEvent) {
       if (!wrapperRef.current) return;
       if (wrapperRef.current.contains(e.target as Node)) return;
@@ -120,48 +154,192 @@ export default function VideoCard(props: VideoCardProps) {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  React.useEffect(() => {
-    setIsFollowing(Boolean(isFollowingCreator));
-  }, [isFollowingCreator]);
+  useEffect(() => {
+    if (productId && (!priceCents || priceCents === 0)) {
+      let cancelled = false;
+      (async () => {
+        try {
+          const { data, error } = await supabase
+            .from("products")
+            .select("amount_cents, price_cents")
+            .eq("product_id", productId)
+            .maybeSingle();
+          
+          if (!cancelled && !error && data) {
+            const productPrice = (data.amount_cents as number) || (data.price_cents as number) || null;
+            if (productPrice && productPrice > 0) {
+              setFetchedPriceCents(productPrice);
+            }
+          }
+        } catch (err) {
+          console.error("[VideoCard] Failed to fetch product price:", err);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [productId, priceCents]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+
+    const handleTimeUpdate = () => {
+      if (video.duration) {
+        setProgress((video.currentTime / video.duration) * 100);
+      }
+    };
+
     const handlePlay = () => setIsPaused(false);
     const handlePause = () => setIsPaused(true);
+    const handleCanPlay = () => setHasLoaded(true);
+
+    video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
+    video.addEventListener("canplay", handleCanPlay);
+
     return () => {
+      video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
+      video.removeEventListener("canplay", handleCanPlay);
     };
-  }, [src]);
+  }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = !soundEnabled;
-    if (soundEnabled && video.paused) {
-      video.play().catch(() => {
-        /* autoplay might fail; ignore */
-      });
+
+    video.muted = isMuted;
+  }, [isMuted]);
+
+  // Sync mute state with soundEnabled prop
+  useEffect(() => {
+    if (soundEnabled !== undefined) {
+      setIsMuted(!soundEnabled);
     }
   }, [soundEnabled]);
 
-  React.useEffect(() => {
-    // reset pause state when video source changes
-    setIsPaused(false);
-  }, [src]);
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
 
-  const canFollow = Boolean(showFollowButton && creatorId);
-  const showFollowBadge = Boolean(canFollow && !isFollowing);
+    if (isActive === undefined) {
+      const container = containerRef.current;
+      if (!container) return;
 
-  const handleAvatarClick = React.useCallback(() => {
-    if (!creatorId) return;
-    router.push(`/creators/${creatorId}`);
-  }, [creatorId, router]);
+      const observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting && entry.intersectionRatio >= 0.75) {
+              video.play().catch(() => {});
+            } else {
+              video.pause();
+            }
+          });
+        },
+        { threshold: 0.75 }
+      );
 
-  const handleFollowToggle = React.useCallback(async () => {
+      observer.observe(container);
+
+      return () => {
+        observer.disconnect();
+        video.pause();
+      };
+    } else if (isActive) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [isActive]);
+
+  useEffect(() => {
+    if (src && !hasLoaded) {
+      if (isActive === true) {
+        setVideoSrc(src);
+        videoRef.current?.load();
+      } else if (isActive === undefined && containerRef.current) {
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((entry) => {
+              if (entry.isIntersecting && !hasLoaded) {
+                setVideoSrc(src);
+                videoRef.current?.load();
+              }
+            });
+          },
+          { threshold: 0.1 }
+        );
+
+        observer.observe(containerRef.current);
+
+        return () => observer.disconnect();
+      }
+    }
+  }, [src, hasLoaded, isActive]);
+
+  const handleVideoClick = useCallback(() => {
+    const video = videoRef.current;
+    if (!video || !tapToTogglePlayback) return;
+
+    if (video.paused) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+    }
+  }, [tapToTogglePlayback]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === " " && document.activeElement === containerRef.current) {
+        e.preventDefault();
+        handleVideoClick();
+      }
+    },
+    [handleVideoClick]
+  );
+
+  const handleMuteToggle = useCallback(() => {
+    setIsMuted((prev) => !prev);
+    onToggleSound?.();
+  }, [onToggleSound]);
+
+  const handleLike = useCallback(async () => {
+    setLk((v) => v + 1);
+    try {
+      await onLike?.();
+    } catch {
+      setLk((v) => Math.max(0, v - 1));
+    }
+  }, [onLike]);
+
+  const handleComment = useCallback(async () => {
+    setCm((v) => v + 1);
+    try {
+      await onComment?.();
+    } catch {
+      setCm((v) => Math.max(0, v - 1));
+    }
+  }, [onComment]);
+
+  const handleShare = useCallback(async () => {
+    setSh((v) => v + 1);
+    try {
+      await onShare?.();
+    } catch {
+      setSh((v) => Math.max(0, v - 1));
+    }
+  }, [onShare]);
+
+  const handleFollow = useCallback(async () => {
+    if (onFollow) {
+      onFollow();
+      return;
+    }
+
     if (!canFollow || !creatorId || followLoading) return;
 
     setFollowLoading(true);
@@ -197,42 +375,36 @@ export default function VideoCard(props: VideoCardProps) {
     } finally {
       setFollowLoading(false);
     }
-  }, [canFollow, creatorId, followLoading, isFollowing]);
+  }, [canFollow, creatorId, followLoading, isFollowing, onFollow]);
 
-  const handleVideoTap = React.useCallback(() => {
-    if (!tapToTogglePlayback) return;
-    const video = videoRef.current;
-    if (!video) return;
-    if (video.paused) {
-      video.play().catch(() => {
-        setIsPaused(true);
-      });
-    } else {
-      video.pause();
+  const handleBuy = useCallback(async () => {
+    if (onBuy) {
+      onBuy();
+      return;
     }
-  }, [tapToTogglePlayback]);
 
-  async function createCheckoutSession(body: unknown) {
+    if (!productId) {
+      alert("No product attached to this post yet.");
+      return;
+    }
+
+    try {
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify(body),
-    });
+        body: JSON.stringify({
+          type: "product",
+          product_id: String(productId),
+          post_id: postId ?? undefined,
+          creator_id: creatorId ?? null,
+          titleForCheckout: titleForCheckout ?? undefined,
+        }),
+      });
 
-    let data: any = null;
-    try {
-      const raw = await res.text();
-      data = raw ? JSON.parse(raw) : null;
-    } catch {
-      data = null;
-    }
-
+      const data = await res.json().catch(() => null);
     if (!res.ok) {
-      const msg =
-        (data && (data.error || data.message)) ||
-        `Failed to create checkout session (HTTP ${res.status})`;
-      throw new Error(msg);
+        throw new Error(data?.error || `Failed to create checkout session (HTTP ${res.status})`);
     }
 
     const url = typeof data?.url === "string" ? data.url : "";
@@ -240,445 +412,328 @@ export default function VideoCard(props: VideoCardProps) {
       throw new Error("Not a valid checkout URL returned from server.");
     }
 
-    try { if (data?.id) localStorage.setItem("last_checkout_session", String(data.id)); } catch {}
-
     window.location.assign(url);
-  }
-
-  // Pay in full
-  async function handleBuy() {
-    try {
-      setLoading("buy");
-      const pid = productId ?? null;
-      if (!pid) {
-        setLoading(null);
-        alert("No product attached to this post yet.");
-        return;
-      }
-      await createCheckoutSession({
-        type: "product",
-        product_id: String(pid),
-        post_id: postId ?? undefined,
-        creator_id: creatorId ?? null,
-        titleForCheckout: titleForCheckout ?? undefined,
-      });
     } catch (e) {
       console.error("[buy] error:", e);
-      setLoading(null);
       alert((e as Error).message || "Failed to start checkout.");
     }
-  }
+  }, [onBuy, productId, postId, creatorId, titleForCheckout]);
 
-  // Pay monthly (installment plan)
-  async function handlePlan() {
-    try {
-      setLoading("plan");
-      const pid = productId ?? null;
-      if (!pid || !hasPlan) {
-        setLoading(null);
-        alert("Monthly plan not available for this product.");
-        return;
-      }
-      await createCheckoutSession({
-        // IMPORTANT: server expects "plan" + plan_amount_cents
-        type: "plan",
-        product_id: String(pid),
-        post_id: postId ?? undefined,
-        creator_id: creatorId ?? null,
-        plan_months: planMonths,
-        plan_amount_cents: planPriceCents, // ← match server param name
-        plan_title: titleForCheckout ?? undefined,
-      });
-    } catch (e) {
-      console.error("[plan] error:", e);
-      setLoading(null);
-      alert((e as Error).message || "Failed to start plan checkout.");
-    }
-  }
-
-  async function handleBook() {
-    if (!postId) {
-      onCta?.();
+  const handleBook = useCallback(async () => {
+    if (onBook) {
+      onBook();
       return;
     }
+
     if (!bookingRedirectUrl) {
       alert("No booking link is configured for this post.");
       return;
     }
+
     try {
-      setLoading("book");
-      await createCheckoutSession({
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
         type: "booking",
         post_id: postId,
         creator_id: creatorId ?? undefined,
         bookingRedirectUrl,
+        }),
       });
+
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(data?.error || `Failed to create checkout session (HTTP ${res.status})`);
+      }
+
+      const url = typeof data?.url === "string" ? data.url : "";
+      if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
+        window.location.assign(url);
+      }
     } catch (e) {
       console.error("[book] error:", e);
-      setLoading(null);
       alert((e as Error).message || "Failed to start booking.");
     }
-  }
+  }, [onBook, bookingRedirectUrl, postId, creatorId]);
 
-  const canShowCTA = Boolean(showCTA && (postId || productId));
+  const handleAvatarClick = useCallback(async (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    e?.preventDefault();
+    
+    console.log("[VideoCard] Avatar clicked - creatorId:", creatorId, "postId:", postId);
+    
+    // If creatorId is available, navigate immediately
+    if (creatorId) {
+      console.log("[VideoCard] Navigating to creator profile:", creatorId);
+      router.push(`/creators/${creatorId}`);
+      return;
+    }
+
+    // Fallback: try to fetch creatorId from API
+    if (!postId) {
+      console.warn("[VideoCard] Missing both creatorId and postId for avatar redirect");
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/posts/${postId}/creator`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
+
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "Unknown error");
+        console.error("[VideoCard] Creator lookup failed:", res.status, errorText);
+        return;
+      }
+
+      const payload = (await res.json()) as { creatorId?: string };
+      if (payload?.creatorId) {
+        router.push(`/creators/${payload.creatorId}`);
+      } else {
+        console.warn("[VideoCard] creatorId missing in API response for postId:", postId);
+      }
+    } catch (err) {
+      console.error("[VideoCard] Avatar redirect error:", err);
+    }
+  }, [creatorId, postId, router]);
 
   return (
-    <div className="mx-auto flex w-full h-full max-w-[1200px] items-center justify-center gap-4 px-3">
+    <div className="relative w-full max-w-[504.8px]">
       <div
-        className="
-          relative
-          w-full max-w-[1080px]
-          aspect-[9/16]
-          min-h-[90vh]
-          lg:min-h-[100vh] lg:w-auto
-          rounded-3xl bg-black shadow-[0_10px_40px_rgba(0,0,0,0.45)] overflow-hidden
-        "
-        ref={wrapperRef}
+        ref={containerRef}
+        role="group"
+        aria-label={`${displayCreator}: ${displayTitle}`}
+        className="relative w-full overflow-hidden border border-white/12 bg-black"
+        style={{ borderRadius: "16px 16px 20px 20px" }}
+        onKeyDown={handleKeyDown}
+        tabIndex={0}
       >
-      {/* Media */}
-      <div className="absolute inset-0 flex items-center justify-center bg-black overflow-hidden">
-        {src ? (
+      <div className="relative w-full aspect-[9/16] bg-black overflow-hidden" style={{ borderRadius: "16px 16px 0 0" }}>
+        {videoSrc || src ? (
           <video
-            src={src}
+            ref={videoRef}
+            src={videoSrc || src}
             poster={poster || undefined}
             playsInline
-            controls={false}
+            muted={isMuted}
+            preload="metadata"
             loop
-            autoPlay
-            muted={!soundEnabled}
-            className="max-h-full max-w-full"
-            style={{ objectFit: "contain" }}
-            ref={videoRef}
-            onClick={handleVideoTap}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ borderRadius: "16px 16px 0 0", pointerEvents: tapToTogglePlayback ? "auto" : "none" }}
+            onClick={handleVideoClick}
           />
         ) : poster ? (
-          <img src={poster} alt="" className="max-h-full max-w-full" style={{ objectFit: "contain" }} />
-        ) : null}
-        {tapToTogglePlayback ? (
-          <span
-            className={`pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/60 px-3 py-1 text-xs font-medium text-white transition ${
-              isPaused ? "opacity-100" : "opacity-0"
-            }`}
-          >
-            Tap to play
-          </span>
-        ) : null}
-      </div>
-
-      {/* Tabs (mobile only) */}
-      <div className="absolute top-3 left-1/2 -translate-x-1/2 flex items-center gap-6 text-white/90 text-sm font-semibold md:hidden">
-        <button className="relative" onClick={() => onChangeTab?.("following")} aria-pressed={activeTab === "following"}>
-          <span className={activeTab === "following" ? "opacity-100" : "opacity-70"}>Following</span>
-          {activeTab === "following" && <span className="absolute -bottom-1 left-0 right-0 mx-auto h-[2px] w-10 bg-white rounded-full" />}
-        </button>
-        <button className={activeTab === "discover" ? "opacity-100" : "opacity-70"} onClick={() => onChangeTab?.("discover")} aria-pressed={activeTab === "discover"}>
-          Discover
-        </button>
-      </div>
-
-      {/* Action rail (mobile overlay) */}
-      <div className="absolute right-4 bottom-6 flex flex-col items-end gap-4 z-30 md:hidden" style={{ bottom: '120px' }}>
-        <div className="self-end translate-x-0.5">
-          <CreatorAvatarButton
-            avatarUrl={creatorAvatarUrl}
-            creatorName={creator}
-            canNavigate={Boolean(creatorId)}
-            onAvatarClick={creatorId ? handleAvatarClick : undefined}
-            showFollowBadge={showFollowBadge}
-            onFollowClick={showFollowBadge ? handleFollowToggle : undefined}
-            followDisabled={followLoading}
+          <img
+            src={poster}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{ borderRadius: "16px 16px 0 0" }}
           />
+        ) : null}
+
+        <div
+          className="absolute top-2 left-2 sm:top-3 sm:left-3 h-10 w-10 rounded-full bg-black/35 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-black/50 transition focus:outline-none focus:ring-2 focus:ring-white/60 z-30"
+          style={{ backdropFilter: "blur(12px)" }}
+        >
+          <button
+            type="button"
+            onClick={handleMuteToggle}
+            aria-label={isMuted ? "Unmute video" : "Mute video"}
+            className="w-full h-full flex items-center justify-center"
+          >
+            {isMuted ? (
+              <VolumeX className="h-5 w-5" />
+            ) : (
+              <Volume2 className="h-5 w-5" />
+            )}
+        </button>
         </div>
-        <ActionStat
-          ariaLabel="Like"
-          count={formatNum(lk)}
-          onClick={async () => {
-            setLk((v) => v + 1);
-            try {
-              await onLike?.();
-            } catch {
-              setLk((v) => Math.max(0, v - 1));
-            }
-          }}
-        >
-          <HeartIcon />
-        </ActionStat>
-        <ActionStat
-          ariaLabel="Comment"
-          count={formatNum(cm)}
-          onClick={async () => {
-            setCm((v) => v + 1);
-            try {
-              await onComment?.();
-            } catch {
-              setCm((v) => Math.max(0, v - 1));
-            }
-          }}
-        >
-          <ChatIcon />
-        </ActionStat>
-        <ActionStat
-          ariaLabel="Share"
-          count={formatNum(sh)}
-          onClick={async () => {
-            setSh((v) => v + 1);
-            try {
-              await onShare?.();
-            } catch {
-              setSh((v) => Math.max(0, v - 1));
-            }
-          }}
-        >
-          <ShareIcon />
-        </ActionStat>
       </div>
 
-      {/* CTA + meta */}
-      {typeof soundEnabled === "boolean" && typeof onToggleSound === "function" ? (
-        <SoundToggleButton enabled={soundEnabled} onClick={onToggleSound} />
-      ) : null}
-      <div className="absolute left-4 right-24 bottom-16 space-y-3 z-30 text-white">
-        <div className="flex items-center gap-3">
-          {canShowCTA ? (
-            <div className="relative inline-block">
+      <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4 bg-gradient-to-t from-black/70 via-black/30 to-transparent z-20" style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}>
+          <div className="flex items-start gap-3 mb-3 translate-y-[45px]">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-white font-semibold text-base truncate">
+                  {displayCreator}
+                </span>
+              </div>
+              <p className="text-white/95 text-base line-clamp-2 leading-snug">
+                {displayTitle}
+              </p>
+              {hashtags && (
+                <p className="text-white/70 text-xs mt-1 line-clamp-1">{hashtags}</p>
+              )}
+            </div>
+          </div>
+          {(showCTA || onBuy || onBook || (productId && priceCents)) && (
+            <div className="mt-2 relative -translate-y-[0.8in]" ref={wrapperRef}>
               <button
                 type="button"
-                disabled={loading !== null}
-                onClick={() => setMenuOpen(v => !v)}
-                className="
-                  inline-flex items-center gap-2 px-3 py-1.5 rounded-full
-                  bg-white/95 text-black text-sm font-semibold hover:bg-white
-                  transition shadow-sm disabled:opacity-70 disabled:cursor-not-allowed
-                "
+                onClick={() => setMenuOpen((prev) => !prev)}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white text-black text-sm font-semibold hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
               >
-                <CartIcon />
-                {loading === "buy" || loading === "plan" ? "Loading…" :
-                  hasPlan ? `Buy ${priceCentsToUSD(priceCents)} • or Plan` : `Buy ${priceCentsToUSD(priceCents)}`}
-                <svg viewBox="0 0 24 24" className="h-4 w-4"><path d="M7 10l5 5 5-5z" /></svg>
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                  <path d="M7 4h14l-1.5 9H8.6L7 4zM3 4h2l3 12h10v2H7a2 2 0 0 1-2-1.5L3 4zM9 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3zM17 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z"/>
+                </svg>
+                <span className="font-semibold">Buy</span>
+                {(priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0) ? (
+                  <span className="font-semibold">${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}</span>
+                ) : null}
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="black">
+                  <path d="M7 10l5 5 5-5z" />
+                </svg>
               </button>
 
               {menuOpen && (
-                <div role="menu" className="absolute z-20 mt-2 w-56 rounded-xl bg-white shadow-lg ring-1 ring-black/5 overflow-hidden">
-                  <button role="menuitem" onClick={() => { setMenuOpen(false); void handleBuy(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-70">
-                    {loading === "buy" ? "Starting…" : `Pay in full ${priceCentsToUSD(priceCents)}`}
+                <div
+                  role="menu"
+                  className="absolute z-50 mt-2 w-56 rounded-xl bg-white shadow-lg ring-1 ring-black/5 overflow-hidden"
+                >
+                  <button
+                    role="menuitem"
+                    onClick={() => {
+                      setMenuOpen(false);
+                      handleBuy();
+                    }}
+                    className="w-full text-left px-4 py-3 text-sm text-gray-900 hover:bg-gray-100 transition"
+                  >
+                    Pay in full {((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}` : ""}
                   </button>
-                  {hasPlan && (<>
-                    <div className="h-px bg-gray-200" />
-                    <button role="menuitem" onClick={() => { setMenuOpen(false); void handlePlan(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-70">
-                      {loading === "plan" ? "Starting…" : `Pay monthly ${priceCentsToUSD(planPriceCents)} × ${planMonths}`}
-                    </button>
-                  </>)}
-                  {showBookOption && (
+                  {(productType === "course" || productType === "mentorship" || allowBooking) && (
                     <>
                       <div className="h-px bg-gray-200" />
-                      <button role="menuitem" onClick={() => { setMenuOpen(false); void handleBook(); }} disabled={loading !== null} className="w-full text-left px-3 py-2 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-70">
-                        {loading === "book" ? "Starting…" : "Book"}
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          handleBook();
+                        }}
+                        className="w-full text-left px-4 py-3 text-sm text-gray-900 hover:bg-gray-100 transition"
+                      >
+                        Book
                       </button>
                     </>
                   )}
                 </div>
               )}
             </div>
-          ) : (
-            showCTA && (
-              <button onClick={onCta} className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/95 text-black text-sm font-semibold hover:bg-white transition shadow-sm">
-                <CartIcon /> {ctaLabel}
-              </button>
-            )
           )}
-
-        </div>
-
-        <div className="text-white/95">
-          <div className="text-[15px] font-semibold">{creator}</div>
-          <div className="text-sm text-white/85">{caption}</div>
-          <div className="text-xs text-white/70">{hashtags}</div>
-        </div>
       </div>
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40 bg-gradient-to-t from-black/80 via-black/40 to-transparent z-20" />
-      </div>
-      {/* Desktop action rail */}
-      <div className="hidden md:flex flex-col items-center gap-3 pb-6" style={{ marginTop: '650px' }}>
-        <CreatorAvatarButton
-          avatarUrl={creatorAvatarUrl}
-          creatorName={creator}
-          canNavigate={Boolean(creatorId)}
-          onAvatarClick={creatorId ? handleAvatarClick : undefined}
-          showFollowBadge={showFollowBadge}
-          onFollowClick={showFollowBadge ? handleFollowToggle : undefined}
-          followDisabled={followLoading}
+
+      <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20 z-30" style={{ height: "2px" }}>
+        <div
+          className="h-full bg-white/60 transition-all duration-150"
+          style={{ width: `${progress}%`, height: "2px" }}
         />
-        <ActionStat
-          ariaLabel="Like"
-          count={formatNum(lk)}
-          onClick={async () => {
-            setLk((v) => v + 1);
-            try {
-              await onLike?.();
-            } catch {
-              setLk((v) => Math.max(0, v - 1));
-            }
-          }}
-        >
-          <HeartIcon />
-        </ActionStat>
-        <ActionStat
-          ariaLabel="Comment"
-          count={formatNum(cm)}
-          onClick={async () => {
-            setCm((v) => v + 1);
-            try {
-              await onComment?.();
-            } catch {
-              setCm((v) => Math.max(0, v - 1));
-            }
-          }}
-        >
-          <ChatIcon />
-        </ActionStat>
-        <ActionStat
-          ariaLabel="Share"
-          count={formatNum(sh)}
-          onClick={async () => {
-            setSh((v) => v + 1);
-            try {
-              await onShare?.();
-            } catch {
-              setSh((v) => Math.max(0, v - 1));
-            }
-          }}
-        >
-          <ShareIcon />
-        </ActionStat>
       </div>
     </div>
-  );
-}
 
-type ActionStatProps = {
-  children: React.ReactNode;
-  count?: string | number;
-  onClick?: () => void | Promise<void>;
-  ariaLabel?: string;
-};
-function ActionStat({ children, count, onClick, ariaLabel }: ActionStatProps) {
-  return (
+      <div
+        className="absolute bottom-32 sm:bottom-40 grid gap-3 -translate-x-[30px] translate-y-[140px]"
+        style={{ 
+          bottom: "clamp(120px, 18vh, 160px)",
+          right: "-1in",
+          pointerEvents: "auto",
+          zIndex: 50
+        }}
+      >
+        <div className="relative h-[56px] w-[56px]">
+          {displayAvatar ? (
     <button
       type="button"
-      onClick={onClick}
-      aria-label={ariaLabel || "action"}
-      className="group flex flex-col items-center gap-1 text-white/90 hover:text-white transition"
-    >
-      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[#1f1f1f] group-hover:bg-[#2b2b2b] transition overflow-hidden">
-        <div className="h-5 w-5">{children}</div>
-      </span>
-      {typeof count !== "undefined" ? (
-        <span className="text-sm font-semibold tracking-wide">
-          {count}
-        </span>
-      ) : null}
+              onClick={handleAvatarClick}
+              className="h-[56px] w-[56px] rounded-full overflow-hidden border-2 border-white/20 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer"
+              aria-label={`${displayCreator} profile`}
+              style={{ pointerEvents: "auto", zIndex: 51 }}
+            >
+              <img
+                src={displayAvatar}
+                alt={displayCreator}
+                className="h-full w-full object-cover pointer-events-none"
+              />
     </button>
-  );
-}
-type CreatorAvatarButtonProps = {
-  avatarUrl?: string | null;
-  creatorName?: string;
-  showFollowBadge: boolean;
-  onAvatarClick?: () => void;
-  onFollowClick?: () => void;
-  followDisabled?: boolean;
-  canNavigate?: boolean;
-};
-function CreatorAvatarButton({
-  avatarUrl,
-  creatorName = "Creator",
-  showFollowBadge,
-  onAvatarClick,
-  onFollowClick,
-  followDisabled = false,
-  canNavigate = false,
-}: CreatorAvatarButtonProps) {
-  return (
-    <div className="relative flex flex-col items-center gap-1.5">
+          ) : (
       <button
         type="button"
-        onClick={canNavigate ? onAvatarClick : undefined}
-        disabled={!canNavigate}
-        aria-label={`${creatorName} profile`}
-        className="relative h-16 w-16 rounded-full flex items-center justify-center hover:bg-white/10 transition disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
-        style={{ overflow: "visible" }}
-      >
-        <span className="absolute inset-1 rounded-full overflow-hidden border border-white/15 bg-black/20">
-          {avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={avatarUrl} alt={creatorName} className="h-full w-full object-cover" />
-          ) : (
-            <div className="h-full w-full flex items-center justify-center text-white/85">
-              <UserIcon />
-            </div>
-          )}
-        </span>
+              onClick={handleAvatarClick}
+              className="h-[56px] w-[56px] rounded-full bg-white/10 border-2 border-white/20 flex-shrink-0 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer hover:bg-white/20 transition"
+              aria-label={`${displayCreator} profile`}
+              style={{ pointerEvents: "auto", zIndex: 51 }}
+            >
+              <span className="text-white/60 text-sm font-semibold pointer-events-none">{displayCreator[0]?.toUpperCase()}</span>
       </button>
-      {showFollowBadge ? (
+          )}
+          {canFollow && !isFollowing && (
         <button
           type="button"
           onClick={(e) => {
-            e.preventDefault();
             e.stopPropagation();
-            if (!followDisabled) {
-              onFollowClick?.();
-            }
-          }}
-          disabled={followDisabled}
-          aria-label={`Follow ${creatorName}`}
-          className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-7 w-7 rounded-full bg-[#7F5CE6] text-white flex items-center justify-center border-2 border-black/70 shadow-lg hover:bg-[#6b4fd9] disabled:opacity-60"
+                handleFollow();
+              }}
+              disabled={followLoading}
+              className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-[#4A35C7] text-white flex items-center justify-center border-2 border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10 -translate-x-[1.003em]"
+              aria-label={`Follow ${displayCreator}`}
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          )}
+        </div>
+        <div className="flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={handleLike}
+            aria-label="Like"
+            className="h-[48px] w-[48px] rounded-full border border-white/10 text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
+            style={{ backgroundColor: "#1A1F22" }}
+          >
+            <Heart className="h-6 w-6 fill-current" />
+          </button>
+          <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+            {formatCount(lk)}
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={handleComment}
+            aria-label="Comment"
+            className="h-[48px] w-[48px] rounded-full border border-white/10 flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
+            style={{ backgroundColor: "#1A1F22" }}
+          >
+            <img src="/msg.png" alt="Comment" className="h-7 w-7 object-contain" />
+          </button>
+          <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+            {formatCount(cm)}
+          </span>
+        </div>
+
+        <div className="flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={handleShare}
+            aria-label="Share"
+            className="h-[48px] w-[48px] rounded-full border border-white/10 flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
+            style={{ backgroundColor: "#1A1F22" }}
         >
-          <PlusIcon />
+            <img src="/share.png" alt="Share" className="h-7 w-7 object-contain" />
         </button>
-      ) : null}
+          <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+            {formatCount(sh)}
+          </span>
+        </div>
+      </div>
     </div>
   );
 }
 
-type SoundToggleButtonProps = {
-  enabled: boolean;
-  onClick: () => void;
-};
-
-function SoundToggleButton({ enabled, onClick }: SoundToggleButtonProps) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="absolute left-3 bottom-3 flex items-center justify-center h-8 w-8 rounded-full border border-white/30 bg-black/35 backdrop-blur-sm text-white hover:bg-white/15 transition"
-      aria-label={enabled ? "Mute video" : "Unmute video"}
-    >
-      {enabled ? <SoundOnIcon /> : <SoundOffIcon />}
-    </button>
-  );
+function toNum(n: number | string | undefined | null): number {
+  if (n === undefined || n === null) return 0;
+  return typeof n === "string" ? Number(n) || 0 : n || 0;
 }
-
-function toNum(n: number | string) { return typeof n === "string" ? Number(n) || 0 : n || 0; }
-function formatNum(n: number | string) {
-  const num = typeof n === "string" ? Number(n) : n;
-  if (!isFinite(num)) return String(n);
-  if (num >= 1_000_000) return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-  if (num >= 1_000) return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-  return String(num);
-}
-function priceCentsToUSD(cents?: number | null) {
-  const n = typeof cents === "number" && Number.isFinite(cents) ? cents : 0;
-  return `$${(n / 100).toFixed(2)}`;
-}
-
-/* Icons */
-function UserIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0 0-2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5z"/></svg>)}
-function HeartIcon(){return(<svg viewBox="0 0 24 24" className="h-full w-full fill-current"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>)}
-function ChatIcon(){return(<img src="/msg.png" alt="Comments" className="h-full w-full object-contain" />)}
-function ShareIcon(){return(<img src="/image.png" alt="Share" className="h-full w-full object-contain" />)}
-function CartIcon(){return(<svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M7 4h14l-1.5 9H8.6L7 4zM3 4h2l3 12h10v2H7a2 2 0 0 1-2-1.5L3 4zM9 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3zM17 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z"/></svg>)}
-function PlusIcon(){return(<svg viewBox="0 0 24 24" className="h-4 w-4 fill-current"><path d="M11 4h2v16h-2zM4 11h16v2H4z"/></svg>)}
-function SoundOnIcon(){return(<svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="m3 9v6h4l5 5V4L7 9H3zm13.5 3a3.5 3.5 0 0 0-2.5-3.347v6.694A3.5 3.5 0 0 0 16.5 12zm-2.5-7.857v2.126A6.5 6.5 0 0 1 19 12a6.5 6.5 0 0 1-5 6.357v2.126A8.5 8.5 0 0 0 21 12a8.5 8.5 0 0 0-7-7.857z"/></svg>)}
-function SoundOffIcon(){return(<svg viewBox="0 0 24 24" className="h-5 w-5 fill-current"><path d="M5.707 4.293 4.293 5.707 8.586 10H3v4h5l5 5v-6.586l4.293 4.293 1.414-1.414-13-13zm7.293.707-4 4V10l4-4V5zm4.5-.857v2.126A6.5 6.5 0 0 1 21 12a6.5 6.5 0 0 1-2 4.652l1.46 1.46A8.5 8.5 0 0 0 23 12a8.5 8.5 0 0 0-5.5-8.857z"/></svg>)}

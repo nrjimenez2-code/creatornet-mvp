@@ -70,7 +70,7 @@ export default function ProfileStarRating({
   function renderStar(index: number) {
     const value = hoverValue ?? currentRating;
     const active = value >= index - 0.25;
-    const colorClass = hoverValue ? "text-purple-400" : active ? "text-purple-400" : "text-gray-400";
+    const colorClass = hoverValue ? "text-[#4A35C7]" : active ? "text-[#4A35C7]" : "text-gray-400";
     return (
       <button
         key={index}

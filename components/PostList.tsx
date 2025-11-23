@@ -34,6 +34,11 @@ export default function PostList({
         const comments =
           p.comments ?? p.commentCount ?? p.comments_count ?? 0;
         const shares = p.shares ?? p.shareCount ?? p.shares_count ?? 0;
+        const creatorId =
+          p.creatorId ??
+          p.creator_id ??
+          p.profileId ??
+          null;
 
         return (
           <VideoCard
@@ -46,6 +51,7 @@ export default function PostList({
             likes={likes}
             comments={comments}
             shares={shares}
+            creatorId={creatorId}
             ctaLabel={p.ctaLabel ?? "Buy or Book"}
             onCta={p.onCta}
           />

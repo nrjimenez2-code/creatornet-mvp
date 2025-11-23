@@ -1,59 +1,96 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabaseClient";
+import { useState, useEffect } from "react";
+import { createBrowserClient } from "@/lib/supabaseBrowser";
 
-interface FollowButtonProps {
+type FollowButtonProps = {
   creatorId: string;
-  initiallyFollowing: boolean;
-}
+  initialFollowing: boolean;
+};
 
-export default function FollowButton({ creatorId, initiallyFollowing }: FollowButtonProps) {
-  const supabase = createClient();
-  const [isFollowing, setIsFollowing] = useState(initiallyFollowing);
+export default function FollowButton({ creatorId, initialFollowing }: FollowButtonProps) {
+  const [following, setFollowing] = useState(initialFollowing);
   const [loading, setLoading] = useState(false);
+  const supabase = createBrowserClient();
 
-  async function toggleFollow() {
-    if (!creatorId || loading) return;
+  // Sync with initialFollowing prop changes - this ensures the button reflects the actual database state
+  useEffect(() => {
+    setFollowing(initialFollowing);
+  }, [initialFollowing]);
+  
+  // Also verify the follow status on mount to ensure accuracy
+  useEffect(() => {
+    async function verifyFollowStatus() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data } = await supabase
+        .from("follows")
+        .select("follower_id, following_id")
+        .eq("follower_id", user.id)
+        .eq("following_id", creatorId)
+        .maybeSingle();
+
+      // Update state based on actual database state
+      setFollowing(!!data);
+    }
+    verifyFollowStatus();
+  }, [creatorId, supabase]);
+
+  async function handleFollow() {
+    if (loading) return;
+    
+    // Store previous state for potential revert
+    const previousFollowingState = following;
+    const newFollowingState = !following;
+    
+    // Optimistic update - update UI immediately
+    setFollowing(newFollowingState);
     setLoading(true);
 
-    const { data: auth } = await supabase.auth.getUser();
-    const viewerId = auth?.user?.id;
-    if (!viewerId) {
-      alert("Please sign in to follow creators.");
-      setLoading(false);
-      return;
-    }
+    try {
+      // Use current origin to ensure we hit localhost or correct domain
+      const apiUrl = typeof window !== "undefined" 
+        ? `${window.location.origin}/api/follow`
+        : "/api/follow";
+      
+      const res = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          creator_id: creatorId,
+          action: previousFollowingState ? "unfollow" : "follow",
+        }),
+      });
 
-    if (isFollowing) {
-      const { error } = await supabase
-        .from("follows")
-        .delete()
-        .eq("follower_id", viewerId)
-        .eq("following_id", creatorId);
-      if (!error) setIsFollowing(false);
+      const data = await res.json();
+      if (res.ok && data.success !== undefined) {
+        // Update with server response
+        setFollowing(data.following);
     } else {
-      const { error } = await supabase
-        .from("follows")
-        .insert({ follower_id: viewerId, following_id: creatorId });
-      if (!error) setIsFollowing(true);
-    }
-
+        // Revert on error
+        setFollowing(previousFollowingState);
+        console.error("Follow error:", data.error || "Unknown error");
+        alert(data.error || "Failed to update follow status. Please try again.");
+      }
+    } catch (err) {
+      // Revert on error
+      setFollowing(previousFollowingState);
+      console.error("Failed to update follow status:", err);
+      alert("Failed to update follow status. Please try again.");
+    } finally {
     setLoading(false);
+    }
   }
 
   return (
     <button
-      type="button"
-      onClick={toggleFollow}
+      onClick={handleFollow}
       disabled={loading}
-      className={`rounded-full px-4 py-2 text-sm font-semibold transition border disabled:opacity-60 ${
-        isFollowing
-          ? "bg-white text-black border-white/60 hover:bg-white/80"
-          : "bg-white text-black border-white/40 hover:bg-white/85"
-      }`}
+      className="rounded-md bg-[#4A35C7] px-3 py-1.5 text-sm font-semibold text-white hover:brightness-95 transition disabled:opacity-50 disabled:cursor-not-allowed"
     >
-      {loading ? "..." : isFollowing ? "Following" : "Follow"}
+      {loading ? "..." : following ? "Following" : "Follow"}
     </button>
   );
 }

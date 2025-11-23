@@ -89,6 +89,14 @@ export async function POST(req: Request) {
     if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
 
     const session = await stripe.checkout.sessions.retrieve(session_id);
+    console.log("[confirm-purchase] ✅ Session retrieved:", {
+      session_id,
+      mode: session.mode,
+      payment_status: session.payment_status,
+      status: session.status,
+      metadata: session.metadata,
+      kind: session.metadata?.kind,
+    });
     if (
       session.mode === "setup" ||
       session.payment_status === "no_payment_required" ||
@@ -102,14 +110,33 @@ export async function POST(req: Request) {
         (session.metadata?.post_id as string) || (session.metadata?.postId as string) || "";
       const creatorIdMeta =
         (session.metadata?.creator_id as string) || (session.metadata?.creatorId as string) || "";
+      
+      // Validate post_id is not empty
+      const postId = postIdMeta.trim() || null;
+      const creatorId = creatorIdMeta.trim() || null;
+      
+      console.log("[confirm-purchase] booking detected, returning:", {
+        post_id: postId,
+        creator_id: creatorId,
+        redirect_url: redirectUrl,
+        raw_metadata: session.metadata,
+      });
+      
+      if (!postId) {
+        console.error("[confirm-purchase] ⚠️ WARNING: post_id is empty in metadata", {
+          session_id: session.id,
+          metadata: session.metadata,
+        });
+      }
+      
       return NextResponse.json(
         {
           ok: true,
           session_id,
           kind: "booking",
           booking_redirect_url: redirectUrl,
-          post_id: postIdMeta || null,
-          creator_id: creatorIdMeta || null,
+          post_id: postId,
+          creator_id: creatorId,
         },
         { status: 200 }
       );

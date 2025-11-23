@@ -20,13 +20,13 @@ export default function ProfileShareButton() {
       <button
         type="button"
         onClick={handleCopy}
-        className="rounded-full p-2.5 text-white hover:bg-white/10 transition"
+        className="flex h-8 w-8 items-center justify-center rounded-md bg-[#1A1F22] text-white hover:bg-[#232833] transition"
         aria-label={copied ? "Link copied" : "Share profile"}
       >
         <img
-          src="/image.png"
+          src="/share.png"
           alt="Share"
-          className="w-6 h-6 object-contain rounded-lg"
+          className="w-5 h-5 object-contain"
         />
       </button>
       {copied && (

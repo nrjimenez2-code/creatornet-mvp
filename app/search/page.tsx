@@ -183,7 +183,7 @@ function SearchPage() {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search creators, skills, or topics (e.g., fitness, AI, editing)."
-              className="w-full rounded-full border border-white/20 px-5 py-3 pl-11 bg-black text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
+              className="w-full rounded-full border border-white/20 px-5 py-3 pl-11 bg-black text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-[#4A35C7]"
               inputMode="search"
             />
             <svg
@@ -221,7 +221,7 @@ function SearchPage() {
                 onClick={() => pick(c)}
                 className={`px-3 py-1.5 rounded-full border text-sm transition ${
                   query.toLowerCase() === c.toLowerCase()
-                    ? "bg-[#7F5CE6] text-white border-[#7F5CE6]"
+                    ? "bg-[#4A35C7] text-white border-[#4A35C7]"
                     : "bg-black text-white border-white/20 hover:bg-black/70"
                 }`}
               >

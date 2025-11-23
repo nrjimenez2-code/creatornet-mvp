@@ -120,7 +120,7 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
     <>
       <div
         ref={gridRef}
-        className="mt-2 grid grid-cols-2 gap-0 sm:grid-cols-3 lg:grid-cols-4"
+        className="grid grid-cols-2 gap-0 sm:grid-cols-3 lg:grid-cols-4"
       >
         {posts.map((post, index) => (
           <button

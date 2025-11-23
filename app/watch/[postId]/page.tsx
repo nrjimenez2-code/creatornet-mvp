@@ -122,7 +122,8 @@ export default function WatchPage() {
 
   if (loading) {
     return (
-      <main className="flex items-center justify-center min-h-screen text-gray-500">
+      <main className="relative flex items-center justify-center min-h-screen text-gray-500">
+        <BackButton hrefOverride="/dashboard" />
         Loading video…
       </main>
     );
@@ -130,7 +131,8 @@ export default function WatchPage() {
 
   if (error) {
     return (
-      <main className="flex flex-col items-center justify-center min-h-screen">
+      <main className="relative flex flex-col items-center justify-center min-h-screen">
+        <BackButton hrefOverride="/dashboard" />
         <p className="text-red-500 mb-4">{error}</p>
         <button
           onClick={() => router.push("/library")}
@@ -144,7 +146,8 @@ export default function WatchPage() {
 
   if (!post) {
     return (
-      <main className="flex items-center justify-center min-h-screen text-gray-500">
+      <main className="relative flex items-center justify-center min-h-screen text-gray-500">
+        <BackButton hrefOverride="/dashboard" />
         Post not found.
       </main>
     );
@@ -158,12 +161,8 @@ export default function WatchPage() {
 
   return (
     <main className="relative mx-auto max-w-3xl p-6">
-      <div className="-ml-[6.7in]">
-        <BackButton
-          className="mb-6 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/30 text-white hover:bg-white/10"
-          hrefOverride={fromProfile ? "/profile" : "/library"}
-          scroll={false}
-        />
+      <div className="-translate-x-[5.9in]">
+        <BackButton hrefOverride="/dashboard" scroll={false} />
       </div>
       <h1 className="text-xl font-semibold mb-4 text-center">
         {post.title ?? "Video"}
@@ -178,6 +177,7 @@ export default function WatchPage() {
                 poster={post.poster_url || undefined}
                 controls
                 playsInline
+                id="watch-video-player"
               />
             ) : post.poster_url ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -191,10 +191,51 @@ export default function WatchPage() {
                 No video available
               </div>
             )}
+            
+            {/* Screen enlarger button at bottom right corner */}
+            {post.video_url && (
+              <button
+                onClick={async (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const video = document.getElementById("watch-video-player") as HTMLVideoElement;
+                  if (!video) return;
+                  try {
+                    if (document.fullscreenElement) {
+                      await document.exitFullscreen();
+                    } else if (video.requestFullscreen) {
+                      await video.requestFullscreen();
+                    } else if ((video as any).webkitEnterFullscreen) {
+                      (video as any).webkitEnterFullscreen(); // iOS Safari
+                    }
+                  } catch (err) {
+                    console.error("Fullscreen error:", err);
+                  }
+                }}
+                className="absolute bottom-4 right-4 z-50 rounded-md bg-black/85 hover:bg-black border border-white/40 px-2 py-1.5 text-white transition-all flex items-center justify-center shadow-2xl"
+                aria-label="Enlarge video"
+                style={{ minWidth: "36px", minHeight: "36px" }}
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="h-4 w-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                  strokeWidth={2.5}
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
           <Link
             href="/library"
-            className="absolute -bottom-18 left-150 rounded-sm bg-[#7E5CE6] px-6 py-2 text-sm font-semibold text-white hover:brightness-95 shadow-lg"
+            className="absolute -bottom-18 left-150 rounded-sm bg-[#4A35C7] px-6 py-2 text-sm font-semibold text-white hover:brightness-95 shadow-lg"
           >
             Library
           </Link>
