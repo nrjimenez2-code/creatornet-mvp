@@ -404,7 +404,7 @@ export default function ClosersManagerPage() {
 
   return (
     <main className="max-w-5xl mx-auto p-6 space-y-8">
-      <div className="-translate-x-[4.6in]">
+      <div className="absolute top-4 left-4 z-10">
         <BackButton />
       </div>
       <h1 className="text-2xl font-bold mb-2">Booking Targets (Round-Robin)</h1>

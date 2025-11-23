@@ -123,7 +123,11 @@ export default function WatchPage() {
   if (loading) {
     return (
       <main className="relative flex items-center justify-center min-h-screen text-gray-500">
-        <BackButton hrefOverride="/dashboard" />
+        <div className="max-w-6xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[-3in]">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+        </div>
         Loading video…
       </main>
     );
@@ -132,7 +136,11 @@ export default function WatchPage() {
   if (error) {
     return (
       <main className="relative flex flex-col items-center justify-center min-h-screen">
-        <BackButton hrefOverride="/dashboard" />
+        <div className="max-w-6xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[-3in]">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+        </div>
         <p className="text-red-500 mb-4">{error}</p>
         <button
           onClick={() => router.push("/library")}
@@ -147,7 +155,11 @@ export default function WatchPage() {
   if (!post) {
     return (
       <main className="relative flex items-center justify-center min-h-screen text-gray-500">
-        <BackButton hrefOverride="/dashboard" />
+        <div className="max-w-6xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[-3in]">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+        </div>
         Post not found.
       </main>
     );

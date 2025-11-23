@@ -264,15 +264,17 @@ export default function LibraryPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-6xl p-6 relative">
-        <div className="-translate-x-[3in]">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
-        <ContinueSkeleton />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <CardSkeleton key={i} />
-          ))}
+      <main className="p-6 relative">
+        <div className="max-w-6xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+          <ContinueSkeleton />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
         </div>
       </main>
     );
@@ -281,15 +283,15 @@ export default function LibraryPage() {
   if (error) {
     return (
       <main className="p-6 text-center text-red-500 relative">
-        <div className="-translate-x-[3in]">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
-        Error: {error}
-        <div className="mt-4">
-          <BackButton hrefOverride="/dashboard" />
-          <Link href="/dashboard" className="underline text-sm">
-            Back to dashboard
-          </Link>
+        <div className="max-w-6xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+          <div className="mt-4">
+            <Link href="/dashboard" className="underline text-sm">
+              Back to dashboard
+            </Link>
+          </div>
         </div>
       </main>
     );
@@ -298,56 +300,58 @@ export default function LibraryPage() {
   if (items.length === 0) {
     return (
       <main className="p-6 text-center text-gray-500 relative">
-        <div className="-translate-x-[3in]">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
-        You haven't purchased any videos yet.
-        <div className="mt-4">
-          <BackButton hrefOverride="/dashboard" />
-          <Link
-            href="/dashboard"
-            className="inline-block px-4 py-2 bg-black text-white rounded-md hover:opacity-90"
-          >
-            Explore the feed
-          </Link>
+        <div className="max-w-6xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+          <div className="mt-4">
+            <Link
+              href="/dashboard"
+              className="inline-block px-4 py-2 bg-black text-white rounded-md hover:opacity-90"
+            >
+              Explore the feed
+            </Link>
+          </div>
         </div>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-6xl p-6 relative">
-      <div className="-translate-x-[4in]">
-        <BackButton hrefOverride="/dashboard" />
-      </div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-semibold">Your Library</h1>
-      </div>
+    <main className="p-6 relative">
+      <div className="max-w-6xl mx-auto">
+        <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+          <BackButton hrefOverride="/dashboard" />
+        </div>
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-2xl font-semibold">Your Library</h1>
+        </div>
 
-      {continueItems.length > 0 && (
-        <section className="mb-8">
-          <h2 className="text-base font-medium mb-3">Continue watching</h2>
-          <div className="flex gap-4 overflow-x-auto pb-1">
-            {continueItems.map((it) => (
-              <div key={`cw-${it.id}`} className="min-w-[210px] max-w-[220px]">
-                <LibraryCard item={it} onPrefetch={prefetchWatch} />
-              </div>
+        {continueItems.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-base font-medium mb-3">Continue watching</h2>
+            <div className="flex gap-4 overflow-x-auto pb-1">
+              {continueItems.map((it) => (
+                <div key={`cw-${it.id}`} className="min-w-[210px] max-w-[220px]">
+                  <LibraryCard item={it} onPrefetch={prefetchWatch} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section>
+          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2">
+            {items.map((item) => (
+              <LibraryCard
+                key={item.id}
+                item={item}
+                onPrefetch={prefetchWatch}
+              />
             ))}
           </div>
         </section>
-      )}
-
-      <section>
-        <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2">
-          {items.map((item) => (
-            <LibraryCard
-              key={item.id}
-              item={item}
-              onPrefetch={prefetchWatch}
-            />
-          ))}
-        </div>
-      </section>
+      </div>
     </main>
   );
 }
