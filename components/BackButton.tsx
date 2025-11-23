@@ -7,16 +7,22 @@ interface BackButtonProps {
   className?: string;
   hrefOverride?: string;
   scroll?: boolean;
+  onClick?: () => void;
 }
 
 export default function BackButton({ 
   className, 
   hrefOverride, 
-  scroll 
+  scroll,
+  onClick
 }: BackButtonProps) {
   const router = useRouter();
 
   const handleClick = useCallback(() => {
+    if (onClick) {
+      onClick();
+      return;
+    }
     if (hrefOverride) {
       router.push(hrefOverride);
     } else if (typeof window !== "undefined" && window.history.length > 1) {
@@ -24,7 +30,7 @@ export default function BackButton({
     } else {
       router.push("/");
     }
-  }, [router, hrefOverride]);
+  }, [router, hrefOverride, onClick]);
 
   const defaultClassName = "inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none";
   const buttonClassName = className ?? defaultClassName;
