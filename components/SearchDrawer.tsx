@@ -99,7 +99,7 @@ export default function SearchDrawer({ open, onClose }: Props) {
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 placeholder="Search creators, skills, or topics (e.g., fitness, AI, editing)…"
-                className="w-full rounded-full border border-white/10 bg-black/40 px-4 py-2 pl-9 text-white placeholder:text-white/40 focus:outline-none focus:ring-4 focus:ring-[#7F5CE6]/30"
+                className="w-full rounded-full border border-white/10 bg-black/40 px-4 py-2 pl-9 text-white placeholder:text-white/40 focus:outline-none focus:ring-4 focus:ring-[#4A35C7]/30"
               />
               <svg viewBox="0 0 24 24" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 fill-white/60">
                 <path d="M21 20.3 16.8 16a7.5 7.5 0 1 0-.8.8L20.3 21l.7-.7zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z"/>
@@ -108,7 +108,7 @@ export default function SearchDrawer({ open, onClose }: Props) {
             <button
               type="submit"
               disabled={disabled}
-              className="rounded-full bg-[#7F5CE6] text-white px-4 py-2 font-semibold disabled:opacity-60"
+              className="rounded-full bg-[#4A35C7] text-white px-4 py-2 font-semibold disabled:opacity-60"
             >
               Search
             </button>

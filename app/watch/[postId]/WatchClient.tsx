@@ -324,16 +324,16 @@ export default function WatchClient({ postId }: { postId: string }) {
             Fullscreen
           </button>
 
-          {/* Click-to-play overlay */}
+          {/* Click-to-play overlay - exclude bottom area where controls are */}
           <button
             onClick={togglePlay}
-            className="absolute inset-0 z-10"
+            className="absolute top-0 left-0 right-0 z-10"
             aria-label={isPlaying ? "Pause" : "Play"}
-            style={{ cursor: "pointer" }}
+            style={{ cursor: "pointer", bottom: "90px" }}
           />
 
-          {/* Controls */}
-          <div className="pointer-events-auto absolute left-0 right-0 bottom-0 p-3 bg-gradient-to-t from-black/60 to-transparent z-20">
+          {/* Controls - always visible at bottom */}
+          <div className="pointer-events-auto absolute left-0 right-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent z-30">
             <div
               className="w-full h-2 bg-white/20 rounded-full overflow-hidden cursor-pointer"
               onClick={(e) => seekTo(e.clientX, e.currentTarget)}
@@ -372,6 +372,33 @@ export default function WatchClient({ postId }: { postId: string }) {
               </div>
             </div>
           </div>
+
+          {/* Screen enlarger button at bottom right corner of video player */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              requestFullscreen();
+            }}
+            className="absolute bottom-4 right-4 z-50 rounded-lg bg-black/85 hover:bg-black border border-white/40 px-3 py-2.5 text-white transition-all flex items-center justify-center shadow-2xl"
+            aria-label="Enlarge video"
+            style={{ minWidth: "48px", minHeight: "48px" }}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-5 w-5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
+              />
+            </svg>
+          </button>
         </div>
 
         {/* Footer — UI unchanged */}

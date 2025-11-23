@@ -47,6 +47,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    console.log("[bookings-list] Querying bookings for creator_id:", user.id);
     const { data: bookings, error: bookingsError } = await admin
       .from("bookings")
       .select("id, post_id, buyer_id, creator_id, status, linked_order_id, created_at")
@@ -54,6 +55,12 @@ export async function GET(req: NextRequest) {
       .order("created_at", { ascending: false })
       .limit(100)
       .returns<BookingRow[]>();
+
+    console.log("[bookings-list] Query result:", {
+      count: bookings?.length || 0,
+      bookings: bookings?.map(b => ({ id: b.id, post_id: b.post_id, creator_id: b.creator_id, status: b.status })),
+      error: bookingsError?.message,
+    });
 
     if (bookingsError) {
       console.error("[bookings-list] bookings query error:", {

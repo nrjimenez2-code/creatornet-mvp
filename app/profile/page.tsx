@@ -59,24 +59,24 @@ export default async function ProfilePage() {
   return (
     <section className="px-4 pb-16 pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        <div className="-ml-[4.5in]">
-          <BackButton />
+        <div className="-translate-x-[3.6in]">
+          <BackButton hrefOverride="/dashboard" />
         </div>
 
-        <div className="absolute top-10 left-4 z-10 translate-x-[18.5in]">
+        <div className="absolute top-10 left-4 z-10 translate-x-[17in] mt-[0.1in]">
           <ProfileShareButton />
         </div>
         <div className="absolute top-12 right-4 z-10 -translate-x-[0.79in]">
           <Link
             href="/profile/edit"
-            className="rounded-md bg-[#7E5CE6] px-4 py-1 text-sm font-semibold text-white hover:brightness-95 transition border border-[#7E5CE6] flex items-center justify-center"
+            className="rounded-md bg-[#4A35C7] px-4 py-1 text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
           >
             Edit profile
           </Link>
         </div>
 
-        <div className="flex flex-col items-center text-center -mt-12">
-          <div className="h-64 w-64 rounded-full bg-white/10 overflow-hidden border border-white/20">
+        <div className="flex flex-col items-center text-center -mt-12 translate-y-[0.5in]">
+          <div className="h-48 w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -93,7 +93,7 @@ export default async function ProfilePage() {
           <p className="text-white/70">@{username}</p>
           <p className="mt-2 text-sm text-white/60">{bio}</p>
 
-          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80">
+          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80 mb-6">
             <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[425px]">
               <span className="text-lg font-semibold text-white">{postsCount}</span>
               posts
@@ -114,11 +114,13 @@ export default async function ProfilePage() {
         </div>
 
         {posts.length === 0 ? (
-          <p className="col-span-full text-center text-white/60">
+          <p className="col-span-full text-center text-white/60 mt-6">
             You haven&apos;t posted yet. Share your first product or video!
           </p>
         ) : (
-          <ProfilePostsGallery posts={posts} />
+          <div className="mt-5.5">
+            <ProfilePostsGallery posts={posts} />
+          </div>
         )}
 
       </div>

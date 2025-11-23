@@ -561,7 +561,7 @@ export default function PostComposer({ onPosted }: Props) {
               onClick={() => setSelectedTag((prev) => (prev === t ? null : t))}
               className={`px-3 py-1.5 rounded-full text-sm border transition ${
                 active
-                  ? "bg-[#7E5CE6] text-white border-[#7E5CE6]"
+                  ? "bg-[#4A35C7] text-white border-[#4A35C7]"
                   : "bg-black/40 text-white border-white/20 hover:bg-black/60"
               }`}
             >
@@ -616,7 +616,7 @@ export default function PostComposer({ onPosted }: Props) {
         <button
           onClick={handlePost}
           disabled={!canPost || posting}
-          className="rounded-full bg-[#7E5CE6] px-5 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50"
+          className="rounded-full bg-[#4A35C7] px-5 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50"
         >
           {posting ? "Posting…" : "Post"}
         </button>

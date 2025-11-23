@@ -264,22 +264,10 @@ export default function LibraryPage() {
 
   if (loading) {
     return (
-      <main className="mx-auto max-w-6xl p-6">
-        <div className="w-full flex justify-start">
-          <div className="inline-flex -translate-x-20 transform">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
-        </div>
-        <div className="w-full flex justify-start">
-          <div className="inline-flex -translate-x-20 transform">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
-        </div>
-      <div className="w-full flex justify-start">
-        <div className="inline-flex -translate-x-20 transform">
+      <main className="mx-auto max-w-6xl p-6 relative">
+        <div className="-translate-x-[3in]">
           <BackButton hrefOverride="/dashboard" />
         </div>
-      </div>
         <ContinueSkeleton />
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {Array.from({ length: 6 }).map((_, i) => (
@@ -292,8 +280,10 @@ export default function LibraryPage() {
 
   if (error) {
     return (
-      <main className="p-6 text-center text-red-500">
-        <BackButton hrefOverride="/dashboard" />
+      <main className="p-6 text-center text-red-500 relative">
+        <div className="-translate-x-[3in]">
+          <BackButton hrefOverride="/dashboard" />
+        </div>
         Error: {error}
         <div className="mt-4">
           <BackButton hrefOverride="/dashboard" />
@@ -307,8 +297,10 @@ export default function LibraryPage() {
 
   if (items.length === 0) {
     return (
-      <main className="p-6 text-center text-gray-500">
-        <BackButton hrefOverride="/dashboard" />
+      <main className="p-6 text-center text-gray-500 relative">
+        <div className="-translate-x-[3in]">
+          <BackButton hrefOverride="/dashboard" />
+        </div>
         You haven't purchased any videos yet.
         <div className="mt-4">
           <BackButton hrefOverride="/dashboard" />
@@ -324,8 +316,8 @@ export default function LibraryPage() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl p-6">
-      <div className="-ml-[4.7in]">
+    <main className="mx-auto max-w-6xl p-6 relative">
+      <div className="-translate-x-[4in]">
         <BackButton hrefOverride="/dashboard" />
       </div>
       <div className="flex items-center justify-between mb-6">

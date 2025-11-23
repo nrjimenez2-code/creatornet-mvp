@@ -164,7 +164,7 @@ export default function EditProfilePage() {
           <input
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
+            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#4A35C7]"
             inputMode="text"
             autoComplete="off"
             suppressHydrationWarning
@@ -177,7 +177,7 @@ export default function EditProfilePage() {
           <textarea
             value={bio}
             onChange={(e) => setBio(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
+            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#4A35C7]"
             rows={4}
             maxLength={600}
             suppressHydrationWarning
@@ -228,7 +228,7 @@ export default function EditProfilePage() {
           <input
             value={avatarUrl}
             onChange={(e) => setAvatarUrl(e.target.value)}
-            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#7F5CE6]"
+            className="w-full rounded-lg border px-3 py-2 outline-none focus:ring-2 focus:ring-[#4A35C7]"
             inputMode="url"
             placeholder="https://…"
             suppressHydrationWarning
@@ -239,7 +239,7 @@ export default function EditProfilePage() {
           <button
             type="submit"
             disabled={saving}
-            className="rounded-xl bg-[#7F5CE6] px-4 py-2 text-white font-medium disabled:opacity-60"
+            className="rounded-xl bg-[#4A35C7] px-4 py-2 text-white font-medium disabled:opacity-60"
             suppressHydrationWarning
           >
             {saving ? "Saving…" : "Save changes"}

@@ -4,6 +4,7 @@ import BackButton from "@/components/BackButton";
 import ProfileStarRating from "@/components/ProfileStarRating";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
+import FollowButton from "@/components/FollowButton";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
@@ -37,7 +38,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     viewer?.id && viewer.id !== creatorId
       ? supabase
           .from("follows")
-          .select("id")
+          .select("follower_id, following_id")
           .eq("follower_id", viewer.id)
           .eq("following_id", creatorId)
           .maybeSingle()
@@ -86,21 +87,21 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   const rating = ratingData ? Number(ratingData.avg_rating ?? 0) : 0;
   const reviewCount = ratingData ? Number(ratingData.review_count ?? 0) : 0;
-  const canFollow = false;
+  const isFollowing = !!followStatusRes?.data;
+  const canFollow = viewer?.id && viewer.id !== creatorId;
 
   return (
     <section className="px-4 pb-16 pt-10 text-white relative">
+      <div className="absolute top-4 left-4 z-10">
+        <BackButton hrefOverride="/dashboard" />
+      </div>
       <div className="max-w-6xl mx-auto">
-        <div className="-ml-[4.5in]">
-          <BackButton />
-        </div>
-
-        <div className="absolute top-10 left-4 z-10 translate-x-[18.5in]">
+        <div className="absolute top-10 left-4 z-10 translate-x-[18.5in] mt-[0.1in]">
           <ProfileShareButton />
         </div>
 
-        <div className="-mt-12 flex flex-col items-center text-center">
-          <div className="h-64 w-64 rounded-full bg-white/10 overflow-hidden border border-white/20">
+        <div className="-mt-12 flex flex-col items-center text-center translate-y-[0.5in]">
+          <div className="h-48 w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -120,7 +121,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
           <p className="mt-4 max-w-2xl text-sm text-white/80">{bio}</p>
 
-          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80">
+          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80 mb-6">
             <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[425px]">
               <span className="text-lg font-semibold text-white">
                 {posts.length}
@@ -151,12 +152,20 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           {/* Follow button intentionally removed per latest spec */}
         </div>
 
+        {canFollow && (
+          <div className="mt-4 mb-2 flex justify-start -translate-y-[0.3in]">
+            <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
+          </div>
+        )}
+
         {posts.length === 0 ? (
-          <p className="col-span-full text-center text-white/60">
+          <p className="col-span-full text-center text-white/60 mt-6">
             This creator hasn&apos;t posted yet.
           </p>
         ) : (
-          <ProfilePostsGallery posts={posts} />
+          <div className="-mt-7">
+            <ProfilePostsGallery posts={posts} />
+          </div>
         )}
       </div>
     </section>

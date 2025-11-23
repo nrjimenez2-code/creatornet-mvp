@@ -192,8 +192,8 @@ export default function DashboardPage() {
         onClick={() => setIsComposerOpen(true)}
         className="
           hidden md:flex fixed left-5 bottom-5 z-40
-          h-10 rounded-full bg-[#7F5CE6] px-4 text-white text-sm font-semibold
-          shadow-lg shadow-[#7F5CE6]/30 hover:brightness-95 items-center gap-2
+          h-10 rounded-full bg-[#4A35C7] px-4 text-white text-sm font-semibold
+          shadow-lg shadow-[#4A35C7]/30 hover:brightness-95 items-center gap-2
         "
       >
         <span className="text-lg leading-none">+</span>

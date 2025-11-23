@@ -183,7 +183,7 @@ export default function ClosersManagerPage() {
     }
   };
 
-  const addTarget = async () => {
+  const addTarget = useCallback(async () => {
     if (!creatorId) return;
     if (!newUrl || !isHttp(newUrl)) {
       alert("Enter a valid http(s) booking URL.");
@@ -208,7 +208,7 @@ export default function ClosersManagerPage() {
     setNewWeight(1);
     setNewActive(true);
     await loadTargets();
-  };
+  }, [creatorId, newUrl, newName, newWeight, newActive, supabase, loadTargets]);
 
   const saveRow = async (id: string, patch: Partial<Target>) => {
     setSavingRow(id);
@@ -404,7 +404,9 @@ export default function ClosersManagerPage() {
 
   return (
     <main className="max-w-5xl mx-auto p-6 space-y-8">
-      <BackButton />
+      <div className="-translate-x-[4.6in]">
+        <BackButton />
+      </div>
       <h1 className="text-2xl font-bold mb-2">Booking Targets (Round-Robin)</h1>
       <p className="text-sm text-gray-600 mb-6">
         Add one or more booking URLs for your sales team. We’ll automatically rotate them using{" "}
@@ -588,7 +590,7 @@ export default function ClosersManagerPage() {
                         onClick={() => handleDeleteBooking(bundle.booking.id)}
                         disabled={deletingId === bundle.booking.id}
                         aria-label="Delete booking"
-                        className="rounded-full border border-[#7E5CE6] bg-white/10 p-1 text-[#CDB7FF] transition hover:bg-[#7E5CE6] hover:text-white disabled:opacity-50"
+                        className="rounded-full border border-[#4A35C7] bg-white/10 p-1 text-[#7A6BC4] transition hover:bg-[#4A35C7] hover:text-white disabled:opacity-50"
                       >
                         <TrashIcon className="h-4 w-4" />
                       </button>
@@ -607,7 +609,7 @@ export default function ClosersManagerPage() {
 
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button
-                      className="rounded-full bg-[#7E5CE6] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      className="rounded-full bg-[#4A35C7] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       disabled={generatingLinkKey === `${bundle.booking.id}:full`}
                       onClick={() => handleGenerateLink(bundle.booking.id, "full")}
                     >
@@ -616,7 +618,7 @@ export default function ClosersManagerPage() {
                         : "Generate full payment link"}
                     </button>
                     <button
-                      className="rounded-full bg-[#7E5CE6] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                      className="rounded-full bg-gray-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                       disabled={generatingLinkKey === `${bundle.booking.id}:installment`}
                       onClick={() => handleGenerateLink(bundle.booking.id, "installment")}
                     >

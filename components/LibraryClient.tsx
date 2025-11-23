@@ -98,7 +98,7 @@ export default function LibraryClient() {
       <main className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-700">Please sign in to view your library.</p>
-          <Link className="underline text-[#7E5CE6]" href="/auth">Go to sign in</Link>
+          <Link className="underline text-[#4A35C7]" href="/auth">Go to sign in</Link>
         </div>
       </main>
     );
@@ -110,7 +110,7 @@ export default function LibraryClient() {
         <div className="text-center">
           <h1 className="text-xl font-semibold">Your Library</h1>
           <p className="text-gray-600 mt-1">You haven’t purchased anything yet.</p>
-          <Link href="/dashboard" className="mt-3 inline-block rounded-md bg-[#7E5CE6] px-4 py-2 text-white">
+          <Link href="/dashboard" className="mt-3 inline-block rounded-md bg-[#4A35C7] px-4 py-2 text-white">
             Explore the feed
           </Link>
         </div>
@@ -123,7 +123,7 @@ export default function LibraryClient() {
       <div className="mx-auto max-w-5xl px-4 py-8">
         <div className="flex items-center justify-between">
           <div>
-            <Link href="/dashboard" className="rounded-md bg-[#7E5CE6] px-3 py-2 text-white text-sm">
+            <Link href="/dashboard" className="rounded-md bg-[#4A35C7] px-3 py-2 text-white text-sm">
               Back to dashboard
             </Link>
           </div>
