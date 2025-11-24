@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import CommentPanel from "./CommentPanel";
+import { useUser } from "@/lib/useUser";
 
 type VideoCardProps = {
   src?: string;
@@ -121,6 +122,8 @@ export default function VideoCard(props: VideoCardProps) {
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
+  // Use cached user hook to avoid rate limits
+  const { userId: cachedUserId } = useUser();
 
   const displayTitle = title ?? caption ?? "";
   const displayCreator = creatorName ?? creator ?? "Creator";
@@ -403,40 +406,60 @@ export default function VideoCard(props: VideoCardProps) {
 
     if (!canFollow || !creatorId || followLoading) return;
 
+    // Optimistic UI update - update immediately for instant feedback
+    const previousState = isFollowing;
+    setIsFollowing(!isFollowing);
     setFollowLoading(true);
+
     try {
-      const { data: auth } = await supabase.auth.getUser();
-      const viewerId = auth?.user?.id;
+      // Use cached user ID from hook to avoid rate limits
+      const viewerId = cachedUserId;
+
       if (!viewerId) {
         alert("Please sign in to follow creators.");
+        setIsFollowing(previousState); // Revert optimistic update
+        setFollowLoading(false);
         return;
       }
       if (viewerId === creatorId) {
+        setIsFollowing(previousState); // Revert optimistic update
+        setFollowLoading(false);
         return;
       }
 
-      if (isFollowing) {
+      if (previousState) {
+        // Unfollow
         const { error } = await supabase
           .from("follows")
           .delete()
           .eq("follower_id", viewerId)
           .eq("following_id", creatorId);
         if (error) throw error;
-        setIsFollowing(false);
+        // State already updated optimistically
       } else {
+        // Follow
         const { error } = await supabase
           .from("follows")
           .insert({ follower_id: viewerId, following_id: creatorId });
-        if (error) throw error;
-        setIsFollowing(true);
+        if (error) {
+          // Check if it's a duplicate (already following)
+          if (error.message?.includes("duplicate") || error.message?.includes("unique constraint")) {
+            // Already following, state already updated optimistically
+          } else {
+            throw error;
+          }
+        }
+        // State already updated optimistically
       }
     } catch (err) {
       console.error("[follow-toggle] error:", err);
       alert("Could not update follow status. Please try again.");
+      // Revert optimistic update on error
+      setIsFollowing(previousState);
     } finally {
       setFollowLoading(false);
     }
-  }, [canFollow, creatorId, followLoading, isFollowing, onFollow]);
+  }, [canFollow, creatorId, followLoading, isFollowing, onFollow, supabase, cachedUserId]);
 
   const handleBuy = useCallback(async () => {
     if (onBuy) {
