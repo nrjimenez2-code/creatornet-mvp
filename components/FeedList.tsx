@@ -25,15 +25,12 @@ export type PostRow = {
   content: string | null;
   interests: string[] | null;
   created_at: string | null;
-
   product_type?: string | null;
-
   is_following?: boolean | null;
   likes_count?: number | null;
   comments_count?: number | null;
   shares_count?: number | null;
   is_liked?: boolean | null;
-
   allow_booking?: boolean | null;
   booking_url?: string | null;
 };
@@ -59,7 +56,6 @@ export default function FeedList({ activeTab }: FeedListProps) {
 
     (async () => {
       try {
-
         const rpcName = activeTab === "discover" ? "get_feed_discover" : "get_feed_following";
         const { data, error } = await supabase.rpc(rpcName, {
           p_user_id: viewerId,
