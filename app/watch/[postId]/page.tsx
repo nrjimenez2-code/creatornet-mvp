@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import BackButton from "@/components/BackButton";
 import { createClient } from "@/lib/supabaseClient";
+import BackButton from "@/components/BackButton";
 
 type Post = {
   id: string;
@@ -123,10 +123,8 @@ export default function WatchPage() {
   if (loading) {
     return (
       <main className="relative flex items-center justify-center min-h-screen text-gray-500">
-        <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 translate-x-[-1.5in]">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
+        <div className="fixed top-4 left-4 z-10">
+          <BackButton hrefOverride="/dashboard" />
         </div>
         Loading video…
       </main>
@@ -136,10 +134,8 @@ export default function WatchPage() {
   if (error) {
     return (
       <main className="relative flex flex-col items-center justify-center min-h-screen">
-        <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 translate-x-[-1.5in]">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
+        <div className="fixed top-4 left-4 z-10">
+          <BackButton hrefOverride="/dashboard" />
         </div>
         <p className="text-red-500 mb-4">{error}</p>
         <button
@@ -155,10 +151,8 @@ export default function WatchPage() {
   if (!post) {
     return (
       <main className="relative flex items-center justify-center min-h-screen text-gray-500">
-        <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 translate-x-[-1.5in]">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
+        <div className="fixed top-4 left-4 z-10">
+          <BackButton hrefOverride="/dashboard" />
         </div>
         Post not found.
       </main>
@@ -171,15 +165,10 @@ export default function WatchPage() {
     ? `/creators/${post.creator_id}`
     : null;
 
-  // Determine back button destination based on fromProfile
-  const backHref = fromProfile && post.creator_id 
-    ? `/creators/${post.creator_id}` 
-    : "/dashboard";
-
   return (
     <main className="relative mx-auto max-w-3xl p-6">
-      <div className={fromProfile ? "-translate-x-[2.1in]" : "-translate-x-[3.8in]"}>
-        <BackButton hrefOverride={backHref} scroll={false} className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none" />
+      <div className="fixed top-4 left-4 z-10">
+        <BackButton hrefOverride="/dashboard" />
       </div>
       <h1 className="text-xl font-semibold mb-4 text-center">
         {post.title ?? "Video"}

@@ -120,6 +120,7 @@ export default function VideoCard(props: VideoCardProps) {
   const [followLoading, setFollowLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
@@ -390,13 +391,65 @@ export default function VideoCard(props: VideoCardProps) {
   }, [postId]);
 
   const handleShare = useCallback(async () => {
+    // Copy post link to clipboard
+    if (postId) {
+      const postUrl = `${window.location.origin}/watch/${postId}`;
+      try {
+        await navigator.clipboard.writeText(postUrl);
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      } catch (err) {
+        console.error("Failed to copy link:", err);
+        // Fallback for older browsers
+        const textArea = document.createElement("textarea");
+        textArea.value = postUrl;
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        document.body.appendChild(textArea);
+        textArea.select();
+        try {
+          document.execCommand("copy");
+          setShareCopied(true);
+          setTimeout(() => setShareCopied(false), 2000);
+        } catch (fallbackErr) {
+          console.error("Fallback copy failed:", fallbackErr);
+          alert(`Copy this link: ${postUrl}`);
+        }
+        document.body.removeChild(textArea);
+      }
+    }
+    
+    // Increment share count
     setSh((v) => v + 1);
     try {
+      if (postId) {
+        const apiUrl =
+          typeof window !== "undefined"
+            ? `${window.location.origin}/api/posts/${postId}/share`
+            : `/api/posts/${postId}/share`;
+
+        const res = await fetch(apiUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        const data = await res.json().catch(() => null);
+
+        if (!res.ok || !data?.success) {
+          throw new Error(data?.error || "Failed to record share");
+        }
+
+        if (typeof data.shares_count === "number") {
+          setSh(data.shares_count);
+        }
+      }
+
       await onShare?.();
-    } catch {
+    } catch (err) {
+      console.error("Share error:", err);
       setSh((v) => Math.max(0, v - 1));
     }
-  }, [onShare]);
+  }, [onShare, postId]);
 
   const handleFollow = useCallback(async () => {
     if (onFollow) {
@@ -585,7 +638,7 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-    <div className="relative w-full max-w-[438px]">
+    <div className="relative w-full max-w-[490px]">
       <div
         ref={containerRef}
         role="group"
@@ -808,9 +861,15 @@ export default function VideoCard(props: VideoCardProps) {
         >
             <img src="/share.png" alt="Share" className="h-7 w-7 object-contain" />
         </button>
-          <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
-            {formatCount(sh)}
-          </span>
+          {shareCopied ? (
+            <span className="text-[12px] font-semibold leading-none tracking-tight text-[#4A35C7] translate-y-[1px]">
+              Link copied
+            </span>
+          ) : (
+            <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+              {formatCount(sh)}
+            </span>
+          )}
         </div>
       </div>
 
