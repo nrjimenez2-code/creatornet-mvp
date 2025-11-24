@@ -171,12 +171,15 @@ export default function WatchPage() {
     ? `/creators/${post.creator_id}`
     : null;
 
+  // Determine back button destination based on fromProfile
+  const backHref = fromProfile && post.creator_id 
+    ? `/creators/${post.creator_id}` 
+    : "/dashboard";
+
   return (
     <main className="relative mx-auto max-w-3xl p-6">
-      <div className="max-w-6xl mx-auto">
-        <div className="absolute top-4 left-4 z-10 translate-x-[-4.9in]">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
+      <div className={fromProfile ? "-translate-x-[3.6in]" : "-translate-x-[5.9in]"}>
+        <BackButton hrefOverride={backHref} scroll={false} className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none" />
       </div>
       <h1 className="text-xl font-semibold mb-4 text-center">
         {post.title ?? "Video"}
