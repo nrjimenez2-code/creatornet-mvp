@@ -21,28 +21,37 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
 
-  // Prefetch heavy routes so clicks feel instant
+  // Fetch avatar in background - non-blocking, doesn't delay feed render
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const user = data?.user;
-      if (!user) return;
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("avatar_url")
-        .eq("id", user.id)
-        .maybeSingle();
-      if (!cancelled) {
-        setAvatarUrl(
-          (profile?.avatar_url as string | null) ||
-            (user.user_metadata?.avatar_url as string | null) ||
-            null
-        );
-      }
-    })();
+    // Use setTimeout to defer this so feed can start loading first
+    const timeoutId = setTimeout(() => {
+      (async () => {
+        try {
+          const { data } = await supabase.auth.getUser();
+          const user = data?.user;
+          if (!user || cancelled) return;
+          const { data: profile } = await supabase
+            .from("profiles")
+            .select("avatar_url")
+            .eq("id", user.id)
+            .maybeSingle();
+          if (!cancelled) {
+            setAvatarUrl(
+              (profile?.avatar_url as string | null) ||
+                (user.user_metadata?.avatar_url as string | null) ||
+                null
+            );
+          }
+        } catch (err) {
+          console.error("Error fetching avatar:", err);
+        }
+      })();
+    }, 0); // Defer to next tick so feed loads first
+    
     return () => {
       cancelled = true;
+      clearTimeout(timeoutId);
     };
   }, [supabase]);
   // useEffect(() => {

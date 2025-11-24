@@ -69,7 +69,7 @@ export default function ProfileStarRating({
 
   function renderStar(index: number) {
     const value = hoverValue ?? currentRating;
-    const active = value >= index - 0.25;
+    const active = value >= index;
     const colorClass = hoverValue ? "text-[#4A35C7]" : active ? "text-[#4A35C7]" : "text-gray-400";
     return (
       <button
@@ -78,8 +78,8 @@ export default function ProfileStarRating({
         onMouseEnter={() => setHoverValue(index)}
         onMouseLeave={() => setHoverValue(null)}
         onClick={() => setRating(index)}
-        className={`transition ${colorClass}`}
-        aria-label={`Rate ${index} star`}
+        className={`transition-transform hover:scale-110 ${colorClass}`}
+        aria-label={`Rate ${index} star${index > 1 ? "s" : ""}`}
       >
         <svg viewBox="0 0 24 24" className="h-6 w-6 fill-current">
           <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.86L12 17.77l-6.18 3.23L7 14.14l-5-4.87 6.91-1.01L12 2z" />
@@ -104,7 +104,7 @@ export default function ProfileStarRating({
         >
           Be the first to review
         </div>
-        <div className="flex items-center gap-1">{[1].map(renderStar)}</div>
+        <div className="flex items-center gap-1">{[1, 2, 3, 4, 5].map(renderStar)}</div>
       </div>
     );
   }
@@ -112,7 +112,7 @@ export default function ProfileStarRating({
   return (
     <div className="flex items-center gap-2">
       <div className="flex items-center gap-1">
-        {[1].map(renderStar)}
+        {[1, 2, 3, 4, 5].map(renderStar)}
       </div>
       <div
         role={enableNavigation ? "button" : undefined}

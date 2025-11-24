@@ -14,6 +14,8 @@ export function createClient(): SupabaseClient {
       persistSession: true,
       autoRefreshToken: true,
       detectSessionInUrl: true,
+      // Suppress refresh token errors - they're handled in SupabaseAuthSync
+      storage: typeof window !== "undefined" ? window.localStorage : undefined,
     },
   });
 }
