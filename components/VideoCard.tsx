@@ -585,7 +585,7 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-    <div className="relative w-full max-w-[504.8px]">
+    <div className="relative w-full max-w-[445px]">
       <div
         ref={containerRef}
         role="group"
