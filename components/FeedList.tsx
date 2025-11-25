@@ -10,6 +10,7 @@ export type Tab = "following" | "discover";
 type FeedListProps = {
   activeTab: Tab;
   onChangeTab: (t: Tab) => void; // kept for API stability
+  highlightPostId?: string | null;
 };
 
 export type PostRow = {
@@ -35,7 +36,7 @@ export type PostRow = {
   booking_url?: string | null;
 };
 
-export default function FeedList({ activeTab }: FeedListProps) {
+export default function FeedList({ activeTab, highlightPostId }: FeedListProps) {
   // Use stable supabase client - memoized to prevent unnecessary re-renders
   const supabase = useMemo(() => createClient(), []);
   // Use cached user hook to avoid rate limits
@@ -329,6 +330,19 @@ export default function FeedList({ activeTab }: FeedListProps) {
       supabase.removeChannel(channel);
     };
   }, [activeTab, supabase, viewerId]);
+
+  // Scroll to highlighted post when it loads
+  useEffect(() => {
+    if (highlightPostId && items.length > 0) {
+      const element = sectionRefs.current.get(highlightPostId);
+      if (element) {
+        // Wait a bit for layout to settle
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: "smooth", block: "center" });
+        }, 300);
+      }
+    }
+  }, [highlightPostId, items]);
 
   useEffect(() => {
     if (!items.length) return;

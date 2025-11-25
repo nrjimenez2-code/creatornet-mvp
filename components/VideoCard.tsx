@@ -391,9 +391,9 @@ export default function VideoCard(props: VideoCardProps) {
   }, [postId]);
 
   const handleShare = useCallback(async () => {
-    // Copy post link to clipboard
+    // Copy post link to clipboard - redirects to dashboard with postId
     if (postId) {
-      const postUrl = `${window.location.origin}/watch/${postId}`;
+      const postUrl = `${window.location.origin}/dashboard?postId=${postId}`;
       try {
         await navigator.clipboard.writeText(postUrl);
         setShareCopied(true);
