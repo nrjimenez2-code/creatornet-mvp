@@ -44,7 +44,8 @@ export default function WatchPage() {
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
       if (!user) {
-        router.push("/library");
+        // Redirect to dashboard where they can see the post in the feed
+        router.push(`/dashboard?postId=${postId}`);
         return;
       }
 
@@ -66,8 +67,8 @@ export default function WatchPage() {
         }
 
         if (!purchase) {
-          // Not entitled → redirect to Library
-          router.push("/library");
+          // Not entitled → redirect to dashboard where they can see the post and purchase it
+          router.push(`/dashboard?postId=${postId}`);
           return;
         }
       }

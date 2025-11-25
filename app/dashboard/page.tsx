@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import PostComposerModal from "@/components/PostComposerModal";
 // import ContinueWatching from "@/components/ContinueWatching";
@@ -13,13 +13,26 @@ import { createClient } from "@/lib/supabaseClient";
 
 type Tab = "following" | "discover";
 
-export default function DashboardPage() {
+function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPostId: string | null; setHighlightPostId: (id: string | null) => void }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+
+  // Check for postId in URL to highlight specific video
+  useEffect(() => {
+    const postId = searchParams?.get("postId");
+    if (postId) {
+      setHighlightPostId(postId);
+      // Remove postId from URL after setting it
+      const url = new URL(window.location.href);
+      url.searchParams.delete("postId");
+      router.replace(url.pathname + url.search, { scroll: false });
+    }
+  }, [searchParams, router, setHighlightPostId]);
 
   // Fetch avatar in background - non-blocking, doesn't delay feed render
   useEffect(() => {
@@ -189,7 +202,7 @@ export default function DashboardPage() {
           <div className="w-full max-w-[1280px]">
             {/* <ContinueWatching /> */}
             {/* Feed list now starts at top */}
-            <FeedList activeTab={activeTab} onChangeTab={setActiveTab} />
+            <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
           </div>
         </div>
       </div>
@@ -214,5 +227,19 @@ export default function DashboardPage() {
         <PostComposerModal onClose={() => setIsComposerOpen(false)} />
       )}
     </section>
+  );
+}
+
+export default function DashboardPage() {
+  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
+
+  return (
+    <Suspense fallback={
+      <section className="min-h-screen px-0 flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </section>
+    }>
+      <DashboardContent highlightPostId={highlightPostId} setHighlightPostId={setHighlightPostId} />
+    </Suspense>
   );
 }
