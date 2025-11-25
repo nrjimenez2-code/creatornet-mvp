@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
@@ -13,7 +13,7 @@ import { createClient } from "@/lib/supabaseClient";
 
 type Tab = "following" | "discover";
 
-export default function DashboardPage() {
+function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPostId: string | null; setHighlightPostId: (id: string | null) => void }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
@@ -21,7 +21,6 @@ export default function DashboardPage() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
-  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   // Check for postId in URL to highlight specific video
   useEffect(() => {
@@ -33,7 +32,7 @@ export default function DashboardPage() {
       url.searchParams.delete("postId");
       router.replace(url.pathname + url.search, { scroll: false });
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, setHighlightPostId]);
 
   // Fetch avatar in background - non-blocking, doesn't delay feed render
   useEffect(() => {
@@ -228,5 +227,19 @@ export default function DashboardPage() {
         <PostComposerModal onClose={() => setIsComposerOpen(false)} />
       )}
     </section>
+  );
+}
+
+export default function DashboardPage() {
+  const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
+
+  return (
+    <Suspense fallback={
+      <section className="min-h-screen px-0 flex items-center justify-center">
+        <div className="text-gray-500">Loading...</div>
+      </section>
+    }>
+      <DashboardContent highlightPostId={highlightPostId} setHighlightPostId={setHighlightPostId} />
+    </Suspense>
   );
 }
