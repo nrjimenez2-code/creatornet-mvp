@@ -82,10 +82,15 @@ export default function AuthPage() {
 
     const raw = input.trim();
 
+    // Use production URL if available, otherwise use current origin
+    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL 
+      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "")}/auth`
+      : `${window.location.origin}/auth`;
+
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email: raw,
-        options: { emailRedirectTo: `${window.location.origin}/auth` },
+        options: { emailRedirectTo: redirectUrl },
       });
       if (error) throw error;
       setMsg("📧 Check your inbox for the sign-in link!");
@@ -97,9 +102,14 @@ export default function AuthPage() {
   }
 
   async function oauth(provider: "google" | "apple") {
+    // Use production URL if available, otherwise use current origin
+    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL 
+      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "")}/auth`
+      : `${window.location.origin}/auth`;
+
     const { error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: `${window.location.origin}/auth` },
+      options: { redirectTo: redirectUrl },
     });
     if (error) alert(error.message);
   }
