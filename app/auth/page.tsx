@@ -54,9 +54,6 @@ export default function AuthPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
-  const [codeSent, setCodeSent] = useState(false);
-  const [otp, setOtp] = useState("");
-  const [phoneForOtp, setPhoneForOtp] = useState<string | null>(null);
 
   // Spotlight state
   const [spot, setSpot] = useState<{ x: string; y: string }>({
@@ -76,15 +73,6 @@ export default function AuthPage() {
 
   const isInputEmpty = useMemo(() => input.trim().length === 0, [input]);
 
-  function normalizePhone(raw: string) {
-    const s = raw.trim();
-    if (s.startsWith("+")) return s;
-    const digits = s.replace(/\D/g, "");
-    if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-    if (digits.length === 10) return `+1${digits}`;
-    return s.startsWith("+") ? s : `+${digits || s}`;
-  }
-
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
     if (sending) return;
@@ -93,62 +81,19 @@ export default function AuthPage() {
     setSending(true);
 
     const raw = input.trim();
-    const isPhone =
-      raw.startsWith("+") || (/^\D*\d[\d\D]*$/.test(raw) && !raw.includes("@"));
 
     try {
-      if (isPhone) {
-        const phone = normalizePhone(raw);
-        const { error } = await supabase.auth.signInWithOtp({
-          phone,
-          options: { channel: "sms" },
-        });
-        if (error) throw error;
-        setPhoneForOtp(phone);
-        setCodeSent(true);
-        setMsg("📲 We sent you a 6-digit code via SMS.");
-      } else {
-        const { error } = await supabase.auth.signInWithOtp({
-          email: raw,
-          options: { emailRedirectTo: `${window.location.origin}/auth` },
-        });
-        if (error) throw error;
-        setMsg("📧 Check your inbox for the sign-in link!");
-      }
+      const { error } = await supabase.auth.signInWithOtp({
+        email: raw,
+        options: { emailRedirectTo: `${window.location.origin}/auth` },
+      });
+      if (error) throw error;
+      setMsg("📧 Check your inbox for the sign-in link!");
     } catch (err: any) {
       setMsg(err?.message ?? "Something went wrong.");
     } finally {
       setSending(false);
     }
-  }
-
-  async function verifySmsCode(e: React.FormEvent) {
-    e.preventDefault();
-    if (!phoneForOtp) return setMsg("Missing phone number.");
-    if (!otp) return setMsg("Enter the 6-digit code.");
-
-    setSending(true);
-    setMsg(null);
-    try {
-      const { error } = await supabase.auth.verifyOtp({
-        phone: phoneForOtp,
-        token: otp,
-        type: "sms",
-      });
-      if (error) throw error;
-      window.location.href = "/auth";
-    } catch (err: any) {
-      setMsg(err?.message ?? "Invalid code.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  function resetSmsFlow() {
-    setCodeSent(false);
-    setOtp("");
-    setPhoneForOtp(null);
-    setMsg(null);
   }
 
   async function oauth(provider: "google" | "apple") {
@@ -234,7 +179,7 @@ export default function AuthPage() {
           onClick={() => setShowForm(!showForm)}
           className="w-full mt-6 py-3 text-[15px] font-semibold text-white bg-[#9370DB] rounded-md shadow-md hover:scale-[1.015] hover:shadow-lg active:scale-[0.99] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
         >
-          Phone or Email
+          Email
         </button>
 
         <div className="relative my-4">
@@ -270,67 +215,31 @@ export default function AuthPage() {
 
         {showForm && (
           <div className="mt-6 text-left" aria-live="polite">
-            {!codeSent ? (
-              <form onSubmit={handleSignIn} className="space-y-3">
-                <label className="block text-sm text-gray-700">
-                  Phone or Email
-                </label>
-                <input
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder="you@example.com or +15551234567"
-                  required
-                  autoFocus
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
-                />
-                <button
-                  type="submit"
-                  disabled={sending || isInputEmpty}
-                  aria-busy={sending}
-                  className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
-                >
-                  {sending ? "Sending…" : "Send sign-in link or code"}
-                </button>
-                {msg && (
-                  <p className="text-xs text-center text-gray-600 mt-1">{msg}</p>
-                )}
-              </form>
-            ) : (
-              <form onSubmit={verifySmsCode} className="space-y-3">
-                <label className="block text-sm text-gray-700">
-                  Enter 6-digit code
-                </label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, ""))}
-                  placeholder="123456"
-                  autoFocus
-                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 tracking-[0.3em] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
-                />
-                <button
-                  type="submit"
-                  disabled={sending || otp.trim().length !== 6}
-                  aria-busy={sending}
-                  className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
-                >
-                  {sending ? "Verifying…" : "Verify & continue"}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetSmsFlow}
-                  className="w-full text-center text-xs text-gray-600 underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2 rounded"
-                >
-                  Resend or change number
-                </button>
-                {msg && (
-                  <p className="text-xs text-center text-gray-600 mt-1">{msg}</p>
-                )}
-              </form>
-            )}
+            <form onSubmit={handleSignIn} className="space-y-3">
+              <label className="block text-sm text-gray-700">
+                Email
+              </label>
+              <input
+                type="email"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="you@example.com"
+                required
+                autoFocus
+                className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+              />
+              <button
+                type="submit"
+                disabled={sending || isInputEmpty}
+                aria-busy={sending}
+                className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+              >
+                {sending ? "Sending…" : "Send sign-in link"}
+              </button>
+              {msg && (
+                <p className="text-xs text-center text-gray-600 mt-1">{msg}</p>
+              )}
+            </form>
           </div>
         )}
 
