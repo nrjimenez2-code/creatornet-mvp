@@ -42,6 +42,7 @@ type VideoCardProps = {
   productType?: string | null;
   showFollowButton?: boolean;
   isFollowingCreator?: boolean;
+  onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
   soundEnabled?: boolean;
   onToggleSound?: () => void;
   tapToTogglePlayback?: boolean;
@@ -91,6 +92,7 @@ export default function VideoCard(props: VideoCardProps) {
     productType = null,
     showFollowButton = false,
     isFollowingCreator = false,
+    onFollowChange,
     soundEnabled = false,
     onToggleSound,
     tapToTogglePlayback = true,
@@ -504,6 +506,11 @@ export default function VideoCard(props: VideoCardProps) {
         }
         // State already updated optimistically
       }
+      
+      // Notify parent component to update cached feed data
+      if (onFollowChange && creatorId) {
+        onFollowChange(creatorId, !previousState);
+      }
     } catch (err) {
       console.error("[follow-toggle] error:", err);
       alert("Could not update follow status. Please try again.");
@@ -512,7 +519,7 @@ export default function VideoCard(props: VideoCardProps) {
     } finally {
       setFollowLoading(false);
     }
-  }, [canFollow, creatorId, followLoading, isFollowing, onFollow, supabase, cachedUserId]);
+  }, [canFollow, creatorId, followLoading, isFollowing, onFollow, onFollowChange, supabase, cachedUserId]);
 
   const handleBuy = useCallback(async () => {
     if (onBuy) {
@@ -638,7 +645,7 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-    <div className="relative w-full max-w-[499px]">
+    <div className="relative w-full mx-auto" style={{ maxWidth: 'min(100%, 460px)' }}>
       <div
         ref={containerRef}
         role="group"
@@ -648,7 +655,7 @@ export default function VideoCard(props: VideoCardProps) {
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
-      <div className="relative w-full aspect-[9/16] bg-black overflow-hidden" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full bg-black overflow-hidden" style={{ borderRadius: "16px 16px 0 0", height: 'clamp(500px, 90vh, 1000px)' }}>
         {videoSrc || src ? (
           <video
             ref={videoRef}
@@ -707,22 +714,22 @@ export default function VideoCard(props: VideoCardProps) {
             </div>
           </div>
           {(showCTA || onBuy || onBook || (productId && priceCents)) && (
-            <div className="mt-2 relative -translate-y-[0.8in]" ref={wrapperRef}>
+            <div className="mt-2 relative -translate-y-[0.85in] lg:-translate-y-[0.8in]" ref={wrapperRef}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white text-black text-sm font-semibold hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
+                className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 md:px-4 py-0.5 sm:py-1 md:py-1.5 lg:py-2 rounded-full bg-white text-black text-xs sm:text-sm font-semibold hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
               >
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-3 w-3 sm:h-3.5 sm:w-3.5 md:h-4 md:w-4" fill="currentColor">
                   <path d="M7 4h14l-1.5 9H8.6L7 4zM3 4h2l3 12h10v2H7a2 2 0 0 1-2-1.5L3 4zM9 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3zM17 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z"/>
                 </svg>
                 <span className="font-semibold">Buy</span>
                 {(priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0) ? (
                   <span className="font-semibold">${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}</span>
                 ) : null}
-                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="black">
+                <svg viewBox="0 0 24 24" className="h-3 w-3 sm:h-3.5 sm:w-3.5 md:h-4 md:w-4" fill="black">
                   <path d="M7 10l5 5 5-5z" />
                 </svg>
               </button>
@@ -772,20 +779,18 @@ export default function VideoCard(props: VideoCardProps) {
     </div>
 
       <div
-        className="absolute bottom-32 sm:bottom-40 grid gap-3 -translate-x-[30px] translate-y-[140px]"
+        className="absolute grid gap-3 right-2 lg:right-[-70px] bottom-[140px] lg:bottom-6"
         style={{ 
-          bottom: "clamp(120px, 18vh, 160px)",
-          right: "-1in",
           pointerEvents: "auto",
           zIndex: 50
         }}
       >
-        <div className="relative h-[56px] w-[56px]">
+        <div className="relative h-12 w-12 sm:h-[52px] sm:w-[52px] md:h-14 md:w-14 lg:h-[56px] lg:w-[56px]">
           {displayAvatar ? (
     <button
       type="button"
               onClick={handleAvatarClick}
-              className="h-[56px] w-[56px] rounded-full overflow-hidden border-2 border-white/20 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer"
+              className="h-full w-full rounded-full overflow-hidden border-2 border-white/20 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer"
               aria-label={`${displayCreator} profile`}
               style={{ pointerEvents: "auto", zIndex: 51 }}
             >
@@ -799,7 +804,7 @@ export default function VideoCard(props: VideoCardProps) {
       <button
         type="button"
               onClick={handleAvatarClick}
-              className="h-[56px] w-[56px] rounded-full bg-white/10 border-2 border-white/20 flex-shrink-0 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer hover:bg-white/20 transition"
+              className="h-full w-full rounded-full bg-white/10 border-2 border-white/20 flex-shrink-0 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer hover:bg-white/20 transition"
               aria-label={`${displayCreator} profile`}
               style={{ pointerEvents: "auto", zIndex: 51 }}
             >
@@ -814,10 +819,10 @@ export default function VideoCard(props: VideoCardProps) {
                 handleFollow();
               }}
               disabled={followLoading}
-              className="absolute -bottom-1 -right-1 h-6 w-6 rounded-full bg-[#4A35C7] text-white flex items-center justify-center border-2 border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10 -translate-x-[calc(1.003em+0.029in)]"
+              className="btn-icon-small absolute -bottom-1 left-[18px] h-6 w-6 max-lg:!h-[18px] max-lg:!w-[18px] rounded-full bg-[#4A35C7] text-white flex items-center justify-center border border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition-all focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10"
               aria-label={`Follow ${displayCreator}`}
             >
-              <Plus className="h-3 w-3" />
+              <Plus className="h-3 w-3 max-lg:!h-[9px] max-lg:!w-[9px]" />
             </button>
           )}
         </div>

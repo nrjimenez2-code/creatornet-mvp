@@ -40,7 +40,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   // Use stable supabase client - memoized to prevent unnecessary re-renders
   const supabase = useMemo(() => createClient(), []);
   // Use cached user hook to avoid rate limits
-  const { userId: viewerId } = useUser();
+  const { userId: viewerId, loading: userLoading } = useUser();
 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,25 +48,37 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
 
+  // Handler to update follow status in cached feed data
+  const handleFollowChange = (creatorId: string, isFollowing: boolean) => {
+    setItems((prevItems) =>
+      prevItems.map((item) =>
+        item.creator_id === creatorId
+          ? { ...item, is_following: isFollowing }
+          : item
+      )
+    );
+  };
+
   useEffect(() => {
     let cancelled = false;
 
-    // Start loading immediately - don't wait for anything
+    // Always set loading when fetching (including tab switches)
     setLoading(true);
-    setItems([]); // Clear previous items when tab changes
 
     (async () => {
       try {
-        const rpcName = activeTab === "discover" ? "get_feed_discover" : "get_feed_following";
-        const { data, error } = await supabase.rpc(rpcName, {
-          p_user_id: viewerId,
+        // Use different RPC functions based on active tab
+        const rpcFunction = activeTab === "following" ? "get_feed_following" : "get_feed_discover";
+        
+        const { data, error } = await supabase.rpc(rpcFunction, {
+          p_user_id: viewerId ?? null,
           p_limit: 20,
         });
 
         if (error) {
           console.error("Feed RPC error:", error);
           if (!cancelled) {
-            setItems([]);
+            // Keep existing items on error, just stop loading
             setLoading(false);
           }
           return;
@@ -130,7 +142,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           const productPromise = productIds.length
             ? supabase
                 .from("products")
-                .select("product_id, type")
+                .select("product_id, type, amount_cents, price_cents")
                 .in("product_id", productIds)
             : Promise.resolve(null);
           const profilePromise = creatorIds.length
@@ -146,29 +158,28 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 .eq("user_id", viewerId)
                 .in("post_id", postIds)
             : Promise.resolve(null);
-          // Fetch follows for "following" tab filtering (only if needed)
-          const followsPromise = activeTab === "following" && viewerId
-            ? supabase
-                .from("follows")
-                .select("following_id")
-                .eq("follower_id", viewerId)
-            : Promise.resolve(null);
 
           // Execute all lookups in parallel - this is the key optimization
-          const [productRes, profileRes, likesRes, followsRes] = await Promise.all([
+          const [productRes, profileRes, likesRes] = await Promise.all([
             productPromise,
             profilePromise,
             likesPromise,
-            followsPromise,
           ]);
 
-          const productTypeMap = new Map<string, string | null>();
+          const productMetaMap = new Map<string, { type: string | null; price: number | null }>();
           if (productRes?.error) {
             console.error("Product lookup error:", productRes.error);
           } else if (productRes?.data) {
             for (const row of productRes.data) {
-              const typed = row as { product_id: string; type?: string | null };
-              productTypeMap.set(typed.product_id, typed.type ?? null);
+              const typed = row as { product_id: string; type?: string | null; amount_cents?: number | null; price_cents?: number | null };
+              const derivedPrice =
+                (typeof typed.amount_cents === "number" && typed.amount_cents > 0 && typed.amount_cents) ||
+                (typeof typed.price_cents === "number" && typed.price_cents > 0 && typed.price_cents) ||
+                null;
+              productMetaMap.set(typed.product_id, {
+                type: typed.type ?? null,
+                price: derivedPrice,
+              });
             }
           }
 
@@ -204,10 +215,16 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
 
           mapped = baseRows.map((p) => {
             const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
+            const meta = p.product_id ? productMetaMap.get(p.product_id) : null;
+            const resolvedPrice =
+              typeof p.price_cents === "number" && p.price_cents > 0
+                ? p.price_cents
+                : meta?.price ?? p.price_cents ?? 0;
             return {
               ...p,
+              price_cents: resolvedPrice,
               product_type: p.product_id
-                ? productTypeMap.get(p.product_id) ?? null
+                ? meta?.type ?? null
                 : null,
               creator_name:
                 profile?.full_name ??
@@ -220,24 +237,6 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             };
           });
 
-          // For "following" tab: ensure we only show posts from creators the user follows
-          // This is a client-side safety check in case the RPC doesn't filter properly
-          if (activeTab === "following" && viewerId && followsRes?.data) {
-            const followedCreatorIds = new Set(
-              followsRes.data.map((f) => f.following_id as string)
-            );
-            
-            // Filter to only show posts from followed creators (exclude user's own posts)
-            mapped = mapped.filter(
-              (p) => 
-                p.creator_id && 
-                followedCreatorIds.has(p.creator_id) &&
-                p.creator_id !== viewerId // Exclude own posts
-            );
-          } else if (activeTab === "following" && viewerId && (!followsRes?.data || followsRes.data.length === 0)) {
-            // If no follows found, show empty feed
-            mapped = [];
-          }
         }
 
         if (!cancelled) {
@@ -250,7 +249,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       } catch (err) {
         console.error("FeedList error:", err);
         if (!cancelled) {
-          setItems([]);
+          // Keep existing items on error, just stop loading
           setLoading(false);
         }
       }
@@ -329,7 +328,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase, viewerId]);
+  }, [activeTab, supabase, viewerId, userLoading]);
 
   // Scroll to highlighted post when it loads
   useEffect(() => {
@@ -401,7 +400,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         return (
           <section
             key={`${p.id}-${idx}`}
-            className="snap-start snap-always h-screen w-full flex items-center justify-center"
+            className="snap-start snap-always h-screen w-full flex items-center justify-center px-1 sm:px-2 md:px-4"
             data-post-id={p.id}
             ref={(el) => {
               const map = sectionRefs.current;
@@ -412,42 +411,43 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               }
             }}
           >
-            <div className="relative w-full h-full flex items-center justify-center">
-              <VideoCard
-                // media
-                src={p.video_url || undefined}
-                poster={p.poster_url || "/file.svg"}
-                // meta
-                creator={p.creator_name ?? "Creator"}
-                creatorAvatarUrl={p.creator_avatar_url ?? null}
-                caption={p.content || ""}
-                hashtags={
-                  Array.isArray(p.interests) && p.interests.length
-                    ? p.interests.map((t) => `#${t}`).join(" ")
-                    : "#entrepreneur #focus"
-                }
-                // social counts
-                likes={p.likes_count ?? 0}
-                comments={p.comments_count ?? 0}
-                shares={p.shares_count ?? 0}
-                // CTA & commerce
-                showCTA={showCTA}
-                postId={p.id}
-                productId={p.product_id ?? null}
-                creatorId={p.creator_id ?? null}
-                priceCents={price}
-                titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
-                productType={p.product_type ?? null}
-                showFollowButton={activeTab === "discover"}
-                isFollowingCreator={p.is_following ?? false}
-                // booking
-                allowBooking={allowBooking}
-                bookingRedirectUrl={allowBooking ? p.booking_url! : null}
-                soundEnabled={isSoundOn}
-                onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
-                tapToTogglePlayback
-                isLiked={p.is_liked ?? false}
-              />
+            <div className="relative w-full h-full flex items-center justify-center max-w-full lg:-ml-80">
+            <VideoCard
+              // media
+              src={p.video_url || undefined}
+              poster={p.poster_url || "/file.svg"}
+              // meta
+              creator={p.creator_name ?? "Creator"}
+              creatorAvatarUrl={p.creator_avatar_url ?? null}
+              caption={p.content || ""}
+              hashtags={
+                Array.isArray(p.interests) && p.interests.length
+                  ? p.interests.map((t) => `#${t}`).join(" ")
+                  : "#entrepreneur #focus"
+              }
+              // social counts
+              likes={p.likes_count ?? 0}
+              comments={p.comments_count ?? 0}
+              shares={p.shares_count ?? 0}
+              // CTA & commerce
+              showCTA={showCTA}
+              postId={p.id}
+              productId={p.product_id ?? null}
+              creatorId={p.creator_id ?? null}
+              priceCents={price}
+              titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
+              productType={p.product_type ?? null}
+              showFollowButton={activeTab === "discover"}
+              isFollowingCreator={p.is_following ?? false}
+              onFollowChange={handleFollowChange}
+              // booking
+              allowBooking={allowBooking}
+              bookingRedirectUrl={allowBooking ? p.booking_url! : null}
+              soundEnabled={isSoundOn}
+              onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+              tapToTogglePlayback
+              isLiked={p.is_liked ?? false}
+            />
             </div>
           </section>
         );

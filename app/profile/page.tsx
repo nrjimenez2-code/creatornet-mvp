@@ -57,26 +57,40 @@ export default async function ProfilePage() {
   const reviewCount = ratingData ? Number(ratingData.review_count ?? 0) : 0;
 
   return (
-    <section className="px-4 pb-16 pt-10 text-white relative">
+    <section className="px-4 pb-16 pt-4 md:pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+        {/* Mobile: Back button + actions in header row */}
+        <div className="flex md:hidden items-center justify-between mb-6">
           <BackButton hrefOverride="/dashboard" />
+          <div className="flex items-center gap-2">
+            <ProfileShareButton />
+            <Link
+              href="/profile/edit"
+              className="rounded-md bg-[#4A35C7] px-3 py-1 text-xs font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
+            >
+              Edit profile
+            </Link>
+          </div>
         </div>
 
-        <div className="absolute top-10 left-4 z-10 translate-x-[calc(100vw-8rem-12rem+0.80in)]">
+        {/* Desktop: Absolute positioned (original) */}
+        <div className="hidden md:block absolute top-4 left-4 z-10">
+          <BackButton hrefOverride="/dashboard" />
+        </div>
+        <div className="hidden md:block absolute top-4 right-20 sm:right-32 z-10">
           <ProfileShareButton />
         </div>
-        <div className="absolute top-12 right-4 z-10 -translate-x-12 -translate-y-[0.08in]">
+        <div className="hidden md:block absolute top-4 right-4 z-10">
           <Link
             href="/profile/edit"
-            className="rounded-md bg-[#4A35C7] px-4 py-1 text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
+            className="rounded-md bg-[#4A35C7] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
           >
             Edit profile
           </Link>
         </div>
 
-        <div className="flex flex-col items-center text-center -mt-12 translate-y-12">
-          <div className="h-48 w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
+        <div className="flex flex-col items-center text-center mt-0 md:mt-8">
+          <div className="h-32 w-32 sm:h-40 sm:w-40 md:h-48 md:w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -85,29 +99,32 @@ export default async function ProfilePage() {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-5xl">🙋‍♂️</div>
+              <div className="flex h-full w-full items-center justify-center text-4xl sm:text-5xl">🙋‍♂️</div>
             )}
           </div>
 
-          <h1 className="mt-6 text-3xl font-semibold">{displayName}</h1>
-          <p className="text-white/70">@{username}</p>
-          <p className="mt-2 text-sm text-white/60">{bio}</p>
+          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold">{displayName}</h1>
+          <p className="text-white/70 text-sm sm:text-base">@{username}</p>
+          <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
-          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80 mb-6">
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[425px]">
-              <span className="text-lg font-semibold text-white">{postsCount}</span>
-              posts
-            </div>
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[415px]">
-              <span className="text-lg font-semibold text-white">{followersCount}</span>
-              followers
-            </div>
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[415px]">
-              <span className="text-lg font-semibold text-white">{followingCount}</span>
-              following
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <ProfileStarRating userId={user.id} rating={rating} reviewCount={reviewCount} />
+          {/* Stats row - responsive layout */}
+          <div className="mt-6 w-full max-w-2xl px-4">
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
+              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
+                <span className="text-lg font-semibold text-white">{postsCount}</span>
+                <span className="text-xs sm:text-sm">posts</span>
+              </div>
+              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
+                <span className="text-lg font-semibold text-white">{followersCount}</span>
+                <span className="text-xs sm:text-sm">followers</span>
+              </div>
+              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
+                <span className="text-lg font-semibold text-white">{followingCount}</span>
+                <span className="text-xs sm:text-sm">following</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ProfileStarRating userId={user.id} rating={rating} reviewCount={reviewCount} />
+              </div>
             </div>
           </div>
 

@@ -91,17 +91,24 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const canFollow = viewer?.id && viewer.id !== creatorId;
 
   return (
-    <section className="px-4 pb-16 pt-10 text-white relative">
-      <div className="absolute top-4 left-4 z-10">
-        <BackButton hrefOverride="/dashboard" />
-      </div>
+    <section className="px-4 pb-16 pt-4 md:pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        <div className="absolute top-10 right-4 z-10">
+        {/* Mobile: Back button + share in header row */}
+        <div className="flex md:hidden items-center justify-between mb-6">
+          <BackButton hrefOverride="/dashboard" />
           <ProfileShareButton />
         </div>
 
-        <div className="-mt-12 flex flex-col items-center text-center translate-y-8">
-          <div className="h-48 w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
+        {/* Desktop: Absolute positioned (original) */}
+        <div className="hidden md:block absolute top-4 left-4 z-10">
+          <BackButton hrefOverride="/dashboard" />
+        </div>
+        <div className="hidden md:block absolute top-10 right-4 z-10">
+          <ProfileShareButton />
+        </div>
+
+        <div className="flex flex-col items-center text-center mt-0 md:-mt-12 md:translate-y-8">
+          <div className="h-32 w-32 sm:h-40 sm:w-40 md:h-48 md:w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
             {avatarUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
@@ -110,42 +117,45 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
                 className="h-full w-full object-cover"
               />
             ) : (
-              <div className="flex h-full w-full items-center justify-center text-5xl">
+              <div className="flex h-full w-full items-center justify-center text-4xl sm:text-5xl">
                 🙋‍♂️
               </div>
             )}
           </div>
 
-          <h1 className="mt-6 text-3xl font-semibold">{displayName}</h1>
-          <p className="text-white/70">@{username}</p>
+          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold">{displayName}</h1>
+          <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
-          <p className="mt-4 max-w-2xl text-sm text-white/80">{bio}</p>
+          <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
-          <div className="mt-6 w-full flex items-center justify-center gap-10 text-sm text-white/80 mb-6">
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[425px]">
-              <span className="text-lg font-semibold text-white">
-                {posts.length}
-              </span>
-              posts
-            </div>
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[415px]">
-              <span className="text-lg font-semibold text-white">
-                {followersCount}
-              </span>
-              followers
-            </div>
-            <div className="flex flex-col items-center gap-1 text-center min-w-[80px] translate-x-[415px]">
-              <span className="text-lg font-semibold text-white">
-                {followingCount}
-              </span>
-              following
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <ProfileStarRating
-                userId={creatorId}
-                rating={rating}
-                reviewCount={reviewCount}
-              />
+          {/* Stats row - responsive layout */}
+          <div className="mt-6 w-full max-w-2xl px-4">
+            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
+              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
+                <span className="text-lg font-semibold text-white">
+                  {posts.length}
+                </span>
+                <span className="text-xs sm:text-sm">posts</span>
+              </div>
+              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
+                <span className="text-lg font-semibold text-white">
+                  {followersCount}
+                </span>
+                <span className="text-xs sm:text-sm">followers</span>
+              </div>
+              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
+                <span className="text-lg font-semibold text-white">
+                  {followingCount}
+                </span>
+                <span className="text-xs sm:text-sm">following</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ProfileStarRating
+                  userId={creatorId}
+                  rating={rating}
+                  reviewCount={reviewCount}
+                />
+              </div>
             </div>
           </div>
 
@@ -153,7 +163,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         </div>
 
         {canFollow && (
-          <div className="mt-4 mb-2 flex justify-start -translate-y-[0.4in]">
+          <div className="mt-6 mb-8 flex justify-center">
             <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
           </div>
         )}
@@ -163,7 +173,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             This creator hasn&apos;t posted yet.
           </p>
         ) : (
-          <div className="-mt-7">
+          <div className="mt-4 md:-mt-7">
             <ProfilePostsGallery posts={posts} />
           </div>
         )}
