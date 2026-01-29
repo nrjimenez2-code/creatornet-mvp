@@ -167,16 +167,25 @@ export default function WatchPage() {
     : null;
 
   return (
-    <main className="relative mx-auto max-w-3xl p-6">
-      <div className="fixed top-4 left-4 z-10">
-        <BackButton hrefOverride="/dashboard" />
+    <main className="relative mx-auto max-w-3xl px-4 py-6 sm:p-6">
+      {/* Desktop: Fixed position back button (original) */}
+      <div className="hidden lg:block fixed top-4 left-4 z-10">
+        <BackButton hrefOverride="/library" />
       </div>
-      <h1 className="text-xl font-semibold mb-4 text-center">
-        {post.title ?? "Video"}
-      </h1>
-        <div className="mx-auto flex max-w-[3500px] justify-center">
-          <div className="relative w-full rounded-[32px] border-[14px] border-gray-200 bg-black/90 px-2 py-2 shadow-inner">
-            <div className="h-[36rem] w-full overflow-hidden rounded-[22px] border border-white/20 bg-black">
+      
+      {/* Mobile: Back button + heading in flex row */}
+      <div className="mb-4 flex lg:block items-center gap-4">
+        <div className="lg:hidden">
+          <BackButton hrefOverride="/library" />
+        </div>
+        <h1 className="text-lg sm:text-xl font-semibold text-white">
+          {post.title ?? "Video"}
+        </h1>
+      </div>
+      
+      <div className="mx-auto flex max-w-[3500px] justify-center">
+        <div className="relative w-full rounded-2xl sm:rounded-[32px] border-4 sm:border-[14px] border-gray-200 bg-black/90 p-1 sm:px-2 sm:py-2 shadow-inner">
+          <div className="h-[50vh] sm:h-[60vh] md:h-[36rem] w-full overflow-hidden rounded-xl sm:rounded-[22px] border border-white/20 bg-black">
             {post.video_url ? (
               <video
                 className="h-full w-full object-contain bg-black"
@@ -240,43 +249,48 @@ export default function WatchPage() {
               </button>
             )}
           </div>
-          <Link
-            href="/library"
-            className="absolute -bottom-18 left-150 rounded-sm bg-[#4A35C7] px-6 py-2 text-sm font-semibold text-white hover:brightness-95 shadow-lg"
-          >
-            Library
-          </Link>
-          <div className="absolute -bottom-28 right-6 text-right translate-x-[-33rem]">
-            <div className="text-2xl font-semibold text-left">
-              {post.title ?? "Video title"}
+        </div>
+      </div>
+
+      {/* Creator info section - responsive below video */}
+      <div className="mt-6 space-y-4">
+        <div className="flex items-center gap-3 justify-between">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <div className="h-12 w-12 sm:h-14 sm:w-14 overflow-hidden rounded-full border border-white/30 bg-white/10 flex-shrink-0">
+              {post.creator?.avatar_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={post.creator.avatar_url}
+                  alt={displayCreator}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center text-xl">
+                  👤
+                </span>
+              )}
             </div>
-            <div className="mt-2 inline-flex items-center gap-3 text-lg text-white/80">
-              <div className="h-14 w-14 overflow-hidden rounded-full border border-white/30 bg-white/10">
-                {post.creator?.avatar_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={post.creator.avatar_url}
-                    alt={displayCreator}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="flex h-full w-full items-center justify-center">
-                    👤
-                  </span>
-                )}
-              </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm sm:text-base text-white/60">Created by</div>
               {creatorProfileHref ? (
                 <Link
                   href={creatorProfileHref}
-                  className="hover:text-white underline-offset-4"
+                  className="text-lg sm:text-xl font-semibold text-white hover:text-[#4A35C7] underline-offset-4 transition"
                 >
                   {displayCreator}
                 </Link>
               ) : (
-                <span>{displayCreator}</span>
+                <span className="text-lg sm:text-xl font-semibold text-white">{displayCreator}</span>
               )}
             </div>
           </div>
+          {/* Library button */}
+          <Link
+            href="/library"
+            className="px-4 sm:px-6 py-2 sm:py-2.5 rounded-lg bg-[#4A35C7] text-white text-sm sm:text-base font-semibold hover:bg-[#3D2BA3] transition-colors focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 flex-shrink-0"
+          >
+            Library
+          </Link>
         </div>
       </div>
     </main>

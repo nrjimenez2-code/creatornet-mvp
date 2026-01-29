@@ -320,10 +320,19 @@ export default function LibraryPage() {
   return (
     <main className="p-6 relative">
       <div className="max-w-6xl mx-auto">
-        <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+        {/* Mobile: Back button on top, heading below and left-aligned */}
+        <div className="block md:hidden mb-6">
+          <div className="mb-3">
+            <BackButton hrefOverride="/dashboard" />
+          </div>
+          <h1 className="text-xl font-semibold text-left">Your Library</h1>
+        </div>
+
+        {/* Desktop: Absolute positioned back button (original) */}
+        <div className="hidden md:block absolute top-4 left-4 z-10">
           <BackButton hrefOverride="/dashboard" />
         </div>
-        <div className="flex items-center justify-between mb-6">
+        <div className="hidden md:flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Your Library</h1>
         </div>
 

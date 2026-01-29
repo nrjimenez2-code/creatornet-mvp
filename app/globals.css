@@ -19,6 +19,26 @@ img, svg, video, canvas {
   height: auto;
 }
 
+/* Prevent horizontal scroll on mobile */
+body {
+  overflow-x: hidden;
+  width: 100%;
+}
+
+/* Ensure mobile-friendly touch targets (44px minimum) */
+@media (max-width: 768px) {
+  button, a {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* Exception for small icon buttons on mobile only */
+  button.btn-icon-small {
+    min-height: unset;
+    min-width: unset;
+  }
+}
+
 /* -------- Utilities -------- */
 
 /* Hide scrollbars but keep scroll functionality (used by the feed) */

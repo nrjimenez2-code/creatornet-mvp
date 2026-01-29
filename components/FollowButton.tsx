@@ -19,10 +19,17 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
   }, [initialFollowing]);
   
   // Also verify the follow status on mount to ensure accuracy
+  // Retry multiple times to handle database replication lag
   useEffect(() => {
+    let cancelled = false;
+    let retryCount = 0;
+    const maxRetries = 3;
+
     async function verifyFollowStatus() {
+      if (cancelled) return;
+
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user || cancelled) return;
 
       const { data } = await supabase
         .from("follows")
@@ -31,11 +38,26 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
         .eq("following_id", creatorId)
         .maybeSingle();
 
+      if (cancelled) return;
+
+      const dbFollowStatus = !!data;
+      
       // Update state based on actual database state
-      setFollowing(!!data);
+      setFollowing(dbFollowStatus);
+
+      // If there's a mismatch with initialFollowing and we haven't exceeded retries, try again
+      if (dbFollowStatus !== initialFollowing && retryCount < maxRetries) {
+        retryCount++;
+        setTimeout(() => verifyFollowStatus(), 500 * retryCount); // Exponential backoff: 500ms, 1s, 1.5s
+      }
     }
+
     verifyFollowStatus();
-  }, [creatorId, supabase]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [creatorId, supabase, initialFollowing]);
 
   async function handleFollow() {
     if (loading) return;

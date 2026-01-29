@@ -1,42 +1,55 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import {
+  ReactNode,
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createClient } from "@/lib/supabaseClient";
+
+type UserContextValue = {
+  userId: string | null;
+  loading: boolean;
+};
+
+const UserContext = createContext<UserContextValue | undefined>(undefined);
 
 // Global cache for user ID to avoid repeated getUser() calls
 let cachedUserId: string | null = null;
-let cacheTimestamp: number = 0;
+let cacheTimestamp = 0;
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-/**
- * Hook to get the current user ID with caching to prevent rate limits
- * Uses getSession() first (faster, less rate-limited) then falls back to getUser()
- */
-export function useUser() {
+function useProvideUser(): UserContextValue {
   const [userId, setUserId] = useState<string | null>(cachedUserId);
   const [loading, setLoading] = useState(!cachedUserId);
   const supabaseRef = useRef(createClient());
   const supabase = supabaseRef.current;
 
   useEffect(() => {
-    // Use cached value if still valid
-    const now = Date.now();
-    if (cachedUserId && (now - cacheTimestamp) < CACHE_DURATION) {
-      setUserId(cachedUserId);
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
 
-    (async () => {
+    async function loadUser() {
+      const now = Date.now();
+      if (cachedUserId && now - cacheTimestamp < CACHE_DURATION) {
+        setUserId(cachedUserId);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+
       try {
-        // Try getSession() first - it's faster and less rate-limited
-        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
+        const {
+          data: { session },
+          error: sessionError,
+        } = await supabase.auth.getSession();
+
         if (cancelled) return;
 
-        // If rate limited on getSession, use cached value if available
         if (sessionError && sessionError.status === 429) {
           console.warn("Rate limited on getSession(), using cached user ID if available");
           if (cachedUserId) {
@@ -54,14 +67,14 @@ export function useUser() {
           return;
         }
 
-        // Fallback to getUser() only if session doesn't have user
-        // But skip if we just got rate limited
         if (!sessionError || sessionError.status !== 429) {
-          const { data: { user }, error: userError } = await supabase.auth.getUser();
-          
+          const {
+            data: { user },
+            error: userError,
+          } = await supabase.auth.getUser();
+
           if (cancelled) return;
 
-          // If rate limited on getUser(), use cached value if available
           if (userError && userError.status === 429) {
             console.warn("Rate limited on getUser(), using cached user ID if available");
             if (cachedUserId) {
@@ -79,16 +92,12 @@ export function useUser() {
             cachedUserId = null;
             setUserId(null);
           }
-        } else if (cachedUserId) {
-          // Use cached value if we got rate limited
-          setUserId(cachedUserId);
         } else {
           cachedUserId = null;
           setUserId(null);
         }
       } catch (err: any) {
         console.error("Error getting user:", err);
-        // If rate limited, try to use cached value
         if (err?.status === 429 && cachedUserId) {
           console.warn("Rate limited, using cached user ID");
           setUserId(cachedUserId);
@@ -101,14 +110,41 @@ export function useUser() {
           setLoading(false);
         }
       }
-    })();
+    }
+
+    loadUser();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      const nextUserId = session?.user?.id ?? null;
+      cachedUserId = nextUserId;
+      cacheTimestamp = nextUserId ? Date.now() : 0;
+      setUserId(nextUserId);
+      setLoading(false);
+    });
 
     return () => {
       cancelled = true;
+      sub.subscription.unsubscribe();
     };
   }, [supabase]);
 
-  return { userId, loading };
+  return useMemo(() => ({ userId, loading }), [userId, loading]);
+}
+
+export function UserProvider({ children }: { children: ReactNode }) {
+  const value = useProvideUser();
+  return <UserContext.Provider value={value}>{children}</UserContext.Provider>;
+}
+
+/**
+ * Hook to get the current user ID with caching to prevent rate limits
+ */
+export function useUser() {
+  const context = useContext(UserContext);
+  if (!context) {
+    throw new Error("useUser must be used within a UserProvider");
+  }
+  return context;
 }
 
 /**
@@ -118,4 +154,5 @@ export function clearUserCache() {
   cachedUserId = null;
   cacheTimestamp = 0;
 }
+
 

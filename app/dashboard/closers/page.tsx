@@ -404,10 +404,19 @@ export default function ClosersManagerPage() {
 
   return (
     <main className="max-w-5xl mx-auto p-6 space-y-8">
-      <div className="absolute top-4 left-4 z-10">
+      {/* Mobile: Back button on top, heading below and left-aligned */}
+      <div className="block md:hidden mb-6">
+        <div className="mb-3">
+          <BackButton />
+        </div>
+        <h1 className="text-lg font-bold text-left">Booking Targets (Round-Robin)</h1>
+      </div>
+
+      {/* Desktop: Absolute positioned back button + heading below (original) */}
+      <div className="hidden md:block absolute top-4 left-4 z-10">
         <BackButton />
       </div>
-      <h1 className="text-2xl font-bold mb-2">Booking Targets (Round-Robin)</h1>
+      <h1 className="hidden md:block text-xl font-bold mb-2">Booking Targets (Round-Robin)</h1>
       <p className="text-sm text-gray-600 mb-6">
         Add one or more booking URLs for your sales team. We’ll automatically rotate them using{" "}
         <code>next_booking_target()</code>. Counters are stored per target and update each time your
