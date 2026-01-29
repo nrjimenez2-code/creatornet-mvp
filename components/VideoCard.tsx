@@ -645,17 +645,17 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-    <div className="relative w-full mx-auto" style={{ maxWidth: 'min(100%, 460px)' }}>
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] h-[600px] lg:h-[680px]">
       <div
         ref={containerRef}
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
-        className="relative w-full overflow-hidden border border-white/12 bg-black"
+        className="relative w-full h-full overflow-hidden border border-white/12 bg-black"
         style={{ borderRadius: "16px 16px 20px 20px" }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
-      <div className="relative w-full bg-black overflow-hidden" style={{ borderRadius: "16px 16px 0 0", height: 'clamp(500px, 90vh, 1000px)' }}>
+      <div className="relative w-full bg-black overflow-hidden h-[530px] lg:h-[600px]" style={{ borderRadius: "16px 16px 0 0" }}>
         {videoSrc || src ? (
           <video
             ref={videoRef}
@@ -819,7 +819,7 @@ export default function VideoCard(props: VideoCardProps) {
                 handleFollow();
               }}
               disabled={followLoading}
-              className="btn-icon-small absolute -bottom-1 left-[18px] h-6 w-6 max-lg:!h-[18px] max-lg:!w-[18px] rounded-full bg-[#4A35C7] text-white flex items-center justify-center border border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition-all focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10"
+              className="btn-icon-small absolute -bottom-1 left-[15px] lg:left-[18px] h-6 w-6 max-lg:!h-[18px] max-lg:!w-[18px] rounded-full bg-[#4A35C7] text-white flex items-center justify-center border border-black/70 shadow-lg hover:bg-[#3D2BA3] disabled:opacity-60 transition-all focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 z-10"
               aria-label={`Follow ${displayCreator}`}
             >
               <Plus className="h-3 w-3 max-lg:!h-[9px] max-lg:!w-[9px]" />

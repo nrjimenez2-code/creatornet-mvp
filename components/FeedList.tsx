@@ -400,7 +400,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         return (
           <section
             key={`${p.id}-${idx}`}
-            className="snap-start snap-always h-screen w-full flex items-center justify-center px-1 sm:px-2 md:px-4"
+            className="snap-start snap-always h-screen w-full flex items-start lg:items-center justify-center px-0 md:px-4 -mt-8 lg:mt-0"
             data-post-id={p.id}
             ref={(el) => {
               const map = sectionRefs.current;
