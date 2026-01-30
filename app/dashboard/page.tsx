@@ -215,7 +215,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
 
         {/* MAIN / FEED COLUMN */}
         <div className="min-h-[calc(100vh-40px)] flex flex-col items-center justify-start pt-0 pb-3 lg:py-3">
-          <div className="w-full max-w-full lg:max-w-[1300px]">
 
           
 
