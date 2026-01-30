@@ -221,7 +221,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             {/* <ContinueWatching /> */}
             {/* Feed list now starts at top */}
             <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
-          </div>
         </div>
       </div>
 
