@@ -81,7 +81,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
 
       <div className="mx-auto grid grid-cols-[52px_1fr] lg:grid-cols-[240px_1fr] gap-2 lg:gap-6 px-0 pr-2 lg:pr-10">
         {/* SIDEBAR - Always visible, icon-only on smaller screens, full on large screens (TikTok style) */}
-        <aside className="sticky top-10 lg:top-6 self-start">
+        <aside className="sticky top-0 lg:top-6 self-start">
 
           {/*
           <div className="w-[240px] ml-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -214,7 +214,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         </aside>
 
         {/* MAIN / FEED COLUMN */}
-        <div className="min-h-[calc(100vh-40px)] flex flex-col items-center justify-start py-3">
+        <div className="min-h-[calc(100vh-40px)] flex flex-col items-center justify-start pt-0 pb-3 lg:py-3">
           <div className="w-full max-w-full lg:max-w-[1300px]">
 
           

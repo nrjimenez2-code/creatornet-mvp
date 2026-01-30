@@ -645,7 +645,7 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] h-[600px] lg:h-[760px]">
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:[height:min(92vh,720px)] lg:h-[760px]">
       <div
         ref={containerRef}
         role="group"
@@ -656,7 +656,7 @@ export default function VideoCard(props: VideoCardProps) {
         tabIndex={0}
       >
 
-      <div className="relative w-full bg-black overflow-hidden h-[530px] lg:h-[680px]" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full bg-black overflow-hidden max-lg:[height:min(80vh,640px)] lg:h-[680px]" style={{ borderRadius: "16px 16px 0 0" }}>
         {videoSrc || src ? (
           <video
             ref={videoRef}
