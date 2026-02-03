@@ -216,8 +216,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll */}
         <div className="h-screen min-h-0 flex flex-col items-stretch pt-0 pb-3 lg:py-3 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
+
             <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
-          </div>
         </div>
       </div>
 

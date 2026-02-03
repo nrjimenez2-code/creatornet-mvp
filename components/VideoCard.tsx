@@ -647,6 +647,7 @@ export default function VideoCard(props: VideoCardProps) {
   return (
 
     <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:[height:min(99vh,880px)] lg:h-[920px]">
+
       <div
         ref={containerRef}
         role="group"
@@ -658,6 +659,7 @@ export default function VideoCard(props: VideoCardProps) {
       >
 
       <div className="relative w-full bg-black overflow-hidden max-lg:[height:min(89vh,780px)] lg:h-[840px]" style={{ borderRadius: "16px 16px 0 0" }}>
+
 
         {videoSrc || src ? (
           <video

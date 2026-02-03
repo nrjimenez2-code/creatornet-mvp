@@ -485,7 +485,9 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               }
             }}
           >
+
             <div className="relative w-full h-full flex items-start lg:items-center justify-center max-w-full lg:-ml-[28rem]">
+
             <VideoCard
               // media
               src={p.video_url || undefined}
