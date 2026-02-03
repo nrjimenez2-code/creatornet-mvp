@@ -36,14 +36,26 @@ export type PostRow = {
   booking_url?: string | null;
 };
 
+/** Hosts that often time out or fail; don't request video from them (show poster only to avoid console errors). */
+const UNRELIABLE_VIDEO_HOSTS = ["sample-videos.com"];
+
+function isUnreliableVideoUrl(url: string | null): boolean {
+  if (!url || typeof url !== "string") return false;
+  try {
+    const host = new URL(url.trim()).hostname.toLowerCase();
+    return UNRELIABLE_VIDEO_HOSTS.some((bad) => host === bad || host.endsWith("." + bad));
+  } catch {
+    return false;
+  }
+}
+
 export default function FeedList({ activeTab, highlightPostId }: FeedListProps) {
-  // Use stable supabase client - memoized to prevent unnecessary re-renders
   const supabase = useMemo(() => createClient(), []);
-  // Use cached user hook to avoid rate limits
-  const { userId: viewerId, loading: userLoading } = useUser();
+  const { userId: viewerId } = useUser(); // only for likes + follow state; feed fetch gets its own auth inside effect
 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [feedError, setFeedError] = useState<string | null>(null);
   const [globalSoundOn, setGlobalSoundOn] = useState(false);
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -64,21 +76,39 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
 
     // Always set loading when fetching (including tab switches)
     setLoading(true);
+    setFeedError(null);
 
     (async () => {
       try {
-        // Use different RPC functions based on active tab
-        const rpcFunction = activeTab === "following" ? "get_feed_following" : "get_feed_discover";
-        
-        const { data, error } = await supabase.rpc(rpcFunction, {
-          p_user_id: viewerId ?? null,
-          p_limit: 20,
-        });
+        console.log("[Feed] effect ran, activeTab:", activeTab);
+        const { data: authData } = await supabase.auth.getSession();
+        const feedViewerId = authData?.session?.user?.id ?? null;
+
+        const discoverParams = { p_user_id: null, p_limit: 20 };
+        const followingParams = { p_user_id: feedViewerId, p_limit: 20 };
+        let data: unknown = null;
+        let error: { message: string; code?: string } | null = null;
+
+        if (activeTab === "discover") {
+          const result = await supabase.rpc("get_feed_v1", discoverParams);
+          data = result.data;
+          error = result.error;
+          console.log("[Feed] get_feed_v1(discover) — isArray:", Array.isArray(data), "length:", Array.isArray(data) ? (data as unknown[]).length : 0, "error:", error?.message ?? null);
+        } else {
+          let result = await supabase.rpc("get_feed_following", followingParams);
+          data = result.data;
+          error = result.error;
+          if (error?.code === "42883" || (error?.message && error.message.includes("does not exist"))) {
+            result = await supabase.rpc("get_feed_v1", followingParams);
+            data = result.data;
+            error = result.error;
+          }
+        }
 
         if (error) {
           console.error("Feed RPC error:", error);
           if (!cancelled) {
-            // Keep existing items on error, just stop loading
+            setFeedError(error.message || "Failed to load feed");
             setLoading(false);
           }
           return;
@@ -86,10 +116,18 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
 
         let mapped: PostRow[] = [];
 
-        if (Array.isArray(data)) {
-          const baseRows: PostRow[] = data
+        const rawRows: unknown[] = Array.isArray(data) ? data : [];
+        console.log("[Feed] rawRows.length:", rawRows.length, "data type:", typeof data, data === null ? "(null)" : "");
+
+        if (rawRows.length > 0) {
+          const baseRows: PostRow[] = rawRows
             .map((r: any) => {
               const postId = (r.post_id as string) ?? (r.id as string) ?? "";
+              const rawVideo = (r.video_url as string) ?? null;
+              const rawPoster = (r.poster_url as string) ?? null;
+              const trimmedVideo = typeof rawVideo === "string" ? rawVideo.trim() : null;
+              const videoUrl =
+                trimmedVideo && !isUnreliableVideoUrl(trimmedVideo) ? trimmedVideo : null;
 
               const derivedName =
                 (r.creator_name as string) ??
@@ -104,10 +142,10 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 product_id: (r.product_id as string) ?? null,
                 price_cents: (r.price_cents as number) ?? 0,
                 title: (r.title as string) ?? null,
-                video_url: (r.video_url as string) ?? null,
-                poster_url: (r.poster_url as string) ?? null,
+                video_url: videoUrl,
+                poster_url: typeof rawPoster === "string" ? rawPoster.trim() : null,
                 content: (r.title as string) ?? "",
-                interests: Array.isArray(r.tags) ? (r.tags as string[]) : [],
+                interests: Array.isArray(r.interests) ? (r.interests as string[]) : Array.isArray(r.tags) ? (r.tags as string[]) : [],
                 created_at: null,
                 likes_count: (r.likes_count as number) ?? 0,
                 comments_count: (r.comments_count as number) ?? 0,
@@ -120,6 +158,8 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               };
             })
             .filter((p) => p.video_url || p.poster_url);
+
+          console.log("[Feed] baseRows after filter (video_url or poster_url):", baseRows.length);
 
           const productIds = Array.from(
             new Set(
@@ -151,19 +191,28 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 .select("id, full_name, username, avatar_url")
                 .in("id", creatorIds)
             : Promise.resolve(null);
-          const likesPromise = viewerId && postIds.length > 0
+          const likesPromise = feedViewerId && postIds.length > 0
             ? supabase
                 .from("likes")
                 .select("post_id")
-                .eq("user_id", viewerId)
+                .eq("user_id", feedViewerId)
                 .in("post_id", postIds)
             : Promise.resolve(null);
 
           // Execute all lookups in parallel - this is the key optimization
-          const [productRes, profileRes, likesRes] = await Promise.all([
+          const followsPromise = feedViewerId && creatorIds.length > 0
+            ? supabase
+                .from("follows")
+                .select("following_id")
+                .eq("follower_id", feedViewerId)
+                .in("following_id", creatorIds)
+            : Promise.resolve(null);
+
+          const [productRes, profileRes, likesRes, followsRes] = await Promise.all([
             productPromise,
             profilePromise,
             likesPromise,
+            followsPromise,
           ]);
 
           const productMetaMap = new Map<string, { type: string | null; price: number | null }>();
@@ -213,6 +262,14 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             likedPostIds = new Set(likesRes.data.map((l) => l.post_id as string));
           }
 
+          // Which creators the viewer follows (so we hide + when already following)
+          let followedCreatorIds = new Set<string>();
+          if (followsRes?.error) {
+            console.error("Error fetching follows:", followsRes.error);
+          } else if (followsRes?.data) {
+            followedCreatorIds = new Set(followsRes.data.map((r) => r.following_id as string));
+          }
+
           mapped = baseRows.map((p) => {
             const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
             const meta = p.product_id ? productMetaMap.get(p.product_id) : null;
@@ -220,6 +277,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               typeof p.price_cents === "number" && p.price_cents > 0
                 ? p.price_cents
                 : meta?.price ?? p.price_cents ?? 0;
+            const isFollowing = p.creator_id ? followedCreatorIds.has(p.creator_id) : (p.is_following ?? false);
             return {
               ...p,
               price_cents: resolvedPrice,
@@ -234,22 +292,25 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               creator_avatar_url:
                 profile?.avatar_url ?? p.creator_avatar_url ?? null,
               is_liked: likedPostIds.has(p.id),
+              is_following: isFollowing,
             };
           });
 
         }
 
+        console.log("[Feed] final mapped.length:", mapped.length);
         if (!cancelled) {
           setItems(mapped);
+          setFeedError(null);
           setLoading(false);
           if (mapped.length) {
             setActivePostId((prev) => prev ?? mapped[0]?.id ?? null);
           }
         }
       } catch (err) {
-        console.error("FeedList error:", err);
+        console.error("[Feed] FeedList error:", err);
         if (!cancelled) {
-          // Keep existing items on error, just stop loading
+          setFeedError(err instanceof Error ? err.message : "Failed to load feed");
           setLoading(false);
         }
       }
@@ -328,7 +389,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase, viewerId, userLoading]);
+  }, [activeTab, supabase]);
 
   // Scroll to highlighted post when it loads
   useEffect(() => {
@@ -375,15 +436,27 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
 
   if (!loading && items.length === 0) {
     return (
-      <div className="w-full flex justify-center py-10 text-sm text-gray-500">
-        No posts yet.
+      <div className="w-full flex flex-col items-center justify-center py-10 px-4 text-center">
+        {feedError ? (
+          <>
+            <p className="text-sm text-red-400 font-medium mb-1">Error loading feed</p>
+            <p className="text-xs text-gray-500 max-w-md mb-3">{feedError}</p>
+            <p className="text-xs text-gray-600">
+              Check: (1) Browser console for details. (2) Supabase project has RPC{" "}
+              <code className="bg-black/30 px-1 rounded">get_feed_discover</code> or{" "}
+              <code className="bg-black/30 px-1 rounded">get_feed_v1</code>. (3) <code className="bg-black/30 px-1 rounded">posts</code> table has rows with <code className="bg-black/30 px-1 rounded">video_url</code> or <code className="bg-black/30 px-1 rounded">poster_url</code>.
+            </p>
+          </>
+        ) : (
+          <p className="text-sm text-gray-500">No posts yet.</p>
+        )}
       </div>
     );
   }
 
   return (
     <div
-      className="h-screen overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
+      className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
       style={{ scrollbarWidth: "none" }}
     >
       {items.map((p, idx) => {
@@ -412,7 +485,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               }
             }}
           >
-            <div className="relative w-full h-full flex items-start lg:items-center justify-center max-w-full lg:-ml-80">
+            <div className="relative w-full h-full flex items-start lg:items-center justify-center max-w-full lg:-ml-[28rem]">
             <VideoCard
               // media
               src={p.video_url || undefined}

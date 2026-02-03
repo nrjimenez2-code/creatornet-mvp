@@ -103,7 +103,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         <div className="hidden md:block absolute top-4 left-4 z-10">
           <BackButton hrefOverride="/dashboard" />
         </div>
-        <div className="hidden md:block absolute top-10 right-4 z-10">
+        <div className="hidden md:block absolute top-4 right-4 z-10">
           <ProfileShareButton />
         </div>
 
@@ -128,8 +128,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
-          {/* Stats row - responsive layout */}
-          <div className="mt-6 w-full max-w-2xl px-4">
+          {/* Stats row - responsive layout; desktop: shift right a little */}
+          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[16rem]">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
               <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
                 <span className="text-lg font-semibold text-white">
@@ -159,21 +159,26 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             </div>
           </div>
 
-          {/* Follow button intentionally removed per latest spec */}
+          {/* Mobile only: Follow centered below profile */}
+          {canFollow && (
+            <div className="mt-6 flex justify-center md:hidden">
+              <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
+            </div>
+          )}
         </div>
-
-        {canFollow && (
-          <div className="mt-6 mb-8 flex justify-center">
-            <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
-          </div>
-        )}
 
         {posts.length === 0 ? (
           <p className="col-span-full text-center text-white/60 mt-6">
             This creator hasn&apos;t posted yet.
           </p>
         ) : (
-          <div className="mt-4 md:-mt-7">
+          <div className="mt-6 md:mt-8">
+            {/* Desktop: Follow at top left of post grid */}
+            {canFollow && (
+              <div className="hidden md:flex justify-start mb-4 -mt-8">
+                <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
+              </div>
+            )}
             <ProfilePostsGallery posts={posts} />
           </div>
         )}
