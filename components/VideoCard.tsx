@@ -648,6 +648,7 @@ export default function VideoCard(props: VideoCardProps) {
 
     <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-screen max-lg:flex max-lg:flex-col lg:h-[920px]">
 
+
       <div
         ref={containerRef}
         role="group"
@@ -660,6 +661,7 @@ export default function VideoCard(props: VideoCardProps) {
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
       <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:min-h-0 bg-black overflow-hidden lg:h-[840px]" style={{ borderRadius: "16px 16px 0 0" }}>
+
 
 
         {videoSrc || src ? (
