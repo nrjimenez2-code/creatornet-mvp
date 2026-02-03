@@ -218,6 +218,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
             <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
+          </div>
         </div>
       </div>
 
