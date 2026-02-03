@@ -646,19 +646,22 @@ export default function VideoCard(props: VideoCardProps) {
 
   return (
 
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:[height:min(99vh,880px)] lg:h-[920px]">
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-screen max-lg:flex max-lg:flex-col lg:h-[920px]">
+
 
       <div
         ref={containerRef}
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
-        className="relative w-full h-full overflow-hidden border border-white/12 bg-black"
+        className="relative w-full max-lg:flex-1 max-lg:min-h-0 overflow-hidden border border-white/12 bg-black lg:h-full"
         style={{ borderRadius: "16px 16px 20px 20px" }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
 
-      <div className="relative w-full bg-black overflow-hidden max-lg:[height:min(89vh,780px)] lg:h-[840px]" style={{ borderRadius: "16px 16px 0 0" }}>
+      {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
+      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:min-h-0 bg-black overflow-hidden lg:h-[840px]" style={{ borderRadius: "16px 16px 0 0" }}>
+
 
 
         {videoSrc || src ? (
