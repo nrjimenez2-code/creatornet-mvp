@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type Comment = {
   id: string;
@@ -306,19 +307,11 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
                 <div key={comment.id} className="flex gap-3">
                   {/* Avatar */}
                   <div className="flex-shrink-0">
-                    {comment.user.avatar_url ? (
-                      <img
-                        src={comment.user.avatar_url}
-                        alt={displayName(comment)}
-                        className="h-10 w-10 rounded-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center">
-                        <span className="text-white/60 text-sm font-semibold">
-                          {displayName(comment)[0]?.toUpperCase()}
-                        </span>
-                      </div>
-                    )}
+                    <img
+                      src={comment.user.avatar_url || DEFAULT_AVATAR_URL}
+                      alt={displayName(comment)}
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
                   </div>
 
                   {/* Comment Content */}
@@ -416,19 +409,11 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
         {currentUser && (
           <form onSubmit={handleSubmit} className="px-4 py-3 border-t border-white/10">
             <div className="flex items-center gap-3">
-              {currentUser.avatar_url ? (
-                <img
-                  src={currentUser.avatar_url}
-                  alt={currentUser.username}
-                  className="h-8 w-8 rounded-full object-cover flex-shrink-0"
-                />
-              ) : (
-                <div className="h-8 w-8 rounded-full bg-white/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-white/60 text-xs font-semibold">
-                    {currentUser.username[0]?.toUpperCase()}
-                  </span>
-                </div>
-              )}
+              <img
+                src={currentUser.avatar_url || DEFAULT_AVATAR_URL}
+                alt={currentUser.username}
+                className="h-8 w-8 rounded-full object-cover flex-shrink-0"
+              />
               <input
                 ref={inputRef}
                 type="text"

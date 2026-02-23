@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
 import BackButton from "@/components/BackButton";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -187,21 +188,17 @@ export default function EditProfilePage() {
 
         <div>
           <label className="block text-sm font-medium mb-1">Profile photo</label>
-          {avatarUrl ? (
-            <div className="mb-3 flex items-center gap-3">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={avatarUrl}
-                alt="Avatar preview"
-                className="h-20 w-20 rounded-full object-cover border border-gray-200"
-              />
-              <span className="text-xs text-gray-500">Current preview</span>
-            </div>
-          ) : (
-            <p className="mb-3 text-xs text-gray-500">
-              No photo yet. Upload one or paste an image URL below.
-            </p>
-          )}
+          <div className="mb-3 flex items-center gap-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={avatarUrl || DEFAULT_AVATAR_URL}
+              alt="Avatar preview"
+              className="h-20 w-20 rounded-full object-cover border border-gray-200"
+            />
+            <span className="text-xs text-gray-500">
+              {avatarUrl ? "Current preview" : "Default photo. Upload or paste URL to change."}
+            </span>
+          </div>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <input
               type="file"
