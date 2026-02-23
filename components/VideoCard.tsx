@@ -677,8 +677,6 @@ export default function VideoCard(props: VideoCardProps) {
             preload="metadata"
             loop
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
-
-            className="absolute inset-0 h-full w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] object-cover"
             onClick={handleVideoClick}
           />
         ) : poster ? (
