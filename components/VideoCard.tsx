@@ -646,7 +646,6 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-
     <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[825px]">
 
 
@@ -678,7 +677,8 @@ export default function VideoCard(props: VideoCardProps) {
             preload="metadata"
             loop
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
-            style={{ borderRadius: "16px 16px 0 0", pointerEvents: tapToTogglePlayback ? "auto" : "none" }}
+
+            className="absolute inset-0 h-full w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] object-cover"
             onClick={handleVideoClick}
           />
         ) : poster ? (
@@ -686,6 +686,7 @@ export default function VideoCard(props: VideoCardProps) {
             src={poster}
             alt=""
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
+
             style={{ borderRadius: "16px 16px 0 0" }}
           />
         ) : null}
