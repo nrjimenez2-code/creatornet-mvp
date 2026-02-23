@@ -650,11 +650,14 @@ export default function VideoCard(props: VideoCardProps) {
     <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[100dvh] max-lg:flex max-lg:flex-col lg:h-[825px]">
 
 
+
       <div
         ref={containerRef}
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
+
         className="relative w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] overflow-hidden border border-white/12 bg-black lg:h-full"
+
         style={{ borderRadius: "16px 16px 20px 20px" }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
