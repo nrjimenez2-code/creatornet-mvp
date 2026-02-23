@@ -185,12 +185,23 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 .select("product_id, type, amount_cents, price_cents")
                 .in("product_id", productIds)
             : Promise.resolve(null);
-          const profilePromise = creatorIds.length
-            ? supabase
-                .from("profiles")
-                .select("id, full_name, username, avatar_url")
-                .in("id", creatorIds)
-            : Promise.resolve(null);
+          // Fetch creator profiles via API (service role) so avatars show on video cards despite RLS
+          const profilePromise =
+            creatorIds.length > 0
+              ? fetch(
+                  `${typeof window !== "undefined" ? window.location.origin : ""}/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
+                  { credentials: "include" }
+                )
+                  .then((r) => r.json())
+                  .then((body: { profiles?: Array<{ id: string; full_name: string | null; username: string | null; avatar_url: string | null }>; error?: string }) => {
+                    if (body.error) throw new Error(body.error);
+                    return { data: body.profiles ?? [], error: null };
+                  })
+                  .catch((err: unknown) => {
+                    console.error("Profile lookup error:", err);
+                    return { data: null, error: err };
+                  })
+              : Promise.resolve({ data: [], error: null });
           const likesPromise = feedViewerId && postIds.length > 0
             ? supabase
                 .from("likes")
@@ -473,7 +484,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         return (
           <section
             key={`${p.id}-${idx}`}
-            className="snap-start snap-always h-screen w-full flex items-start lg:items-center justify-center px-0 md:px-4 mt-0"
+            className="snap-start snap-always h-[100dvh] lg:h-screen w-full flex items-start lg:items-center justify-center px-0 md:px-4 mt-0"
          
             data-post-id={p.id}
             ref={(el) => {

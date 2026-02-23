@@ -6,6 +6,7 @@ import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import CommentPanel from "./CommentPanel";
 import { useUser } from "@/lib/useUser";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type VideoCardProps = {
   src?: string;
@@ -130,7 +131,7 @@ export default function VideoCard(props: VideoCardProps) {
 
   const displayTitle = title ?? caption ?? "";
   const displayCreator = creatorName ?? creator ?? "Creator";
-  const displayAvatar = avatarUrl ?? creatorAvatarUrl ?? null;
+  const displayAvatar = avatarUrl ?? creatorAvatarUrl ?? DEFAULT_AVATAR_URL;
   const canFollow = followable ?? showFollowButton ?? false;
 
   const formatCount = (n: number): string => {
@@ -646,21 +647,21 @@ export default function VideoCard(props: VideoCardProps) {
 
   return (
 
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-screen max-lg:flex max-lg:flex-col lg:h-[920px]">
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[100dvh] max-lg:flex max-lg:flex-col lg:h-[825px]">
 
 
       <div
         ref={containerRef}
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
-        className="relative w-full max-lg:flex-1 max-lg:min-h-0 overflow-hidden border border-white/12 bg-black lg:h-full"
+        className="relative w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] overflow-hidden border border-white/12 bg-black lg:h-full"
         style={{ borderRadius: "16px 16px 20px 20px" }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
-      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:min-h-0 bg-black overflow-hidden lg:h-[840px]" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[100dvh] max-lg:min-h-[100dvh] bg-black overflow-hidden lg:h-[750px]" style={{ borderRadius: "16px 16px 0 0" }}>
 
 
 
@@ -673,7 +674,7 @@ export default function VideoCard(props: VideoCardProps) {
             muted={isMuted}
             preload="metadata"
             loop
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] object-cover"
             style={{ borderRadius: "16px 16px 0 0", pointerEvents: tapToTogglePlayback ? "auto" : "none" }}
             onClick={handleVideoClick}
           />
@@ -681,7 +682,7 @@ export default function VideoCard(props: VideoCardProps) {
           <img
             src={poster}
             alt=""
-            className="absolute inset-0 h-full w-full object-cover"
+            className="absolute inset-0 h-full w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] object-cover"
             style={{ borderRadius: "16px 16px 0 0" }}
           />
         ) : null}
@@ -705,7 +706,12 @@ export default function VideoCard(props: VideoCardProps) {
         </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4 bg-gradient-to-t from-black/70 via-black/30 to-transparent z-20" style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}>
+      <div
+        className="absolute inset-x-0 bottom-0 z-20"
+        style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
+      >
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
+          <div className="relative p-3 sm:p-4">
           <div className="flex items-start gap-3 mb-3 translate-y-[45px]">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
@@ -776,6 +782,7 @@ export default function VideoCard(props: VideoCardProps) {
               )}
             </div>
           )}
+          </div>
       </div>
 
       <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20 z-30" style={{ height: "2px" }}>
@@ -794,31 +801,19 @@ export default function VideoCard(props: VideoCardProps) {
         }}
       >
         <div className="relative h-12 w-12 sm:h-[52px] sm:w-[52px] md:h-14 md:w-14 lg:h-[56px] lg:w-[56px]">
-          {displayAvatar ? (
-    <button
-      type="button"
-              onClick={handleAvatarClick}
-              className="h-full w-full rounded-full overflow-hidden border-2 border-white/20 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer"
-              aria-label={`${displayCreator} profile`}
-              style={{ pointerEvents: "auto", zIndex: 51 }}
-            >
-              <img
-                src={displayAvatar}
-                alt={displayCreator}
-                className="h-full w-full object-cover pointer-events-none"
-              />
-    </button>
-          ) : (
-      <button
-        type="button"
-              onClick={handleAvatarClick}
-              className="h-full w-full rounded-full bg-white/10 border-2 border-white/20 flex-shrink-0 flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer hover:bg-white/20 transition"
-              aria-label={`${displayCreator} profile`}
-              style={{ pointerEvents: "auto", zIndex: 51 }}
-            >
-              <span className="text-white/60 text-sm font-semibold pointer-events-none">{displayCreator[0]?.toUpperCase()}</span>
-      </button>
-          )}
+          <button
+            type="button"
+            onClick={handleAvatarClick}
+            className="h-full w-full rounded-full overflow-hidden border-2 border-white/20 flex-shrink-0 focus:outline-none focus:ring-2 focus:ring-white/60 cursor-pointer"
+            aria-label={`${displayCreator} profile`}
+            style={{ pointerEvents: "auto", zIndex: 51 }}
+          >
+            <img
+              src={displayAvatar}
+              alt={displayCreator}
+              className="h-full w-full object-cover pointer-events-none"
+            />
+          </button>
           {canFollow && !isFollowing && (
         <button
           type="button"

@@ -10,6 +10,7 @@ import SearchDrawer from "@/components/SearchDrawer";
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import { createClient } from "@/lib/supabaseClient";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type Tab = "following" | "discover";
 
@@ -50,11 +51,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             .eq("id", user.id)
             .maybeSingle();
           if (!cancelled) {
-            setAvatarUrl(
-              (profile?.avatar_url as string | null) ||
-                (user.user_metadata?.avatar_url as string | null) ||
-                null
-            );
+            // Only use app profile picture; no OAuth/metadata avatar — when none set, UI uses Default_DP.png
+            setAvatarUrl((profile?.avatar_url as string | null) ?? null);
           }
         } catch (err) {
           console.error("Error fetching avatar:", err);
@@ -157,18 +155,12 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 title="Profile"
               >
                 <span className="relative h-9 w-9 lg:h-9 lg:w-9 rounded-full border border-white/25 bg-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
-                  {avatarUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={avatarUrl}
-                      alt="Profile avatar"
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-                      <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
-                    </svg>
-                  )}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={avatarUrl || DEFAULT_AVATAR_URL}
+                    alt="Profile avatar"
+                    className="h-full w-full object-cover"
+                  />
                 </span>
                 <span className="hidden lg:inline">Profile</span>
               </Link>

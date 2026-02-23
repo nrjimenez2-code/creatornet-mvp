@@ -5,11 +5,12 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
 // import { createBrowserClient } from "@/lib/supabaseBrowser"; // not used here
-import { debounce } from "@/lib/utils"; // keep your helper
+import { debounce, DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type Creator = {
   id: string;
   username: string | null;
+  full_name: string | null;
   avatar_url: string | null;
   tagline: string | null;
 };
@@ -18,8 +19,10 @@ type Post = {
   id: string;
   caption: string | null;
   media_url: string | null;
+  poster_url: string | null;
   creator_id: string;
   creator_username: string | null;
+  likes_count?: number;
 };
 
 const SUGGESTED_DEFAULT = [
@@ -55,6 +58,10 @@ function SearchPage() {
   // results
   const [creators, setCreators] = useState<Creator[]>([]);
   const [posts, setPosts] = useState<Post[]>([]);
+  const [noUserFound, setNoUserFound] = useState(false);
+  const [suggestedCreators, setSuggestedCreators] = useState<Creator[]>([]);
+  const [suggestedPosts, setSuggestedPosts] = useState<Post[]>([]);
+  const [isTagSearch, setIsTagSearch] = useState(false);
   const [tab, setTab] = useState<"for-you" | "creators" | "videos" | "tags">(
     "for-you"
   );
@@ -99,6 +106,10 @@ function SearchPage() {
     if (!q) {
       setCreators([]);
       setPosts([]);
+      setNoUserFound(false);
+      setSuggestedCreators([]);
+      setSuggestedPosts([]);
+      setIsTagSearch(false);
       return;
     }
 
@@ -118,24 +129,46 @@ function SearchPage() {
       }
 
       // guard against empty/invalid JSON
-      const payload = (await res.json().catch(() => ({ items: [] }))) as {
+      const payload = (await res.json().catch(() => ({}))) as {
+        creators?: any[];
         items?: any[];
+        noUserFound?: boolean;
+        suggested_creators?: any[];
+        suggested_posts?: any[];
+        isTagSearch?: boolean;
       };
 
-      const items = Array.isArray(payload.items) ? payload.items : [];
+      const mapCreator = (r: any): Creator => ({
+        id: String(r.id),
+        username: r.username ?? null,
+        full_name: r.full_name ?? null,
+        avatar_url: r.avatar_url ?? null,
+        tagline: r.tagline ?? null,
+      });
 
-      // Map server items -> Post[]
-      const mapped: Post[] = items.map((r: any) => ({
+      const mapPost = (r: any): Post => ({
         id: String(r.id),
         caption: r.caption ?? null,
         media_url: r.media_url ?? null,
+        poster_url: r.poster_url ?? null,
         creator_id: String(r.creator_id ?? ""),
         creator_username: r.creator?.username ?? null,
-      }));
+        likes_count:
+          typeof r.likes_count === "number" ? r.likes_count : undefined,
+      });
 
-      // We’re not returning creators yet from the API; clear for now.
-      setCreators([]);
-      setPosts(mapped);
+      const items = Array.isArray(payload.items) ? payload.items : [];
+      const mappedPosts: Post[] = items.map(mapPost);
+      const mappedCreators: Creator[] = (Array.isArray(payload.creators) ? payload.creators : []).map(mapCreator);
+      const suggestedC: Creator[] = (Array.isArray(payload.suggested_creators) ? payload.suggested_creators : []).map(mapCreator);
+      const suggestedP: Post[] = (Array.isArray(payload.suggested_posts) ? payload.suggested_posts : []).map(mapPost);
+
+      setCreators(mappedCreators);
+      setPosts(mappedPosts);
+      setNoUserFound(Boolean(payload.noUserFound));
+      setSuggestedCreators(suggestedC);
+      setSuggestedPosts(suggestedP);
+      setIsTagSearch(Boolean(payload.isTagSearch));
     } finally {
       setLoading(false);
     }
@@ -143,6 +176,22 @@ function SearchPage() {
 
   // debounce search while typing
   const debouncedSearch = useMemo(() => debounce(doSearch, 250), [doSearch]);
+  const creatorIdSet = useMemo(
+    () => new Set(creators.map((c) => c.id)),
+    [creators]
+  );
+  const creatorVideoPosts = useMemo(
+    () => posts.filter((p) => creatorIdSet.has(p.creator_id)),
+    [posts, creatorIdSet]
+  );
+  const tagSortedPosts = useMemo(
+    () => [...posts].sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0)),
+    [posts]
+  );
+  const topLikedPostsForNameSearch = useMemo(
+    () => [...creatorVideoPosts].sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0)),
+    [creatorVideoPosts]
+  );
 
   useEffect(() => {
     if (query) debouncedSearch(query);
@@ -172,9 +221,9 @@ function SearchPage() {
           </div>
           <form
             onSubmit={onSubmit}
-            className="flex flex-1 items-center gap-3 max-w-4xl ml-120"
+            className="flex flex-1 items-center gap-2 sm:gap-3 max-w-4xl min-w-0"
           >
-          <div className="flex-1 relative">
+          <div className="flex-1 min-w-0 relative">
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -192,7 +241,7 @@ function SearchPage() {
           </div>
           <button
             type="submit"
-            className="rounded-full bg-white text-black px-5 py-2.5 font-medium"
+            className="shrink-0 rounded-full bg-white text-black px-4 sm:px-5 py-2.5 font-medium"
           >
             Search
           </button>
@@ -303,32 +352,89 @@ function SearchPage() {
 
           {loading && <p className="text-sm text-white/60">Searching…</p>}
 
-          {/* Creators strip (top 5) - not populated yet from API */}
-          {!loading && (tab === "for-you" || tab === "creators") && (
-            <div className="mb-6">
-              <h3 className="text-sm font-semibold mb-3">Creators</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {creators.slice(0, 5).map((c) => (
-                  <CreatorCard key={c.id} c={c} />
-                ))}
-                {!creators.length && (
-                  <p className="text-sm text-white/60">No creators yet.</p>
+          {/* For You tab */}
+          {!loading && tab === "for-you" && (
+            <div className="space-y-6">
+              {noUserFound && (
+                <p className="text-sm text-white/80 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
+                  No user found with that name. Here are some creators and posts you might like:
+                </p>
+              )}
+              {(noUserFound ? suggestedCreators : creators).length > 0 && (
+                <div>
+                  <h3 className="text-sm font-semibold mb-3">Creators</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {(noUserFound ? suggestedCreators : creators).map((c) => (
+                      <CreatorCard key={c.id} c={c} />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div>
+                <h3 className="text-sm font-semibold mb-3">Posts</h3>
+                <PostsGrid items={noUserFound ? suggestedPosts : posts} />
+                {!(noUserFound ? suggestedPosts : posts).length && (
+                  <p className="text-sm text-white/60 py-4">
+                    {noUserFound ? "No suggested posts." : "No posts for this search."}
+                  </p>
                 )}
               </div>
             </div>
           )}
 
-          {/* Posts grid */}
-          {!loading && (tab === "for-you" || tab === "videos") && (
-            <div>
-              <h3 className="text-sm font-semibold mb-3">Posts</h3>
-              <PostsGrid items={posts} />
+          {/* Creators tab */}
+          {!loading && tab === "creators" && (
+            <div className="space-y-4">
+              {isTagSearch ? (
+                <p className="text-sm text-white/60 py-4">
+                  Search by creator name to see accounts. Hashtag search only shows posts.
+                </p>
+              ) : (noUserFound ? suggestedCreators : creators).length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {(noUserFound ? suggestedCreators : creators).map((c) => (
+                    <CreatorCard key={c.id} c={c} />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-white/60 py-4">No creators found.</p>
+              )}
             </div>
           )}
 
-          {tab === "tags" && (
-            <div className="text-sm text-white/60">
-              Tags view coming next; we’ll index hashtags and show their top posts.
+          {/* Videos tab */}
+          {!loading && tab === "videos" && (
+            <div>
+              {isTagSearch ? (
+                <PostsGrid items={posts} />
+              ) : noUserFound ? (
+                <p className="text-sm text-white/60 py-4">No user found with that name.</p>
+              ) : creators.length > 0 && creatorVideoPosts.length > 0 ? (
+                <PostsGrid items={creatorVideoPosts} />
+              ) : (
+                <p className="text-sm text-white/60 py-4">This user has not posted anything yet.</p>
+              )}
+            </div>
+          )}
+
+          {/* Tags tab */}
+          {!loading && tab === "tags" && (
+            <div>
+              {isTagSearch ? (
+                <>
+                  <p className="text-sm text-white/80 mb-3">Top posts for this tag (by likes)</p>
+                  <PostsGrid items={tagSortedPosts} />
+                  {!tagSortedPosts.length && <p className="text-sm text-white/60 py-4">No posts with this tag yet.</p>}
+                </>
+              ) : topLikedPostsForNameSearch.length > 0 ? (
+                <>
+                  <p className="text-sm text-white/80 mb-3">Top posts (by likes)</p>
+                  <PostsGrid items={topLikedPostsForNameSearch} />
+                </>
+              ) : (
+                <p className="text-sm text-white/60 py-4">
+                  Search with a hashtag (e.g. #fitness) to see top posts by likes.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -385,13 +491,11 @@ function Chip({
 function CreatorCard({ c }: { c: Creator }) {
   return (
     <Link
-      href={`/profile?u=${encodeURIComponent(c.username || c.id)}`}
+      href={"/creators/" + c.id}
       className="rounded-xl border border-white/10 p-3 hover:bg-white/5 flex gap-3"
     >
       <div className="h-10 w-10 rounded-full bg-white/10 overflow-hidden">
-        {c.avatar_url ? (
-          <img src={c.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : null}
+        <img src={c.avatar_url || DEFAULT_AVATAR_URL} alt="" className="h-full w-full object-cover" />
       </div>
       <div className="min-w-0">
         <div className="font-medium truncate text-white">@{c.username || "creator"}</div>
@@ -404,25 +508,120 @@ function CreatorCard({ c }: { c: Creator }) {
 }
 
 function PostsGrid({ items }: { items: Post[] }) {
-  // Pagination not implemented in the API yet; render the batch.
+  const [isOpen, setIsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const itemRefs = useMemo(
+    () => Array.from({ length: items.length }, () => ({ current: null as HTMLDivElement | null })),
+    [items.length]
+  );
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const target = itemRefs[activeIndex]?.current;
+    if (!target) return;
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ block: "center" });
+    });
+  }, [isOpen, activeIndex, itemRefs]);
+
   return (
-    <div>
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-        {items.map((p) => (
-          <div
+    <>
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5 sm:gap-2">
+        {items.map((p, index) => (
+          <button
             key={p.id}
-            className="aspect-[9/16] rounded-xl overflow-hidden bg-gray-100"
+            type="button"
+            onClick={() => {
+              setActiveIndex(index);
+              setIsOpen(true);
+            }}
+            className="group aspect-square overflow-hidden border border-white/10 bg-black/60 block hover:ring-2 hover:ring-white/20 transition"
           >
-            {p.media_url ? (
+            {p.poster_url ? (
               <img
-                src={p.media_url}
-                className="h-full w-full object-cover"
-                alt={p.caption || ""}
+                src={p.poster_url}
+                className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                alt={p.caption || "Post thumbnail"}
+                loading="lazy"
               />
-            ) : null}
-          </div>
+            ) : p.media_url ? (
+              <video
+                src={p.media_url}
+                className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                muted
+                loop
+                playsInline
+                preload="metadata"
+              />
+            ) : (
+              <div className="flex h-full w-full items-center justify-center text-xs text-white/60">
+                No media
+              </div>
+            )}
+          </button>
         ))}
       </div>
-    </div>
+
+      {isOpen && items.length > 0 && (
+        <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm">
+          <div className="absolute top-4 left-4 z-10 [&>div]:mb-0">
+            <BackButton
+              hrefOverride={undefined}
+              className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none"
+              onClick={() => setIsOpen(false)}
+            />
+          </div>
+
+          <div className="h-full overflow-y-auto px-4 py-8 space-y-10 snap-y snap-mandatory scroll-smooth">
+            {items.map((post, index) => (
+              <div
+                key={`search-modal-${post.id}`}
+                ref={(el) => {
+                  itemRefs[index].current = el;
+                }}
+                className="max-w-4xl mx-auto text-white snap-center"
+              >
+                <div className="relative aspect-[9/16] w-full max-w-[420px] mx-auto overflow-hidden rounded-3xl border border-white/10 bg-black">
+                  {post.media_url ? (
+                    <video
+                      src={post.media_url}
+                      poster={post.poster_url || undefined}
+                      className="h-full w-full object-cover"
+                      controls
+                      autoPlay={index === activeIndex}
+                      playsInline
+                    />
+                  ) : post.poster_url ? (
+                    <img
+                      src={post.poster_url}
+                      alt={post.caption || "Post media"}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm text-white/60">
+                      No media
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
   );
 }

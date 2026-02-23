@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import BackButton from "@/components/BackButton";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type Post = {
   id: string;
@@ -257,18 +258,12 @@ export default function WatchPage() {
         <div className="flex items-center gap-3 justify-between">
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="h-12 w-12 sm:h-14 sm:w-14 overflow-hidden rounded-full border border-white/30 bg-white/10 flex-shrink-0">
-              {post.creator?.avatar_url ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={post.creator.avatar_url}
-                  alt={displayCreator}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="flex h-full w-full items-center justify-center text-xl">
-                  👤
-                </span>
-              )}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={post.creator?.avatar_url || DEFAULT_AVATAR_URL}
+                alt={displayCreator}
+                className="h-full w-full object-cover"
+              />
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm sm:text-base text-white/60">Created by</div>

@@ -6,6 +6,7 @@ import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
 import FollowButton from "@/components/FollowButton";
 import { createServerClient } from "@/lib/supabaseServer";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createClient } from "@supabase/supabase-js";
 
 export const revalidate = 0;
@@ -109,18 +110,12 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
         <div className="flex flex-col items-center text-center mt-0 md:-mt-12 md:translate-y-8">
           <div className="h-32 w-32 sm:h-40 sm:w-40 md:h-48 md:w-48 rounded-full bg-white/10 overflow-hidden border border-white/20">
-            {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatarUrl}
-                alt={`${username} avatar`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-4xl sm:text-5xl">
-                🙋‍♂️
-              </div>
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={avatarUrl || DEFAULT_AVATAR_URL}
+              alt={`${username} avatar`}
+              className="h-full w-full object-cover"
+            />
           </div>
 
           <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold">{displayName}</h1>
@@ -173,9 +168,9 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           </p>
         ) : (
           <div className="mt-6 md:mt-8">
-            {/* Desktop: Follow at top left of post grid */}
+            {/* Desktop: Follow at top left of post grid; relative z-10 so it stays clickable above overlapping profile block */}
             {canFollow && (
-              <div className="hidden md:flex justify-start mb-4 -mt-8">
+              <div className="hidden md:flex justify-start mb-4 -mt-8 relative z-10">
                 <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
               </div>
             )}

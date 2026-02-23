@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import BackButton from "@/components/BackButton";
 import ReviewForm from "@/components/ReviewForm";
 import { createClient } from "@supabase/supabase-js";
+import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -116,18 +117,12 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
 
         <div className="flex flex-col items-center text-center">
           <div className="h-28 w-28 overflow-hidden rounded-full border border-white/15 bg-white/5">
-            {profile.avatar_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={profile.avatar_url}
-                alt={`${profile.username || "creator"} avatar`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center text-3xl">
-                🙋‍♂️
-              </div>
-            )}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={profile.avatar_url || DEFAULT_AVATAR_URL}
+              alt={`${profile.username || "creator"} avatar`}
+              className="h-full w-full object-cover"
+            />
           </div>
 
           <h1 className="mt-4 text-2xl font-semibold">
