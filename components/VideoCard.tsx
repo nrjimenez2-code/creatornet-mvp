@@ -647,7 +647,7 @@ export default function VideoCard(props: VideoCardProps) {
 
   return (
 
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[100dvh] max-lg:flex max-lg:flex-col lg:h-[825px]">
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[825px]">
 
 
 
@@ -656,7 +656,7 @@ export default function VideoCard(props: VideoCardProps) {
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
 
-        className="relative w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] overflow-hidden border border-white/12 bg-black lg:h-full"
+        className="relative w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] overflow-hidden border border-white/12 bg-black lg:h-full"
 
         style={{ borderRadius: "16px 16px 20px 20px" }}
         onKeyDown={handleKeyDown}
@@ -664,7 +664,7 @@ export default function VideoCard(props: VideoCardProps) {
       >
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
-      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[100dvh] max-lg:min-h-[100dvh] bg-black overflow-hidden lg:h-[750px]" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[750px]" style={{ borderRadius: "16px 16px 0 0" }}>
 
 
 
@@ -677,7 +677,7 @@ export default function VideoCard(props: VideoCardProps) {
             muted={isMuted}
             preload="metadata"
             loop
-            className="absolute inset-0 h-full w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] object-cover"
+            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
             style={{ borderRadius: "16px 16px 0 0", pointerEvents: tapToTogglePlayback ? "auto" : "none" }}
             onClick={handleVideoClick}
           />
@@ -685,7 +685,7 @@ export default function VideoCard(props: VideoCardProps) {
           <img
             src={poster}
             alt=""
-            className="absolute inset-0 h-full w-full max-lg:h-[100dvh] max-lg:min-h-[100dvh] object-cover"
+            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
             style={{ borderRadius: "16px 16px 0 0" }}
           />
         ) : null}
@@ -797,7 +797,7 @@ export default function VideoCard(props: VideoCardProps) {
     </div>
 
       <div
-        className="absolute grid gap-3 right-2 lg:right-[-70px] bottom-[140px] lg:bottom-6"
+        className="absolute grid gap-3 right-2 lg:right-[-70px] bottom-[72px] lg:bottom-6"
         style={{ 
           pointerEvents: "auto",
           zIndex: 50
