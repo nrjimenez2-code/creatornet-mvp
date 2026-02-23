@@ -95,6 +95,21 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           error = result.error;
           console.log("[Feed] get_feed_v1(discover) — isArray:", Array.isArray(data), "length:", Array.isArray(data) ? (data as unknown[]).length : 0, "error:", error?.message ?? null);
         } else {
+          if (!feedViewerId) {
+            // Following feed needs a logged-in user; keep UI stable if session is temporarily unavailable.
+            data = [];
+            error = null;
+            const safeRows: unknown[] = Array.isArray(data) ? data : [];
+            if (!cancelled) {
+              setItems([]);
+              setFeedError(null);
+              setLoading(false);
+              if (safeRows.length) {
+                setActivePostId((prev) => prev ?? null);
+              }
+            }
+            return;
+          }
           let result = await supabase.rpc("get_feed_following", followingParams);
           data = result.data;
           error = result.error;
@@ -192,9 +207,28 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                   `${typeof window !== "undefined" ? window.location.origin : ""}/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
                   { credentials: "include" }
                 )
-                  .then((r) => r.json())
-                  .then((body: { profiles?: Array<{ id: string; full_name: string | null; username: string | null; avatar_url: string | null }>; error?: string }) => {
-                    if (body.error) throw new Error(body.error);
+                  .then(async (r) => {
+                    const body = (await r
+                      .json()
+                      .catch(() => ({}))) as {
+                      profiles?: Array<{
+                        id: string;
+                        full_name: string | null;
+                        username: string | null;
+                        avatar_url: string | null;
+                      }>;
+                      error?: string;
+                    };
+
+                    // Session can expire briefly; don't fail whole feed over avatar lookup.
+                    if (!r.ok) {
+                      if (r.status === 401) return { data: [], error: null };
+                      return { data: [], error: new Error(body.error || `Profiles API failed (${r.status})`) };
+                    }
+                    if (body.error) {
+                      if (body.error === "Unauthorized") return { data: [], error: null };
+                      return { data: [], error: new Error(body.error) };
+                    }
                     return { data: body.profiles ?? [], error: null };
                   })
                   .catch((err: unknown) => {

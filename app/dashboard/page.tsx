@@ -76,10 +76,19 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   return (
     <section className="min-h-screen px-0">
       {/* Back button intentionally removed on dashboard */}
+      <Link
+        href="/search"
+        className="lg:hidden fixed top-3 right-3 z-40 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 text-white shadow-[0_10px_25px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-black/80"
+        aria-label="Open search"
+      >
+        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+          <path d="M21 20.3 16.8 16a7.5 7.5 0 1 0-.8.8L20.3 21l.7-.7zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z" />
+        </svg>
+      </Link>
 
-      <div className="mx-auto grid grid-cols-[52px_1fr] lg:grid-cols-[240px_1fr] gap-2 lg:gap-6 px-0 pr-2 lg:pr-10">
+      <div className="mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-2 lg:gap-6 px-0 pr-0 lg:pr-10">
         {/* SIDEBAR - Always visible, icon-only on smaller screens, full on large screens (TikTok style) */}
-        <aside className="sticky top-0 lg:top-6 self-start">
+        <aside className="hidden lg:block sticky top-6 self-start">
 
           {/*
           <div className="w-[240px] ml-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -88,7 +97,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             </nav>
           </div>
           */}
-          <div className="w-[52px] lg:w-[240px] rounded-3xl border border-white/10 bg-black/70 px-1 lg:px-6 pt-4 pb-3 lg:pb-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur transition-all duration-300">
+          <div className="w-[240px] rounded-3xl border border-white/10 bg-black/70 px-6 pt-4 pb-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur transition-all duration-300">
             <div className="flex items-center justify-center pb-3 lg:pb-4 border-b border-white/10">
               {/* Icon-only mode: show small logo */}
               <img
@@ -127,7 +136,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 }`}
                 title="Discover"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 lg:h-5 lg:w-5" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <path d="M12 2 15.09 8.26 22 9.27l-5 4.87 1.18 6.86L12 17.77l-6.18 3.23L7 14.14l-5-4.87 6.91-1.01L12 2Z" />
                 </svg>
                 <span className="hidden lg:inline">Discover</span>
@@ -143,7 +152,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 }`}
                 title="Following"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 lg:h-5 lg:w-5" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
                 </svg>
                 <span className="hidden lg:inline">Following</span>
@@ -170,7 +179,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 className="flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 text-white/70 transition hover:bg-white/10 hover:text-white"
                 title="Analytics"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 lg:h-5 lg:w-5" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <path d="M4 13h3v8H4zm6-6h3v14h-3zm6-4h3v18h-3z" />
                 </svg>
                 <span className="hidden lg:inline">Analytics</span>
@@ -181,7 +190,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 className="flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 text-white/70 transition hover:bg-white/10 hover:text-white"
                 title="Library"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 lg:h-5 lg:w-5" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <path d="M4 4h7a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm9 0h7a2 2 0 0 1 2 2v14h-7V4Z" />
                 </svg>
                 <span className="hidden lg:inline">Library</span>
@@ -192,7 +201,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 className="flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 text-white/70 transition hover:bg-white/10 hover:text-white"
                 title="Bookings"
               >
-                <svg viewBox="0 0 24 24" className="h-6 w-6 lg:h-5 lg:w-5" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
                   <path d="M6.62 10.79a15.53 15.53 0 0 0 6.59 6.59l2.2-2.2a1 1 0 0 1 1-.24 11.36 11.36 0 0 0 3.58.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1 11.36 11.36 0 0 0 .57 3.58 1 1 0 0 1-.24 1Z" />
                 </svg>
                 <span className="hidden lg:inline">Bookings</span>
@@ -206,13 +215,79 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         </aside>
 
         {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll */}
-        <div className="h-screen min-h-0 flex flex-col items-stretch pt-0 pb-3 lg:py-3 overflow-hidden">
+        <div className="h-screen min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-3 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
             <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
           </div>
         </div>
       </div>
+
+      {/* MOBILE BOTTOM NAV (TikTok style) */}
+      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
+        <div className="grid grid-cols-5 h-[52px]">
+          <button
+            type="button"
+            onClick={() => setActiveTab("discover")}
+            className={`flex flex-col items-center justify-center gap-1 text-xs ${
+              activeTab === "discover" ? "text-white" : "text-white/60"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              <path d="M12 2 15.09 8.26 22 9.27l-5 4.87 1.18 6.86L12 17.77l-6.18 3.23L7 14.14l-5-4.87 6.91-1.01L12 2Z" />
+            </svg>
+            <span>Discover</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab("following")}
+            className={`flex flex-col items-center justify-center gap-1 text-xs ${
+              activeTab === "following" ? "text-white" : "text-white/60"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
+            </svg>
+            <span>Following</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsComposerOpen(true)}
+            className="flex flex-col items-center justify-center gap-1 text-xs text-white"
+          >
+            <span className="inline-flex h-8 w-9 items-center justify-center rounded-md bg-[#4A35C7] text-white text-xl font-bold leading-none shadow-[0_0_18px_rgba(74,53,199,0.45)]">
+              <span className="-translate-y-[1px]">+</span>
+            </span>
+            <span>Create</span>
+          </button>
+
+          <Link
+            href="/library"
+            className="flex flex-col items-center justify-center gap-1 text-xs text-white/60"
+          >
+            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+              <path d="M4 4h7a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm9 0h7a2 2 0 0 1 2 2v14h-7V4Z" />
+            </svg>
+            <span>Library</span>
+          </Link>
+
+          <Link
+            href="/profile"
+            className="flex flex-col items-center justify-center gap-1 text-xs text-white/60"
+          >
+            <span className="h-6 w-6 rounded-full border border-white/25 bg-white/10 overflow-hidden flex items-center justify-center">
+              <img
+                src={avatarUrl || DEFAULT_AVATAR_URL}
+                alt="Profile avatar"
+                className="h-full w-full object-cover"
+              />
+            </span>
+            <span>Profile</span>
+          </Link>
+        </div>
+      </nav>
 
       {/* SEARCH DRAWER */}
       <SearchDrawer open={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
