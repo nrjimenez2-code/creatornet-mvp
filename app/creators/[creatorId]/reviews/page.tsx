@@ -64,11 +64,42 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
       .order("created_at", { ascending: false }),
   ]);
 
-  if (profileRes.error || !profileRes.data) {
+  // Local dev can intermittently return transient errors; retry profile lookup once.
+  let profile = profileRes.data;
+  let profileError = profileRes.error;
+  if (profileError && profileError.code !== "PGRST116") {
+    const retryProfileRes = await admin
+      .from("profiles")
+      .select("id, username, full_name, avatar_url, bio")
+      .eq("id", creatorId)
+      .maybeSingle();
+    profile = retryProfileRes.data ?? profile;
+    profileError = retryProfileRes.error ?? null;
+  }
+
+  if (profileError && profileError.code !== "PGRST116") {
+    console.error("[creator-reviews] profile lookup error:", profileError);
+    return (
+      <section className="px-4 pb-16 pt-10 text-white relative">
+        <div className="max-w-3xl mx-auto">
+          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+            <BackButton hrefOverride={`/creators/${creatorId}`} />
+          </div>
+          <div className="mt-16 rounded-2xl border border-white/10 bg-white/5 p-6 text-center">
+            <h1 className="text-xl font-semibold">Unable to load reviews right now</h1>
+            <p className="mt-2 text-sm text-white/70">
+              This usually happens due to a temporary local data/session issue. Please refresh and try again.
+            </p>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  if (!profile) {
     notFound();
   }
 
-  const profile = profileRes.data;
   const ratingData = (ratingRes?.data?.[0] ?? null) as RatingPayload | null;
   const avgRating = ratingData ? Number(ratingData.avg_rating ?? 0) : 0;
   const reviewCount = ratingData ? Number(ratingData.review_count ?? 0) : 0;

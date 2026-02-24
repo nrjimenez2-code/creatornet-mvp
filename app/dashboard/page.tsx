@@ -78,11 +78,12 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       {/* Back button intentionally removed on dashboard */}
       <Link
         href="/search"
-        className="lg:hidden fixed top-3 right-3 z-40 inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/20 bg-black/70 text-white shadow-[0_10px_25px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-black/80"
+        className="lg:hidden fixed top-3 right-3 z-40 inline-flex h-10 w-10 items-center justify-center text-white bg-transparent border-0 rounded-none shadow-none backdrop-blur-0 hover:bg-transparent"
         aria-label="Open search"
       >
-        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-          <path d="M21 20.3 16.8 16a7.5 7.5 0 1 0-.8.8L20.3 21l.7-.7zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z" />
+        <svg viewBox="0 0 24 24" className="h-5 w-5" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="7" fill="none" stroke="white" strokeWidth="1.9" />
+          <path d="M15.4 15.9L20.2 20.7" fill="none" stroke="white" strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       </Link>
 
@@ -119,7 +120,10 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
               className="relative -mt-2 lg:-mt-4 flex w-full items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-full border border-white/25 bg-black px-2 lg:px-4 py-2 text-sm text-white/80 shadow-[0_10px_30px_rgba(0,0,0,0.45)] transition hover:bg-black/80"
               title="Search"
             >
-              <svg viewBox="0 0 24 24" className="h-5 w-5 lg:h-4 lg:w-4" fill="currentColor">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 lg:hidden" fill="white" aria-hidden="true">
+                <path d="M21 20.3 16.8 16a7.5 7.5 0 1 0-.8.8L20.3 21l.7-.7zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z" />
+              </svg>
+              <svg viewBox="0 0 24 24" className="hidden lg:block h-4 w-4" fill="currentColor" aria-hidden="true">
                 <path d="M21 20.3 16.8 16a7.5 7.5 0 1 0-.8.8L20.3 21l.7-.7zM4 10.5a6.5 6.5 0 1 1 13 0a6.5 6.5 0 0 1-13 0z" />
               </svg>
               <span className="hidden lg:inline text-white/80">Search</span>
@@ -215,7 +219,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         </aside>
 
         {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll */}
-        <div className="h-screen min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-3 overflow-hidden">
+        <div className="h-screen min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
             <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />

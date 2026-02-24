@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import VideoCard from "./VideoCard";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
@@ -471,6 +471,29 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     return () => observer.disconnect();
   }, [items]);
 
+  const scrollByOneCard = useCallback(
+    (direction: "up" | "down") => {
+      if (!items.length) return;
+      const currentIndex = Math.max(
+        0,
+        items.findIndex((p) => p.id === activePostId)
+      );
+      const targetIndex =
+        direction === "up"
+          ? Math.max(0, currentIndex - 1)
+          : Math.min(items.length - 1, currentIndex + 1);
+
+      const targetId = items[targetIndex]?.id;
+      if (!targetId) return;
+      const node = sectionRefs.current.get(targetId);
+      if (!node) return;
+
+      node.scrollIntoView({ behavior: "smooth", block: "start" });
+      setActivePostId(targetId);
+    },
+    [items, activePostId]
+  );
+
   if (loading && items.length === 0) {
     return (
       <div className="w-full flex justify-center py-10 text-sm text-gray-500">
@@ -500,11 +523,12 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   }
 
   return (
-    <div
-      className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
-      style={{ scrollbarWidth: "none" }}
-    >
-      {items.map((p, idx) => {
+    <div className="relative h-full min-h-0">
+      <div
+        className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {items.map((p, idx) => {
         const price = typeof p.price_cents === "number" ? p.price_cents : 0;
         const isActive = activePostId === p.id;
         const isSoundOn = globalSoundOn && isActive;
@@ -515,64 +539,91 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           p.booking_url.length > 0;
         const showCTA = sellable || allowBooking || price > 0;
 
-        return (
-          <section
-            key={`${p.id}-${idx}`}
-            className="snap-start snap-always h-[100dvh] lg:h-screen w-full flex items-start lg:items-center justify-center px-0 md:px-4 mt-0"
+          return (
+            <section
+              key={`${p.id}-${idx}`}
+              className="snap-start snap-always h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
          
-            data-post-id={p.id}
-            ref={(el) => {
-              const map = sectionRefs.current;
-              if (el) {
-                map.set(p.id, el);
-              } else {
-                map.delete(p.id);
-              }
-            }}
-          >
+              data-post-id={p.id}
+              ref={(el) => {
+                const map = sectionRefs.current;
+                if (el) {
+                  map.set(p.id, el);
+                } else {
+                  map.delete(p.id);
+                }
+              }}
+            >
 
-            <div className="relative w-full h-full flex items-start lg:items-center justify-center max-w-full lg:-ml-[28rem]">
+              <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
 
-            <VideoCard
-              // media
-              src={p.video_url || undefined}
-              poster={p.poster_url || "/file.svg"}
-              // meta
-              creator={p.creator_name ?? "Creator"}
-              creatorAvatarUrl={p.creator_avatar_url ?? null}
-              caption={p.content || ""}
-              hashtags={
-                Array.isArray(p.interests) && p.interests.length
-                  ? p.interests.map((t) => `#${t}`).join(" ")
-                  : "#entrepreneur #focus"
-              }
-              // social counts
-              likes={p.likes_count ?? 0}
-              comments={p.comments_count ?? 0}
-              shares={p.shares_count ?? 0}
-              // CTA & commerce
-              showCTA={showCTA}
-              postId={p.id}
-              productId={p.product_id ?? null}
-              creatorId={p.creator_id ?? null}
-              priceCents={price}
-              titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
-              productType={p.product_type ?? null}
-              showFollowButton={activeTab === "discover"}
-              isFollowingCreator={p.is_following ?? false}
-              onFollowChange={handleFollowChange}
-              // booking
-              allowBooking={allowBooking}
-              bookingRedirectUrl={allowBooking ? p.booking_url! : null}
-              soundEnabled={isSoundOn}
-              onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
-              tapToTogglePlayback
-              isLiked={p.is_liked ?? false}
-            />
-            </div>
-          </section>
-        );
-      })}
+                <VideoCard
+                  // media
+                  src={p.video_url || undefined}
+                  poster={p.poster_url || "/file.svg"}
+                  // meta
+                  creator={p.creator_name ?? "Creator"}
+                  creatorAvatarUrl={p.creator_avatar_url ?? null}
+                  caption={p.content || ""}
+                  hashtags={
+                    Array.isArray(p.interests) && p.interests.length
+                      ? p.interests.map((t) => `#${t}`).join(" ")
+                      : "#entrepreneur #focus"
+                  }
+                  // social counts
+                  likes={p.likes_count ?? 0}
+                  comments={p.comments_count ?? 0}
+                  shares={p.shares_count ?? 0}
+                  // CTA & commerce
+                  showCTA={showCTA}
+                  postId={p.id}
+                  productId={p.product_id ?? null}
+                  creatorId={p.creator_id ?? null}
+                  priceCents={price}
+                  titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
+                  productType={p.product_type ?? null}
+                  showFollowButton={activeTab === "discover"}
+                  isFollowingCreator={p.is_following ?? false}
+                  onFollowChange={handleFollowChange}
+                  // booking
+                  allowBooking={allowBooking}
+                  bookingRedirectUrl={allowBooking ? p.booking_url! : null}
+                  soundEnabled={isSoundOn}
+                  onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+                  tapToTogglePlayback
+                  isLiked={p.is_liked ?? false}
+                />
+              </div>
+            </section>
+          );
+        })}
+      </div>
+
+      {/* Desktop-only feed navigation controls */}
+      <div className="hidden lg:flex fixed right-6 top-1/2 -translate-y-1/2 z-40 flex-col gap-3">
+        <button
+          type="button"
+          onClick={() => scrollByOneCard("up")}
+          className="h-11 w-11 rounded-full border border-white/20 bg-black/70 text-white flex items-center justify-center shadow-[0_10px_25px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-black/85 transition"
+          aria-label="Previous post"
+          title="Previous post"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+            <path d="M12 7l-6 6h12l-6-6z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollByOneCard("down")}
+          className="h-11 w-11 rounded-full border border-white/20 bg-black/70 text-white flex items-center justify-center shadow-[0_10px_25px_rgba(0,0,0,0.35)] backdrop-blur hover:bg-black/85 transition"
+          aria-label="Next post"
+          title="Next post"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
+            <path d="M12 17l6-6H6l6 6z" />
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
