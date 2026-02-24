@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
-import ProfileStarRating from "@/components/ProfileStarRating";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
 import FollowButton from "@/components/FollowButton";
@@ -45,7 +44,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           .maybeSingle()
       : Promise.resolve({ data: null, error: null } as const);
 
-  const [profileRes, postsRes, followersRes, followingRes, ratingRes, followStatusRes] =
+  const [profileRes, postsRes, followersRes, followingRes, followStatusRes] =
     await Promise.all([
       admin
         .from("profiles")
@@ -65,7 +64,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         .from("follows")
         .select("following_id", { count: "exact", head: true })
         .eq("follower_id", creatorId),
-      admin.rpc("get_profile_rating", { p_profile_id: creatorId }),
       followStatusPromise,
     ]);
 
@@ -77,7 +75,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const posts = postsRes?.data ?? [];
   const followersCount = followersRes?.count ?? 0;
   const followingCount = followingRes?.count ?? 0;
-  const ratingData = ratingRes?.data?.[0] ?? null;
 
   const displayName =
     profile.full_name || profile.username || profile.id.slice(0, 8);
@@ -86,8 +83,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const bio = profile.bio || "No bio yet.";
   const avatarUrl = profile.avatar_url || null;
 
-  const rating = ratingData ? Number(ratingData.avg_rating ?? 0) : 0;
-  const reviewCount = ratingData ? Number(ratingData.review_count ?? 0) : 0;
   const isFollowing = !!followStatusRes?.data;
   const canFollow = viewer?.id && viewer.id !== creatorId;
 
@@ -97,14 +92,28 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         {/* Mobile: Back button + share in header row */}
         <div className="flex md:hidden items-center justify-between mb-6">
           <BackButton hrefOverride="/dashboard" />
-          <ProfileShareButton />
+          <div className="flex items-center gap-2">
+            <Link
+              href={`/creators/${creatorId}/reviews`}
+              className="rounded-md border border-white/20 px-3 py-1 text-xs font-semibold text-white hover:bg-white/10 transition"
+            >
+              Review
+            </Link>
+            <ProfileShareButton />
+          </div>
         </div>
 
         {/* Desktop: Absolute positioned (original) */}
         <div className="hidden md:block absolute top-4 left-4 z-10">
           <BackButton hrefOverride="/dashboard" />
         </div>
-        <div className="hidden md:block absolute top-4 right-4 z-10">
+        <div className="hidden md:flex absolute top-4 right-4 z-10 items-center gap-2">
+          <Link
+            href={`/creators/${creatorId}/reviews`}
+            className="rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold text-white hover:bg-white/10 transition"
+          >
+            Review
+          </Link>
           <ProfileShareButton />
         </div>
 
@@ -124,7 +133,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
           {/* Stats row - responsive layout; desktop: shift right a little */}
-          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[16rem]">
+          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[10rem] md:-translate-x-20">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
               <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
                 <span className="text-lg font-semibold text-white">
@@ -143,13 +152,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
                   {followingCount}
                 </span>
                 <span className="text-xs sm:text-sm">following</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <ProfileStarRating
-                  userId={creatorId}
-                  rating={rating}
-                  reviewCount={reviewCount}
-                />
               </div>
             </div>
           </div>

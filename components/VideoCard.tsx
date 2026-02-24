@@ -646,7 +646,7 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router]);
 
   return (
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[825px]">
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-full">
 
 
 
@@ -663,7 +663,7 @@ export default function VideoCard(props: VideoCardProps) {
       >
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
-      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[750px]" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-full" style={{ borderRadius: "16px 16px 0 0" }}>
 
 
 
@@ -690,8 +690,7 @@ export default function VideoCard(props: VideoCardProps) {
         ) : null}
 
         <div
-          className="absolute top-2 left-2 sm:top-3 sm:left-3 h-10 w-10 rounded-full bg-black/35 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-black/50 transition focus:outline-none focus:ring-2 focus:ring-white/60 z-30"
-          style={{ backdropFilter: "blur(12px)" }}
+          className="absolute top-2 left-2 sm:top-3 sm:left-3 h-10 w-10 rounded-full bg-black/35 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-black/50 transition focus:outline-none focus:ring-2 focus:ring-white/60 z-30 max-lg:bg-transparent max-lg:hover:bg-transparent max-lg:backdrop-blur-0"
         >
           <button
             type="button"
@@ -730,22 +729,22 @@ export default function VideoCard(props: VideoCardProps) {
             </div>
           </div>
           {(showCTA || onBuy || onBook || (productId && priceCents)) && (
-            <div className="mt-2 relative -translate-y-[0.85in] lg:-translate-y-[0.8in]" ref={wrapperRef}>
+            <div className="mt-2 relative -translate-y-[0.67in] lg:-translate-y-[0.67in]" ref={wrapperRef}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1 sm:gap-2 px-2 sm:px-3 md:px-4 py-0.5 sm:py-1 md:py-1.5 lg:py-2 rounded-full bg-white text-black text-xs sm:text-sm font-semibold hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
+                className="inline-flex items-center gap-1 px-1 sm:px-1 md:px-1.5 py-0.5 sm:py-0.5 md:py-1 lg:py-1.5 h-5 sm:h-auto max-sm:!h-7 max-sm:!min-h-3 max-sm:!py-0 max-sm:overflow-hidden rounded-full max-sm:!rounded-xl bg-white text-black text-xs font-semibold leading-none hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
               >
-                <svg viewBox="0 0 24 24" className="h-3 w-3 sm:h-3.5 sm:w-3.5 md:h-4 md:w-4" fill="currentColor">
+                <svg viewBox="0 0 24 24" className="h-3 w-3 md:h-3.5 md:w-3.5" fill="currentColor">
                   <path d="M7 4h14l-1.5 9H8.6L7 4zM3 4h2l3 12h10v2H7a2 2 0 0 1-2-1.5L3 4zM9 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3zM17 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z"/>
                 </svg>
-                <span className="font-semibold">Buy</span>
+                <span className="font-semibold leading-none">Buy</span>
                 {(priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0) ? (
-                  <span className="font-semibold">${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}</span>
+                  <span className="font-semibold leading-none">${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}</span>
                 ) : null}
-                <svg viewBox="0 0 24 24" className="h-3 w-3 sm:h-3.5 sm:w-3.5 md:h-4 md:w-4" fill="black">
+                <svg viewBox="0 0 24 24" className="h-3 w-3 md:h-3.5 md:w-3.5" fill="black">
                   <path d="M7 10l5 5 5-5z" />
                 </svg>
               </button>
@@ -837,8 +836,7 @@ export default function VideoCard(props: VideoCardProps) {
             type="button"
             onClick={handleLike}
             aria-label="Like"
-            className="h-[48px] w-[48px] rounded-full border border-white/10 text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
-            style={{ backgroundColor: "#1A1F22" }}
+            className="h-[48px] w-[48px] rounded-full border border-white/10 bg-[#1A1F22] text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60 max-lg:h-auto max-lg:w-auto max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent max-lg:focus:ring-0 max-lg:focus-visible:ring-0 max-lg:active:bg-transparent max-lg:[-webkit-tap-highlight-color:transparent]"
           >
             <Heart className={`h-6 w-6 ${liked ? "fill-red-500 text-red-500" : "fill-current"}`} />
           </button>
@@ -852,10 +850,20 @@ export default function VideoCard(props: VideoCardProps) {
             type="button"
             onClick={handleComment}
             aria-label="Comment"
-            className="h-[48px] w-[48px] rounded-full border border-white/10 flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
-            style={{ backgroundColor: "#1A1F22" }}
+            className="h-[48px] w-[48px] rounded-full border border-white/10 bg-[#1A1F22] flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60 max-lg:h-auto max-lg:w-auto max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent"
           >
-            <img src="/msg.png" alt="Comment" className="h-7 w-7 object-contain" />
+            <svg viewBox="0 0 24 24" className="h-[29px] w-[29px] object-contain" aria-hidden="true">
+              <path
+                d="M12 4.5c-4.9 0-8.5 3.1-8.5 7.3c0 2.5 1.4 4.7 3.8 6l-1.1 3.2l3.4-1.9c0.8 0.2 1.6 0.3 2.4 0.3c4.9 0 8.5-3.1 8.5-7.3S16.9 4.5 12 4.5Z"
+                fill="white"
+                stroke="white"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+              <circle cx="9" cy="12" r="1.1" fill="black" />
+              <circle cx="12" cy="12" r="1.1" fill="black" />
+              <circle cx="15" cy="12" r="1.1" fill="black" />
+            </svg>
           </button>
           <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
             {formatCount(cm)}
@@ -867,10 +875,17 @@ export default function VideoCard(props: VideoCardProps) {
             type="button"
             onClick={handleShare}
             aria-label="Share"
-            className="h-[48px] w-[48px] rounded-full border border-white/10 flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60"
-            style={{ backgroundColor: "#1A1F22" }}
+            className="h-[48px] w-[48px] rounded-full border border-white/10 bg-[#1A1F22] flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60 max-lg:h-auto max-lg:w-auto max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent"
         >
-            <img src="/share.png" alt="Share" className="h-7 w-7 object-contain" />
+            <svg viewBox="0 0 24 24" className="h-[29px] w-[29px] object-contain transform -scale-x-100" aria-hidden="true">
+              <path
+                d="M10 6V3L2 11L10 19V16C16.4 16 20.4 18.8 22 22C21.3 12.8 16.2 8 10 8V6Z"
+                fill="white"
+                stroke="white"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+              />
+            </svg>
         </button>
           {shareCopied ? (
             <span className="text-[12px] font-semibold leading-none tracking-tight text-[#4A35C7] translate-y-[1px]">
