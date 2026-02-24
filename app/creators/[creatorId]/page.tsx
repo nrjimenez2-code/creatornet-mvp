@@ -34,44 +34,57 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     }
   );
 
-  const followStatusPromise =
-    viewer?.id && viewer.id !== creatorId
-      ? supabase
-          .from("follows")
-          .select("follower_id, following_id")
-          .eq("follower_id", viewer.id)
-          .eq("following_id", creatorId)
-          .maybeSingle()
-      : Promise.resolve({ data: null, error: null } as const);
+  let profileRes = await admin
+    .from("profiles")
+    .select("id, username, full_name, tagline, avatar_url, bio")
+    .eq("id", creatorId)
+    .maybeSingle();
 
-  const [profileRes, postsRes, followersRes, followingRes, followStatusRes] =
-    await Promise.all([
-      admin
-        .from("profiles")
-        .select("id, username, full_name, tagline, avatar_url, bio")
-        .eq("id", creatorId)
-        .maybeSingle(),
-      admin
-        .from("posts")
-        .select("id, poster_url, video_url")
-        .eq("creator_id", creatorId)
-        .order("created_at", { ascending: false }),
-      admin
-        .from("follows")
-        .select("follower_id", { count: "exact", head: true })
-        .eq("following_id", creatorId),
-      admin
-        .from("follows")
-        .select("following_id", { count: "exact", head: true })
-        .eq("follower_id", creatorId),
-      followStatusPromise,
-    ]);
+  // Allow /creators/<username> in addition to /creators/<id>.
+  if (!profileRes.data) {
+    const usernameRes = await admin
+      .from("profiles")
+      .select("id, username, full_name, tagline, avatar_url, bio")
+      .eq("username", creatorId)
+      .maybeSingle();
+    if (usernameRes.data) {
+      profileRes = usernameRes as typeof profileRes;
+    }
+  }
 
   if (profileRes.error || !profileRes.data) {
     notFound();
   }
 
   const profile = profileRes.data;
+  const resolvedCreatorId = profile.id;
+
+  const followStatusPromise =
+    viewer?.id && viewer.id !== resolvedCreatorId
+      ? supabase
+          .from("follows")
+          .select("follower_id, following_id")
+          .eq("follower_id", viewer.id)
+          .eq("following_id", resolvedCreatorId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null } as const);
+
+  const [postsRes, followersRes, followingRes, followStatusRes] = await Promise.all([
+    admin
+      .from("posts")
+      .select("id, poster_url, video_url")
+      .eq("creator_id", resolvedCreatorId)
+      .order("created_at", { ascending: false }),
+    admin
+      .from("follows")
+      .select("follower_id", { count: "exact", head: true })
+      .eq("following_id", resolvedCreatorId),
+    admin
+      .from("follows")
+      .select("following_id", { count: "exact", head: true })
+      .eq("follower_id", resolvedCreatorId),
+    followStatusPromise,
+  ]);
   const posts = postsRes?.data ?? [];
   const followersCount = followersRes?.count ?? 0;
   const followingCount = followingRes?.count ?? 0;
@@ -94,7 +107,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           <BackButton hrefOverride="/dashboard" />
           <div className="flex items-center gap-2">
             <Link
-              href={`/creators/${creatorId}/reviews`}
+              href={`/creators/${resolvedCreatorId}/reviews`}
               className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs font-semibold leading-none text-white hover:bg-white/10 transition"
             >
               Review
@@ -109,7 +122,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         </div>
         <div className="hidden md:flex absolute top-4 right-4 z-10 items-center gap-2">
           <Link
-            href={`/creators/${creatorId}/reviews`}
+            href={`/creators/${resolvedCreatorId}/reviews`}
             className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold leading-none text-white hover:bg-white/10 transition"
           >
             Review
@@ -156,10 +169,17 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             </div>
           </div>
 
+          {/* Desktop only: Follow centered below stats */}
+          {canFollow && (
+            <div className="mt-4 mb-3 hidden md:flex justify-center">
+              <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
+            </div>
+          )}
+
           {/* Mobile only: Follow centered below profile */}
           {canFollow && (
             <div className="mt-6 flex justify-center md:hidden">
-              <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
+              <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
             </div>
           )}
         </div>
@@ -170,12 +190,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           </p>
         ) : (
           <div className="mt-6 md:mt-8">
-            {/* Desktop: Follow at top left of post grid; relative z-10 so it stays clickable above overlapping profile block */}
-            {canFollow && (
-              <div className="hidden md:flex justify-start mb-4 -mt-8 relative z-10">
-                <FollowButton creatorId={creatorId} initialFollowing={isFollowing} />
-              </div>
-            )}
             <ProfilePostsGallery posts={posts} />
           </div>
         )}
