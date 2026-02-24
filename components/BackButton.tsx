@@ -6,6 +6,7 @@ import { useCallback } from "react";
 interface BackButtonProps {
   className?: string;
   hrefOverride?: string;
+  preferHistory?: boolean;
   scroll?: boolean;
   onClick?: () => void;
 }
@@ -13,6 +14,7 @@ interface BackButtonProps {
 export default function BackButton({ 
   className, 
   hrefOverride, 
+  preferHistory = false,
   scroll,
   onClick
 }: BackButtonProps) {
@@ -23,14 +25,20 @@ export default function BackButton({
       onClick();
       return;
     }
-    if (hrefOverride) {
+    if (
+      preferHistory &&
+      typeof window !== "undefined" &&
+      window.history.length > 1
+    ) {
+      router.back();
+    } else if (hrefOverride) {
       router.push(hrefOverride);
     } else if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
       router.push("/");
     }
-  }, [router, hrefOverride, onClick]);
+  }, [router, hrefOverride, onClick, preferHistory]);
 
   const defaultClassName = "inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none";
   const buttonClassName = className ?? defaultClassName;

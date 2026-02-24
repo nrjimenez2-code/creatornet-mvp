@@ -61,7 +61,7 @@ export default async function ProfilePage() {
           <div className="flex items-center gap-2">
             <Link
               href={`/creators/${user.id}/reviews`}
-              className="rounded-md border border-white/20 px-3 py-1 text-xs font-semibold text-white hover:bg-white/10 transition"
+              className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs font-semibold leading-none text-white hover:bg-white/10 transition"
             >
               Review
             </Link>
@@ -82,7 +82,7 @@ export default async function ProfilePage() {
         <div className="hidden md:flex absolute top-4 right-16 sm:right-32 z-10 items-center gap-2">
           <Link
             href={`/creators/${user.id}/reviews`}
-            className="rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold text-white hover:bg-white/10 transition"
+            className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold leading-none text-white hover:bg-white/10 transition"
           >
             Review
           </Link>
