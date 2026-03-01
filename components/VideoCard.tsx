@@ -606,13 +606,18 @@ export default function VideoCard(props: VideoCardProps) {
   const handleAvatarClick = useCallback(async (e?: React.MouseEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
-    
-    console.log("[VideoCard] Avatar clicked - creatorId:", creatorId, "postId:", postId);
-    
+
+    const navigateToProfile = (id: string) => {
+      if (cachedUserId && id === cachedUserId) {
+        router.push("/profile");
+      } else {
+        router.push(`/creators/${id}`);
+      }
+    };
+
     // If creatorId is available, navigate immediately
     if (creatorId) {
-      console.log("[VideoCard] Navigating to creator profile:", creatorId);
-      router.push(`/creators/${creatorId}`);
+      navigateToProfile(creatorId);
       return;
     }
 
@@ -636,17 +641,17 @@ export default function VideoCard(props: VideoCardProps) {
 
       const payload = (await res.json()) as { creatorId?: string };
       if (payload?.creatorId) {
-        router.push(`/creators/${payload.creatorId}`);
+        navigateToProfile(payload.creatorId);
       } else {
         console.warn("[VideoCard] creatorId missing in API response for postId:", postId);
       }
     } catch (err) {
       console.error("[VideoCard] Avatar redirect error:", err);
     }
-  }, [creatorId, postId, router]);
+  }, [creatorId, postId, router, cachedUserId]);
 
   return (
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-full">
+    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh]">
 
 
 
@@ -655,7 +660,7 @@ export default function VideoCard(props: VideoCardProps) {
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
 
-        className="relative w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] overflow-hidden border border-white/12 bg-black lg:h-full"
+        className="relative w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] overflow-hidden border border-white/12 bg-black lg:h-[100dvh] lg:min-h-[100dvh]"
 
         style={{ borderRadius: "16px 16px 20px 20px" }}
         onKeyDown={handleKeyDown}
@@ -663,7 +668,7 @@ export default function VideoCard(props: VideoCardProps) {
       >
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
-      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-full" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]" style={{ borderRadius: "16px 16px 0 0" }}>
 
 
 
@@ -676,14 +681,14 @@ export default function VideoCard(props: VideoCardProps) {
             muted={isMuted}
             preload="metadata"
             loop
-            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
+            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
             onClick={handleVideoClick}
           />
         ) : poster ? (
           <img
             src={poster}
             alt=""
-            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] object-cover"
+            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
 
             style={{ borderRadius: "16px 16px 0 0" }}
           />
