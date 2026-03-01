@@ -31,6 +31,7 @@ export default function WatchPage() {
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,6 +45,7 @@ export default function WatchPage() {
 
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
+      if (user) setCurrentUserId(user.id);
       if (!user) {
         // Redirect to dashboard where they can see the post in the feed
         router.push(`/dashboard?postId=${postId}`);
@@ -164,7 +166,9 @@ export default function WatchPage() {
   const displayCreator =
     post.creator?.full_name || post.creator?.username || "Creator";
   const creatorProfileHref = post.creator_id
-    ? `/creators/${post.creator_id}`
+    ? currentUserId && post.creator_id === currentUserId
+      ? "/profile"
+      : `/creators/${post.creator_id}`
     : null;
 
   return (

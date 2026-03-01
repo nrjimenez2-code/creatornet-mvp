@@ -6,6 +6,7 @@ import { createServerClient } from "@/lib/supabaseServer";
 import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
+import ProfileMobileHeader from "@/components/ProfileMobileHeader";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -55,24 +56,9 @@ export default async function ProfilePage() {
   return (
     <section className="px-4 pb-16 pt-4 md:pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        {/* Mobile: Back button + actions in header row */}
-        <div className="flex md:hidden items-center justify-between mb-6">
-          <BackButton hrefOverride="/dashboard" />
-          <div className="flex items-center gap-2">
-            <Link
-              href={`/creators/${user.id}/reviews`}
-              className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs font-semibold leading-none text-white hover:bg-white/10 transition"
-            >
-              Review
-            </Link>
-            <ProfileShareButton />
-            <Link
-              href="/profile/edit"
-              className="rounded-md bg-[#4A35C7] px-3 py-1 text-xs font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
-            >
-              Edit profile
-            </Link>
-          </div>
+        {/* Mobile: Back button + settings gear + review */}
+        <div className="md:hidden mb-6">
+          <ProfileMobileHeader userId={user.id} />
         </div>
 
         {/* Desktop: Absolute positioned (original) */}
@@ -112,7 +98,7 @@ export default async function ProfilePage() {
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
           {/* Stats row - responsive layout */}
-          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[11rem] md:-translate-x-20">
+          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[10.5rem] md:-translate-x-20">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
               <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
                 <span className="text-lg font-semibold text-white">{postsCount}</span>

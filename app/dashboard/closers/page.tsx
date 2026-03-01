@@ -403,7 +403,7 @@ export default function ClosersManagerPage() {
   };
 
   return (
-    <main className="max-w-5xl mx-auto p-6 space-y-8">
+    <main className="max-w-5xl mx-auto p-6 space-y-8 text-white">
       {/* Mobile: Back button on top, heading below and left-aligned */}
       <div className="block md:hidden mb-6">
         <div className="mb-3">
@@ -417,7 +417,7 @@ export default function ClosersManagerPage() {
         <BackButton />
       </div>
       <h1 className="hidden md:block text-xl font-bold mb-2">Booking Targets (Round-Robin)</h1>
-      <p className="text-sm text-gray-600 mb-6">
+      <p className="text-sm text-white/80 mb-6">
         Add one or more booking URLs for your sales team. We’ll automatically rotate them using{" "}
         <code>next_booking_target()</code>. Counters are stored per target and update each time your
         CTA hits <code>/api/book</code>.
@@ -451,7 +451,7 @@ export default function ClosersManagerPage() {
             className="w-24 rounded-lg border px-3 py-2"
             suppressHydrationWarning
           />
-          <label className="text-sm text-gray-700">Weight</label>
+          <label className="text-sm text-white/90">Weight</label>
 
           <label className="ml-4 inline-flex items-center gap-2 text-sm">
             <input
@@ -482,12 +482,12 @@ export default function ClosersManagerPage() {
           {testing ? "Testing…" : "Test round-robin"}
         </button>
         {testResult && (
-          <div className="text-sm">
+          <div className="text-sm text-white">
             Next pick →{" "}
             <a className="underline" href={testResult.url} target="_blank" rel="noreferrer">
               {testResult.url}
             </a>{" "}
-            <span className="text-gray-500">(target_id: {testResult.target_id})</span>
+            <span className="text-white/70">(target_id: {testResult.target_id})</span>
           </div>
         )}
       </div>
@@ -509,13 +509,13 @@ export default function ClosersManagerPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td className="px-3 py-4 text-gray-500" colSpan={7}>
+                <td className="px-3 py-4 text-white/70" colSpan={7}>
                   Loading…
                 </td>
               </tr>
             ) : targets.length === 0 ? (
               <tr>
-                <td className="px-3 py-4 text-gray-500" colSpan={7}>
+                <td className="px-3 py-4 text-white/70" colSpan={7}>
                   No booking targets yet.
                 </td>
               </tr>
@@ -531,7 +531,7 @@ export default function ClosersManagerPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-semibold text-lg">Bookings & payments</h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-white/80">
               Generate Stripe checkout links to send after your calls.
             </p>
           </div>
@@ -551,11 +551,11 @@ export default function ClosersManagerPage() {
         ) : null}
 
         {bookingsError ? (
-          <div className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{bookingsError}</div>
+          <div className="rounded-lg bg-red-900/40 px-3 py-2 text-sm text-red-200">{bookingsError}</div>
         ) : bookingsLoading ? (
-          <div className="text-sm text-gray-500">Loading bookings…</div>
+          <div className="text-sm text-white/70">Loading bookings…</div>
         ) : bookings.length === 0 ? (
-          <div className="text-sm text-gray-500">No bookings yet. Calls will show up here once they are scheduled.</div>
+          <div className="text-sm text-white/70">No bookings yet. Calls will show up here once they are scheduled.</div>
         ) : (
           <div className="space-y-4">
             {bookings.map((bundle) => {
@@ -590,7 +590,7 @@ export default function ClosersManagerPage() {
                     <div className="flex items-center gap-2">
                       <div>
                         <div className="text-xs uppercase text-white/60">Status</div>
-                        <span className="rounded-full bg-white/80 px-2 py-0.5 text-xs font-medium capitalize text-gray-900">
+                        <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium capitalize text-white">
                           {bundle.booking.status.replace(/_/g, " ")}
                         </span>
                       </div>
@@ -722,18 +722,6 @@ export default function ClosersManagerPage() {
         )}
       </section>
 
-      {/* How to use */}
-      <div className="text-xs text-white/70 mt-6">
-        <p className="mb-2 font-medium">Use this CTA URL in your posts/buttons:</p>
-        <code className="block break-all rounded-lg bg-black/70 border border-white/20 px-3 py-2 text-white">
-          {creatorId
-            ? `/api/book?creator_id=${creatorId}&post_id=<optional_post_id>`
-            : `/api/book?creator_id=<your_id>&post_id=<optional_post_id>`}
-        </code>
-        <p className="mt-2">
-          If a post has its own <code>booking_url</code>, the API will prefer that override.
-        </p>
-      </div>
     </main>
   );
 }
@@ -796,7 +784,7 @@ function Row({
       </td>
       <td className="px-3 py-2">{t.uses_count ?? 0}</td>
       <td className="px-3 py-2">
-        {t.last_used_at ? new Date(t.last_used_at).toLocaleString() : <span className="text-gray-400">—</span>}
+        {t.last_used_at ? new Date(t.last_used_at).toLocaleString() : <span className="text-white/60">—</span>}
       </td>
       <td className="px-3 py-2">
         <div className="flex gap-2 justify-end">

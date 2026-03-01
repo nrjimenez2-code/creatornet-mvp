@@ -135,7 +135,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 onClick={() => setActiveTab("discover")}
                 className={`flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 transition ${
                   activeTab === "discover"
-                    ? "bg-white/15 text-white"
+                    ? "text-[#4A35C7]"
                     : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
                 title="Discover"
@@ -151,7 +151,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 onClick={() => setActiveTab("following")}
                 className={`flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 transition ${
                   activeTab === "following"
-                    ? "bg-white/15 text-white"
+                    ? "text-[#4A35C7]"
                     : "text-white/70 hover:bg-white/10 hover:text-white"
                 }`}
                 title="Following"
