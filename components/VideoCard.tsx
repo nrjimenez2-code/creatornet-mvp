@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -125,6 +126,8 @@ export default function VideoCard(props: VideoCardProps) {
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const buyButtonRef = useRef<HTMLButtonElement>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null);
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
   const { userId: cachedUserId } = useUser();
@@ -166,8 +169,32 @@ export default function VideoCard(props: VideoCardProps) {
       if (wrapperRef.current.contains(e.target as Node)) return;
       setMenuOpen(false);
     }
-    if (menuOpen) document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
+    function onScroll() {
+      setMenuOpen(false);
+    }
+    if (menuOpen) {
+      document.addEventListener("mousedown", onDoc);
+      window.addEventListener("scroll", onScroll, true);
+    }
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen || !buyButtonRef.current) {
+      setDropdownPosition(null);
+      return;
+    }
+    const rect = buyButtonRef.current.getBoundingClientRect();
+    const dropdownMaxWidth = 200;
+    const winW = typeof window !== "undefined" ? window.innerWidth : 400;
+    const left = Math.max(8, Math.min(rect.left, winW - dropdownMaxWidth - 8));
+    setDropdownPosition({
+      top: rect.bottom + 8,
+      left,
+    });
   }, [menuOpen]);
 
   useEffect(() => {
@@ -736,6 +763,7 @@ export default function VideoCard(props: VideoCardProps) {
           {(showCTA || onBuy || onBook || (productId && priceCents)) && (
             <div className="mt-2 relative -translate-y-[0.67in] lg:-translate-y-[0.67in]" ref={wrapperRef}>
               <button
+                ref={buyButtonRef}
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
                 className="inline-flex items-center gap-1 px-1 sm:px-1 md:px-1.5 py-0.5 sm:py-0.5 md:py-1 lg:py-1.5 h-5 sm:h-auto max-sm:!h-7 max-sm:!min-h-3 max-sm:!py-0 max-sm:overflow-hidden rounded-full max-sm:!rounded-xl bg-white text-black text-xs font-semibold leading-none hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
@@ -754,10 +782,14 @@ export default function VideoCard(props: VideoCardProps) {
                 </svg>
               </button>
 
-              {menuOpen && (
+              {menuOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
                 <div
                   role="menu"
-                  className="absolute z-50 mt-2 w-56 rounded-xl bg-white shadow-lg ring-1 ring-black/5 overflow-hidden"
+                  className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-white shadow-xl ring-1 ring-black/10 overflow-hidden"
+                  style={{
+                    left: dropdownPosition.left,
+                    top: dropdownPosition.top,
+                  }}
                 >
                   <button
                     role="menuitem"
@@ -765,7 +797,7 @@ export default function VideoCard(props: VideoCardProps) {
                       setMenuOpen(false);
                       handleBuy();
                     }}
-                    className="w-full text-left px-4 py-3 text-sm text-gray-900 hover:bg-gray-100 transition"
+                    className="w-full text-left px-3 py-2 text-xs sm:text-sm text-gray-900 hover:bg-gray-100 transition"
                   >
                     Pay in full {((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}` : ""}
                   </button>
@@ -778,13 +810,14 @@ export default function VideoCard(props: VideoCardProps) {
                           setMenuOpen(false);
                           handleBook();
                         }}
-                        className="w-full text-left px-4 py-3 text-sm text-gray-900 hover:bg-gray-100 transition"
+                        className="w-full text-left px-3 py-2 text-xs sm:text-sm text-gray-900 hover:bg-gray-100 transition"
                       >
                         Book
                       </button>
                     </>
                   )}
-                </div>
+                </div>,
+                document.body
               )}
             </div>
           )}
