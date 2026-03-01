@@ -167,6 +167,7 @@ export default function VideoCard(props: VideoCardProps) {
     function onDoc(e: MouseEvent) {
       if (!wrapperRef.current) return;
       if (wrapperRef.current.contains(e.target as Node)) return;
+      if ((e.target as HTMLElement).closest("[data-buy-dropdown]")) return;
       setMenuOpen(false);
     }
     function onScroll() {
@@ -784,6 +785,7 @@ export default function VideoCard(props: VideoCardProps) {
 
               {menuOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
                 <div
+                  data-buy-dropdown
                   role="menu"
                   className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-white shadow-xl ring-1 ring-black/10 overflow-hidden"
                   style={{
