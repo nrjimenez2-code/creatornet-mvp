@@ -162,7 +162,7 @@ export async function POST(req: Request) {
           creator_id: body.creator_id || "",
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${site}/`,
+        cancel_url: `${site}/dashboard`,
       });
 
       await writePending(session.id, amount_cents, currency);
@@ -206,7 +206,7 @@ export async function POST(req: Request) {
           plan_price_cents: String(per_cents),
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${site}/`,
+        cancel_url: `${site}/dashboard`,
       });
 
       await writePending(session.id, per_cents, currency);
@@ -259,7 +259,7 @@ export async function POST(req: Request) {
           creator_id: String(creator_id),
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}&kind=booking`,
-        cancel_url: `${site}/`,
+        cancel_url: `${site}/dashboard`,
       });
       console.log("[checkout] booking session created:", { session_id: session.id, metadata: session.metadata });
 
