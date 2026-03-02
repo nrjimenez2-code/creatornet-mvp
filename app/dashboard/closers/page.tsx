@@ -599,7 +599,7 @@ export default function ClosersManagerPage() {
                         onClick={() => handleDeleteBooking(bundle.booking.id)}
                         disabled={deletingId === bundle.booking.id}
                         aria-label="Delete booking"
-                        className="rounded-full border border-[#4A35C7] bg-white/10 p-1 text-[#7A6BC4] transition hover:bg-[#4A35C7] hover:text-white disabled:opacity-50"
+                        className="rounded-full border border-[#4A35C7] bg-white/10 h-6 w-6 text-[#7A6BC4] transition hover:bg-[#4A35C7] hover:text-white disabled:opacity-50 flex items-center justify-center"
                       >
                         <TrashIcon className="h-4 w-4" />
                       </button>
