@@ -146,7 +146,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
           {/* Stats row - responsive layout; desktop: shift right a little */}
-          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[9.5rem] md:-translate-x-20">
+          <div className="mt-6 w-full max-w-2xl px-4">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
               <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
                 <span className="text-lg font-semibold text-white">
@@ -169,16 +169,9 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             </div>
           </div>
 
-          {/* Desktop only: Follow centered below stats */}
+          {/* Follow button centered on all screen sizes */}
           {canFollow && (
-            <div className="mt-4 mb-3 hidden md:flex justify-center md:-translate-x-1">
-              <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
-            </div>
-          )}
-
-          {/* Mobile only: Follow centered below profile */}
-          {canFollow && (
-            <div className="mt-6 flex justify-center md:hidden">
+            <div className="mt-4 mb-3 flex justify-center">
               <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
             </div>
           )}

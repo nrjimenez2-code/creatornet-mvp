@@ -98,7 +98,7 @@ export default async function ProfilePage() {
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
           {/* Stats row - responsive layout */}
-          <div className="mt-6 w-full max-w-2xl px-4 md:ml-[10.5rem] md:-translate-x-20">
+          <div className="mt-6 w-full max-w-2xl px-4">
             <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
               <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
                 <span className="text-lg font-semibold text-white">{postsCount}</span>
