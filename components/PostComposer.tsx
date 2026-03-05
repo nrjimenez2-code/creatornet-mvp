@@ -79,7 +79,8 @@ async function fetchMyProducts(): Promise<Product[]> {
   });
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error || "Failed to load products");
-  return (data?.items ?? []) as Product[];
+  const raw = (data?.items ?? []) as (Product & { product_id?: string })[];
+  return raw.map((p) => ({ ...p, id: p.id ?? p.product_id }));
 }
 
 /** Accept ANY https URL; auto-prefix missing scheme. */
@@ -222,20 +223,23 @@ export default function PostComposer({ onPosted }: Props) {
     })();
   }, [supabase]);
 
-  // Fetch creator products
+  // Fetch creator products once user is available (session ready)
   useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    setLoadingProducts(true);
     (async () => {
-      setLoadingProducts(true);
       try {
         const items = await fetchMyProducts();
-        setProducts(items);
+        if (!cancelled) setProducts(items);
       } catch (e) {
-        console.debug("products GET:", (e as any)?.message);
+        if (!cancelled) console.debug("products GET:", (e as any)?.message);
       } finally {
-        setLoadingProducts(false);
+        if (!cancelled) setLoadingProducts(false);
       }
     })();
-  }, []);
+    return () => { cancelled = true; };
+  }, [userId]);
 
   const chars = caption.trim().length;
 
@@ -320,10 +324,23 @@ export default function PostComposer({ onPosted }: Props) {
         premium_path = prem.path;
       }
 
-      // 4) decide post price
-      const attached = productId ? products.find((p) => p.id === productId) : null;
+      // 4) decide post price and ensure product_id is a UUID (never the option label)
+      const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const validProductId = productId && uuidLike.test(String(productId)) ? productId : null;
+      const attached = validProductId ? products.find((p) => p.id === validProductId) : null;
       const price_cents =
         dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
+
+      // 4b) Only set product_id if the product exists in DB (satisfies posts_product_fk)
+      let postProductId: string | null = null;
+      if (attachBuy && validProductId) {
+        const { data: existing } = await supabase
+          .from("products")
+          .select("product_id")
+          .eq("product_id", validProductId)
+          .maybeSingle();
+        if (existing?.product_id) postProductId = existing.product_id;
+      }
 
       // 5) Compute final booking target
       const finalBookingUrl =
@@ -341,9 +358,9 @@ export default function PostComposer({ onPosted }: Props) {
           poster_url,            // optional
           premium_path,          // private storage path if provided
           interests: [selectedTag],
-          product_id: attachBuy ? productId : null, // controls CTA
+          product_id: postProductId,
           price_cents,
-          allow_booking: attachBooking || null,
+          allow_booking: !!attachBooking,
           booking_url: finalBookingUrl,
           hashtags,              // ✅ store extracted hashtags (text[])
         },
@@ -444,15 +461,19 @@ export default function PostComposer({ onPosted }: Props) {
                 className="flex-1 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                 disabled={loadingProducts}
               >
-                <option className="bg-black text-white" value="">
-                  {loadingProducts ? "Loading…" : "Select a product…"}
-                </option>
-                {products.map((p) => (
-                  <option className="bg-black text-white" key={p.id} value={p.id}>
-                    {p.title}
-                    {p.price_cents != null ? ` — $${(p.price_cents / 100).toFixed(0)}` : ""}
-                  </option>
-                ))}
+                {[
+                  <option key="__placeholder" className="bg-black text-white" value="">
+                    {loadingProducts ? "Loading…" : "Select a product…"}
+                  </option>,
+                  ...products
+                    .filter((p) => p.id)
+                    .map((p) => (
+                      <option key={p.id} className="bg-black text-white" value={String(p.id)}>
+                        {p.title}
+                        {p.price_cents != null ? ` — $${(p.price_cents / 100).toFixed(0)}` : ""}
+                      </option>
+                    )),
+                ]}
               </select>
 
               <button
@@ -479,15 +500,11 @@ export default function PostComposer({ onPosted }: Props) {
                     onChange={(e) => setNewProdType(e.target.value as "video" | "course" | "mentorship")}
                     className="flex-1 rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                   >
-                    <option className="bg-black text-white" value="video">
-                      Video
-                    </option>
-                    <option className="bg-black text-white" value="course">
-                      Course
-                    </option>
-                    <option className="bg-black text-white" value="mentorship">
-                      Mentorship
-                    </option>
+                    {[
+                      <option key="video" className="bg-black text-white" value="video">Video</option>,
+                      <option key="course" className="bg-black text-white" value="course">Course</option>,
+                      <option key="mentorship" className="bg-black text-white" value="mentorship">Mentorship</option>,
+                    ]}
                   </select>
                 </div>
                 <div className="flex items-center gap-2">

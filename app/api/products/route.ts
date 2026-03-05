@@ -1,6 +1,8 @@
 // app/api/products/route.ts
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabaseServer";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { stripe } from "@/lib/stripe";
 function dollarsToCents(d: unknown): number | null {
   const s = String(d ?? "").trim();
   if (!s) return null;
@@ -67,8 +69,12 @@ export async function GET() {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
 
-    // Cast only after confirming no error
-    const items = (data ?? []) as unknown as ProductRow[];
+    // Ensure each item has `id` (alias product_id:id may not apply in all Supabase versions)
+    const raw = (data ?? []) as (ProductRow & { product_id?: string })[];
+    const items = raw.map((row) => ({
+      ...row,
+      id: row.id ?? row.product_id,
+    }));
     return NextResponse.json({ success: true, items });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
@@ -107,12 +113,45 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Title is required" }, { status: 400 });
     }
 
-    // Require a Stripe price for sellable products
-    if ((type === "course" || type === "mentorship" || type === "video") && !stripe_price_id) {
-      return NextResponse.json(
-        { success: false, error: "stripe_price_id is required for sellable products" },
-        { status: 400 }
+    // Ensure a profile row exists so products.creator_id FK is satisfied (insert only; do not overwrite)
+    const fallbackUsername =
+      (user.email?.split("@")[0]?.replace(/[^a-zA-Z0-9_-]/g, "_")?.slice(0, 30)) ||
+      `user_${user.id.slice(0, 8)}`;
+    await supabaseAdmin
+      .from("profiles")
+      .upsert(
+        { id: user.id, username: fallbackUsername },
+        { onConflict: "id", ignoreDuplicates: true }
       );
+
+    let resolvedStripePriceId = stripe_price_id;
+
+    // For sellable products without stripe_price_id: create Stripe Product + Price and use that ID
+    if ((type === "course" || type === "mentorship" || type === "video") && !resolvedStripePriceId) {
+      const cents = price_cents ?? 0;
+      if (!Number.isFinite(cents) || cents < 50) {
+        return NextResponse.json(
+          { success: false, error: "A price of at least $0.50 is required for sellable products" },
+          { status: 400 }
+        );
+      }
+      try {
+        const stripeProduct = await stripe.products.create({
+          name: title,
+          description: description ?? undefined,
+        });
+        const stripePrice = await stripe.prices.create({
+          product: stripeProduct.id,
+          unit_amount: cents,
+          currency: "usd",
+        });
+        resolvedStripePriceId = stripePrice.id;
+      } catch (e: any) {
+        return NextResponse.json(
+          { success: false, error: e?.message ?? "Failed to create Stripe price" },
+          { status: 500 }
+        );
+      }
     }
 
     const insertRow = {
@@ -126,7 +165,7 @@ export async function POST(req: Request) {
       fulfillment,
       discord_channel_id,
       whop_listing_id,
-      stripe_price_id,
+      stripe_price_id: resolvedStripePriceId,
       external_url: null as string | null,
     };
 
@@ -151,8 +190,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: insertRes.error.message }, { status: 400 });
     }
 
-    // Cast only after confirming no error
-    const product = insertRes.data as unknown as ProductRow;
+    // Ensure response has `id` (alias may not apply)
+    const row = insertRes.data as unknown as ProductRow & { product_id?: string };
+    const product = { ...row, id: row.id ?? row.product_id };
     return NextResponse.json({ success: true, id: product.id, product });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
