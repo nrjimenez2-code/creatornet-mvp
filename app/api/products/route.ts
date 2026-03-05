@@ -70,7 +70,7 @@ export async function GET() {
     }
 
     // Ensure each item has `id` (alias product_id:id may not apply in all Supabase versions)
-    const raw = (data ?? []) as (ProductRow & { product_id?: string })[];
+    const raw = (data ?? []) as unknown as (ProductRow & { product_id?: string })[];
     const items = raw.map((row) => ({
       ...row,
       id: row.id ?? row.product_id,
