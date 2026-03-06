@@ -2,6 +2,7 @@
 import Stripe from "stripe";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { createServerClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 
@@ -24,6 +25,17 @@ async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.S
   const product_id = meta.product_id ?? null;
   const post_id = meta.post_id ?? null;
   const creator_id = meta.creator_id ?? null;
+
+  let buyer_id = meta.buyer_id ?? null;
+  if (!buyer_id) {
+    try {
+      const auth = createServerClient();
+      const { data: { user } } = await auth.auth.getUser();
+      if (user?.id) buyer_id = user.id;
+    } catch {
+      // ignore
+    }
+  }
 
   // find existing purchase by session or PI
   let purchaseId: string | null = null;
@@ -56,6 +68,7 @@ async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.S
     product_id,
     post_id,
     creator_id,
+    buyer_id,
     payment_intent_id,
   };
 
