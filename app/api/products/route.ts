@@ -189,7 +189,6 @@ export async function POST(req: Request) {
     if (insertRes.error) {
       return NextResponse.json({ success: false, error: insertRes.error.message }, { status: 400 });
     }
-
     // Ensure response has both id and product_id so composer/checkout can use it
     const row = insertRes.data as unknown as ProductRow & { product_id?: string };
     const productIdValue = row.product_id ?? row.id;
