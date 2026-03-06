@@ -331,16 +331,8 @@ export default function PostComposer({ onPosted }: Props) {
       const price_cents =
         dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
 
-      // 4b) Only set product_id if the product exists in DB (satisfies posts_product_fk)
-      let postProductId: string | null = null;
-      if (attachBuy && validProductId) {
-        const { data: existing } = await supabase
-          .from("products")
-          .select("product_id")
-          .eq("product_id", validProductId)
-          .maybeSingle();
-        if (existing?.product_id) postProductId = existing.product_id;
-      }
+      // 4b) Send selected product id when user chose one; API will verify it exists and belongs to user
+      const postProductId = attachBuy && validProductId ? validProductId : null;
 
       // 5) Compute final booking target
       const finalBookingUrl =
@@ -348,24 +340,32 @@ export default function PostComposer({ onPosted }: Props) {
           ? bookingNormalized || `/api/book?creator_id=${userId}`
           : null;
 
-      // 6) insert post (✅ now includes hashtags)
-      const { error: insErr } = await supabase.from("posts").insert([
-        {
-          creator_id: userId,
+      // 6) create post via API (server verifies product_id and inserts with admin client to satisfy posts_product_fk)
+      const postRes = await fetch("/api/posts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
           title: title.trim() || null,
           content: caption.trim(),
-          video_url,             // public promo
-          poster_url,            // optional
-          premium_path,          // private storage path if provided
+          video_url,
+          poster_url,
+          premium_path,
           interests: [selectedTag],
           product_id: postProductId,
           price_cents,
           allow_booking: !!attachBooking,
           booking_url: finalBookingUrl,
-          hashtags,              // ✅ store extracted hashtags (text[])
-        },
-      ]);
-      if (insErr) throw insErr;
+          hashtags,
+        }),
+      });
+      const postData = await postRes.json().catch(() => null);
+      if (!postRes.ok || !postData?.success) {
+        throw new Error(postData?.error ?? "Failed to create post");
+      }
+      if (postData?.warning) {
+        alert(postData.warning);
+      }
 
       // 7) reset UI
       setTitle("");

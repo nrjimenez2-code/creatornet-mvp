@@ -176,6 +176,26 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
 
           console.log("[Feed] baseRows after filter (video_url or poster_url):", baseRows.length);
 
+          // Always get product_id from server (RPC/realtime often omit it) so "Pay in full" works
+          const postIds = baseRows.map((p) => p.id);
+          if (postIds.length > 0) {
+            try {
+              const origin = typeof window !== "undefined" ? window.location.origin : "";
+              const res = await fetch(
+                `${origin}/api/posts/product-ids?ids=${encodeURIComponent(postIds.join(","))}`,
+                { credentials: "include" }
+              );
+              const productIdByPostId = (await res.json().catch(() => ({}))) as Record<string, string | null>;
+              baseRows.forEach((p) => {
+                if (p.id in productIdByPostId) {
+                  (p as { product_id: string | null }).product_id = productIdByPostId[p.id] ?? null;
+                }
+              });
+            } catch (_) {
+              // keep existing product_id if fetch fails
+            }
+          }
+
           const productIds = Array.from(
             new Set(
               baseRows
@@ -192,8 +212,6 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           );
 
           // Fetch all additional data in parallel for maximum speed
-          const postIds = baseRows.map((p) => p.id);
-          
           const productPromise = productIds.length
             ? supabase
                 .from("products")
@@ -370,7 +388,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         (payload) => {
           setItems((prev) => {
             const row = (payload.new || payload.old) as any;
-            const postId = row?.id as string | undefined;
+            const postId = (row?.id ?? row?.post_id) as string | undefined;
             if (!postId) return prev;
 
             // delete -> drop
@@ -404,27 +422,45 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               };
               return next;
             }
-            // add to top for new posts
-            return [
-              {
-                id: postId,
-                creator_id: row.creator_id ?? null,
-                product_id: row.product_id ?? null,
-                price_cents: row.price_cents ?? 0,
-                title: row.title ?? null,
-                video_url: row.video_url ?? null,
-                poster_url: row.poster_url ?? null,
-                content: row.title ?? "",
-                interests: Array.isArray(row.interests) ? row.interests : [],
-                created_at: row.created_at ?? null,
-                likes_count: 0,
-                comments_count: 0,
-                shares_count: 0,
-                product_type: (row.product_type as string | null) ?? null,
-                is_following: false,
-              },
-              ...prev,
-            ];
+            // add to top for new posts (realtime payload may omit product_id — fetch it so "Pay in full" works)
+            const newItem = {
+              id: postId,
+              creator_id: row.creator_id ?? null,
+              product_id: row.product_id ?? null,
+              price_cents: row.price_cents ?? 0,
+              title: row.title ?? null,
+              video_url: row.video_url ?? null,
+              poster_url: row.poster_url ?? null,
+              content: row.title ?? "",
+              interests: Array.isArray(row.interests) ? row.interests : [],
+              created_at: row.created_at ?? null,
+              likes_count: 0,
+              comments_count: 0,
+              shares_count: 0,
+              product_type: (row.product_type as string | null) ?? null,
+              allow_booking: row.allow_booking ?? false,
+              booking_url: row.booking_url ?? null,
+              creator_name: null,
+              creator_avatar_url: null,
+              is_following: false,
+            };
+            fetch(
+              `${typeof window !== "undefined" ? window.location.origin : ""}/api/posts/product-ids?ids=${encodeURIComponent(postId)}`,
+              { credentials: "include" }
+            )
+              .then((r) => r.json().catch(() => ({})))
+              .then((map: Record<string, string | null>) => {
+                const pid = map[postId] ?? newItem.product_id;
+                if (pid != null) {
+                  setItems((curr) =>
+                    curr.map((p) =>
+                      p.id === postId ? { ...p, product_id: pid } : p
+                    )
+                  );
+                }
+              })
+              .catch(() => {});
+            return [newItem, ...prev];
           });
         }
       )

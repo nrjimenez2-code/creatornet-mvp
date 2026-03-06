@@ -599,12 +599,6 @@ function SuccessPage() {
 }
 
 export default function SuccessPageWrapper() {
-  if (typeof window !== "undefined") {
-    console.log("[success-page] 🌐 PAGE WRAPPER RENDERED - URL:", window.location.href);
-    console.log("[success-page] 🌐 SEARCH PARAMS:", window.location.search);
-    // Force log to ensure it's visible
-    console.error("[success-page] 🔴 FORCE LOG - This should always appear");
-  }
   return (
     <Suspense fallback={<main className="min-h-[70vh] flex items-center justify-center text-sm text-gray-500">Loading…</main>}>
       <SuccessPage />

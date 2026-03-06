@@ -556,41 +556,56 @@ export default function VideoCard(props: VideoCardProps) {
       return;
     }
 
-    if (!productId) {
+    let resolvedProductId = productId;
+    if (!resolvedProductId && postId) {
+      try {
+        const r = await fetch(
+          `/api/posts/product-ids?ids=${encodeURIComponent(postId)}`,
+          { credentials: "include" }
+        );
+        const map = (await r.json().catch(() => ({}))) as Record<string, string | null>;
+        resolvedProductId = map[postId] ?? null;
+      } catch {
+        // keep null
+      }
+    }
+
+    if (!resolvedProductId) {
       alert("No product attached to this post yet.");
       return;
     }
 
     try {
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           type: "product",
-          product_id: String(productId),
+          product_id: String(resolvedProductId),
           post_id: postId ?? undefined,
           creator_id: creatorId ?? null,
           titleForCheckout: titleForCheckout ?? undefined,
+          buyer_id: cachedUserId ?? undefined,
         }),
       });
 
       const data = await res.json().catch(() => null);
-    if (!res.ok) {
+      if (!res.ok) {
         throw new Error(data?.error || `Failed to create checkout session (HTTP ${res.status})`);
-    }
+      }
 
-    const url = typeof data?.url === "string" ? data.url : "";
-    if (!url || !(url.startsWith("http://") || url.startsWith("https://"))) {
-      throw new Error("Not a valid checkout URL returned from server.");
-    }
+      const url = typeof data?.url === "string" ? data.url : "";
+      if (!url || !(url.startsWith("http://") || url.startsWith("https://"))) {
+        throw new Error("Not a valid checkout URL returned from server.");
+      }
 
-    window.location.assign(url);
+      window.location.assign(url);
     } catch (e) {
       console.error("[buy] error:", e);
       alert((e as Error).message || "Failed to start checkout.");
     }
-  }, [onBuy, productId, postId, creatorId, titleForCheckout]);
+  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId]);
 
   const handleBook = useCallback(async () => {
     if (onBook) {
@@ -679,7 +694,7 @@ export default function VideoCard(props: VideoCardProps) {
   }, [creatorId, postId, router, cachedUserId]);
 
   return (
-    <div className="relative w-full mx-auto max-w-full lg:max-w-[460px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh]">
+    <div className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh]">
 
 
 

@@ -20,6 +20,7 @@ type BodyBase = {
   post_id?: string;
   creator_id?: string;
   titleForCheckout?: string;
+  buyer_id?: string;
 };
 
 type ProductPayload = BodyBase & {
@@ -116,6 +117,7 @@ export async function POST(req: Request) {
       product_id: (body as any).product_id ?? null,
       post_id: body.post_id ?? null,
       creator_id: body.creator_id ?? null,
+      buyer_id: body.buyer_id ?? null,
       amount_cents,
       currency,
     };
@@ -128,15 +130,16 @@ export async function POST(req: Request) {
   try {
     // ---- ONE-TIME PRODUCT ----
     if (body.type === "product") {
+      // products table uses "id" as PK (product_id is null); look up by id or product_id
       const { data: prod, error } = await supabase
         .from("products")
-        .select("product_id,title,amount_cents,currency")
-        .eq("product_id", body.product_id)
-        .single();
+        .select("id, product_id, title, amount_cents, price_cents, currency")
+        .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
+        .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
       if (!prod) throw new Error("Product not found");
 
-      const amount_cents = Number(prod.amount_cents ?? 0);
+      const amount_cents = Number(prod.amount_cents ?? prod.price_cents ?? 0);
       const currency = (prod.currency as string) ?? "usd";
       if (!Number.isFinite(amount_cents) || amount_cents < 50) {
         throw new Error("Invalid amount (Stripe min 50¢)");
@@ -160,6 +163,7 @@ export async function POST(req: Request) {
           product_id: body.product_id,
           post_id: body.post_id || "",
           creator_id: body.creator_id || "",
+          buyer_id: body.buyer_id || "",
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${site}/dashboard`,
@@ -178,9 +182,9 @@ export async function POST(req: Request) {
 
       const { data: prod, error } = await supabase
         .from("products")
-        .select("product_id,title,currency")
-        .eq("product_id", body.product_id)
-        .single();
+        .select("id, product_id, title, currency")
+        .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
+        .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
 
       const currency = (prod?.currency as string) ?? "usd";
@@ -202,6 +206,7 @@ export async function POST(req: Request) {
           product_id: body.product_id,
           post_id: body.post_id || "",
           creator_id: body.creator_id || "",
+          buyer_id: body.buyer_id || "",
           plan_months: String(months),
           plan_price_cents: String(per_cents),
         },
