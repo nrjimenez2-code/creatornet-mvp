@@ -97,10 +97,11 @@ export async function POST(
 
     const { data: product, error: productError } = await admin
       .from("products")
-      .select("product_id, title, amount_cents, currency")
-      .eq("product_id", post.product_id)
+      .select("id, product_id, title, amount_cents, currency")
+      .or(`product_id.eq.${post.product_id},id.eq.${post.product_id}`)
       .maybeSingle<{
-        product_id: string;
+        id: string;
+        product_id: string | null;
         title: string | null;
         amount_cents: number;
         currency: string | null;
@@ -113,6 +114,8 @@ export async function POST(
         { status: 400 }
       );
     }
+
+    const productIdForPayload = product.id ?? product.product_id ?? post.product_id;
 
     const totalCents = Number(product.amount_cents ?? 0);
     if (!Number.isFinite(totalCents) || totalCents < 50) {
@@ -148,7 +151,7 @@ export async function POST(
     const { error: insertError } = await admin.from("booking_payments").insert({
       id: paymentId,
       booking_id: booking.id,
-      product_id: product.product_id,
+      product_id: product.id,
       closer_user_id: user.id,
       buyer_id: booking.buyer_id,
       plan_type: planType,
@@ -167,7 +170,7 @@ export async function POST(
     const metadataBase = {
       booking_id: booking.id,
       booking_payment_id: paymentId,
-      product_id: product.product_id,
+      product_id: productIdForPayload,
       creator_id: booking.creator_id,
       buyer_id: booking.buyer_id,
       plan_type: planType,
