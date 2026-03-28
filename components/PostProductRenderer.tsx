@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { trackEvent } from '@/lib/posthog';
 
 type Product = {
   id: string;
@@ -33,6 +34,10 @@ export default function PostProductRenderer({
   async function handleBuy() {
     // TS guard inside the handler (closure doesn't narrow from the outer check)
     if (!product) return;
+    trackEvent("buy_clicked", {
+      product_id: product.id,
+      price: product.price_cents / 100,
+    });
     try {
       setLoading(true);
       const res = await fetch('/api/checkout', {

@@ -145,6 +145,7 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
                 muted
                 loop
                 playsInline
+                preload="none"
               />
             ) : (
               <div className="text-xs text-white/60">No media</div>

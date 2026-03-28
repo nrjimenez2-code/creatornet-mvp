@@ -2,6 +2,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
+import { trackServerEvent } from "@/lib/posthogServer";
+import { updateInterestScore } from "@/lib/updateInterestScore";
+import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -752,6 +755,24 @@ export async function POST(req: NextRequest) {
           ) {
             const product_id = (session.metadata?.product_id as string) || null;
             await attachFulfillmentIfEmpty(purchaseId, product_id);
+            await trackServerEvent("purchase_completed", (session.metadata?.buyer_id as string) || null, {
+              post_id: session.metadata?.post_id || null,
+              product_id: session.metadata?.product_id || null,
+              creator_id: session.metadata?.creator_id || null,
+              price: typeof session.amount_total === "number" ? session.amount_total / 100 : null,
+            });
+
+            // Score: +25 for completing a purchase
+            const buyerId = (session.metadata?.buyer_id as string) || null;
+            const postId = (session.metadata?.post_id as string) || null;
+            if (buyerId && postId) {
+              const { data: post } = await admin.from("posts").select("interests").eq("id", postId).maybeSingle();
+              const category = Array.isArray(post?.interests) ? (post.interests[0] as string ?? null) : null;
+              updateInterestScore(buyerId, category, 25);
+            }
+
+            // Post metrics: increment purchases
+            updatePostMetrics(postId ?? null, { purchases: 1 });
           }
 
           // For subscriptions, fulfillment attaches on first invoice.payment_succeeded

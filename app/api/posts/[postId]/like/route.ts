@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { updateInterestScore } from "@/lib/updateInterestScore";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -120,10 +121,21 @@ export async function POST(
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
+    // Update interest score: +5 on like, no change on unlike
+    if (liked) {
+      const { data: post } = await admin
+        .from("posts")
+        .select("interests")
+        .eq("id", postId)
+        .maybeSingle();
+      const category = Array.isArray(post?.interests) ? (post.interests[0] as string ?? null) : null;
+      await updateInterestScore(user.id, category, 5);
+    }
+
+    return NextResponse.json({
+      success: true,
       liked,
-      likes_count: newCount 
+      likes_count: newCount
     });
   } catch (err: any) {
     console.error("[like-api] Unexpected error:", err);

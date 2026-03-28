@@ -92,6 +92,7 @@ function LibraryCard({
             className="h-full w-full object-cover"
             muted
             playsInline
+            preload="none"
           />
         ) : (
           <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">

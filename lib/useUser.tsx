@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import posthog from "posthog-js";
 
 type UserContextValue = {
   userId: string | null;
@@ -64,6 +65,12 @@ function useProvideUser(): UserContextValue {
           cacheTimestamp = Date.now();
           setUserId(session.user.id);
           setLoading(false);
+          try {
+            posthog.identify(session.user.id, {
+              email: session.user.email,
+              name: session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? null,
+            });
+          } catch { /* ignore */ }
           return;
         }
 
@@ -88,6 +95,12 @@ function useProvideUser(): UserContextValue {
             cachedUserId = user.id;
             cacheTimestamp = Date.now();
             setUserId(user.id);
+            try {
+              posthog.identify(user.id, {
+                email: user.email,
+                name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
+              });
+            } catch { /* ignore */ }
           } else {
             cachedUserId = null;
             setUserId(null);
@@ -120,6 +133,16 @@ function useProvideUser(): UserContextValue {
       cacheTimestamp = nextUserId ? Date.now() : 0;
       setUserId(nextUserId);
       setLoading(false);
+      if (nextUserId) {
+        try {
+          posthog.identify(nextUserId, {
+            email: session?.user?.email,
+            name: session?.user?.user_metadata?.full_name ?? session?.user?.user_metadata?.name ?? null,
+          });
+        } catch { /* ignore */ }
+      } else {
+        try { posthog.reset(); } catch { /* ignore */ }
+      }
     });
 
     return () => {

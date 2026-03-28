@@ -7,6 +7,8 @@ import FollowButton from "@/components/FollowButton";
 import { createServerClient } from "@/lib/supabaseServer";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createClient } from "@supabase/supabase-js";
+import { trackServerEvent } from "@/lib/posthogServer";
+import { updateInterestScore } from "@/lib/updateInterestScore";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -58,6 +60,24 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   const profile = profileRes.data;
   const resolvedCreatorId = profile.id;
+
+  // Track creator profile view server-side
+  trackServerEvent("creator_profile_viewed", viewer?.id ?? null, {
+    creator_id: resolvedCreatorId,
+  });
+
+  // Score: +4 for viewing a creator profile (use creator's primary interest as category)
+  if (viewer?.id) {
+    const { data: creatorProfile } = await admin
+      .from("profiles")
+      .select("interests")
+      .eq("id", resolvedCreatorId)
+      .maybeSingle();
+    const category = Array.isArray(creatorProfile?.interests)
+      ? (creatorProfile.interests[0] as string ?? null)
+      : null;
+    updateInterestScore(viewer.id, category, 4);
+  }
 
   const followStatusPromise =
     viewer?.id && viewer.id !== resolvedCreatorId

@@ -107,6 +107,12 @@ export async function POST(req: Request) {
     }
 
     const postId = inserted?.id ?? null;
+
+    // Create empty post_metrics row for this post
+    if (postId) {
+      await supabaseAdmin.from("post_metrics").insert({ post_id: postId }).select("post_id").maybeSingle();
+    }
+
     return NextResponse.json({
       success: true,
       post_id: postId,

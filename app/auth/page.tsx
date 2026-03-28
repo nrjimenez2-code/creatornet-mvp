@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { trackEvent } from "@/lib/posthog";
 
 const supabase = createClient();
 
@@ -71,6 +72,11 @@ export default function AuthPage() {
     return () => clearTimeout(t);
   }, []);
 
+  // Track auth page visit
+  useEffect(() => {
+    trackEvent("signup_started");
+  }, []);
+
   const isInputEmpty = useMemo(() => input.trim().length === 0, [input]);
 
   async function handleSignIn(e: React.FormEvent) {
@@ -93,6 +99,7 @@ export default function AuthPage() {
         options: { emailRedirectTo: redirectUrl },
       });
       if (error) throw error;
+      trackEvent("signup_completed", { method: "email" });
       setMsg("📧 Check your inbox for the sign-in link!");
     } catch (err: any) {
       setMsg(err?.message ?? "Something went wrong.");
