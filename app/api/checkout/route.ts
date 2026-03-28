@@ -1,17 +1,21 @@
 // app/api/checkout/route.ts
 import "server-only";
+import type { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
+import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
+import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 
 export const runtime = "nodejs";
 
-// Let SDK use its bundled API version (avoids TS mismatch errors)
+const PLATFORM_FEE_RATE = 0.12;
+const PLATFORM_FEE_PERCENT_STR = String(Math.round(PLATFORM_FEE_RATE * 100));
+
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 
-// Admin Supabase client (bypasses RLS for server routes)
 function supabaseAdmin() {
   return createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,6 +28,8 @@ type BodyBase = {
   creator_id?: string;
   titleForCheckout?: string;
   buyer_id?: string;
+  /** Optional; included in Stripe metadata */
+  category?: string;
 };
 
 type ProductPayload = BodyBase & {
@@ -35,7 +41,7 @@ type PlanPayload = BodyBase & {
   type: "installments";
   product_id: string;
   plan_months: number;
-  plan_price_cents: number; // cents per installment
+  plan_price_cents: number;
 };
 
 type BookingPayload = BodyBase & {
@@ -45,85 +51,97 @@ type BookingPayload = BodyBase & {
 
 type Payload = ProductPayload | PlanPayload | BookingPayload;
 
-export async function POST(req: Request) {
+function stripeMetadataStrings(meta: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    out[k] = v.length > 500 ? v.slice(0, 500) : v;
+  }
+  return out;
+}
+
+export async function POST(req: NextRequest) {
   const supabase = supabaseAdmin();
-  
-  // CRITICAL: Detect site URL from request URL to support localhost testing
-  // This ensures Stripe redirects back to the same origin (localhost or Vercel)
-  let site = "http://localhost:3000"; // Default to localhost
-  
+  const authUser = await getAuthenticatedUser(req);
+
+  let site = "http://localhost:3000";
   try {
-    // Use the request URL to determine the origin
     const requestUrl = new URL(req.url);
     let hostname = requestUrl.hostname;
     const port = requestUrl.port || (requestUrl.protocol === "https:" ? "443" : "80");
-    
-    // Normalize 0.0.0.0 to localhost (browsers can't access 0.0.0.0)
     if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
       hostname = "localhost";
     }
-    
-    // Build the site URL
     if (hostname === "localhost" || hostname === "127.0.0.1") {
       site = `http://localhost:3000`;
     } else {
-      // For other hosts (like Vercel), use the actual host
       site = `${requestUrl.protocol}//${hostname}${port && port !== "80" && port !== "443" ? `:${port}` : ""}`;
     }
   } catch {
-    // Fallback: try origin header
     const origin = req.headers.get("origin");
     if (origin) {
       try {
         const url = new URL(origin);
         let hostname = url.hostname;
-        
-        // Normalize 0.0.0.0 to localhost
         if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
           hostname = "localhost";
         }
-        
         if (hostname === "localhost" || hostname === "127.0.0.1") {
           site = `http://localhost:3000`;
         } else {
           site = `${url.protocol}//${url.host}`;
         }
       } catch {
-        // If all else fails, use env or default
         site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
       }
     } else {
       site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
     }
   }
-  
-  console.log("[checkout] 🔧 Using site URL:", site, { 
-    requestUrl: req.url,
-    origin: req.headers.get("origin"),
-    referer: req.headers.get("referer"),
-    hasEnv: !!process.env.NEXT_PUBLIC_SITE_URL 
-  });
 
-  let body: Payload;
+  let raw: unknown;
   try {
-    body = (await req.json()) as Payload;
+    raw = await req.json();
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
 
+  const b = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
+  if (!b.type && b.productId) {
+    b.type = "product";
+    b.product_id = String(b.productId);
+  }
+
+  const body = b as Payload;
   if (!body?.type) return new Response("Missing type", { status: 400 });
 
-  async function writePending(session_id: string, amount_cents: number, currency: string) {
-    const insert = {
+  const resolvedBuyerId = (body as BodyBase).buyer_id ?? authUser?.id ?? null;
+  if ((body.type === "product" || body.type === "installments") && !resolvedBuyerId) {
+    return Response.json({ error: "Sign in required to checkout." }, { status: 401 });
+  }
+
+  async function writePending(
+    session_id: string,
+    amount_cents: number,
+    currency: string,
+    order_id: string | null,
+    creatorId: string | null
+  ) {
+    const buyerId = resolvedBuyerId;
+    const insert: Record<string, unknown> = {
       session_id,
       status: "pending",
-      product_id: (body as any).product_id ?? null,
+      product_id: (body as ProductPayload | PlanPayload).product_id ?? null,
       post_id: body.post_id ?? null,
-      creator_id: body.creator_id ?? null,
-      buyer_id: body.buyer_id ?? null,
+      creator_id: creatorId ?? body.creator_id ?? null,
+      buyer_id: buyerId,
       amount_cents,
       currency,
     };
+    if (order_id) insert.order_id = order_id;
+    if (buyerId) {
+      insert.buyer_user_id = buyerId;
+      insert.user_id = buyerId;
+    }
     const { error } = await supabase.from("purchases").insert(insert).select("id").single();
     if (error && !`${error.message}`.toLowerCase().includes("duplicate")) {
       throw new Error(`Failed to write pending purchase: ${error.message}`);
@@ -131,12 +149,12 @@ export async function POST(req: Request) {
   }
 
   try {
-    // ---- ONE-TIME PRODUCT ----
     if (body.type === "product") {
-      // products table uses "id" as PK (product_id is null); look up by id or product_id
+      if (!body.product_id) return new Response("Missing product_id", { status: 400 });
+
       const { data: prod, error } = await supabase
         .from("products")
-        .select("id, product_id, title, amount_cents, price_cents, currency")
+        .select("id, product_id, title, type, amount_cents, price_cents, currency, creator_id")
         .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
@@ -148,53 +166,142 @@ export async function POST(req: Request) {
         throw new Error("Invalid amount (Stripe min 50¢)");
       }
 
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment",
-        payment_method_types: ["card"],
-        line_items: [
+      const creatorId =
+        body.creator_id || (prod as { creator_id?: string }).creator_id || null;
+      if (!creatorId || !(await isCreatorSellReady(creatorId))) {
+        return Response.json(
           {
-            price_data: {
-              currency,
-              product_data: { name: body.titleForCheckout || prod.title || "Purchase" },
-              unit_amount: amount_cents,
-            },
-            quantity: 1,
+            error: "This creator is not accepting payments yet.",
+            code: "STRIPE_CONNECT_REQUIRED",
           },
-        ],
-        // **add metadata so /success can route to unlocked content**
-        metadata: {
-          product_id: body.product_id,
-          post_id: body.post_id || "",
-          creator_id: body.creator_id || "",
-          buyer_id: body.buyer_id || "",
-        },
-        success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${site}/dashboard`,
-      });
+          { status: 403 }
+        );
+      }
+      const applicationFeeCents = Math.round(amount_cents * PLATFORM_FEE_RATE);
+      const creatorAmountCents = amount_cents - applicationFeeCents;
 
-      await writePending(session.id, amount_cents, currency);
-      await trackServerEvent("checkout_started", body.buyer_id ?? null, {
-        post_id: body.post_id,
-        product_id: body.product_id,
-        creator_id: body.creator_id,
-        price: amount_cents / 100,
-        product_type: "product",
-      });
-
-      // Score: +15 for starting checkout
-      if (body.buyer_id && body.post_id) {
-        const { data: post } = await supabase.from("posts").select("interests").eq("id", body.post_id).maybeSingle();
-        const category = Array.isArray(post?.interests) ? (post.interests[0] as string ?? null) : null;
-        updateInterestScore(body.buyer_id, category, 15);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("stripe_account_id")
+        .eq("id", creatorId)
+        .maybeSingle();
+      const destination = profile?.stripe_account_id as string | undefined;
+      if (!destination) {
+        return Response.json(
+          { error: "This creator is not accepting payments yet.", code: "STRIPE_CONNECT_REQUIRED" },
+          { status: 403 }
+        );
       }
 
-      // Post metrics: increment checkout_starts
+      const productType = String((prod as { type?: string }).type ?? "product");
+      const category = (body.category ?? "").trim();
+
+      const { data: orderRow, error: orderErr } = await supabase
+        .from("orders")
+        .insert({
+          buyer_user_id: resolvedBuyerId,
+          creator_id: creatorId,
+          post_id: body.post_id ?? null,
+          gross_amount: amount_cents,
+          platform_fee: applicationFeeCents,
+          creator_amount: creatorAmountCents,
+          status: "pending",
+          currency,
+        })
+        .select("id")
+        .single();
+
+      if (orderErr || !orderRow?.id) {
+        throw new Error(`Failed to create order: ${orderErr?.message ?? "unknown"}`);
+      }
+      const orderId = orderRow.id as string;
+
+      const meta = stripeMetadataStrings({
+        order_id: orderId,
+        creator_id: creatorId,
+        post_id: body.post_id || "",
+        buyer_id: resolvedBuyerId || "",
+        buyer_user_id: resolvedBuyerId || "",
+        product_id: body.product_id,
+        product_type: productType,
+        category,
+        platform_fee_percent: PLATFORM_FEE_PERCENT_STR,
+      });
+
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.create({
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: [
+            {
+              price_data: {
+                currency,
+                product_data: { name: body.titleForCheckout || prod.title || "Purchase" },
+                unit_amount: amount_cents,
+              },
+              quantity: 1,
+            },
+          ],
+          payment_intent_data: {
+            application_fee_amount: applicationFeeCents,
+            transfer_data: { destination },
+            metadata: meta,
+          },
+          metadata: meta,
+          success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${site}/dashboard`,
+        });
+      } catch (e) {
+        await supabase.from("orders").update({ status: "failed" }).eq("id", orderId);
+        throw e;
+      }
+
+      const piId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
+
+      await supabase
+        .from("orders")
+        .update({
+          stripe_checkout_session_id: session.id,
+          stripe_payment_intent_id: piId,
+        })
+        .eq("id", orderId);
+
+      await writePending(session.id, amount_cents, currency, orderId, creatorId);
+
+      await trackServerEvent("checkout_started", resolvedBuyerId, {
+        post_id: body.post_id,
+        product_id: body.product_id,
+        creator_id: creatorId,
+        price: amount_cents / 100,
+        product_type: "product",
+        order_id: orderId,
+      });
+
+      if (resolvedBuyerId && body.post_id) {
+        const { data: post } = await supabase
+          .from("posts")
+          .select("interests")
+          .eq("id", body.post_id)
+          .maybeSingle();
+        const interestCat = Array.isArray(post?.interests)
+          ? ((post.interests[0] as string) ?? null)
+          : null;
+        updateInterestScore(resolvedBuyerId, interestCat, 15);
+      }
+
       updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 });
 
-      return Response.json({ url: session.url, session_id: session.id });
+      return Response.json({
+        url: session.url,
+        session_id: session.id,
+        order_id: orderId,
+      });
     }
 
-    // ---- INSTALLMENTS (temporary: single payment until subs are ready) ----
     if (body.type === "installments") {
       const months = Number(body.plan_months);
       const per_cents = Number(body.plan_price_cents);
@@ -203,52 +310,136 @@ export async function POST(req: Request) {
 
       const { data: prod, error } = await supabase
         .from("products")
-        .select("id, product_id, title, currency")
+        .select("id, product_id, title, type, currency, creator_id")
         .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
 
       const currency = (prod?.currency as string) ?? "usd";
-
-      const session = await stripe.checkout.sessions.create({
-        mode: "payment",
-        payment_method_types: ["card"],
-        line_items: [
+      const instCreatorId =
+        body.creator_id || (prod as { creator_id?: string } | null)?.creator_id || null;
+      if (!instCreatorId || !(await isCreatorSellReady(instCreatorId))) {
+        return Response.json(
           {
-            price_data: {
-              currency,
-              product_data: { name: body.titleForCheckout || prod?.title || "Installment" },
-              unit_amount: per_cents,
-            },
-            quantity: 1,
+            error: "This creator is not accepting payments yet.",
+            code: "STRIPE_CONNECT_REQUIRED",
           },
-        ],
-        metadata: {
-          product_id: body.product_id,
-          post_id: body.post_id || "",
-          creator_id: body.creator_id || "",
-          buyer_id: body.buyer_id || "",
-          plan_months: String(months),
-          plan_price_cents: String(per_cents),
-        },
-        success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${site}/dashboard`,
+          { status: 403 }
+        );
+      }
+      const { data: instProfile } = await supabase
+        .from("profiles")
+        .select("stripe_account_id")
+        .eq("id", instCreatorId)
+        .maybeSingle();
+      const instDest = instProfile?.stripe_account_id as string | undefined;
+      if (!instDest) {
+        return Response.json(
+          { error: "This creator is not accepting payments yet.", code: "STRIPE_CONNECT_REQUIRED" },
+          { status: 403 }
+        );
+      }
+      const instFeeCents = Math.round(per_cents * PLATFORM_FEE_RATE);
+      const instCreatorAmount = per_cents - instFeeCents;
+      const productType = String((prod as { type?: string } | null)?.type ?? "installment");
+      const category = (body.category ?? "").trim();
+
+      const { data: orderRow, error: orderErr } = await supabase
+        .from("orders")
+        .insert({
+          buyer_user_id: resolvedBuyerId,
+          creator_id: instCreatorId,
+          post_id: body.post_id ?? null,
+          gross_amount: per_cents,
+          platform_fee: instFeeCents,
+          creator_amount: instCreatorAmount,
+          status: "pending",
+          currency,
+        })
+        .select("id")
+        .single();
+
+      if (orderErr || !orderRow?.id) {
+        throw new Error(`Failed to create order: ${orderErr?.message ?? "unknown"}`);
+      }
+      const orderId = orderRow.id as string;
+
+      const meta = stripeMetadataStrings({
+        order_id: orderId,
+        creator_id: instCreatorId,
+        post_id: body.post_id || "",
+        buyer_id: resolvedBuyerId || "",
+        buyer_user_id: resolvedBuyerId || "",
+        product_id: body.product_id,
+        product_type: productType,
+        category,
+        platform_fee_percent: PLATFORM_FEE_PERCENT_STR,
+        plan_months: String(months),
+        plan_price_cents: String(per_cents),
       });
 
-      await writePending(session.id, per_cents, currency);
+      let session: Stripe.Checkout.Session;
+      try {
+        session = await stripe.checkout.sessions.create({
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: [
+            {
+              price_data: {
+                currency,
+                product_data: { name: body.titleForCheckout || prod?.title || "Installment" },
+                unit_amount: per_cents,
+              },
+              quantity: 1,
+            },
+          ],
+          payment_intent_data: {
+            application_fee_amount: instFeeCents,
+            transfer_data: { destination: instDest },
+            metadata: meta,
+          },
+          metadata: meta,
+          success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${site}/dashboard`,
+        });
+      } catch (e) {
+        await supabase.from("orders").update({ status: "failed" }).eq("id", orderId);
+        throw e;
+      }
 
-      // Post metrics: increment checkout_starts
+      const piId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
+
+      await supabase
+        .from("orders")
+        .update({
+          stripe_checkout_session_id: session.id,
+          stripe_payment_intent_id: piId,
+        })
+        .eq("id", orderId);
+
+      await writePending(session.id, per_cents, currency, orderId, instCreatorId);
+
+      await trackServerEvent("checkout_started", resolvedBuyerId, {
+        post_id: body.post_id,
+        product_id: body.product_id,
+        creator_id: instCreatorId,
+        price: per_cents / 100,
+        product_type: "installment",
+        order_id: orderId,
+      });
+
       updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 });
 
-      return Response.json({ url: session.url, session_id: session.id });
+      return Response.json({ url: session.url, session_id: session.id, order_id: orderId });
     }
 
-    // ---- BOOKING (no Stripe) ----
     if (body.type === "booking") {
       if (!body.bookingRedirectUrl) throw new Error("bookingRedirectUrl required");
       if (!body.post_id) throw new Error("post_id is required for booking");
 
-      // Validate post exists and get creator_id if not provided
       let creator_id = body.creator_id;
       if (!creator_id || !body.post_id) {
         const { data: post, error: postErr } = await supabase
@@ -264,21 +455,16 @@ export async function POST(req: Request) {
         }
       }
 
-      const raw = body.bookingRedirectUrl.trim();
+      const rawUrl = body.bookingRedirectUrl.trim();
       let bookingUrl: string;
       try {
-        const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+        const parsed = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
         if (parsed.protocol !== "https:") throw new Error("bookingRedirectUrl must be https");
         bookingUrl = parsed.toString();
       } catch {
         throw new Error("bookingRedirectUrl must be a valid https URL");
       }
 
-      console.log("[checkout] creating booking session with:", {
-        post_id: body.post_id,
-        creator_id: creator_id,
-        booking_redirect_url: bookingUrl,
-      });
       const session = await stripe.checkout.sessions.create({
         mode: "setup",
         payment_method_types: ["card"],
@@ -291,14 +477,13 @@ export async function POST(req: Request) {
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}&kind=booking`,
         cancel_url: `${site}/dashboard`,
       });
-      console.log("[checkout] booking session created:", { session_id: session.id, metadata: session.metadata });
 
       return Response.json({ url: session.url, session_id: session.id });
     }
 
     return new Response("Unsupported type", { status: 400 });
-  } catch (e: any) {
-    const msg = e?.message || "Checkout error";
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : "Checkout error";
     return Response.json({ error: msg }, { status: 500 });
   }
 }

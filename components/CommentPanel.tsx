@@ -48,7 +48,7 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
           .from("profiles")
           .select("username, avatar_url")
           .eq("id", user.id)
-          .single();
+          .maybeSingle();
         
         setCurrentUser({
           id: user.id,

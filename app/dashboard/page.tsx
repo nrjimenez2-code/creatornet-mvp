@@ -9,6 +9,7 @@ import PostComposerModal from "@/components/PostComposerModal";
 import SearchDrawer from "@/components/SearchDrawer";
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
+import StripeConnectBanner from "@/components/StripeConnectBanner";
 import { createClient } from "@/lib/supabaseClient";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
@@ -212,7 +213,11 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
               </Link>
             </nav>
 
-            <div className="mt-6 flex justify-center lg:justify-start">
+            <div className="mt-6 space-y-3">
+              <StripeConnectBanner />
+            </div>
+
+            <div className="mt-4 flex justify-center lg:justify-start">
               <SidebarSignOutButton />
             </div>
           </div>

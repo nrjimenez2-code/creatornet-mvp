@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 
 /**
  * POST /api/posts – create a post (server-side so product_id FK is verified with admin client)
@@ -66,6 +67,19 @@ export async function POST(req: Request) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const finalProductId =
       resolvedProductId && uuidRegex.test(resolvedProductId) ? resolvedProductId : null;
+
+    const selling =
+      !!finalProductId || (typeof price_cents === "number" && price_cents > 0);
+    if (selling && !(await isCreatorSellReady(user.id))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Connect Stripe in the dashboard to sell products or enable bookings.",
+          code: "STRIPE_CONNECT_REQUIRED",
+        },
+        { status: 403 }
+      );
+    }
 
     const postRow = {
       creator_id: user.id,

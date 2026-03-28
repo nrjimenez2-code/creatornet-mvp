@@ -42,8 +42,12 @@ export default function PostProductRenderer({
       setLoading(true);
       const res = await fetch('/api/checkout', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ productId: product.id }),
+        body: JSON.stringify({
+          type: 'product',
+          product_id: product.id,
+        }),
       });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error || 'Checkout error');

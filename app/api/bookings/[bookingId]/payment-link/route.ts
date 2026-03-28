@@ -122,6 +122,26 @@ export async function POST(
       return NextResponse.json({ error: "Product amount must be at least 50 cents" }, { status: 400 });
     }
 
+    const { data: creatorProfile, error: creatorProfileErr } = await admin
+      .from("profiles")
+      .select("stripe_account_id, stripe_onboarding_complete")
+      .eq("id", booking.creator_id)
+      .maybeSingle();
+
+    if (creatorProfileErr) throw creatorProfileErr;
+
+    if (!creatorProfile?.stripe_account_id || !creatorProfile.stripe_onboarding_complete) {
+      return NextResponse.json(
+        {
+          error: "Creator must finish Stripe Connect before sending payment links.",
+          code: "STRIPE_CONNECT_REQUIRED",
+        },
+        { status: 403 }
+      );
+    }
+
+    const creatorStripeAccountId = creatorProfile.stripe_account_id;
+
     const currency = product.currency || "usd";
     const paymentId = randomUUID();
     const nowIso = new Date().toISOString();
@@ -196,6 +216,10 @@ export async function POST(
             quantity: 1,
           },
         ],
+        payment_intent_data: {
+          application_fee_amount: platformFeeCents,
+          transfer_data: { destination: creatorStripeAccountId },
+        },
         metadata: metadataBase,
         success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${SITE_URL}/dashboard`,
@@ -222,6 +246,8 @@ export async function POST(
           },
         ],
         subscription_data: {
+          application_fee_percent: PLATFORM_FEE_RATE * 100,
+          transfer_data: { destination: creatorStripeAccountId },
           metadata: metadataBase,
         },
         metadata: metadataBase,
