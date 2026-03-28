@@ -683,7 +683,6 @@ export default function VideoCard(props: VideoCardProps) {
       alert((e as Error).message || "Failed to start checkout.");
     }
   }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId]);
-
   // Fire-and-forget interest score update (never blocks UI)
   const scoreInterest = useCallback((delta: number) => {
     const pid = postIdRef.current;
