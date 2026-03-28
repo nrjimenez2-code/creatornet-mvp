@@ -152,6 +152,7 @@ export default function LibraryClient() {
                       className="h-full w-full object-cover"
                       muted
                       playsInline
+                      preload="none"
                     />
                   )}
                 </div>

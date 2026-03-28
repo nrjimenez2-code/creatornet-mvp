@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { trackEvent } from "@/lib/posthog";
 
 type Props = { sessionId: string | null };
 
@@ -27,6 +28,7 @@ export default function SuccessClient({ sessionId }: Props) {
   const router = useRouter();
 
   const postId = params.get("post_id") || null;
+  const kind = params.get("kind") || null;
 
   const [state, setState] = useState<ViewState>({ phase: "checking" });
 
@@ -74,6 +76,10 @@ export default function SuccessClient({ sessionId }: Props) {
         fulfillmentUrl,
         status,
       });
+
+      if (kind === "booking") {
+        trackEvent("call_booked", { post_id: postId });
+      }
 
       if (fulfillmentUrl) {
         stop.current = true;

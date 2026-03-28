@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { trackEvent } from "@/lib/posthog";
 
 type Interest =
   | "Entrepreneurship"
@@ -105,6 +106,7 @@ export default function Page() {
       return;
     }
 
+    trackEvent("onboarding_completed", { user_id: userId, interests: selected });
     router.replace("/dashboard");
   }
 

@@ -6,6 +6,7 @@ import Link from "next/link";
 import BackButton from "@/components/BackButton";
 // import { createBrowserClient } from "@/lib/supabaseBrowser"; // not used here
 import { debounce, DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { trackEvent } from "@/lib/posthog";
 
 type Creator = {
   id: string;
@@ -169,6 +170,11 @@ function SearchPage() {
       setSuggestedCreators(suggestedC);
       setSuggestedPosts(suggestedP);
       setIsTagSearch(Boolean(payload.isTagSearch));
+
+      trackEvent("search_performed", {
+        query: q,
+        results_count: mappedCreators.length + mappedPosts.length,
+      });
     } finally {
       setLoading(false);
     }
@@ -204,10 +210,13 @@ function SearchPage() {
     doSearch(query);
   };
 
-  const pick = (term: string) => {
+  const pick = (term: string, isCategory = false) => {
     setQuery(term);
     pushRecent(term);
     doSearch(term);
+    if (isCategory) {
+      trackEvent("category_clicked", { category: term.toLowerCase() });
+    }
   };
 
   // UI
@@ -263,7 +272,7 @@ function SearchPage() {
             ].map((c) => (
               <button
                 key={c}
-                onClick={() => pick(c)}
+                onClick={() => pick(c, true)}
                 className={`px-3 py-1.5 rounded-full border text-sm transition ${
                   query.toLowerCase() === c.toLowerCase()
                     ? "bg-[#4A35C7] text-white border-[#4A35C7]"
@@ -565,7 +574,7 @@ function PostsGrid({ items }: { items: Post[] }) {
                 muted
                 loop
                 playsInline
-                preload="metadata"
+                preload="none"
               />
             ) : (
               <div className="flex h-full w-full items-center justify-center text-xs text-white/60">
@@ -604,6 +613,7 @@ function PostsGrid({ items }: { items: Post[] }) {
                       controls
                       autoPlay={index === activeIndex}
                       playsInline
+                      preload="none"
                     />
                   ) : post.poster_url ? (
                     <img

@@ -10,6 +10,7 @@ type Post = {
   title: string | null;
   video_url: string | null;
   poster_url: string | null;
+  interests: string[] | null;
 };
 
 type LoadProgressResponse =
@@ -39,6 +40,27 @@ export default function WatchClient({ postId }: { postId: string }) {
 
   const resumeTargetRef = useRef<number | null>(null);
   const lastSaveAtRef = useRef<number>(0);
+  const hasTrackedViewRef = useRef(false);
+  const hasTracked50Ref = useRef(false);
+  const hasTrackedCompleteRef = useRef(false);
+
+  // Fire-and-forget interest score update
+  function scoreInterest(delta: number) {
+    fetch("/api/interest-score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: postId, delta }),
+    }).catch(() => {});
+  }
+
+  // Fire-and-forget post metrics update
+  function trackMetric(field: string, watchSeconds?: number) {
+    fetch("/api/post-metrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: postId, field, watch_seconds: watchSeconds }),
+    }).catch(() => {});
+  }
 
   /** ---------------- Fetch post + auth + resume ---------------- */
   useEffect(() => {
@@ -50,7 +72,7 @@ export default function WatchClient({ postId }: { postId: string }) {
           supabase.auth.getUser(),
           supabase
             .from("posts")
-            .select("id,title,video_url,poster_url")
+            .select("id,title,video_url,poster_url,interests")
             .eq("id", postId)
             .single(),
         ]);
@@ -134,11 +156,30 @@ export default function WatchClient({ postId }: { postId: string }) {
 
     const onTime = () => {
       setCurrentTime(v.currentTime || 0);
-      // throttle autosave
       maybeSaveProgress(v.currentTime);
+      // Interest scoring based on watch progress
+      if (v.duration) {
+        const pct = (v.currentTime / v.duration) * 100;
+        if (pct >= 50 && !hasTracked50Ref.current) {
+          hasTracked50Ref.current = true;
+          scoreInterest(2);
+        }
+        if (pct >= 90 && !hasTrackedCompleteRef.current) {
+          hasTrackedCompleteRef.current = true;
+          scoreInterest(3);
+          trackMetric("completions", Math.round(v.currentTime));
+        }
+      }
     };
 
-    const onPlay = () => setIsPlaying(true);
+    const onPlay = () => {
+      setIsPlaying(true);
+      if (!hasTrackedViewRef.current) {
+        hasTrackedViewRef.current = true;
+        scoreInterest(1);
+        trackMetric("views");
+      }
+    };
     const onPause = () => {
       setIsPlaying(false);
       // flush save on pause
@@ -310,6 +351,7 @@ export default function WatchClient({ postId }: { postId: string }) {
             muted
             loop
             controls={false}
+            preload="none"
           />
 
           {/* Fullscreen button */}

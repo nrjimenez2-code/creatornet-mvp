@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
+import { trackEvent } from "@/lib/posthog";
 
 type FollowButtonProps = {
   creatorId: string;
@@ -90,6 +91,9 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
       if (res.ok && data.success !== undefined) {
         // Update with server response
         setFollowing(data.following);
+        if (data.following) {
+          trackEvent("followed_creator", { creator_id: creatorId });
+        }
     } else {
         // Revert on error
         setFollowing(previousFollowingState);

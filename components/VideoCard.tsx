@@ -8,6 +8,7 @@ import { supabase } from "@/lib/supabaseClient";
 import CommentPanel from "./CommentPanel";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { trackEvent, normalizeCategory } from "@/lib/posthog";
 
 type VideoCardProps = {
   src?: string;
@@ -33,6 +34,7 @@ type VideoCardProps = {
   followable?: boolean;
   onFollow?: () => void;
   postId?: string | null;
+  postCategory?: string | null;
   productId?: string | null;
   creatorId?: string | null;
   priceCents?: number | null;
@@ -83,6 +85,7 @@ export default function VideoCard(props: VideoCardProps) {
     followable,
     onFollow,
     postId = null,
+    postCategory = null,
     productId = null,
     creatorId = null,
     priceCents = null,
@@ -131,6 +134,23 @@ export default function VideoCard(props: VideoCardProps) {
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
   const { userId: cachedUserId } = useUser();
+
+  // Refs for analytics (allow stable event-listener closures to access latest prop values)
+  const postIdRef = useRef(postId);
+  const creatorIdRef = useRef(creatorId);
+  const categoryRef = useRef<string | null>(postCategory ? normalizeCategory(postCategory) : null);
+  const hasTrackedViewRef = useRef(false);
+  const hasTrackedCompleteRef = useRef(false);
+  const hasTracked50Ref = useRef(false);
+  useEffect(() => { postIdRef.current = postId; }, [postId]);
+  useEffect(() => { creatorIdRef.current = creatorId; }, [creatorId]);
+  useEffect(() => { categoryRef.current = postCategory ? normalizeCategory(postCategory) : null; }, [postCategory]);
+  // Reset per-video tracking flags when the post changes
+  useEffect(() => {
+    hasTrackedViewRef.current = false;
+    hasTrackedCompleteRef.current = false;
+    hasTracked50Ref.current = false;
+  }, [postId]);
 
   const displayTitle = title ?? caption ?? "";
   const displayCreator = creatorName ?? creator ?? "Creator";
@@ -230,12 +250,42 @@ export default function VideoCard(props: VideoCardProps) {
     if (!video) return;
 
     const handleTimeUpdate = () => {
-      if (video.duration) {
-        setProgress((video.currentTime / video.duration) * 100);
+      if (!video.duration) return;
+      const pct = (video.currentTime / video.duration) * 100;
+      setProgress(pct);
+      if (pct >= 50 && !hasTracked50Ref.current) {
+        hasTracked50Ref.current = true;
+        scoreInterest(2);
+      }
+      if (pct >= 90 && !hasTrackedCompleteRef.current) {
+        hasTrackedCompleteRef.current = true;
+        trackEvent("video_completed", {
+          post_id: postIdRef.current,
+          creator_id: creatorIdRef.current,
+          category: categoryRef.current,
+          percent_watched: Math.round(pct),
+          watch_time_seconds: Math.round(video.currentTime),
+        });
+        scoreInterest(3);
+        trackMetric("completions", Math.round(video.currentTime));
       }
     };
 
-    const handlePlay = () => setIsPaused(false);
+    const handlePlay = () => {
+      setIsPaused(false);
+      if (!hasTrackedViewRef.current) {
+        hasTrackedViewRef.current = true;
+        trackEvent("video_viewed", {
+          post_id: postIdRef.current,
+          creator_id: creatorIdRef.current,
+          category: categoryRef.current,
+          watch_time_seconds: Math.round(video.currentTime ?? 0),
+          percent_watched: 0,
+        });
+        scoreInterest(1);
+        trackMetric("views");
+      }
+    };
     const handlePause = () => setIsPaused(true);
     const handleCanPlay = () => setHasLoaded(true);
 
@@ -274,11 +324,16 @@ export default function VideoCard(props: VideoCardProps) {
       const container = containerRef.current;
       if (!container) return;
 
+      let hasTrackedImpression = false;
       const observer = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting && entry.intersectionRatio >= 0.75) {
               video.play().catch(() => {});
+              if (!hasTrackedImpression) {
+                hasTrackedImpression = true;
+                trackMetric("impressions");
+              }
             } else {
               video.pause();
             }
@@ -385,6 +440,13 @@ export default function VideoCard(props: VideoCardProps) {
         // Update with server response
         setLiked(data.liked);
         setLk(data.likes_count ?? previousCount);
+        if (data.liked) {
+          trackEvent("video_liked", {
+            post_id: postId,
+            creator_id: creatorId,
+            category: postCategory ? normalizeCategory(postCategory) : null,
+          });
+        }
       } else {
         // Revert on error
         setLiked(wasLiked);
@@ -536,6 +598,10 @@ export default function VideoCard(props: VideoCardProps) {
         // State already updated optimistically
       }
       
+      // Track follow (not unfollow)
+      if (!previousState && creatorId) {
+        trackEvent("followed_creator", { creator_id: creatorId });
+      }
       // Notify parent component to update cached feed data
       if (onFollowChange && creatorId) {
         onFollowChange(creatorId, !previousState);
@@ -551,6 +617,17 @@ export default function VideoCard(props: VideoCardProps) {
   }, [canFollow, creatorId, followLoading, isFollowing, onFollow, onFollowChange, supabase, cachedUserId]);
 
   const handleBuy = useCallback(async () => {
+    trackEvent("buy_clicked", {
+      post_id: postId,
+      creator_id: creatorId,
+      product_id: productId,
+      price: priceCents ? priceCents / 100 : null,
+      product_type: productType,
+      category: postCategory ? normalizeCategory(postCategory) : null,
+    });
+    scoreInterest(10);
+    trackMetric("buy_clicks");
+
     if (onBuy) {
       onBuy();
       return;
@@ -607,7 +684,35 @@ export default function VideoCard(props: VideoCardProps) {
     }
   }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId]);
 
+  // Fire-and-forget interest score update (never blocks UI)
+  const scoreInterest = useCallback((delta: number) => {
+    const pid = postIdRef.current;
+    if (!pid) return;
+    fetch("/api/interest-score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: pid, delta }),
+    }).catch(() => {});
+  }, []);
+
+  // Fire-and-forget post metrics update
+  const trackMetric = useCallback((field: string, watchSeconds?: number) => {
+    const pid = postIdRef.current;
+    if (!pid) return;
+    fetch("/api/post-metrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: pid, field, watch_seconds: watchSeconds }),
+    }).catch(() => {});
+  }, []);
+
   const handleBook = useCallback(async () => {
+    trackEvent("call_booking_started", {
+      post_id: postIdRef.current,
+      creator_id: creatorIdRef.current,
+      category: categoryRef.current,
+    });
+
     if (onBook) {
       onBook();
       return;
@@ -660,6 +765,7 @@ export default function VideoCard(props: VideoCardProps) {
 
     // If creatorId is available, navigate immediately
     if (creatorId) {
+      trackMetric("profile_clicks");
       navigateToProfile(creatorId);
       return;
     }
@@ -684,6 +790,7 @@ export default function VideoCard(props: VideoCardProps) {
 
       const payload = (await res.json()) as { creatorId?: string };
       if (payload?.creatorId) {
+        trackMetric("profile_clicks");
         navigateToProfile(payload.creatorId);
       } else {
         console.warn("[VideoCard] creatorId missing in API response for postId:", postId);

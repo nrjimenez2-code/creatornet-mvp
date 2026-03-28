@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import VideoCard from "./VideoCard";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
+import { trackEvent, normalizeCategory } from "@/lib/posthog";
 
 export type Tab = "following" | "discover";
 
@@ -49,6 +50,8 @@ function isUnreliableVideoUrl(url: string | null): boolean {
   }
 }
 
+const PAGE_SIZE = 20;
+
 export default function FeedList({ activeTab, highlightPostId }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId } = useUser(); // only for likes + follow state; feed fetch gets its own auth inside effect
@@ -56,6 +59,22 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const offsetRef = useRef(0);
+  const hasMoreRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const viewerIdRef = useRef<string | null>(null);
+
+  // Sync viewerId to ref so loadMore can read it without stale closure
+  useEffect(() => {
+    viewerIdRef.current = viewerId ?? null;
+  }, [viewerId]);
+
+  // Track feed_viewed once on mount
+  useEffect(() => {
+    trackEvent("feed_viewed");
+  }, []);
   const [globalSoundOn, setGlobalSoundOn] = useState(false);
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
@@ -74,6 +93,11 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   useEffect(() => {
     let cancelled = false;
 
+    // Reset pagination on every tab change / reload
+    offsetRef.current = 0;
+    hasMoreRef.current = false;
+    setHasMore(false);
+
     // Always set loading when fetching (including tab switches)
     setLoading(true);
     setFeedError(null);
@@ -90,10 +114,28 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         let error: { message: string; code?: string } | null = null;
 
         if (activeTab === "discover") {
-          const result = await supabase.rpc("get_feed_v1", discoverParams);
-          data = result.data;
-          error = result.error;
-          console.log("[Feed] get_feed_v1(discover) — isArray:", Array.isArray(data), "length:", Array.isArray(data) ? (data as unknown[]).length : 0, "error:", error?.message ?? null);
+          const ranked = await supabase.rpc("get_feed_v2", {
+            p_user_id: feedViewerId,
+            p_limit: 20,
+            p_offset: 0,
+          });
+          error = ranked.error;
+          if (!ranked.error && Array.isArray(ranked.data) && ranked.data.length > 0) {
+            const postIds = (ranked.data as { post_id: string }[]).map((r) => r.post_id);
+            const postsResult = await supabase
+              .from("posts")
+              .select("id, creator_id, product_id, title, video_url, poster_url, interests, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
+              .in("id", postIds);
+            if (postsResult.error) {
+              error = postsResult.error;
+            } else {
+              const postMap = new Map((postsResult.data ?? []).map((p: any) => [p.id, p]));
+              data = postIds.map((id) => postMap.get(id)).filter(Boolean);
+            }
+          } else if (!ranked.error) {
+            data = [];
+          }
+          console.log("[Feed] get_feed_v2(discover) — length:", Array.isArray(data) ? (data as unknown[]).length : 0, "error:", error?.message ?? null);
         } else {
           if (!feedViewerId) {
             // Following feed needs a logged-in user; keep UI stable if session is temporarily unavailable.
@@ -366,6 +408,11 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           setItems(mapped);
           setFeedError(null);
           setLoading(false);
+          // Set up pagination for discover tab
+          offsetRef.current = mapped.length;
+          const canLoadMore = activeTab === "discover" && mapped.length >= PAGE_SIZE;
+          hasMoreRef.current = canLoadMore;
+          setHasMore(canLoadMore);
           if (mapped.length) {
             setActivePostId((prev) => prev ?? mapped[0]?.id ?? null);
           }
@@ -472,6 +519,18 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     };
   }, [activeTab, supabase]);
 
+  // Track video_impression when a new post enters view
+  useEffect(() => {
+    if (!activePostId) return;
+    const post = items.find((p) => p.id === activePostId);
+    if (!post) return;
+    trackEvent("video_impression", {
+      post_id: activePostId,
+      creator_id: post.creator_id,
+      category: normalizeCategory(post.interests?.[0] ?? null),
+    });
+  }, [activePostId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Scroll to highlighted post when it loads
   useEffect(() => {
     if (highlightPostId && items.length > 0) {
@@ -530,6 +589,213 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     [items, activePostId]
   );
 
+  // Load next page of posts from the posts table directly (discover only)
+  const loadMore = useCallback(async () => {
+    if (!hasMoreRef.current || loadingMoreRef.current) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+
+    const currentOffset = offsetRef.current;
+    const feedViewerId = viewerIdRef.current;
+
+    try {
+      const ranked = await supabase.rpc("get_feed_v2", {
+        p_user_id: feedViewerId,
+        p_limit: PAGE_SIZE,
+        p_offset: currentOffset,
+      });
+
+      if (ranked.error) {
+        console.error("[Feed] loadMore error:", ranked.error);
+        return;
+      }
+
+      const rankedRows = Array.isArray(ranked.data) ? ranked.data as { post_id: string }[] : [];
+      if (!rankedRows.length) {
+        hasMoreRef.current = false;
+        setHasMore(false);
+        return;
+      }
+
+      const postIds = rankedRows.map((r) => r.post_id);
+      const { data: rawData, error: postsError } = await supabase
+        .from("posts")
+        .select("id, creator_id, product_id, title, video_url, poster_url, interests, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
+        .in("id", postIds);
+
+      if (postsError) {
+        console.error("[Feed] loadMore posts error:", postsError);
+        return;
+      }
+
+      // Reorder to match ranked order
+      const postMap = new Map((rawData ?? []).map((p: any) => [p.id, p]));
+      const rows = postIds.map((id) => postMap.get(id)).filter(Boolean) as any[];
+
+      if (!rows.length) {
+        hasMoreRef.current = false;
+        setHasMore(false);
+        return;
+      }
+
+      // Map to PostRow
+      const baseRows: PostRow[] = rows
+        .map((r: any) => {
+          const trimmedVideo = typeof r.video_url === "string" ? r.video_url.trim() : null;
+          const videoUrl = trimmedVideo && !isUnreliableVideoUrl(trimmedVideo) ? trimmedVideo : null;
+          return {
+            id: r.id,
+            creator_id: r.creator_id ?? null,
+            product_id: r.product_id ?? null,
+            price_cents: r.price_cents ?? 0,
+            title: r.title ?? null,
+            video_url: videoUrl,
+            poster_url: typeof r.poster_url === "string" ? r.poster_url.trim() : null,
+            content: r.title ?? "",
+            interests: Array.isArray(r.interests) ? r.interests : [],
+            created_at: r.created_at ?? null,
+            likes_count: r.likes_count ?? 0,
+            comments_count: r.comments_count ?? 0,
+            shares_count: r.shares_count ?? 0,
+            allow_booking: r.allow_booking ?? false,
+            booking_url: r.booking_url ?? null,
+            is_following: false,
+            creator_name: null,
+            creator_avatar_url: null,
+          };
+        })
+        .filter((p) => p.video_url || p.poster_url);
+
+      if (!baseRows.length) {
+        offsetRef.current = currentOffset + rankedRows.length;
+        const newHasMore = rankedRows.length >= PAGE_SIZE;
+        hasMoreRef.current = newHasMore;
+        setHasMore(newHasMore);
+        return;
+      }
+
+      const creatorIds = Array.from(
+        new Set(baseRows.map((p) => p.creator_id).filter((id): id is string => Boolean(id)))
+      );
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+
+      // Fetch product IDs override
+      try {
+        const res = await fetch(
+          `${origin}/api/posts/product-ids?ids=${encodeURIComponent(postIds.join(","))}`,
+          { credentials: "include" }
+        );
+        const productIdByPostId = (await res.json().catch(() => ({}))) as Record<string, string | null>;
+        baseRows.forEach((p) => {
+          if (p.id in productIdByPostId) {
+            (p as { product_id: string | null }).product_id = productIdByPostId[p.id] ?? null;
+          }
+        });
+      } catch {}
+
+      const productIds = Array.from(
+        new Set(baseRows.map((p) => p.product_id).filter((id): id is string => Boolean(id)))
+      );
+
+      const [productRes, profileRes, likesRes, followsRes] = await Promise.all([
+        productIds.length
+          ? supabase
+              .from("products")
+              .select("product_id, type, amount_cents, price_cents")
+              .in("product_id", productIds)
+          : Promise.resolve(null),
+        creatorIds.length
+          ? fetch(
+              `${origin}/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
+              { credentials: "include" }
+            )
+              .then(async (r) => {
+                const body = (await r.json().catch(() => ({}))) as {
+                  profiles?: Array<{ id: string; full_name: string | null; username: string | null; avatar_url: string | null }>;
+                };
+                if (!r.ok) return { data: [], error: null };
+                return { data: body.profiles ?? [], error: null };
+              })
+              .catch(() => ({ data: [], error: null }))
+          : Promise.resolve({ data: [], error: null }),
+        feedViewerId && postIds.length
+          ? supabase.from("likes").select("post_id").eq("user_id", feedViewerId).in("post_id", postIds)
+          : Promise.resolve(null),
+        feedViewerId && creatorIds.length
+          ? supabase.from("follows").select("following_id").eq("follower_id", feedViewerId).in("following_id", creatorIds)
+          : Promise.resolve(null),
+      ]);
+
+      const productMetaMap = new Map<string, { type: string | null; price: number | null }>();
+      if (productRes?.data) {
+        for (const row of productRes.data) {
+          const typed = row as { product_id: string; type?: string | null; amount_cents?: number | null; price_cents?: number | null };
+          const derivedPrice =
+            (typeof typed.amount_cents === "number" && typed.amount_cents > 0 && typed.amount_cents) ||
+            (typeof typed.price_cents === "number" && typed.price_cents > 0 && typed.price_cents) ||
+            null;
+          productMetaMap.set(typed.product_id, { type: typed.type ?? null, price: derivedPrice });
+        }
+      }
+
+      const profileMap = new Map<string, { full_name: string | null; username: string | null; avatar_url: string | null }>();
+      if (profileRes?.data) {
+        for (const row of profileRes.data) {
+          const typed = row as { id: string; full_name?: string | null; username?: string | null; avatar_url?: string | null };
+          profileMap.set(typed.id, { full_name: typed.full_name ?? null, username: typed.username ?? null, avatar_url: typed.avatar_url ?? null });
+        }
+      }
+
+      const likedPostIds = new Set<string>(likesRes?.data?.map((l) => l.post_id as string) ?? []);
+      const followedCreatorIds = new Set<string>(followsRes?.data?.map((r) => r.following_id as string) ?? []);
+
+      const mapped: PostRow[] = baseRows.map((p) => {
+        const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
+        const meta = p.product_id ? productMetaMap.get(p.product_id) : null;
+        const resolvedPrice =
+          typeof p.price_cents === "number" && p.price_cents > 0
+            ? p.price_cents
+            : meta?.price ?? p.price_cents ?? 0;
+        return {
+          ...p,
+          price_cents: resolvedPrice,
+          product_type: p.product_id ? meta?.type ?? null : null,
+          creator_name: profile?.full_name ?? profile?.username ?? null,
+          creator_avatar_url: profile?.avatar_url ?? null,
+          is_liked: likedPostIds.has(p.id),
+          is_following: p.creator_id ? followedCreatorIds.has(p.creator_id) : false,
+        };
+      });
+
+      // Update offset and hasMore
+      offsetRef.current = currentOffset + rankedRows.length;
+      const newHasMore = rankedRows.length >= PAGE_SIZE;
+      hasMoreRef.current = newHasMore;
+      setHasMore(newHasMore);
+
+      // Deduplicate and append
+      setItems((prev) => {
+        const existingIds = new Set(prev.map((p) => p.id));
+        const newItems = mapped.filter((p) => !existingIds.has(p.id));
+        return newItems.length ? [...prev, ...newItems] : prev;
+      });
+    } catch (err) {
+      console.error("[Feed] loadMore error:", err);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [supabase]);
+
+  // Trigger loadMore when user is within 3 posts of the end (discover only)
+  useEffect(() => {
+    if (activeTab !== "discover" || !activePostId || !items.length) return;
+    const currentIndex = items.findIndex((p) => p.id === activePostId);
+    if (currentIndex >= items.length - 3) {
+      loadMore();
+    }
+  }, [activePostId, items.length, activeTab, loadMore]);
+
   if (loading && items.length === 0) {
     return (
       <div className="w-full flex justify-center py-10 text-sm text-gray-500">
@@ -561,7 +827,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   return (
     <div className="relative h-full min-h-0">
       <div
-        className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
+        className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory lg:snap-proximity [&::-webkit-scrollbar]:hidden scroll-smooth"
         style={{ scrollbarWidth: "none" }}
       >
         {items.map((p, idx) => {
@@ -578,7 +844,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           return (
             <section
               key={`${p.id}-${idx}`}
-              className="snap-start snap-always h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
+              className="snap-start snap-always lg:snap-normal h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
          
               data-post-id={p.id}
               ref={(el) => {
@@ -613,6 +879,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                   // CTA & commerce
                   showCTA={showCTA}
                   postId={p.id}
+                  postCategory={normalizeCategory(p.interests?.[0] ?? null)}
                   productId={p.product_id ?? null}
                   creatorId={p.creator_id ?? null}
                   priceCents={price}
@@ -633,6 +900,11 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             </section>
           );
         })}
+        {loadingMore && (
+          <div className="h-16 flex items-center justify-center text-sm text-gray-500">
+            Loading more…
+          </div>
+        )}
       </div>
 
       {/* Desktop-only feed navigation controls */}

@@ -2,6 +2,9 @@
 import "server-only";
 import Stripe from "stripe";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { trackServerEvent } from "@/lib/posthogServer";
+import { updateInterestScore } from "@/lib/updateInterestScore";
+import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
 export const runtime = "nodejs";
 
@@ -170,6 +173,24 @@ export async function POST(req: Request) {
       });
 
       await writePending(session.id, amount_cents, currency);
+      await trackServerEvent("checkout_started", body.buyer_id ?? null, {
+        post_id: body.post_id,
+        product_id: body.product_id,
+        creator_id: body.creator_id,
+        price: amount_cents / 100,
+        product_type: "product",
+      });
+
+      // Score: +15 for starting checkout
+      if (body.buyer_id && body.post_id) {
+        const { data: post } = await supabase.from("posts").select("interests").eq("id", body.post_id).maybeSingle();
+        const category = Array.isArray(post?.interests) ? (post.interests[0] as string ?? null) : null;
+        updateInterestScore(body.buyer_id, category, 15);
+      }
+
+      // Post metrics: increment checkout_starts
+      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 });
+
       return Response.json({ url: session.url, session_id: session.id });
     }
 
@@ -215,6 +236,10 @@ export async function POST(req: Request) {
       });
 
       await writePending(session.id, per_cents, currency);
+
+      // Post metrics: increment checkout_starts
+      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 });
+
       return Response.json({ url: session.url, session_id: session.id });
     }
 

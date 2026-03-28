@@ -11,10 +11,12 @@ export async function GET(req: NextRequest) {
   const userId = userRes?.user?.id ?? null;
 
   const limit = Number(req.nextUrl.searchParams.get("limit") || 20);
+  const offset = Number(req.nextUrl.searchParams.get("offset") || 0);
 
-  const { data, error } = await supabase.rpc("get_feed_v1", {
+  const { data, error } = await supabase.rpc("get_feed_v2", {
     p_user_id: userId,
     p_limit: limit,
+    p_offset: offset,
   });
 
   if (error) {
