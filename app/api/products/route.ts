@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripe } from "@/lib/stripe";
+import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 function dollarsToCents(d: unknown): number | null {
   const s = String(d ?? "").trim();
   if (!s) return null;
@@ -92,6 +93,17 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (authErr || !user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!(await isCreatorSellReady(user.id))) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Connect Stripe in the dashboard before creating products.",
+          code: "STRIPE_CONNECT_REQUIRED",
+        },
+        { status: 403 }
+      );
     }
 
     const body = await req.json().catch(() => ({}));

@@ -201,6 +201,7 @@ export default function PostComposer({ onPosted }: Props) {
   const [posting, setPosting] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [creatingProduct, setCreatingProduct] = useState(false);
+  const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
 
   // Derived: hashtags from caption (kept up to date as you type)
   const hashtags = useMemo(() => extractHashtags(caption), [caption]);
@@ -240,6 +241,32 @@ export default function PostComposer({ onPosted }: Props) {
     })();
     return () => { cancelled = true; };
   }, [userId]);
+
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/stripe/connect/status");
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setStripeSellReady(!!data?.onboarding_complete);
+      } catch {
+        if (!cancelled) setStripeSellReady(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (stripeSellReady === false) {
+      setAttachBuy(false);
+      setProductId(null);
+      setNewProdOpen(false);
+      setPriceDollars("");
+    }
+  }, [stripeSellReady]);
 
   const chars = caption.trim().length;
 
@@ -361,7 +388,11 @@ export default function PostComposer({ onPosted }: Props) {
       });
       const postData = await postRes.json().catch(() => null);
       if (!postRes.ok || !postData?.success) {
-        throw new Error(postData?.error ?? "Failed to create post");
+        const msg =
+          postData?.code === "STRIPE_CONNECT_REQUIRED"
+            ? "Connect Stripe on the dashboard to sell products or set a price."
+            : postData?.error ?? "Failed to create post";
+        throw new Error(msg);
       }
       if (postData?.warning) {
         alert(postData.warning);
@@ -435,9 +466,15 @@ export default function PostComposer({ onPosted }: Props) {
             value={priceDollars}
             onChange={(e) => setPriceDollars(e.target.value)}
             placeholder="Optional, e.g. 25 for $25"
-            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
+            disabled={stripeSellReady === false}
+            className="flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80 disabled:opacity-50"
           />
         </div>
+        {stripeSellReady === false && (
+          <p className="text-xs text-amber-200/90">
+            Set a price after you connect Stripe (dashboard sidebar).
+          </p>
+        )}
       </div>
 
       {/* Product attach */}
@@ -447,12 +484,18 @@ export default function PostComposer({ onPosted }: Props) {
             type="checkbox"
             className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
             checked={attachBuy}
+            disabled={stripeSellReady === false}
             onChange={(e) => setAttachBuy(e.target.checked)}
           />
           Attach “Buy / Book” to this post
         </label>
+        {stripeSellReady === false && (
+          <p className="text-xs text-amber-200/90">
+            Connect Stripe on the dashboard to attach products.
+          </p>
+        )}
 
-        {attachBuy && (
+        {attachBuy && stripeSellReady !== false && (
           <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-3">
             <div className="flex gap-2">
               <select

@@ -37,6 +37,7 @@ export default function SuccessClient({ sessionId }: Props) {
   const pollIndex = useRef(0);
   const stop = useRef(false);
 
+  // eslint-disable-next-line
   const fetchOnce = useCallback(async () => {
     if (!sessionId) {
       setState({

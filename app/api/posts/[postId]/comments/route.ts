@@ -36,7 +36,7 @@ export async function GET(
 
     // Fetch user profiles for all commenters
     const userIds = Array.from(new Set((comments || []).map((c: any) => c.user_id).filter(Boolean)));
-    let profilesMap = new Map<string, { username: string; full_name: string | null; avatar_url: string | null }>();
+    const profilesMap = new Map<string, { username: string; full_name: string | null; avatar_url: string | null }>();
     
     if (userIds.length > 0) {
       const { data: profiles } = await admin

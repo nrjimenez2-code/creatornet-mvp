@@ -130,7 +130,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
     new Set((reviewsRes?.data ?? []).map((r: any) => r.reviewer_id).filter(Boolean))
   );
   
-  let reviewerMap = new Map<string, { full_name: string | null; username: string | null }>();
+  const reviewerMap = new Map<string, { full_name: string | null; username: string | null }>();
   if (reviewerIds.length > 0) {
     const { data: reviewerProfiles } = await admin
       .from("profiles")

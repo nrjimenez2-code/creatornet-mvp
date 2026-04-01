@@ -29,6 +29,7 @@ export default function SearchDrawer({ open, onClose }: Props) {
   // simple recent store in localStorage
   useEffect(() => {
     const raw = localStorage.getItem("recent_searches");
+    // eslint-disable-next-line
     if (raw) setRecent(JSON.parse(raw));
   }, []);
 

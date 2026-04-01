@@ -21,7 +21,7 @@ async function getUserFromRequest(req: NextRequest) {
     const cookieName = `sb-${new URL(SUPABASE_URL).host.split(".")[0]}-auth-token`;
     const raw = store.get(cookieName)?.value;
     if (raw) {
-      let val = raw.startsWith("base64-") ? raw.slice("base64-".length) : raw;
+      const val = raw.startsWith("base64-") ? raw.slice("base64-".length) : raw;
       try {
         const parsed = JSON.parse(val);
         token = Array.isArray(parsed) ? parsed[0] : parsed?.access_token ?? null;

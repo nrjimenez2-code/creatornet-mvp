@@ -162,6 +162,80 @@ async function attachFulfillmentIfEmpty(purchaseId: string, productId: string | 
   }
 }
 
+async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session) {
+  const orderId = (session.metadata?.order_id as string) || null;
+  if (!orderId) return;
+  const amount = typeof session.amount_total === "number" ? session.amount_total : 0;
+  const fee = Math.round(amount * PLATFORM_FEE_RATE);
+  const creatorAmt = Math.max(0, amount - fee);
+  const pi =
+    typeof session.payment_intent === "string"
+      ? session.payment_intent
+      : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
+  const paid = session.payment_status === "paid";
+  const { error } = await admin
+    .from("orders")
+    .update({
+      status: paid ? "paid" : "processing",
+      stripe_checkout_session_id: session.id,
+      stripe_payment_intent_id: pi,
+      stripe_payment_id: pi,
+      gross_amount: amount,
+      platform_fee: fee,
+      creator_amount: creatorAmt,
+      currency: session.currency || "usd",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", orderId);
+  if (error) console.warn("[webhook] finalizeOrderFromCheckoutSession:", error.message);
+}
+
+async function bumpCreatorEarningsAndPostPurchase(opts: {
+  creator_id: string | null;
+  post_id: string | null;
+  creator_amount_cents: number;
+}) {
+  const { creator_id, post_id, creator_amount_cents } = opts;
+  if (creator_id && creator_amount_cents > 0) {
+    const { data: prof, error: selErr } = await admin
+      .from("profiles")
+      .select("total_earnings_cents")
+      .eq("id", creator_id)
+      .maybeSingle();
+    if (
+      !selErr &&
+      prof &&
+      typeof (prof as { total_earnings_cents?: unknown }).total_earnings_cents === "number"
+    ) {
+      const cur = Number((prof as { total_earnings_cents: number }).total_earnings_cents) || 0;
+      const { error } = await admin
+        .from("profiles")
+        .update({ total_earnings_cents: cur + creator_amount_cents })
+        .eq("id", creator_id);
+      if (error && !/column|does not exist/i.test(error.message)) {
+        console.warn("[webhook] bumpCreatorEarnings:", error.message);
+      }
+    }
+  }
+  if (post_id) {
+    const { data: row, error: pErr } = await admin
+      .from("posts")
+      .select("purchase_count")
+      .eq("id", post_id)
+      .maybeSingle();
+    if (!pErr && row && typeof (row as { purchase_count?: number }).purchase_count === "number") {
+      const cur = Number((row as { purchase_count: number }).purchase_count) || 0;
+      const { error } = await admin
+        .from("posts")
+        .update({ purchase_count: cur + 1 })
+        .eq("id", post_id);
+      if (error && !/column|does not exist/i.test(error.message)) {
+        console.warn("[webhook] bumpPostPurchaseCount:", error.message);
+      }
+    }
+  }
+}
+
 // ---------- legacy (post/booking) flow ----------
 async function insertBookingFromSession(session: Stripe.Checkout.Session) {
   // For setup sessions, get buyer_id from customer email or metadata
@@ -397,10 +471,14 @@ function safeJson(val: any) {
 
 /** Seed/attach purchase rows for product checkouts (one-time or subscription). Returns purchase id if available. */
 async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session): Promise<string | null> {
-  const buyer_id = (session.metadata?.buyer_id as string) || null;
+  const buyer_id =
+    (session.metadata?.buyer_user_id as string) ||
+    (session.metadata?.buyer_id as string) ||
+    null;
   const product_id = (session.metadata?.product_id as string) || null;
   const post_id = (session.metadata?.post_id as string) || null;
   const creator_id = (session.metadata?.creator_id as string) || null;
+  const order_id = (session.metadata?.order_id as string) || null;
 
   const target_months =
     Number((session.metadata?.plan_months as string) || "1") > 0
@@ -415,6 +493,9 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
   const subscription_id = (session.subscription as string) || null;
   const amount_cents = typeof session.amount_total === "number" ? session.amount_total : null;
   const currency = session.currency || "usd";
+
+  const oneTimePaid =
+    session.mode === "payment" && session.payment_status === "paid" && !subscription_id;
 
   if (!buyer_id || !product_id) {
     console.warn("[webhook] product seed skipped (missing buyer_id/product_id)", {
@@ -440,16 +521,19 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       .from("purchases")
       .update({
         buyer_id,
+        buyer_user_id: buyer_id,
+        user_id: buyer_id,
         product_id,
         post_id,
         creator_id,
+        order_id,
         session_id: session.id,
         subscription_id,
         payment_intent_id,
         amount_cents,
         currency,
         target_months,
-        // status: set below according to mode
+        access_granted: oneTimePaid,
         status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
       })
       .eq("id", existing.id)
@@ -463,9 +547,12 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
     .from("purchases")
     .insert({
       buyer_id,
+      buyer_user_id: buyer_id,
+      user_id: buyer_id,
       product_id,
       post_id,
       creator_id,
+      order_id,
       session_id: session.id,
       subscription_id,
       payment_intent_id,
@@ -473,6 +560,7 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       currency,
       target_months,
       paid_count: subscription_id ? 0 : 1,
+      access_granted: oneTimePaid,
       status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
       fulfillment_payload: safeJson({ note: "seeded" }),
     })
@@ -670,11 +758,75 @@ async function handleInvoicePaymentSucceeded(inv: any) {
 
 async function markRefunded(payment_intent_id: string | null) {
   if (!payment_intent_id) return;
+  const now = new Date().toISOString();
+  const { error: oErr } = await admin
+    .from("orders")
+    .update({ status: "refunded", updated_at: now })
+    .eq("stripe_payment_intent_id", payment_intent_id);
+  if (oErr && !/column|does not exist/i.test(oErr.message)) {
+    console.warn("[webhook] markRefunded orders:", oErr.message);
+  }
   const { error } = await admin
     .from("purchases")
-    .update({ status: "refunded" })
+    .update({ status: "refunded", access_granted: false })
     .eq("payment_intent_id", payment_intent_id);
   if (error) console.warn("[webhook] markRefunded error:", error.message);
+}
+
+async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
+  const orderId = (pi.metadata?.order_id as string) || null;
+  if (orderId) {
+    const { data: ord } = await admin.from("orders").select("status").eq("id", orderId).maybeSingle();
+    if (ord && (ord as { status?: string }).status === "pending") {
+      const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
+      const fee = Math.round(amount * PLATFORM_FEE_RATE);
+      const creatorAmt = Math.max(0, amount - fee);
+      await admin
+        .from("orders")
+        .update({
+          status: "paid",
+          stripe_payment_intent_id: pi.id,
+          stripe_payment_id: pi.id,
+          gross_amount: amount,
+          platform_fee: fee,
+          creator_amount: creatorAmt,
+          currency: (pi.currency as string) || "usd",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", orderId);
+    }
+  }
+  const buyer =
+    (pi.metadata?.buyer_user_id as string) || (pi.metadata?.buyer_id as string) || null;
+  const patch: Record<string, unknown> = {
+    status: "paid",
+    access_granted: true,
+  };
+  if (buyer) {
+    patch.buyer_user_id = buyer;
+    patch.user_id = buyer;
+    patch.buyer_id = buyer;
+  }
+  const { error } = await admin.from("purchases").update(patch).eq("payment_intent_id", pi.id);
+  if (error && !/0 rows|No rows/i.test(error.message)) {
+    console.warn("[webhook] reconcilePaymentIntentSucceeded purchases:", error.message);
+  }
+}
+
+async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
+  const orderId = (pi.metadata?.order_id as string) || null;
+  const now = new Date().toISOString();
+  if (orderId) {
+    await admin.from("orders").update({ status: "failed", updated_at: now }).eq("id", orderId);
+  }
+  await admin
+    .from("orders")
+    .update({ status: "failed", updated_at: now })
+    .eq("stripe_payment_intent_id", pi.id);
+  await admin
+    .from("purchases")
+    .update({ status: "failed", access_granted: false })
+    .eq("payment_intent_id", pi.id);
 }
 
 // ---------- route ----------
@@ -745,9 +897,9 @@ export async function POST(req: NextRequest) {
 
         // Product flow (one-time or subscription start)
         if (session.metadata?.product_id) {
+          await finalizeOrderFromCheckoutSession(session);
           const purchaseId = await seedPurchaseFromProductSession(session);
 
-          // One-time payments become active immediately - attach fulfillment now
           if (
             purchaseId &&
             session.mode === "payment" &&
@@ -755,27 +907,48 @@ export async function POST(req: NextRequest) {
           ) {
             const product_id = (session.metadata?.product_id as string) || null;
             await attachFulfillmentIfEmpty(purchaseId, product_id);
-            await trackServerEvent("purchase_completed", (session.metadata?.buyer_id as string) || null, {
-              post_id: session.metadata?.post_id || null,
+
+            const amount = typeof session.amount_total === "number" ? session.amount_total : 0;
+            const fee = Math.round(amount * PLATFORM_FEE_RATE);
+            const creatorAmt = Math.max(0, amount - fee);
+
+            const buyerId =
+              (session.metadata?.buyer_user_id as string) ||
+              (session.metadata?.buyer_id as string) ||
+              null;
+            const postId = (session.metadata?.post_id as string) || null;
+
+            await trackServerEvent("purchase_completed", buyerId, {
+              order_id: session.metadata?.order_id,
+              post_id: postId,
               product_id: session.metadata?.product_id || null,
               creator_id: session.metadata?.creator_id || null,
-              price: typeof session.amount_total === "number" ? session.amount_total / 100 : null,
+              price: amount / 100,
+              purchase_id: purchaseId,
+              session_id: session.id,
             });
 
-            // Score: +25 for completing a purchase
-            const buyerId = (session.metadata?.buyer_id as string) || null;
-            const postId = (session.metadata?.post_id as string) || null;
             if (buyerId && postId) {
-              const { data: post } = await admin.from("posts").select("interests").eq("id", postId).maybeSingle();
-              const category = Array.isArray(post?.interests) ? (post.interests[0] as string ?? null) : null;
+              const { data: post } = await admin
+                .from("posts")
+                .select("interests")
+                .eq("id", postId)
+                .maybeSingle();
+              const category = Array.isArray(post?.interests)
+                ? ((post.interests[0] as string) ?? null)
+                : null;
               updateInterestScore(buyerId, category, 25);
             }
 
-            // Post metrics: increment purchases
             updatePostMetrics(postId ?? null, { purchases: 1 });
+
+            await bumpCreatorEarningsAndPostPurchase({
+              creator_id: (session.metadata?.creator_id as string) || null,
+              post_id: postId,
+              creator_amount_cents: creatorAmt,
+            });
           }
 
-          // For subscriptions, fulfillment attaches on first invoice.payment_succeeded
           break;
         }
 
@@ -793,6 +966,18 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "payment_intent.succeeded": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        await reconcilePaymentIntentSucceeded(pi);
+        break;
+      }
+
+      case "payment_intent.payment_failed": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        await reconcilePaymentIntentFailed(pi);
+        break;
+      }
+
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
         const pi =
@@ -800,6 +985,27 @@ export async function POST(req: NextRequest) {
             ? charge.payment_intent
             : (charge.payment_intent as any)?.id || null;
         await markRefunded(pi);
+        break;
+      }
+
+      case "account.updated": {
+        const account = event.data.object as Stripe.Account;
+        const complete = !!(account.charges_enabled && account.payouts_enabled);
+        const { error: acctErr } = await admin
+          .from("profiles")
+          .update({
+            charges_enabled: !!account.charges_enabled,
+            payouts_enabled: !!account.payouts_enabled,
+            ...(complete
+              ? { stripe_onboarding_complete: true, onboarding_complete: true }
+              : {}),
+          })
+          .eq("stripe_account_id", account.id);
+        if (acctErr) {
+          console.warn("[webhook] account.updated profile sync error:", acctErr.message);
+        } else {
+          console.log("[webhook] account.updated:", account.id, { complete });
+        }
         break;
       }
 

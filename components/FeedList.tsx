@@ -35,6 +35,8 @@ export type PostRow = {
   is_liked?: boolean | null;
   allow_booking?: boolean | null;
   booking_url?: string | null;
+  /** When false, hide buy CTA (optional; omitted = allow). */
+  creator_can_sell?: boolean | null;
 };
 
 /** Hosts that often time out or fail; don't request video from them (show poster only to avoid console errors). */
@@ -835,11 +837,15 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         const isActive = activePostId === p.id;
         const isSoundOn = globalSoundOn && isActive;
         const sellable = !!p.product_id;
+        const creatorCanSell = p.creator_can_sell !== false;
         const allowBooking =
           !!p.allow_booking &&
           typeof p.booking_url === "string" &&
           p.booking_url.length > 0;
-        const showCTA = sellable || allowBooking || price > 0;
+        const showCTA =
+          allowBooking ||
+          (sellable && creatorCanSell) ||
+          (price > 0 && creatorCanSell);
 
           return (
             <section
