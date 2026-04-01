@@ -203,7 +203,7 @@ export default function LibraryPage() {
 
         // 2) Optional progress
         const postIds = base.map((b) => b.post_id);
-        let progressByPost = new Map<
+        const progressByPost = new Map<
           string,
           { position_seconds: number | null; duration_seconds: number | null }
         >();

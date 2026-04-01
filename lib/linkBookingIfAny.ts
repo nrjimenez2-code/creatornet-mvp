@@ -33,7 +33,7 @@ export async function linkBookingIfAny({
   const cutoff = Date.now() - lookbackDays * 24 * 60 * 60 * 1000;
 
   // prefer same-post match; otherwise take newest within window
-  let candidate =
+  const candidate =
     (postId && rows.find(b => b.post_id === postId && new Date(b.created_at).getTime() >= cutoff)) ||
     rows.find(b => new Date(b.created_at).getTime() >= cutoff) ||
     null;

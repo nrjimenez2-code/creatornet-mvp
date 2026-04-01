@@ -14,7 +14,6 @@ export async function GET() {
       remove: (n: string, o?: any) => { store.set(n, "", { ...(o || {}), maxAge: 0 }); },
     };
 
-    // @ts-ignore – accept our adapter shape at runtime
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

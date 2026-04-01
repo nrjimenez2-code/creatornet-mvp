@@ -44,3 +44,6 @@ next-env.d.ts
 .env.sentry-build-plugin
 
 .vercel
+
+DELIVERY_CHECKLIST.md
+MY_TASKS.md

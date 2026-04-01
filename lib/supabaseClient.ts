@@ -45,8 +45,8 @@ export function createServerSupabase(): SupabaseClient {
     throw new Error("createServerSupabase() must be called on the server.");
   }
 
-  // Lazy require to keep `next/headers` out of the client bundle
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  // Lazy import to keep `next/headers` out of the client bundle
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { cookies } = require("next/headers");
   const store = cookies();
 

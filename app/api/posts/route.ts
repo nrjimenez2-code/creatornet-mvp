@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     const poster_url = (body?.poster_url ?? "")?.trim() || null;
     const premium_path = body?.premium_path ?? null;
     const interests = Array.isArray(body?.interests) ? body.interests : body?.interests != null ? [body.interests] : null;
-    let product_id: string | null =
+    const product_id: string | null =
       body?.product_id != null && String(body.product_id).trim()
         ? String(body.product_id).trim()
         : null;

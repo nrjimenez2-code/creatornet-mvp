@@ -51,7 +51,9 @@ export function getTrafficSource(): string {
 
 export function trackEvent(event: string, props: Record<string, unknown> = {}) {
   try {
+    const sessionId = posthog.get_session_id?.() ?? null;
     posthog.capture(event, {
+      session_id: sessionId,
       device_type: getDevice(),
       traffic_source: getTrafficSource(),
       ...props,

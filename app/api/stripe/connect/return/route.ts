@@ -44,7 +44,12 @@ export async function GET(req: NextRequest) {
 
     await db
       .from("profiles")
-      .update({ stripe_onboarding_complete: isComplete })
+      .update({
+        stripe_onboarding_complete: isComplete,
+        charges_enabled: !!account.charges_enabled,
+        payouts_enabled: !!account.payouts_enabled,
+        onboarding_complete: isComplete,
+      })
       .eq("id", user.id);
 
     const status = isComplete ? "success" : "pending";

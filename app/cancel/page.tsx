@@ -1,4 +1,5 @@
 // app/cancel/page.tsx
+import Link from "next/link";
 
 export const metadata = {
   title: "Payment canceled | CreatorNet",
@@ -18,9 +19,9 @@ export default function CancelPage() {
           No charge was made. You can close this page or go back and try again.
         </p>
         <div className="flex items-center justify-center gap-3">
-          <a href="/" className="px-4 py-2 rounded-md border hover:bg-gray-50 text-sm">
+          <Link href="/" className="px-4 py-2 rounded-md border hover:bg-gray-50 text-sm">
             Back home
-          </a>
+          </Link>
           <a href="/library" className="px-4 py-2 rounded-md bg-black text-white text-sm hover:opacity-90">
             View Library
           </a>

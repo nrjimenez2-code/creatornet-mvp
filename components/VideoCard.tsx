@@ -280,7 +280,7 @@ export default function VideoCard(props: VideoCardProps) {
           creator_id: creatorIdRef.current,
           category: categoryRef.current,
           watch_time_seconds: Math.round(video.currentTime ?? 0),
-          percent_watched: 0,
+          percent_watched: video.duration > 0 ? Math.round((video.currentTime / video.duration) * 100) : 0,
         });
         scoreInterest(1);
         trackMetric("views");
