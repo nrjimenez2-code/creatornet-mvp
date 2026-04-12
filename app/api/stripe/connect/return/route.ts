@@ -35,6 +35,10 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (profileErr || !profile?.stripe_account_id) {
+    console.error("[connect/return] no stripe_account_id on profile", {
+      userId: user.id,
+      profileErr: profileErr?.message,
+    });
     return NextResponse.redirect(`${SITE_URL}/dashboard?connect=error`);
   }
 
@@ -55,7 +59,11 @@ export async function GET(req: NextRequest) {
     const status = isComplete ? "success" : "pending";
     return NextResponse.redirect(`${SITE_URL}/dashboard?connect=${status}`);
   } catch (e: unknown) {
-    console.error("[connect/return] stripe.accounts.retrieve error:", (e as Error)?.message);
+    const msg = e instanceof Error ? e.message : String(e);
+    console.error("[connect/return] stripe.accounts.retrieve error:", msg, {
+      userId: user.id,
+      stripe_account_id: profile.stripe_account_id,
+    });
     return NextResponse.redirect(`${SITE_URL}/dashboard?connect=error`);
   }
 }
