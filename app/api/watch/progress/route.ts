@@ -1,87 +1,23 @@
 // app/api/watch/progress/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabaseClient";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const admin = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  { auth: { persistSession: false, autoRefreshToken: false } }
+);
 
-type CookieStore = Awaited<ReturnType<typeof cookies>>;
-
-function extractBearerToken(header: string | null): string | null {
-  if (!header) return null;
-  const match = header.match(/Bearer\s+(.+)/i);
-  return match ? match[1].trim() : null;
-}
-
-function normalizeBase64(input: string): string {
-  const replaced = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = replaced.length % 4;
-  if (padding === 0) return replaced;
-  return replaced.padEnd(replaced.length + (4 - padding), "=");
-}
-
-function extractAccessToken(cookieStore: CookieStore): string | null {
+async function requireUser(req: NextRequest): Promise<{ userId: string } | null> {
   try {
-    const projectRef = new URL(SUPABASE_URL).host.split(".")[0];
-    const cookieName = `sb-${projectRef}-auth-token`;
-    const cookie = cookieStore.get(cookieName);
-    if (!cookie?.value) return null;
-
-    let raw = cookie.value;
-    if (raw.startsWith("base64-")) raw = raw.slice("base64-".length);
-
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      try {
-        const normalized = normalizeBase64(raw);
-        const decoded = Buffer.from(normalized, "base64").toString("utf8");
-        parsed = JSON.parse(decoded);
-      } catch {
-        parsed = null;
-      }
-    }
-
-    if (!parsed) return null;
-    if (Array.isArray(parsed)) {
-      const [access_token] = parsed;
-      return typeof access_token === "string" ? access_token : null;
-    }
-    if (typeof parsed === "object") {
-      return typeof parsed?.access_token === "string" ? parsed.access_token : null;
-    }
-    return null;
+    const supabase = await createServerSupabase();
+    const { data } = await supabase.auth.getUser();
+    if (data?.user?.id) return { userId: data.user.id };
   } catch {
-    return null;
+    // fall through
   }
-}
-
-function decodeUserId(token: string): string | null {
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) return null;
-    const normalized = normalizeBase64(payload);
-    const json = Buffer.from(normalized, "base64").toString("utf8");
-    const parsed = JSON.parse(json);
-    return typeof parsed?.sub === "string" ? parsed.sub : null;
-  } catch {
-    return null;
-  }
-}
-
-async function requireUser(req: NextRequest) {
-  const bearerToken = extractBearerToken(req.headers.get("authorization"));
-  const cookieStore = await cookies();
-  const token = bearerToken || extractAccessToken(cookieStore);
-  if (!token) return null;
-  const userId = decodeUserId(token);
-  if (!userId) return null;
-  return { token, userId };
+  return null;
 }
 
 export async function GET(req: NextRequest) {

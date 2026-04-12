@@ -41,7 +41,7 @@ export default function LibraryClient() {
       const { data: rows, error: pErr } = await supabase
         .from("purchases")
         .select("id,post_id,created_at")
-        .eq("user_id", uid)
+        .eq("buyer_id", uid)
         .order("created_at", { ascending: false });
 
       if (pErr) {

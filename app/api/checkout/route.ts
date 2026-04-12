@@ -140,7 +140,6 @@ export async function POST(req: NextRequest) {
     if (order_id) insert.order_id = order_id;
     if (buyerId) {
       insert.buyer_user_id = buyerId;
-      insert.user_id = buyerId;
     }
     const { error } = await supabase.from("purchases").insert(insert).select("id").single();
     if (error && !`${error.message}`.toLowerCase().includes("duplicate")) {
@@ -199,13 +198,15 @@ export async function POST(req: NextRequest) {
       const { data: orderRow, error: orderErr } = await supabase
         .from("orders")
         .insert({
+          buyer_id: resolvedBuyerId,
           buyer_user_id: resolvedBuyerId,
           creator_id: creatorId,
           post_id: body.post_id ?? null,
+          amount_cents,
           gross_amount: amount_cents,
           platform_fee: applicationFeeCents,
           creator_amount: creatorAmountCents,
-          status: "pending",
+          status: "created",
           currency,
         })
         .select("id")
@@ -253,7 +254,7 @@ export async function POST(req: NextRequest) {
           cancel_url: `${site}/dashboard`,
         });
       } catch (e) {
-        await supabase.from("orders").update({ status: "failed" }).eq("id", orderId);
+        await supabase.from("orders").update({ status: "canceled" }).eq("id", orderId);
         throw e;
       }
 
@@ -347,13 +348,15 @@ export async function POST(req: NextRequest) {
       const { data: orderRow, error: orderErr } = await supabase
         .from("orders")
         .insert({
+          buyer_id: resolvedBuyerId,
           buyer_user_id: resolvedBuyerId,
           creator_id: instCreatorId,
           post_id: body.post_id ?? null,
+          amount_cents: per_cents,
           gross_amount: per_cents,
           platform_fee: instFeeCents,
           creator_amount: instCreatorAmount,
-          status: "pending",
+          status: "created",
           currency,
         })
         .select("id")
@@ -403,7 +406,7 @@ export async function POST(req: NextRequest) {
           cancel_url: `${site}/dashboard`,
         });
       } catch (e) {
-        await supabase.from("orders").update({ status: "failed" }).eq("id", orderId);
+        await supabase.from("orders").update({ status: "canceled" }).eq("id", orderId);
         throw e;
       }
 

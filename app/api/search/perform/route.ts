@@ -12,7 +12,7 @@ type CreatorHit = {
 
 type PostHit = {
   id: string;
-  caption: string | null;
+  content: string | null;
   media_url: string | null;
   poster_url: string | null;
   creator_id: string;
@@ -28,7 +28,7 @@ type PostHit = {
 
 type RawPostRow = {
   id: string;
-  caption: string | null;
+  content: string | null;
   video_url: string | null;
   poster_url: string | null;
   creator_id: string;
@@ -55,7 +55,7 @@ function normalizePost(r: RawPostRow): PostHit {
   const c = Array.isArray(rawCreator) ? rawCreator[0] ?? null : rawCreator ?? null;
   return {
     id: r.id,
-    caption: r.caption ?? null,
+    content: r.content ?? null,
     media_url: r.video_url ?? null,
     poster_url: r.poster_url ?? null,
     creator_id: r.creator_id,
@@ -74,7 +74,7 @@ function normalizePost(r: RawPostRow): PostHit {
 
 const postSelect = `
   id,
-  caption,
+  content,
   video_url,
   poster_url,
   creator_id,
@@ -109,7 +109,7 @@ export async function POST(req: Request) {
         admin
           .from("posts")
           .select(postSelect)
-          .ilike("caption", captionTagPattern)
+          .ilike("content", captionTagPattern)
           .order("likes_count", { ascending: false, nullsFirst: false })
           .limit(30),
       ]);
@@ -188,7 +188,7 @@ export async function POST(req: Request) {
         postData = (byCreator.data ?? []) as RawPostRow[];
       }
     } else {
-      const res = await admin.from("posts").select(postSelect).ilike("caption", pattern).order("created_at", { ascending: false }).limit(30);
+      const res = await admin.from("posts").select(postSelect).ilike("content", pattern).order("created_at", { ascending: false }).limit(30);
       if (res.error) {
         console.error("[search/perform] caption-only error:", res.error.message);
         postData = [];

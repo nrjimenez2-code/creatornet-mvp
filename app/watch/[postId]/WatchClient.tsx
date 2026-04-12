@@ -93,21 +93,21 @@ export default function WatchClient({ postId }: { postId: string }) {
         // If signed in, prefetch resume progress from API
         if (auth?.user?.id) {
           try {
-            const res = await fetch("/api/watch/progress", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ postId }),
+            const res = await fetch(`/api/watch/progress?post_id=${postId}`, {
+              method: "GET",
+              credentials: "include",
             });
-            const json: LoadProgressResponse = await res.json();
+            const json = await res.json();
+            const seconds = json?.progress?.seconds;
 
-            if (!cancelled && json.ok && Number.isFinite(json.seconds)) {
+            if (!cancelled && Number.isFinite(seconds) && seconds > 0) {
               resumeTargetRef.current = Math.max(
                 0,
-                Math.min(json.seconds, MAX_RESUME_SEC)
+                Math.min(seconds, MAX_RESUME_SEC)
               );
               setCurrentTime(resumeTargetRef.current);
             }
-          } catch (e) {
+          } catch {
             // non-fatal
           }
         }
@@ -241,14 +241,14 @@ export default function WatchClient({ postId }: { postId: string }) {
   /** ---------------- Helpers ---------------- */
   const saveProgress = async (sec: number) => {
     if (!userIdRef.current) return; // only save for signed-in users
-    // Clamp to [0, duration]
     const seconds = Math.max(0, Math.min(sec, duration || 0));
 
     try {
       await fetch("/api/watch/progress", {
-        method: "PUT",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ postId, seconds } as SaveProgressBody),
+        credentials: "include",
+        body: JSON.stringify({ post_id: postId, seconds, duration: duration || 0 }),
         keepalive: true, // allows sending during pagehide
       });
     } catch {

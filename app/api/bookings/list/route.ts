@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabaseClient";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -15,14 +15,11 @@ type BookingRow = {
   created_at: string;
 };
 
-type CookieStore = Awaited<ReturnType<typeof cookies>>;
-
 export async function GET(req: NextRequest) {
-  const headerToken = extractBearerToken(req.headers.get("authorization"));
-  const cookieStore = await cookies();
-  const accessToken = headerToken || extractAccessToken(cookieStore);
+  const supabase = await createServerSupabase();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  if (!accessToken) {
+  if (authError || !user) {
     return NextResponse.json(
       { error: "Unauthorized", details: "Auth session not found; please sign in again." },
       { status: 401 }
@@ -32,19 +29,6 @@ export async function GET(req: NextRequest) {
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
-  const {
-    data: { user },
-    error: authError,
-  } = await admin.auth.getUser(accessToken);
-
-  if (authError || !user) {
-    console.warn("[bookings-list] auth.getUser error:", authError?.message || authError);
-    return NextResponse.json(
-      { error: "Unauthorized", details: "Auth session invalid; please sign in again." },
-      { status: 401 }
-    );
-  }
 
   try {
     console.log("[bookings-list] Querying bookings for creator_id:", user.id);
@@ -228,59 +212,6 @@ export async function GET(req: NextRequest) {
       { status: 500 }
     );
   }
-}
-
-function extractBearerToken(header: string | null): string | null {
-  if (!header) return null;
-  const match = header.match(/Bearer\s+(.+)/i);
-  return match ? match[1].trim() : null;
-}
-
-function extractAccessToken(cookieStore: CookieStore): string | null {
-  try {
-    const projectRef = new URL(SUPABASE_URL).host.split(".")[0];
-    const cookieName = `sb-${projectRef}-auth-token`;
-    const cookie = cookieStore.get(cookieName);
-    if (!cookie?.value) return null;
-
-    let raw = cookie.value;
-    if (raw.startsWith("base64-")) {
-      raw = raw.slice("base64-".length);
-    }
-
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      try {
-        const normalized = normalizeBase64(raw);
-        const decoded = Buffer.from(normalized, "base64").toString("utf8");
-        parsed = JSON.parse(decoded);
-      } catch {
-        parsed = null;
-      }
-    }
-    if (!parsed) return null;
-    if (Array.isArray(parsed)) {
-      // Supabase stores an array [access_token, refresh_token]
-      const [access_token] = parsed;
-      return typeof access_token === "string" ? access_token : null;
-    }
-    if (typeof parsed === "object") {
-      return typeof parsed?.access_token === "string" ? parsed.access_token : null;
-    }
-    return null;
-  } catch (err) {
-    console.warn("[bookings-list] extractAccessToken failed:", err);
-    return null;
-  }
-}
-
-function normalizeBase64(input: string): string {
-  const replaced = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = replaced.length % 4;
-  if (padding === 0) return replaced;
-  return replaced.padEnd(replaced.length + (4 - padding), "=");
 }
 
 

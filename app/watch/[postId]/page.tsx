@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import BackButton from "@/components/BackButton";
@@ -32,6 +32,9 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const lastSaveRef = useRef<number>(0);
+  const userIdForProgress = useRef<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +48,10 @@ export default function WatchPage() {
 
       const { data: auth } = await supabase.auth.getUser();
       const user = auth?.user;
-      if (user) setCurrentUserId(user.id);
+      if (user) {
+        setCurrentUserId(user.id);
+        userIdForProgress.current = user.id;
+      }
       if (!user) {
         // Redirect to dashboard where they can see the post in the feed
         router.push(`/dashboard?postId=${postId}`);
@@ -124,6 +130,46 @@ export default function WatchPage() {
     };
   }, [postId, supabase, router]);
 
+  // Load resume point + save progress on watch
+  useEffect(() => {
+    if (!post || !userIdForProgress.current) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Load saved progress
+    fetch(`/api/watch/progress?post_id=${post.id}`, { credentials: "include" })
+      .then((r) => r.json())
+      .then((json) => {
+        const seconds = json?.progress?.seconds;
+        if (Number.isFinite(seconds) && seconds > 5) {
+          video.currentTime = seconds;
+        }
+      })
+      .catch(() => {});
+
+    // Save progress every 5s while watching
+    const saveProgress = () => {
+      if (!userIdForProgress.current || !video.duration) return;
+      const now = Date.now();
+      if (now - lastSaveRef.current < 5000) return;
+      lastSaveRef.current = now;
+      fetch("/api/watch/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        keepalive: true,
+        body: JSON.stringify({
+          post_id: post.id,
+          seconds: Math.floor(video.currentTime),
+          duration: Math.floor(video.duration),
+        }),
+      }).catch(() => {});
+    };
+
+    video.addEventListener("timeupdate", saveProgress);
+    return () => video.removeEventListener("timeupdate", saveProgress);
+  }, [post]);
+
   if (loading) {
     return (
       <main className="relative flex items-center justify-center min-h-screen text-gray-500">
@@ -193,6 +239,7 @@ export default function WatchPage() {
           <div className="h-[50vh] sm:h-[60vh] md:h-[36rem] w-full overflow-hidden rounded-xl sm:rounded-[22px] border border-white/20 bg-black">
             {post.video_url ? (
               <video
+                ref={videoRef}
                 className="h-full w-full object-contain bg-black"
                 src={post.video_url}
                 poster={post.poster_url || undefined}
