@@ -1019,7 +1019,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[webhook] ❌ Handler error:", e?.message || e, "Stack:", e?.stack);
-    // Return 200 so Stripe doesn't retry forever if we had a data issue.
-    return NextResponse.json({ ok: false, error: "handler error" }, { status: 200 });
+    return NextResponse.json({ ok: false, error: "handler error" }, { status: 500 });
   }
 }
