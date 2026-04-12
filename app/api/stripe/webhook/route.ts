@@ -176,7 +176,11 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
   const { error } = await admin
     .from("orders")
     .update({
+<<<<<<< HEAD
       status: paid ? "paid" : "created",
+=======
+      status: paid ? "paid" : "processing",
+>>>>>>> origin/main
       stripe_checkout_session_id: session.id,
       stripe_payment_intent_id: pi,
       stripe_payment_id: pi,
