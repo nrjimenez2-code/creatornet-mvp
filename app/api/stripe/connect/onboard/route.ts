@@ -53,33 +53,14 @@ export async function POST(req: NextRequest) {
       });
       stripeAccountId = account.id;
 
-      const { data: updatedRows, error: saveErr } = await db
+      const { error: saveErr } = await db
         .from("profiles")
         .update({ stripe_account_id: stripeAccountId, stripe_onboarding_complete: false })
-        .eq("id", user.id)
-        .select("id");
+        .eq("id", user.id);
 
       if (saveErr) {
         console.error("[connect/onboard] save account id error:", saveErr.message);
         return NextResponse.json({ error: "Failed to save Stripe account" }, { status: 500 });
-      }
-
-      if (!updatedRows?.length) {
-        const { error: insErr } = await db.from("profiles").insert({
-          id: user.id,
-          stripe_account_id: stripeAccountId,
-          stripe_onboarding_complete: false,
-        });
-        if (insErr) {
-          console.error("[connect/onboard] insert profile for stripe failed:", insErr.message);
-          return NextResponse.json(
-            {
-              error:
-                "Stripe account was created but could not be linked to your profile. Add a profile row for your user or run onboarding in the app first.",
-            },
-            { status: 500 }
-          );
-        }
       }
     } catch (e: unknown) {
       console.error("[connect/onboard] accounts.create:", e);
