@@ -1,47 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabaseClient";
 
 // Optional: keep this dynamic so Vercel won't try to prerender
 export const dynamic = "force-dynamic";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-async function getUserFromRequest(req: NextRequest) {
-  const authHeader = req.headers.get("authorization");
-  let token = authHeader?.match(/Bearer\s+(.+)/i)?.[1] ?? null;
-  if (!token) {
-    const store = await cookies();
-    const cookieName = `sb-${new URL(SUPABASE_URL).host.split(".")[0]}-auth-token`;
-    const raw = store.get(cookieName)?.value;
-    if (raw) {
-      const val = raw.startsWith("base64-") ? raw.slice("base64-".length) : raw;
-      try {
-        const parsed = JSON.parse(val);
-        token = Array.isArray(parsed) ? parsed[0] : parsed?.access_token ?? null;
-      } catch {
-        try {
-          const normalized = val.replace(/-/g, "+").replace(/_/g, "/");
-          const decoded = Buffer.from(normalized, "base64").toString("utf8");
-          const parsed = JSON.parse(decoded);
-          token = Array.isArray(parsed) ? parsed[0] : parsed?.access_token ?? null;
-        } catch {
-          token = null;
-        }
-      }
-    }
-  }
-  if (!token) return null;
-  const anonClient = createClient(SUPABASE_URL, ANON_KEY);
-  const { data, error } = await anonClient.auth.getUser(token);
-  if (error || !data.user) return null;
-  return data.user;
+async function getUserFromRequest(_req: NextRequest) {
+  const supabase = await createServerSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  return user ?? null;
 }
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ postId: string }> }) {
@@ -80,7 +54,8 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
       .from("purchases")
       .select("id")
       .eq("post_id", postId)
-      .eq("user_id", user.id)
+      .eq("buyer_id", user.id)
+      .eq("access_granted", true)
       .maybeSingle();
 
     if (!purchaseError && purchase) allowed = true;

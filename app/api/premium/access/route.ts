@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createServerSupabase } from "@/lib/supabaseClient";
 
 /**
  * POST body: { post_id: string }
@@ -18,26 +19,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Missing post_id" }, { status: 400 });
     }
 
-    // user session via cookies
-    const supabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } } }
-    );
+    // read session from cookies (works for normal browser requests)
+    const supabase = await createServerSupabase();
 
-    // get user
     const { data: auth } = await supabase.auth.getUser();
     const userId = auth.user?.id;
     if (!userId) {
       return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
     }
 
+    // use admin client for DB queries to bypass RLS
+    const admin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
     // does user own a purchase for this post?
-    const { data: hasPurchase, error: purchaseErr } = await supabase
+    const { data: hasPurchase, error: purchaseErr } = await admin
       .from("purchases")
       .select("id")
-      .eq("user_id", userId)
+      .eq("buyer_id", userId)
       .eq("post_id", post_id)
+      .eq("access_granted", true)
       .limit(1)
       .maybeSingle();
 
@@ -50,7 +53,7 @@ export async function POST(req: Request) {
     }
 
     // fetch post to get its premium_path
-    const { data: post, error: postErr } = await supabase
+    const { data: post, error: postErr } = await admin
       .from("posts")
       .select("premium_path")
       .eq("id", post_id)
@@ -64,8 +67,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "No premium file for this post" }, { status: 404 });
     }
 
-    // generate short-lived signed URL (e.g., 60 minutes)
-    const { data: signed, error: signErr } = await supabase.storage
+    // generate short-lived signed URL (60 minutes)
+    const { data: signed, error: signErr } = await admin.storage
       .from("premium")
       .createSignedUrl(post.premium_path, 60 * 60);
 
@@ -75,8 +78,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, url: signed.signedUrl }, { status: 200 });
-  } catch (e: any) {
-    console.error("access route error:", e?.message || e);
+  } catch (e: unknown) {
+    console.error("access route error:", (e as { message?: string })?.message || e);
     return NextResponse.json({ success: false, error: "Server error" }, { status: 500 });
   }
 }

@@ -40,15 +40,14 @@ export function createClient(): SupabaseClient {
  * Avoids a static `import { cookies } from "next/headers"` so this file
  * remains importable by client bundles.
  */
-export function createServerSupabase(): SupabaseClient {
+export async function createServerSupabase(): Promise<SupabaseClient> {
   if (typeof window !== "undefined") {
     throw new Error("createServerSupabase() must be called on the server.");
   }
 
-  // Lazy import to keep `next/headers` out of the client bundle
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { cookies } = require("next/headers");
-  const store = cookies();
+  const store = await cookies();
 
   return createServerClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     cookies: {

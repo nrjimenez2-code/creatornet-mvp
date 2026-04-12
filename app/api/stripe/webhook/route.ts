@@ -176,7 +176,7 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
   const { error } = await admin
     .from("orders")
     .update({
-      status: paid ? "paid" : "processing",
+      status: paid ? "paid" : "created",
       stripe_checkout_session_id: session.id,
       stripe_payment_intent_id: pi,
       stripe_payment_id: pi,
@@ -777,7 +777,7 @@ async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
   const orderId = (pi.metadata?.order_id as string) || null;
   if (orderId) {
     const { data: ord } = await admin.from("orders").select("status").eq("id", orderId).maybeSingle();
-    if (ord && (ord as { status?: string }).status === "pending") {
+    if (ord && ["pending", "created"].includes((ord as { status?: string }).status ?? "")) {
       const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
       const fee = Math.round(amount * PLATFORM_FEE_RATE);
       const creatorAmt = Math.max(0, amount - fee);
@@ -817,11 +817,11 @@ async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
   const orderId = (pi.metadata?.order_id as string) || null;
   const now = new Date().toISOString();
   if (orderId) {
-    await admin.from("orders").update({ status: "failed", updated_at: now }).eq("id", orderId);
+    await admin.from("orders").update({ status: "canceled", updated_at: now }).eq("id", orderId);
   }
   await admin
     .from("orders")
-    .update({ status: "failed", updated_at: now })
+    .update({ status: "canceled", updated_at: now })
     .eq("stripe_payment_intent_id", pi.id);
   await admin
     .from("purchases")

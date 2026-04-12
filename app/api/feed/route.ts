@@ -1,12 +1,10 @@
 // /app/api/feed/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies } from "next/headers";
+import { createServerSupabase } from "@/lib/supabaseClient";
 
 export async function GET(req: NextRequest) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const supabase = await createServerSupabase();
 
-  // get current user (ok if null → shows global feed)
   const { data: userRes } = await supabase.auth.getUser();
   const userId = userRes?.user?.id ?? null;
 

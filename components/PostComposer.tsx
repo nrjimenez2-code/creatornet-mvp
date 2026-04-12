@@ -97,68 +97,84 @@ function normalizeBookingUrl(u: string): string | null {
 }
 
 /* ------------------------------------------------------------------ */
-/* Large-file aware Storage upload                                    */
+/* R2 upload — public files (videos + thumbnails)                    */
 /* ------------------------------------------------------------------ */
 
-const SIMPLE_UPLOAD_MAX = 20 * 1024 * 1024; // 20 MB
-const UPLOAD_TIMEOUT_MS = 60_000; // guard against “hangs”
+const UPLOAD_TIMEOUT_MS = 120_000;
 
-async function uploadToBucketPath(
-  supabase: ReturnType<typeof createClient>,
-  bucket: "videos" | "thumbnails" | "premium",
+async function uploadToR2(
   file: File,
-  userId: string
-): Promise<{ publicUrl?: string; path: string }> {
-  const ext =
-    file.name.split(".").pop() || (bucket === "thumbnails" ? "jpg" : "mp4");
-  const path = `${userId}/${Date.now()}.${ext}`;
-  const contentType =
-    file.type ||
-    (bucket === "thumbnails"
-      ? "image/jpeg"
-      : bucket === "videos"
-      ? "video/mp4"
-      : "application/octet-stream");
+  folder: "videos" | "thumbnails"
+): Promise<string> {
+  const res = await fetch("/api/upload/presign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      filename: file.name,
+      contentType: file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4"),
+      folder,
+    }),
+  });
 
-  const doSimple = async () => {
-    const { error } = await supabase.storage.from(bucket).upload(path, file, {
-      cacheControl: "3600",
-      upsert: false,
-      contentType,
-    });
-    if (error) throw error;
-  };
-
-  const doSigned = async () => {
-    const { data: signed, error: signErr } = await supabase.storage
-      .from(bucket)
-      .createSignedUploadUrl(path);
-    if (signErr) throw signErr;
-
-    const { error: upErr } = await supabase.storage
-      .from(bucket)
-      .uploadToSignedUrl(signed.path, signed.token, file, { contentType });
-    if (upErr) throw upErr;
-  };
-
-  const withTimeout = <T,>(p: Promise<T>) =>
-    Promise.race<T>([
-      p,
-      new Promise<T>((_, rej) =>
-        setTimeout(() => rej(new Error("Upload timed out")), UPLOAD_TIMEOUT_MS)
-      ),
-    ]);
-
-  if (file.size <= SIMPLE_UPLOAD_MAX) {
-    await withTimeout(doSimple());
-  } else {
-    await withTimeout(doSigned());
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { error?: string })?.error ?? "Failed to get upload URL");
   }
 
-  if (bucket === "premium") return { path }; // keep private
+  const { uploadUrl, publicUrl } = (await res.json()) as {
+    uploadUrl: string;
+    publicUrl: string;
+  };
 
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return { path, publicUrl: data.publicUrl };
+  const upload = fetch(uploadUrl, {
+    method: "PUT",
+    headers: { "Content-Type": file.type || "application/octet-stream" },
+    body: file,
+  });
+
+  await Promise.race([
+    upload,
+    new Promise<never>((_, rej) =>
+      setTimeout(() => rej(new Error("Upload timed out")), UPLOAD_TIMEOUT_MS)
+    ),
+  ]);
+
+  return publicUrl;
+}
+
+/* ------------------------------------------------------------------ */
+/* Supabase upload — private premium files only                      */
+/* ------------------------------------------------------------------ */
+
+const SIMPLE_UPLOAD_MAX = 20 * 1024 * 1024;
+
+async function uploadPremiumToSupabase(
+  supabase: ReturnType<typeof createClient>,
+  file: File,
+  userId: string
+): Promise<string> {
+  const ext = file.name.split(".").pop() ?? "mp4";
+  const path = `${userId}/${Date.now()}.${ext}`;
+  const contentType = file.type || "video/mp4";
+
+  if (file.size <= SIMPLE_UPLOAD_MAX) {
+    const { error } = await supabase.storage
+      .from("premium")
+      .upload(path, file, { cacheControl: "3600", upsert: false, contentType });
+    if (error) throw error;
+  } else {
+    const { data: signed, error: signErr } = await supabase.storage
+      .from("premium")
+      .createSignedUploadUrl(path);
+    if (signErr) throw signErr;
+    const { error: upErr } = await supabase.storage
+      .from("premium")
+      .uploadToSignedUrl(signed.path, signed.token, file, { contentType });
+    if (upErr) throw upErr;
+  }
+
+  return path;
 }
 
 /* ------------------------------------------------------------------ */
@@ -234,7 +250,7 @@ export default function PostComposer({ onPosted }: Props) {
         const items = await fetchMyProducts();
         if (!cancelled) setProducts(items);
       } catch (e) {
-        if (!cancelled) console.debug("products GET:", (e as any)?.message);
+        if (!cancelled) console.debug("products GET:", (e as { message?: string })?.message);
       } finally {
         if (!cancelled) setLoadingProducts(false);
       }
@@ -314,8 +330,8 @@ export default function PostComposer({ onPosted }: Props) {
       setNewProdTitle("");
       setNewProdPrice("");
       setNewProdType("video");
-    } catch (e: any) {
-      alert(e?.message || "Failed to create product");
+    } catch (e: unknown) {
+      alert((e as { message?: string })?.message || "Failed to create product");
     } finally {
       setCreatingProduct(false);
     }
@@ -333,22 +349,19 @@ export default function PostComposer({ onPosted }: Props) {
     setPosting(true);
 
     try {
-      // 1) promo video (public)
-      const promo = await uploadToBucketPath(supabase, "videos", videoFile, userId);
-      const video_url = promo.publicUrl!;
+      // 1) promo video → R2 (zero egress)
+      const video_url = await uploadToR2(videoFile, "videos");
 
-      // 2) optional thumbnail (public)
+      // 2) optional thumbnail → R2
       let poster_url: string | null = null;
       if (thumbFile) {
-        const thumb = await uploadToBucketPath(supabase, "thumbnails", thumbFile, userId);
-        poster_url = thumb.publicUrl! ?? null;
+        poster_url = await uploadToR2(thumbFile, "thumbnails");
       }
 
-      // 3) optional premium file (private)
+      // 3) optional premium file → Supabase (stays private)
       let premium_path: string | null = null;
       if (premiumFile) {
-        const prem = await uploadToBucketPath(supabase, "premium", premiumFile, userId);
-        premium_path = prem.path;
+        premium_path = await uploadPremiumToSupabase(supabase, premiumFile, userId);
       }
 
       // 4) decide post price and ensure product_id is a UUID (never the option label)
@@ -412,9 +425,9 @@ export default function PostComposer({ onPosted }: Props) {
       setBookingUrl("");
 
       onPosted?.();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("Create post failed:", err);
-      alert(err?.message ?? "Failed to post. Try again.");
+      alert((err as { message?: string })?.message ?? "Failed to post. Try again.");
     } finally {
       setPosting(false);
     }
@@ -487,7 +500,7 @@ export default function PostComposer({ onPosted }: Props) {
             disabled={stripeSellReady === false}
             onChange={(e) => setAttachBuy(e.target.checked)}
           />
-          Attach “Buy / Book” to this post
+          Attach &quot;Buy / Book&quot; to this post
         </label>
         {stripeSellReady === false && (
           <p className="text-xs text-amber-200/90">
@@ -590,7 +603,7 @@ export default function PostComposer({ onPosted }: Props) {
             checked={attachBooking}
             onChange={(e) => setAttachBooking(e.target.checked)}
           />
-          Offer “Book a free call” on this post
+          Offer &quot;Book a free call&quot; on this post
         </label>
 
         {attachBooking && (
@@ -603,7 +616,7 @@ export default function PostComposer({ onPosted }: Props) {
               className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
             />
             <p className="text-xs text-white/50">
-              Buyers who pick “Book” go through a $0 checkout, then get redirected here. Use any https link
+              Buyers who pick &quot;Book&quot; go through a $0 checkout, then get redirected here. Use any https link
               (Calendly, Cal.com, CRM, etc.).
             </p>
           </div>
