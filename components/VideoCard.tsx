@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -17,6 +18,7 @@ type VideoCardProps = {
   creatorAvatarUrl?: string | null;
   caption?: string;
   hashtags?: string;
+  hashtagsList?: string[] | null;
   title?: string;
   creatorName?: string;
   avatarUrl?: string | null;
@@ -37,6 +39,8 @@ type VideoCardProps = {
   postCategory?: string | null;
   productId?: string | null;
   creatorId?: string | null;
+  /** Stable handle for /profile/[username] links; optional when only creatorId is known */
+  creatorUsername?: string | null;
   priceCents?: number | null;
   titleForCheckout?: string | null;
   planMonths?: number | null;
@@ -68,6 +72,7 @@ export default function VideoCard(props: VideoCardProps) {
     creatorAvatarUrl = null,
     caption = "Quick tip goes here",
     hashtags = "#tag1 #tag2",
+    hashtagsList = null,
     title,
     creatorName,
     avatarUrl,
@@ -88,6 +93,7 @@ export default function VideoCard(props: VideoCardProps) {
     postCategory = null,
     productId = null,
     creatorId = null,
+    creatorUsername = null,
     priceCents = null,
     titleForCheckout = null,
     planMonths = null,
@@ -156,6 +162,53 @@ export default function VideoCard(props: VideoCardProps) {
   const displayCreator = creatorName ?? creator ?? "Creator";
   const displayAvatar = avatarUrl ?? creatorAvatarUrl ?? DEFAULT_AVATAR_URL;
   const canFollow = followable ?? showFollowButton ?? false;
+  const clickableHashtags = useMemo(() => {
+    if (!Array.isArray(hashtagsList) || hashtagsList.length === 0) return [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of hashtagsList) {
+      const clean = String(raw || "").replace(/^#/, "").trim();
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+    }
+    return out;
+  }, [hashtagsList]);
+
+  const clickableFromDisplay = useMemo(() => {
+    if (clickableHashtags.length > 0) return clickableHashtags;
+    if (!hashtags) return [];
+
+    // Fallback parser: keep full label between "#" markers (supports labels with spaces, e.g. "Money & Investing")
+    const chunks = hashtags.match(/#([^#]+)/g) ?? [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of chunks) {
+      const clean = raw.replace(/^#/, "").trim();
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(clean);
+    }
+    return out;
+  }, [clickableHashtags, hashtags]);
+
+  const creatorProfileHref = useMemo(() => {
+    if (!creatorId && !creatorUsername) return null;
+    if (cachedUserId && creatorId && cachedUserId === creatorId) {
+      return "/profile";
+    }
+    if (creatorUsername) {
+      return `/profile/${encodeURIComponent(creatorUsername)}`;
+    }
+    if (creatorId) {
+      return `/creators/${creatorId}`;
+    }
+    return null;
+  }, [cachedUserId, creatorId, creatorUsername]);
 
   const formatCount = (n: number): string => {
     if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
@@ -750,54 +803,52 @@ export default function VideoCard(props: VideoCardProps) {
     }
   }, [onBook, bookingRedirectUrl, postId, creatorId]);
 
-  const handleAvatarClick = useCallback(async (e?: React.MouseEvent) => {
-    e?.stopPropagation();
-    e?.preventDefault();
+  const handleAvatarClick = useCallback(
+    async (e?: React.MouseEvent) => {
+      e?.stopPropagation();
+      e?.preventDefault();
 
-    const navigateToProfile = (id: string) => {
-      if (cachedUserId && id === cachedUserId) {
-        router.push("/profile");
-      } else {
-        router.push(`/creators/${id}`);
-      }
-    };
-
-    // If creatorId is available, navigate immediately
-    if (creatorId) {
-      trackMetric("profile_clicks");
-      navigateToProfile(creatorId);
-      return;
-    }
-
-    // Fallback: try to fetch creatorId from API
-    if (!postId) {
-      console.warn("[VideoCard] Missing both creatorId and postId for avatar redirect");
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/posts/${postId}/creator`, {
-        method: "GET",
-        headers: { "Content-Type": "application/json" },
-      });
-
-      if (!res.ok) {
-        const errorText = await res.text().catch(() => "Unknown error");
-        console.error("[VideoCard] Creator lookup failed:", res.status, errorText);
+      if (creatorProfileHref) {
+        trackMetric("profile_clicks");
+        router.push(creatorProfileHref);
         return;
       }
 
-      const payload = (await res.json()) as { creatorId?: string };
-      if (payload?.creatorId) {
-        trackMetric("profile_clicks");
-        navigateToProfile(payload.creatorId);
-      } else {
-        console.warn("[VideoCard] creatorId missing in API response for postId:", postId);
+      if (!postId) {
+        console.warn(
+          "[VideoCard] Missing creator, creatorUsername, and postId for profile redirect"
+        );
+        return;
       }
-    } catch (err) {
-      console.error("[VideoCard] Avatar redirect error:", err);
-    }
-  }, [creatorId, postId, router, cachedUserId]);
+
+      try {
+        const res = await fetch(`/api/posts/${postId}/creator`, {
+          method: "GET",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (!res.ok) {
+          const errorText = await res.text().catch(() => "Unknown error");
+          console.error("[VideoCard] Creator lookup failed:", res.status, errorText);
+          return;
+        }
+
+        const payload = (await res.json()) as { creatorId?: string };
+        if (payload?.creatorId) {
+          trackMetric("profile_clicks");
+          router.push(`/creators/${payload.creatorId}`);
+        } else {
+          console.warn(
+            "[VideoCard] creatorId missing in API response for postId:",
+            postId
+          );
+        }
+      } catch (err) {
+        console.error("[VideoCard] Avatar redirect error:", err);
+      }
+    },
+    [creatorProfileHref, postId, router]
+  );
 
   return (
     <div className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh]">
@@ -869,16 +920,46 @@ export default function VideoCard(props: VideoCardProps) {
           <div className="relative p-3 sm:p-4">
           <div className="flex items-start gap-3 mb-3 translate-y-[45px]">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-white font-semibold text-base truncate">
-                  {displayCreator}
-                </span>
+              <div className="flex items-center gap-2 mb-1 min-w-0">
+                {creatorProfileHref ? (
+                  <Link
+                    href={creatorProfileHref}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      trackMetric("profile_clicks");
+                    }}
+                    className="text-white font-semibold text-base truncate hover:underline"
+                  >
+                    {displayCreator}
+                  </Link>
+                ) : (
+                  <span className="text-white font-semibold text-base truncate">
+                    {displayCreator}
+                  </span>
+                )}
               </div>
               <p className="text-white/95 text-base line-clamp-2 leading-snug">
                 {displayTitle}
               </p>
               {hashtags && (
-                <p className="text-white/70 text-xs mt-1 line-clamp-1">{hashtags}</p>
+                <div className="text-white/70 text-xs mt-1 min-w-0">
+                  {clickableFromDisplay.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      {clickableFromDisplay.map((tag) => (
+                        <Link
+                          key={tag.toLowerCase()}
+                          href={`/tag/${encodeURIComponent(tag.toLowerCase())}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="hover:underline"
+                        >
+                          #{tag}
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <span>{hashtags}</span>
+                  )}
+                </div>
               )}
             </div>
           </div>

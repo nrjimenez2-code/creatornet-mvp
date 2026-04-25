@@ -47,3 +47,10 @@ next-env.d.ts
 
 DELIVERY_CHECKLIST.md
 MY_TASKS.md
+
+# Local / downloaded product briefs (not part of the repo)
+CreatorNet_dev_brief.pdf
+**/CreatorNet_dev_brief.pdf
+
+# Agent-created local helper SQL (not for commit)
+supabase/fix_creator_analytics_functions.sql

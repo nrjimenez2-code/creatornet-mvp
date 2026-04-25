@@ -498,9 +498,14 @@ function Chip({
 }
 
 function CreatorCard({ c }: { c: Creator }) {
+  const href =
+    c.username && c.username.length > 0
+      ? `/profile/${encodeURIComponent(c.username)}`
+      : `/creators/${c.id}`;
+
   return (
     <Link
-      href={"/creators/" + c.id}
+      href={href}
       className="rounded-xl border border-white/10 p-3 hover:bg-white/5 flex gap-3"
     >
       <div className="h-10 w-10 rounded-full bg-white/10 overflow-hidden">

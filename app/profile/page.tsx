@@ -29,7 +29,7 @@ export default async function ProfilePage() {
       .maybeSingle(),
     supabase
       .from("posts")
-      .select("id, poster_url, video_url")
+      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
       .eq("creator_id", user.id)
       .order("created_at", { ascending: false }),
     supabase
@@ -123,7 +123,13 @@ export default async function ProfilePage() {
           </p>
         ) : (
           <div className="mt-5.5">
-            <ProfilePostsGallery posts={posts} />
+            <ProfilePostsGallery
+              posts={posts}
+              creatorId={user.id}
+              creatorName={displayName}
+              creatorUsername={profile?.username ?? null}
+              creatorAvatarUrl={avatarUrl}
+            />
           </div>
         )}
 
