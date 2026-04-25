@@ -39,6 +39,8 @@ export default function PostList({
           p.creator_id ??
           p.profileId ??
           null;
+        const creatorUsername =
+          p.creator_username ?? p.creatorUsername ?? p.username ?? null;
 
         return (
           <VideoCard
@@ -48,10 +50,12 @@ export default function PostList({
             creator={creator}
             caption={caption}
             hashtags={hashtags}
+            hashtagsList={Array.isArray(p.hashtags) ? p.hashtags : null}
             likes={likes}
             comments={comments}
             shares={shares}
             creatorId={creatorId}
+            creatorUsername={creatorUsername}
             ctaLabel={p.ctaLabel ?? "Buy or Book"}
             onCta={p.onCta}
           />

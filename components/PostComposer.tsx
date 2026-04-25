@@ -102,6 +102,58 @@ function normalizeBookingUrl(u: string): string | null {
 
 const UPLOAD_TIMEOUT_MS = 120_000;
 
+async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
+  const objectUrl = URL.createObjectURL(videoFile);
+
+  try {
+    const video = document.createElement("video");
+    video.src = objectUrl;
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "metadata";
+
+    await new Promise<void>((resolve, reject) => {
+      const onLoadedMetadata = () => {
+        const targetTime = Math.min(0.2, Math.max(0, (video.duration || 0) / 4));
+        if (!Number.isFinite(targetTime)) {
+          resolve();
+          return;
+        }
+        video.currentTime = targetTime;
+      };
+      const onSeeked = () => resolve();
+      const onError = () =>
+        reject(new Error("Could not load video to generate thumbnail"));
+
+      video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+      video.addEventListener("seeked", onSeeked, { once: true });
+      video.addEventListener("error", onError, { once: true });
+    });
+
+    const width = Math.max(1, video.videoWidth || 720);
+    const height = Math.max(1, video.videoHeight || 1280);
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, width, height);
+
+    const blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", 0.86)
+    );
+    if (!blob) return null;
+
+    const baseName = videoFile.name.replace(/\.[^/.]+$/, "") || "thumbnail";
+    return new File([blob], `${baseName}.jpg`, { type: "image/jpeg" });
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
+
 async function uploadToR2(
   file: File,
   folder: "videos" | "thumbnails"
@@ -352,10 +404,12 @@ export default function PostComposer({ onPosted }: Props) {
       // 1) promo video → R2 (zero egress)
       const video_url = await uploadToR2(videoFile, "videos");
 
-      // 2) optional thumbnail → R2
+      // 2) optional thumbnail → R2 (auto-generate one from video when missing)
       let poster_url: string | null = null;
-      if (thumbFile) {
-        poster_url = await uploadToR2(thumbFile, "thumbnails");
+      const thumbnailSource =
+        thumbFile ?? (videoFile ? await generateVideoThumbnail(videoFile) : null);
+      if (thumbnailSource) {
+        poster_url = await uploadToR2(thumbnailSource, "thumbnails");
       }
 
       // 3) optional premium file → Supabase (stays private)

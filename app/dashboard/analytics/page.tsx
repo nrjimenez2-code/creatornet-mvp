@@ -2,6 +2,7 @@
 import { createServerClient } from "@/lib/supabaseServer";
 import ViewsChart from "@/components/analytics/ViewsChart";
 import BackButton from "@/components/BackButton";
+import { redirect } from "next/navigation";
 
 // --- Types --------------------------------------------------------
 
@@ -48,21 +49,31 @@ function getWindow(days = 7) {
 
 // --- Server Loaders ------------------------------------------------
 
-async function loadKpis(start: string, end: string): Promise<Kpis> {
+async function loadKpis(
+  start: string,
+  end: string,
+  creatorId: string
+): Promise<Kpis> {
   const supabase = createServerClient();
   const { data, error } = await supabase.rpc("creator_kpis", {
     p_start: start,
     p_end: end,
+    p_creator_id: creatorId,
   });
   if (error) throw error;
   return (data || {}) as Kpis;
 }
 
-async function loadViewsSeries(start: string, end: string): Promise<Point[]> {
+async function loadViewsSeries(
+  start: string,
+  end: string,
+  creatorId: string
+): Promise<Point[]> {
   const supabase = createServerClient();
   const { data, error } = await supabase.rpc("creator_views_timeseries", {
     p_start: start,
     p_end: end,
+    p_creator_id: creatorId,
   });
   if (error) return [];
   return (data || []) as Point[];
@@ -72,12 +83,23 @@ async function loadViewsSeries(start: string, end: string): Promise<Point[]> {
 
 export default async function AnalyticsPage() {
   const { start, end } = getWindow(7);
-  // const [kpis, series] = await Promise.all([
-  //   loadKpis(start, end),
-  //   loadViewsSeries(start, end),
-  // ]);
-  const kpis = {} as Kpis;
-  const series: Point[] = [];
+  const supabase = createServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    redirect("/auth");
+  }
+
+  const [kpisResult, seriesResult] = await Promise.allSettled([
+    loadKpis(start, end, user.id),
+    loadViewsSeries(start, end, user.id),
+  ]);
+
+  const kpis =
+    kpisResult.status === "fulfilled" ? kpisResult.value : ({} as Kpis);
+  const series: Point[] =
+    seriesResult.status === "fulfilled" ? seriesResult.value : [];
 
   const safeKpis: Kpis = {
     views: kpis?.views ?? 0,
@@ -97,8 +119,10 @@ export default async function AnalyticsPage() {
   const cards = [
     { label: "Views", value: safeKpis.views.toLocaleString() },
     { label: "Unique Clicks", value: safeKpis.unique_clicks.toLocaleString() },
+    { label: "Checkouts Started", value: safeKpis.checkouts_started.toLocaleString() },
     { label: "CTR", value: pct(ctr) },
     { label: "Purchases", value: safeKpis.purchases.toLocaleString() },
+    { label: "Bookings Completed", value: safeKpis.bookings_completed.toLocaleString() },
     { label: "GMV", value: fmtCurrency(safeKpis.gmv_cents) },
     { label: "AOV", value: fmtCurrency(aov) },
     { label: "CVR", value: pct(cvr) },

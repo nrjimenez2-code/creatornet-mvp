@@ -1,23 +1,48 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import VideoCard from "@/components/VideoCard";
+import { normalizeCategory } from "@/lib/posthog";
 
 type Post = {
   id: string;
+  creator_id?: string | null;
+  title?: string | null;
+  content?: string | null;
   poster_url?: string | null;
   video_url?: string | null;
+  interests?: string[] | null;
+  hashtags?: string[] | null;
+  likes_count?: number | null;
+  comments_count?: number | null;
+  shares_count?: number | null;
+  product_id?: string | null;
+  price_cents?: number | null;
+  allow_booking?: boolean | null;
+  booking_url?: string | null;
 };
 
-export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
+type Props = {
+  posts: Post[];
+  creatorId: string | null;
+  creatorName: string;
+  creatorUsername?: string | null;
+  creatorAvatarUrl?: string | null;
+};
+
+export default function ProfilePostsGallery({
+  posts,
+  creatorId,
+  creatorName,
+  creatorUsername = null,
+  creatorAvatarUrl = null,
+}: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [soundOn, setSoundOn] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
   const alignedRef = useRef(false);
 
   useEffect(() => {
@@ -67,41 +92,10 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
     return () => observer.disconnect();
   }, [isOpen, posts.length]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    videoRefs.current.forEach((video, index) => {
-      if (!video) return;
-      if (index === activeIndex && posts[index]?.video_url) {
-        video.muted = !soundOn;
-        video.loop = true;
-        video
-          .play()
-          .catch(() => {
-            /* autoplay blocked */
-          });
-      } else {
-        video.pause();
-      }
-    });
-  }, [isOpen, activeIndex, soundOn, posts]);
-
   const openModal = (index: number) => {
     setActiveIndex(index);
-    setSoundOn(false);
     alignedRef.current = false;
     setIsOpen(true);
-  };
-
-  const activePost = posts[activeIndex];
-
-  const handleVideoTap = (index: number) => {
-    const video = videoRefs.current[index];
-    if (!video) return;
-    if (video.paused) {
-      video.play().catch(() => {});
-    } else {
-      video.pause();
-    }
   };
 
   const closeModal = () => {
@@ -145,7 +139,7 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
                 muted
                 loop
                 playsInline
-                preload="none"
+                preload="metadata"
               />
             ) : (
               <div className="text-xs text-white/60">No media</div>
@@ -177,42 +171,36 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
                   itemRefs.current[index] = el;
                 }}
               >
-                <div className="relative aspect-[9/16] w-full max-w-[420px] mx-auto overflow-hidden rounded-3xl border border-white/10 bg-black">
-                  {post.video_url ? (
-                    <video
-                      ref={(el) => {
-                        videoRefs.current[index] = el;
-                      }}
-                      src={post.video_url}
-                      className="h-full w-full object-cover"
-                      playsInline
-                      muted
-                      onClick={() => handleVideoTap(index)}
-                    />
-                  ) : post.poster_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={post.poster_url}
-                      alt="Post media"
-                      className="h-full w-full object-cover"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-sm text-white/60">
-                      No media
-                    </div>
-                  )}
-
-                  {post.video_url ? (
-                    <button
-                      type="button"
-                      onClick={() => setSoundOn((prev) => !prev)}
-                      className="absolute left-3 bottom-3 flex h-9 w-9 items-center justify-center rounded-full border border-white/30 bg-black/50 text-white hover:bg-black/70"
-                      aria-label={soundOn ? "Mute video" : "Unmute video"}
-                    >
-                      {soundOn ? <SoundOnIcon /> : <SoundOffIcon />}
-                    </button>
-                  ) : null}
+                <div className="mx-auto w-full max-w-[420px]">
+                  <VideoCard
+                    src={post.video_url || undefined}
+                    poster={post.poster_url ?? null}
+                    creator={creatorName}
+                    creatorName={creatorName}
+                    creatorAvatarUrl={creatorAvatarUrl}
+                    caption={post.content ?? post.title ?? ""}
+                    title={post.title ?? post.content ?? ""}
+                    hashtags={
+                      Array.isArray(post.hashtags) && post.hashtags.length
+                        ? post.hashtags
+                            .map((h) => (h.startsWith("#") ? h : `#${h}`))
+                            .join(" ")
+                        : Array.isArray(post.interests) && post.interests.length
+                          ? post.interests.map((t) => `#${t}`).join(" ")
+                          : ""
+                    }
+                    likes={post.likes_count ?? 0}
+                    comments={post.comments_count ?? 0}
+                    shares={post.shares_count ?? 0}
+                    postId={post.id}
+                    postCategory={normalizeCategory(post.interests?.[0] ?? null)}
+                    productId={post.product_id ?? null}
+                    creatorId={post.creator_id ?? creatorId ?? null}
+                    creatorUsername={creatorUsername}
+                    priceCents={post.price_cents ?? null}
+                    allowBooking={!!post.allow_booking}
+                    bookingRedirectUrl={post.allow_booking ? (post.booking_url ?? null) : null}
+                  />
                 </div>
 
               </div>
@@ -221,22 +209,6 @@ export default function ProfilePostsGallery({ posts }: { posts: Post[] }) {
         </div>
       )}
     </>
-  );
-}
-
-function SoundOnIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
-      <path d="m3 9v6h4l5 5V4L7 9H3zm13.5 3a3.5 3.5 0 0 0-2.5-3.347v6.694A3.5 3.5 0 0 0 16.5 12zm-2.5-7.857v2.126A6.5 6.5 0 0 1 19 12a6.5 6.5 0 0 1-5 6.357v2.126A8.5 8.5 0 0 0 21 12a8.5 8.5 0 0 0-7-7.857z" />
-    </svg>
-  );
-}
-
-function SoundOffIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5 fill-current">
-      <path d="M5.707 4.293 4.293 5.707 8.586 10H3v4h5l5 5v-6.586l4.293 4.293 1.414-1.414-13-13zm7.293.707-4 4V10l4-4V5zm4.5-.857v2.126A6.5 6.5 0 0 1 21 12a6.5 6.5 0 0 1-2 4.652l1.46 1.46A8.5 8.5 0 0 0 23 12a8.5 8.5 0 0 0-5.5-8.857z" />
-    </svg>
   );
 }
 

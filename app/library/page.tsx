@@ -17,6 +17,9 @@ type LibraryItem = {
   created_at?: string | null;
   position_seconds?: number | null;
   duration_seconds?: number | null;
+  creator_id: string | null;
+  creator_username: string | null;
+  creator_full_name: string | null;
 };
 
 const clampPct = (pos?: number | null, dur?: number | null) => {
@@ -114,6 +117,21 @@ function LibraryCard({
 
       <div className="p-3">
         <h2 className="font-medium text-xs mb-2 line-clamp-2 text-white">{item.title}</h2>
+        {item.creator_id && (
+          <div className="text-[11px] text-white/50 mb-2 line-clamp-1">
+            <Link
+              href={
+                item.creator_username
+                  ? `/profile/${encodeURIComponent(item.creator_username)}`
+                  : `/creators/${item.creator_id}`
+              }
+              className="hover:underline"
+            >
+              {item.creator_full_name ||
+                (item.creator_username ? `@${item.creator_username}` : "Creator")}
+            </Link>
+          </div>
+        )}
         <Link
           href={`/watch/${item.post_id}`}
           prefetch
@@ -175,7 +193,8 @@ export default function LibraryPage() {
                 id,
                 title,
                 poster_url,
-                video_url
+                video_url,
+                creator_id
               )
             `
           )
@@ -191,15 +210,51 @@ export default function LibraryPage() {
           return;
         }
 
-        const base: LibraryItem[] =
-          (purchases || []).map((row: any) => ({
-            id: row.id,
-            post_id: row.post_id,
-            created_at: row.created_at ?? null,
-            title: row.posts?.title ?? "Untitled",
-            poster_url: row.posts?.poster_url ?? null,
-            video_url: row.posts?.video_url ?? null,
-          })) ?? [];
+        const baseRaw: Array<
+          Omit<LibraryItem, "position_seconds" | "duration_seconds">
+        > = (purchases || []).map((row: any) => ({
+          id: row.id,
+          post_id: row.post_id,
+          created_at: row.created_at ?? null,
+          title: row.posts?.title ?? "Untitled",
+          poster_url: row.posts?.poster_url ?? null,
+          video_url: row.posts?.video_url ?? null,
+          creator_id: row.posts?.creator_id ?? null,
+          creator_username: null,
+          creator_full_name: null,
+        }));
+
+        const creatorIds = [
+          ...new Set(baseRaw.map((b) => b.creator_id).filter(Boolean)),
+        ] as string[];
+
+        const profileById = new Map<
+          string,
+          { username: string | null; full_name: string | null }
+        >();
+        if (creatorIds.length > 0) {
+          const { data: profs } = await supabase
+            .from("profiles")
+            .select("id, username, full_name")
+            .in("id", creatorIds);
+          for (const p of profs ?? []) {
+            profileById.set(p.id, {
+              username: p.username ?? null,
+              full_name: p.full_name ?? null,
+            });
+          }
+        }
+
+        const base: LibraryItem[] = baseRaw.map((b) => {
+          const pr = b.creator_id ? profileById.get(b.creator_id) : null;
+          return {
+            ...b,
+            creator_username: pr?.username ?? null,
+            creator_full_name: pr?.full_name ?? null,
+            position_seconds: null,
+            duration_seconds: null,
+          };
+        });
 
         // 2) Optional progress
         const postIds = base.map((b) => b.post_id);

@@ -214,7 +214,9 @@ export default function WatchPage() {
   const creatorProfileHref = post.creator_id
     ? currentUserId && post.creator_id === currentUserId
       ? "/profile"
-      : `/creators/${post.creator_id}`
+      : post.creator?.username
+        ? `/profile/${encodeURIComponent(post.creator.username)}`
+        : `/creators/${post.creator_id}`
     : null;
 
   return (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useRef, useCallback } from "react";
+import Link from "next/link";
 import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -262,6 +263,16 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
     return comment.user.full_name || comment.user.username || "user";
   };
 
+  const commentAuthorHref = (comment: Comment) => {
+    if (currentUser && comment.user_id === currentUser.id) {
+      return "/profile";
+    }
+    if (comment.user.username) {
+      return `/profile/${encodeURIComponent(comment.user.username)}`;
+    }
+    return `/creators/${comment.user_id}`;
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -317,9 +328,13 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
                   {/* Comment Content */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-baseline gap-2 mb-1">
-                      <span className="text-white font-semibold text-sm">
+                      <Link
+                        href={commentAuthorHref(comment)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-white font-semibold text-sm hover:underline"
+                      >
                         {displayName(comment)}
-                      </span>
+                      </Link>
                       <span className="text-white/50 text-xs">
                         {formatTime(comment.created_at)}
                       </span>

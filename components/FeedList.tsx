@@ -20,12 +20,15 @@ export type PostRow = {
   product_id: string | null;
   price_cents: number | null;
   creator_name?: string | null;
+  /** Handle for /profile/[username] (from API / profiles join) */
+  creator_username?: string | null;
   creator_avatar_url?: string | null;
   title: string | null;
   video_url: string | null;
   poster_url: string | null;
   content: string | null;
   interests: string[] | null;
+  hashtags?: string[] | null;
   created_at: string | null;
   product_type?: string | null;
   is_following?: boolean | null;
@@ -80,6 +83,9 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   const [globalSoundOn, setGlobalSoundOn] = useState(false);
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
+  const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const wheelLockRef = useRef(false);
+  const touchStartYRef = useRef<number | null>(null);
 
   // Handler to update follow status in cached feed data
   const handleFollowChange = (creatorId: string, isFollowing: boolean) => {
@@ -126,7 +132,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             const postIds = (ranked.data as { post_id: string }[]).map((r) => r.post_id);
             const postsResult = await supabase
               .from("posts")
-              .select("id, creator_id, product_id, title, video_url, poster_url, interests, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
+              .select("id, creator_id, product_id, title, video_url, poster_url, interests, hashtags, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
               .in("id", postIds);
             if (postsResult.error) {
               error = postsResult.error;
@@ -195,6 +201,9 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 null;
               const derivedAvatar = (r.avatar_url as string) ?? null;
 
+              const rawUsername =
+                (r.creator_username as string) ?? (r.username as string) ?? null;
+
               return {
                 id: postId,
                 creator_id: (r.creator_id as string) ?? null,
@@ -205,6 +214,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 poster_url: typeof rawPoster === "string" ? rawPoster.trim() : null,
                 content: (r.title as string) ?? "",
                 interests: Array.isArray(r.interests) ? (r.interests as string[]) : Array.isArray(r.tags) ? (r.tags as string[]) : [],
+                hashtags: Array.isArray(r.hashtags) ? (r.hashtags as string[]) : null,
                 created_at: null,
                 likes_count: (r.likes_count as number) ?? 0,
                 comments_count: (r.comments_count as number) ?? 0,
@@ -213,6 +223,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 booking_url: (r.booking_url as string) ?? null,
                 is_following: (r.is_following as boolean) ?? false,
                 creator_name: derivedName,
+                creator_username: rawUsername,
                 creator_avatar_url: derivedAvatar,
               };
             })
@@ -396,6 +407,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 profile?.username ??
                 p.creator_name ??
                 null,
+              creator_username: profile?.username ?? p.creator_username ?? null,
               creator_avatar_url:
                 profile?.avatar_url ?? p.creator_avatar_url ?? null,
               is_liked: likedPostIds.has(p.id),
@@ -467,6 +479,9 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 interests: Array.isArray(row.interests)
                   ? row.interests
                   : next[i].interests,
+                hashtags: Array.isArray(row.hashtags)
+                  ? row.hashtags
+                  : next[i].hashtags,
                 is_following: next[i].is_following,
               };
               return next;
@@ -482,6 +497,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               poster_url: row.poster_url ?? null,
               content: row.title ?? "",
               interests: Array.isArray(row.interests) ? row.interests : [],
+              hashtags: Array.isArray(row.hashtags) ? row.hashtags : null,
               created_at: row.created_at ?? null,
               likes_count: 0,
               comments_count: 0,
@@ -490,6 +506,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               allow_booking: row.allow_booking ?? false,
               booking_url: row.booking_url ?? null,
               creator_name: null,
+              creator_username: null,
               creator_avatar_url: null,
               is_following: false,
             };
@@ -591,6 +608,60 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     [items, activePostId]
   );
 
+  const stepScrollWithLock = useCallback(
+    (direction: "up" | "down") => {
+      if (wheelLockRef.current) return;
+      wheelLockRef.current = true;
+      scrollByOneCard(direction);
+      window.setTimeout(() => {
+        wheelLockRef.current = false;
+      }, 520);
+    },
+    [scrollByOneCard]
+  );
+
+  const handleWheelStep = useCallback(
+    (e: React.WheelEvent<HTMLDivElement>) => {
+      // Enforce TikTok-like one-card movement per wheel gesture.
+      if (!items.length) return;
+      if (Math.abs(e.deltaY) < 8) return;
+      e.preventDefault();
+      stepScrollWithLock(e.deltaY > 0 ? "down" : "up");
+    },
+    [items.length, stepScrollWithLock]
+  );
+
+  const handleFeedKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (!items.length) return;
+      if (e.key === "ArrowDown" || e.key === "PageDown") {
+        e.preventDefault();
+        stepScrollWithLock("down");
+      } else if (e.key === "ArrowUp" || e.key === "PageUp") {
+        e.preventDefault();
+        stepScrollWithLock("up");
+      }
+    },
+    [items.length, stepScrollWithLock]
+  );
+
+  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    touchStartYRef.current = e.touches[0]?.clientY ?? null;
+  }, []);
+
+  const handleTouchEnd = useCallback(
+    (e: React.TouchEvent<HTMLDivElement>) => {
+      const startY = touchStartYRef.current;
+      const endY = e.changedTouches[0]?.clientY ?? null;
+      touchStartYRef.current = null;
+      if (startY == null || endY == null) return;
+      const deltaY = startY - endY;
+      if (Math.abs(deltaY) < 42) return;
+      stepScrollWithLock(deltaY > 0 ? "down" : "up");
+    },
+    [stepScrollWithLock]
+  );
+
   // Load next page of posts from the posts table directly (discover only)
   const loadMore = useCallback(async () => {
     if (!hasMoreRef.current || loadingMoreRef.current) return;
@@ -622,7 +693,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       const postIds = rankedRows.map((r) => r.post_id);
       const { data: rawData, error: postsError } = await supabase
         .from("posts")
-        .select("id, creator_id, product_id, title, video_url, poster_url, interests, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
+        .select("id, creator_id, product_id, title, video_url, poster_url, interests, hashtags, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
         .in("id", postIds);
 
       if (postsError) {
@@ -655,6 +726,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             poster_url: typeof r.poster_url === "string" ? r.poster_url.trim() : null,
             content: r.title ?? "",
             interests: Array.isArray(r.interests) ? r.interests : [],
+            hashtags: Array.isArray(r.hashtags) ? r.hashtags : null,
             created_at: r.created_at ?? null,
             likes_count: r.likes_count ?? 0,
             comments_count: r.comments_count ?? 0,
@@ -663,6 +735,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             booking_url: r.booking_url ?? null,
             is_following: false,
             creator_name: null,
+            creator_username: null,
             creator_avatar_url: null,
           };
         })
@@ -763,6 +836,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           price_cents: resolvedPrice,
           product_type: p.product_id ? meta?.type ?? null : null,
           creator_name: profile?.full_name ?? profile?.username ?? null,
+          creator_username: profile?.username ?? null,
           creator_avatar_url: profile?.avatar_url ?? null,
           is_liked: likedPostIds.has(p.id),
           is_following: p.creator_id ? followedCreatorIds.has(p.creator_id) : false,
@@ -829,8 +903,19 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   return (
     <div className="relative h-full min-h-0">
       <div
-        className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory lg:snap-proximity [&::-webkit-scrollbar]:hidden scroll-smooth"
-        style={{ scrollbarWidth: "none" }}
+        ref={feedScrollRef}
+        className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory lg:snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
+        style={{
+          scrollbarWidth: "none",
+          overscrollBehaviorY: "contain",
+          // Disable native vertical pan inertia so one-swipe-one-card stays consistent.
+          touchAction: "pan-x",
+        }}
+        onWheel={handleWheelStep}
+        onKeyDown={handleFeedKeyDown}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
+        tabIndex={0}
       >
         {items.map((p, idx) => {
         const price = typeof p.price_cents === "number" ? p.price_cents : 0;
@@ -850,7 +935,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           return (
             <section
               key={`${p.id}-${idx}`}
-              className="snap-start snap-always lg:snap-normal h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
+              className="snap-start snap-always lg:snap-always h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
          
               data-post-id={p.id}
               ref={(el) => {
@@ -874,10 +959,13 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                   creatorAvatarUrl={p.creator_avatar_url ?? null}
                   caption={p.content || ""}
                   hashtags={
-                    Array.isArray(p.interests) && p.interests.length
-                      ? p.interests.map((t) => `#${t}`).join(" ")
-                      : "#entrepreneur #focus"
+                    Array.isArray(p.hashtags) && p.hashtags.length
+                      ? p.hashtags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ")
+                      : Array.isArray(p.interests) && p.interests.length
+                        ? p.interests.map((t) => `#${t}`).join(" ")
+                        : "#entrepreneur #focus"
                   }
+                  hashtagsList={Array.isArray(p.hashtags) ? p.hashtags : null}
                   // social counts
                   likes={p.likes_count ?? 0}
                   comments={p.comments_count ?? 0}
@@ -888,6 +976,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                   postCategory={normalizeCategory(p.interests?.[0] ?? null)}
                   productId={p.product_id ?? null}
                   creatorId={p.creator_id ?? null}
+                  creatorUsername={p.creator_username ?? null}
                   priceCents={price}
                   titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
                   productType={p.product_type ?? null}
