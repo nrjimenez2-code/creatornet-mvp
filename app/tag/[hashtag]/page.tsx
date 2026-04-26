@@ -222,7 +222,7 @@ export default function TagFeedPage() {
           <BackButton hrefOverride="/search" />
         </div>
 
-        <header className="space-y-1">
+        <header className="space-y-1 pl-12 sm:pl-14 md:pl-16 lg:pl-0">
           <h1 className="text-2xl md:text-3xl font-semibold">#{hashtag || "tag"}</h1>
           <p className="text-sm text-white/60">Videos tagged with this hashtag</p>
         </header>
