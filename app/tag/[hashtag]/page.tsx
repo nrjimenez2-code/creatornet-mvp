@@ -219,7 +219,7 @@ export default function TagFeedPage() {
     <main className="min-h-screen bg-black text-white">
       <div className="max-w-6xl mx-auto px-4 py-4 md:py-6 space-y-4 relative">
         <div className="fixed top-4 md:top-6 left-2 sm:left-3 md:left-4 z-20">
-          <BackButton hrefOverride="/search" />
+          <BackButton hrefOverride="/dashboard" />
         </div>
 
         <header className="space-y-1 pl-12 sm:pl-14 md:pl-16 lg:pl-0">
@@ -287,7 +287,7 @@ export default function TagFeedPage() {
 
       {isOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
-          <div className="absolute top-4 left-4 z-20 [&>div]:mb-0">
+          <div className="absolute top-5 md:top-4 left-4 z-20 [&>div]:mb-0">
             <BackButton
               hrefOverride={undefined}
               className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none"

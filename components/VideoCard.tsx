@@ -62,6 +62,7 @@ type VideoCardProps = {
   onCta?: () => void;
   activeTab?: "following" | "discover";
   onChangeTab?: (t: "following" | "discover") => void;
+  mobileMuteButtonSide?: "left" | "right";
 };
 
 export default function VideoCard(props: VideoCardProps) {
@@ -115,6 +116,7 @@ export default function VideoCard(props: VideoCardProps) {
     onCta,
     activeTab,
     onChangeTab,
+    mobileMuteButtonSide = "right",
   } = props;
 
   const router = useRouter();
@@ -895,7 +897,11 @@ export default function VideoCard(props: VideoCardProps) {
         ) : null}
 
         <div
-          className="absolute top-2 left-2 sm:top-3 sm:left-3 h-10 w-10 rounded-full bg-black/35 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-black/50 transition focus:outline-none focus:ring-2 focus:ring-white/60 z-30 max-lg:bg-transparent max-lg:hover:bg-transparent max-lg:backdrop-blur-0"
+          className={`absolute top-2 sm:top-3 ${
+            mobileMuteButtonSide === "left"
+              ? "left-2 sm:left-3"
+              : "right-2 sm:right-3"
+          } lg:left-3 lg:right-auto h-10 w-10 rounded-full bg-black/35 backdrop-blur-md border border-white/10 text-white flex items-center justify-center hover:bg-black/50 transition focus:outline-none focus:ring-2 focus:ring-white/60 z-30 max-lg:bg-transparent max-lg:hover:bg-transparent max-lg:backdrop-blur-0`}
         >
           <button
             type="button"
@@ -917,8 +923,8 @@ export default function VideoCard(props: VideoCardProps) {
         style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
       >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
-          <div className="relative p-3 sm:p-4">
-          <div className="flex items-start gap-3 mb-3 translate-y-[40px] lg:translate-y-[45px]">
+          <div className="relative p-3 sm:p-4 max-lg:translate-y-[7px] lg:translate-y-0">
+          <div className="flex items-start gap-3 mb-3 translate-y-[44px] lg:translate-y-[45px]">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 min-w-0">
                 {creatorProfileHref ? (

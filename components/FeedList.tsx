@@ -988,6 +988,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                   bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                   soundEnabled={isSoundOn}
                   onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+                  mobileMuteButtonSide="left"
                   tapToTogglePlayback
                   isLiked={p.is_liked ?? false}
                 />
