@@ -150,7 +150,7 @@ export default function ProfilePostsGallery({
 
       {isOpen && (
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
-          <div className="absolute top-4 left-4 z-10 [&>div]:mb-0">
+          <div className="absolute top-5 md:top-4 left-4 z-10 [&>div]:mb-0">
             <BackButton 
               hrefOverride={undefined}
               className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none"
