@@ -925,6 +925,7 @@ export default function VideoCard(props: VideoCardProps) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
           <div className="relative p-3 sm:p-4 max-lg:translate-y-[7px] lg:translate-y-0">
           <div className="flex items-start gap-3 mb-3 translate-y-[44px] lg:translate-y-[45px]">
+
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 min-w-0">
                 {creatorProfileHref ? (
