@@ -111,6 +111,24 @@ export default function ProfilePostsGallery({
     }
   };
 
+  const primeVideoThumbnail = (videoEl: HTMLVideoElement | null) => {
+    if (!videoEl) return;
+
+    // On real mobile browsers, video tiles without poster can remain black
+    // unless we explicitly seek to a tiny offset after metadata is available.
+    const onLoadedMetadata = () => {
+      try {
+        if (videoEl.readyState >= 1 && videoEl.currentTime === 0) {
+          videoEl.currentTime = 0.01;
+        }
+      } catch {
+        // Ignore seek errors for unsupported streams/codecs.
+      }
+    };
+
+    videoEl.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+  };
+
   return (
     <>
       <div
@@ -133,22 +151,15 @@ export default function ProfilePostsGallery({
                 loading="lazy"
               />
             ) : post.video_url ? (
-              <>
-                <video
-                  src={post.video_url}
-                  className="h-full w-full object-cover transition group-hover:scale-105"
-                  muted
-                  loop
-                  playsInline
-                  preload="metadata"
-                />
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-black/35" />
-                <div className="pointer-events-none absolute inset-0 flex items-end justify-start p-2">
-                  <span className="rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white/90">
-                    Tap to open
-                  </span>
-                </div>
-              </>
+              <video
+                ref={primeVideoThumbnail}
+                src={post.video_url}
+                className="h-full w-full object-cover transition group-hover:scale-105"
+                muted
+                loop
+                playsInline
+                preload="auto"
+              />
             ) : (
               <div className="text-xs text-white/60">No media</div>
             )}
