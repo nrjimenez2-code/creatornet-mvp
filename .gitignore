@@ -52,5 +52,5 @@ MY_TASKS.md
 CreatorNet_dev_brief.pdf
 **/CreatorNet_dev_brief.pdf
 
-# Agent-created local helper SQL (not for commit)
-supabase/fix_creator_analytics_functions.sql
+# Local SQL — applied directly in Supabase SQL editor, no need to track
+supabase/

@@ -251,7 +251,7 @@ export default function TagFeedPage() {
                 key={p.id}
                 type="button"
                 onClick={() => openModal(index)}
-                className="group relative flex aspect-square items-center justify-center overflow-hidden bg-black/40 border border-black/60 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+                className="group relative flex aspect-square items-center justify-center overflow-hidden bg-white/5 border border-white/10 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
               >
                 {p.poster_url ? (
                   <img

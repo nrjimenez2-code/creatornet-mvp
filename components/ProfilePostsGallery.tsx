@@ -114,8 +114,9 @@ export default function ProfilePostsGallery({
   const primeVideoThumbnail = (videoEl: HTMLVideoElement | null) => {
     if (!videoEl) return;
 
-    // On real mobile browsers, video tiles without poster can remain black
-    // unless we explicitly seek to a tiny offset after metadata is available.
+    // On mobile browsers (especially iOS Safari), video tiles without a poster
+    // can remain black until user interaction. Seek to a tiny offset once
+    // metadata is available so the first frame paints as a thumbnail.
     const onLoadedMetadata = () => {
       try {
         if (videoEl.readyState >= 1 && videoEl.currentTime === 0) {
@@ -140,7 +141,7 @@ export default function ProfilePostsGallery({
             key={post.id}
             type="button"
             onClick={() => openModal(index)}
-            className="group relative flex aspect-square items-center justify-center overflow-hidden bg-black/40 border border-black/60 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            className="group relative flex aspect-square items-center justify-center overflow-hidden bg-white/5 border border-white/10 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
           >
             {post.poster_url ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -158,9 +159,8 @@ export default function ProfilePostsGallery({
                 muted
                 loop
                 playsInline
-                preload="auto"
+                preload="metadata"
               />
-
             ) : (
               <div className="text-xs text-white/60">No media</div>
             )}

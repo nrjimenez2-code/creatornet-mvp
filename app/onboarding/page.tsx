@@ -123,15 +123,13 @@ export default function Page() {
   }, [usernameErr, usernameOk]);
 
   return (
-    <main className="min-h-screen bg-white flex items-center justify-center">
-      {/* container */}
-      <div className="w-[420px]">
-        {/* Title */}
-        <h1 className="text-[32px] font-extrabold text-[#4A35C7] tracking-wide uppercase whitespace-nowrap text-left -ml-4">
+    <main className="min-h-svh bg-white flex items-start sm:items-center justify-center px-4 sm:px-6 py-10 sm:py-12">
+      <div className="w-full max-w-md">
+        <h1 className="text-2xl sm:text-3xl md:text-[32px] font-extrabold text-[#4A35C7] tracking-wide uppercase text-left">
           CHOOSE YOUR INTERESTS
         </h1>
 
-        <p className="text-gray-800 text-sm mt-3 text-left -ml-4">
+        <p className="text-gray-800 text-sm mt-3 text-left">
           Pick a few and claim your username to personalize CreatorNet.
         </p>
 
@@ -144,7 +142,7 @@ export default function Page() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="yourname"
-              className={`mt-1 w-full rounded-md border px-3 py-2 text-gray-900 focus:ring-4 ${
+              className={`mt-1 w-full rounded-md border px-3 py-2 text-base text-gray-900 focus:ring-4 ${
                 usernameOk === false
                   ? "border-red-400 focus:ring-red-200"
                   : "border-gray-300 focus:ring-[#9370DB]/30"
@@ -183,7 +181,7 @@ export default function Page() {
                         : [...prev, opt]
                     )
                   }
-                  className={`rounded-md border px-4 py-3 text-sm font-medium transition ${
+                  className={`rounded-md border px-3 sm:px-4 py-3 text-xs sm:text-sm font-medium leading-snug text-center transition ${
                     active
                       ? "bg-[#4A35C7] text-white border-[#4A35C7]"
                       : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
@@ -199,7 +197,7 @@ export default function Page() {
           <button
             type="submit"
             disabled={!canContinue || saving}
-            className="w-full py-4 text-[18px] rounded-lg bg-[#9370DB] text-white font-semibold hover:brightness-95 active:brightness-90 disabled:opacity-60 transition whitespace-nowrap"
+            className="w-full py-3 sm:py-4 text-base sm:text-[18px] rounded-lg bg-[#9370DB] text-white font-semibold hover:brightness-95 active:brightness-90 disabled:opacity-60 transition"
           >
             {saving ? "Saving…" : "Continue"}
           </button>
