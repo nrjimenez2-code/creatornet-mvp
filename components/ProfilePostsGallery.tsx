@@ -160,6 +160,7 @@ export default function ProfilePostsGallery({
                 playsInline
                 preload="auto"
               />
+
             ) : (
               <div className="text-xs text-white/60">No media</div>
             )}
