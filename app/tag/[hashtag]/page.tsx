@@ -54,6 +54,23 @@ export default function TagFeedPage() {
   const modalWheelLockRef = useRef(false);
   const modalTouchStartYRef = useRef<number | null>(null);
 
+  // On mobile browsers (especially iOS Safari), <video> tiles without a
+  // poster stay black until user interaction. Seek to a tiny offset once
+  // metadata is available so the first frame paints as a thumbnail.
+  const primeVideoThumbnail = useCallback((videoEl: HTMLVideoElement | null) => {
+    if (!videoEl) return;
+    const onLoadedMetadata = () => {
+      try {
+        if (videoEl.readyState >= 1 && videoEl.currentTime === 0) {
+          videoEl.currentTime = 0.01;
+        }
+      } catch {
+        // Ignore seek errors for unsupported streams/codecs.
+      }
+    };
+    videoEl.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+  }, []);
+
   const loadPage = useCallback(
     async (nextOffset: number, append: boolean) => {
       if (!hashtag) return;
@@ -262,6 +279,7 @@ export default function TagFeedPage() {
                   />
                 ) : p.video_url ? (
                   <video
+                    ref={primeVideoThumbnail}
                     src={p.video_url}
                     className="h-full w-full object-cover transition group-hover:scale-105"
                     muted
