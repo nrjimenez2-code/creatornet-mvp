@@ -375,6 +375,21 @@ export default function VideoCard(props: VideoCardProps) {
     const video = videoRef.current;
     if (!video) return;
 
+    // play() can reject when metadata isn't ready yet (slow networks, iOS
+    // Safari). Wrap the call so a rejection schedules one retry on `canplay`
+    // instead of leaving the video silently paused until the user taps.
+    const tryPlay = () => {
+      const playPromise = video.play();
+      if (playPromise && typeof playPromise.catch === "function") {
+        playPromise.catch(() => {
+          const onCanPlay = () => {
+            video.play().catch(() => {});
+          };
+          video.addEventListener("canplay", onCanPlay, { once: true });
+        });
+      }
+    };
+
     if (isActive === undefined) {
       const container = containerRef.current;
       if (!container) return;
@@ -384,7 +399,7 @@ export default function VideoCard(props: VideoCardProps) {
         (entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting && entry.intersectionRatio >= 0.75) {
-              video.play().catch(() => {});
+              tryPlay();
               if (!hasTrackedImpression) {
                 hasTrackedImpression = true;
                 trackMetric("impressions");
@@ -404,7 +419,7 @@ export default function VideoCard(props: VideoCardProps) {
         video.pause();
       };
     } else if (isActive) {
-      video.play().catch(() => {});
+      tryPlay();
     } else {
       video.pause();
     }
@@ -414,14 +429,12 @@ export default function VideoCard(props: VideoCardProps) {
     if (src && !hasLoaded) {
       if (isActive === true) {
         setVideoSrc(src);
-        videoRef.current?.load();
       } else if (isActive === undefined && containerRef.current) {
         const observer = new IntersectionObserver(
           (entries) => {
             entries.forEach((entry) => {
               if (entry.isIntersecting && !hasLoaded) {
                 setVideoSrc(src);
-                videoRef.current?.load();
               }
             });
           },
@@ -956,7 +969,20 @@ export default function VideoCard(props: VideoCardProps) {
                         <Link
                           key={tag.toLowerCase()}
                           href={`/tag/${encodeURIComponent(tag.toLowerCase())}`}
-                          onClick={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Tapping a hashtag is a strong signal that the
+                            // viewer wants more of that category — bump the
+                            // user's interest score for the tapped tag.
+                            fetch("/api/interest-score", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                category: tag.toLowerCase(),
+                                delta: 5,
+                              }),
+                            }).catch(() => {});
+                          }}
                           className="hover:underline"
                         >
                           #{tag}
