@@ -1,6 +1,7 @@
 // app/api/post-metrics/route.ts
 // Called from client components (VideoCard) to update post metrics
 import { NextRequest, NextResponse } from "next/server";
+import { createServerClient } from "@/lib/supabaseServer";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
 export const runtime = "nodejs";
@@ -19,7 +20,23 @@ export async function POST(req: NextRequest) {
     const allowed = ["impressions", "views", "completions", "profile_clicks", "buy_clicks"];
     if (!allowed.includes(field)) return NextResponse.json({ ok: true });
 
-    await updatePostMetrics(post_id, { [field]: 1 } as any, watch_seconds);
+    // Best-effort: attribute the event to the logged-in viewer when available
+    // so creator_kpis can compute distinct-user metrics.
+    let userId: string | null = null;
+    try {
+      const supabase = createServerClient();
+      const { data } = await supabase.auth.getUser();
+      userId = data.user?.id ?? null;
+    } catch {
+      userId = null;
+    }
+
+    await updatePostMetrics(
+      post_id,
+      { [field]: 1 } as any,
+      watch_seconds,
+      userId
+    );
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ ok: true });

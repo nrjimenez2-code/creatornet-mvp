@@ -17,24 +17,39 @@ function supabaseAdmin() {
 
 export async function POST(req: NextRequest) {
   try {
-    const { post_id, delta } = (await req.json()) as { post_id?: string; delta?: number };
+    const { post_id, delta, category: categoryOverride } = (await req.json()) as {
+      post_id?: string;
+      delta?: number;
+      category?: string;
+    };
 
-    if (!post_id || !delta) return NextResponse.json({ ok: true });
+    if (!delta) return NextResponse.json({ ok: true });
 
     // Only score logged-in users
     const supabase = createServerClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ ok: true });
 
-    // Get the post's category
-    const admin = supabaseAdmin();
-    const { data: post } = await admin
-      .from("posts")
-      .select("interests")
-      .eq("id", post_id)
-      .maybeSingle();
+    // Caller can pass an explicit category (e.g. the hashtag the user
+    // tapped). Otherwise, fall back to the post's primary interest.
+    let category: string | null =
+      typeof categoryOverride === "string" && categoryOverride.trim()
+        ? categoryOverride.trim()
+        : null;
 
-    const category = Array.isArray(post?.interests) ? (post.interests[0] as string ?? null) : null;
+    if (!category) {
+      if (!post_id) return NextResponse.json({ ok: true });
+      const admin = supabaseAdmin();
+      const { data: post } = await admin
+        .from("posts")
+        .select("interests")
+        .eq("id", post_id)
+        .maybeSingle();
+      category = Array.isArray(post?.interests)
+        ? ((post.interests[0] as string) ?? null)
+        : null;
+    }
+
     if (!category) return NextResponse.json({ ok: true });
 
     await updateInterestScore(user.id, category, delta);

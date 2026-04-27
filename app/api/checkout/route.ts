@@ -294,7 +294,7 @@ export async function POST(req: NextRequest) {
         updateInterestScore(resolvedBuyerId, interestCat, 15);
       }
 
-      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 });
+      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
 
       return Response.json({
         url: session.url,
@@ -434,7 +434,7 @@ export async function POST(req: NextRequest) {
         order_id: orderId,
       });
 
-      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 });
+      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
 
       return Response.json({ url: session.url, session_id: session.id, order_id: orderId });
     }
