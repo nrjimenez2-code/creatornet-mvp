@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import BuyButton from "./BuyButton";
 import CommentPanel from "./CommentPanel";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -998,31 +999,24 @@ export default function VideoCard(props: VideoCardProps) {
           </div>
           {(showCTA || onBuy || onBook || (productId && priceCents)) && (
             <div className="mt-2 relative -translate-y-[0.67in] lg:-translate-y-[0.67in]" ref={wrapperRef}>
-              <button
+              <BuyButton
                 ref={buyButtonRef}
-                type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
-                className="inline-flex items-center gap-1 px-1 sm:px-1 md:px-1.5 py-0.5 sm:py-0.5 md:py-1 lg:py-1.5 h-5 sm:h-auto max-sm:!h-7 max-sm:!min-h-3 max-sm:!py-0 max-sm:overflow-hidden rounded-full max-sm:!rounded-xl bg-white text-black text-xs font-semibold leading-none hover:bg-gray-100 transition focus:outline-none focus:ring-2 focus:ring-white/60"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-              >
-                <svg viewBox="0 0 24 24" className="h-3 w-3 md:h-3.5 md:w-3.5" fill="currentColor">
-                  <path d="M7 4h14l-1.5 9H8.6L7 4zM3 4h2l3 12h10v2H7a2 2 0 0 1-2-1.5L3 4zM9 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3zM17 21a1.5 1.5 0 1 0 0-3a1.5 1.5 0 0 0 0 3z"/>
-                </svg>
-                <span className="font-semibold leading-none">Buy</span>
-                {(priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0) ? (
-                  <span className="font-semibold leading-none">${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}</span>
-                ) : null}
-                <svg viewBox="0 0 24 24" className="h-3 w-3 md:h-3.5 md:w-3.5" fill="black">
-                  <path d="M7 10l5 5 5-5z" />
-                </svg>
-              </button>
+                expanded={menuOpen}
+                priceCents={
+                  priceCents && priceCents > 0
+                    ? priceCents
+                    : fetchedPriceCents && fetchedPriceCents > 0
+                      ? fetchedPriceCents
+                      : null
+                }
+              />
 
               {menuOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
                 <div
                   data-buy-dropdown
                   role="menu"
-                  className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-white shadow-xl ring-1 ring-black/10 overflow-hidden"
+                  className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-gradient-to-b from-[#B5BAC2]/45 to-[#B5BAC2]/30 backdrop-blur-sm border border-white/25 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.25)] overflow-hidden"
                   style={{
                     left: dropdownPosition.left,
                     top: dropdownPosition.top,
@@ -1034,20 +1028,20 @@ export default function VideoCard(props: VideoCardProps) {
                       setMenuOpen(false);
                       handleBuy();
                     }}
-                    className="w-full text-left px-3 py-2 text-xs sm:text-sm text-gray-900 hover:bg-gray-100 transition"
+                    className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition"
                   >
                     Pay in full {((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}` : ""}
                   </button>
                   {(productType === "course" || productType === "mentorship" || allowBooking) && (
                     <>
-                      <div className="h-px bg-gray-200" />
+                      <div className="h-px bg-white/30" />
                       <button
                         role="menuitem"
                         onClick={() => {
                           setMenuOpen(false);
                           handleBook();
                         }}
-                        className="w-full text-left px-3 py-2 text-xs sm:text-sm text-gray-900 hover:bg-gray-100 transition"
+                        className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition"
                       >
                         Book
                       </button>
