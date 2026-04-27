@@ -133,14 +133,22 @@ export default function ProfilePostsGallery({
                 loading="lazy"
               />
             ) : post.video_url ? (
-              <video
-                src={post.video_url}
-                className="h-full w-full object-cover transition group-hover:scale-105"
-                muted
-                loop
-                playsInline
-                preload="metadata"
-              />
+              <>
+                <video
+                  src={post.video_url}
+                  className="h-full w-full object-cover transition group-hover:scale-105"
+                  muted
+                  loop
+                  playsInline
+                  preload="metadata"
+                />
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/65 via-black/20 to-black/35" />
+                <div className="pointer-events-none absolute inset-0 flex items-end justify-start p-2">
+                  <span className="rounded-full bg-black/60 px-2 py-1 text-[10px] font-medium text-white/90">
+                    Tap to open
+                  </span>
+                </div>
+              </>
             ) : (
               <div className="text-xs text-white/60">No media</div>
             )}
