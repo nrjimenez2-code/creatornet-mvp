@@ -467,21 +467,21 @@ describe("4. Post Performance Metrics", () => {
 
   test("avg_watch_time_seconds = total_watch_seconds / views", () => {
     const total_watch_seconds = 500;
-    const views = 10;
+    const views: number = 10;
     const avg = views === 0 ? 0 : total_watch_seconds / views;
     expect(avg).toBe(50);
   });
 
   test("completion_rate = completions / views", () => {
     const completions = 4;
-    const views = 10;
+    const views: number = 10;
     const rate = views === 0 ? 0 : completions / views;
     expect(rate).toBe(0.4);
   });
 
   test("conversion_rate = purchases / views", () => {
     const purchases = 2;
-    const views = 10;
+    const views: number = 10;
     const rate = views === 0 ? 0 : purchases / views;
     expect(rate).toBe(0.2);
   });

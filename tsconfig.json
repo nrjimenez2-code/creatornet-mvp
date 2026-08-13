@@ -23,7 +23,8 @@
     },
     "types": [
       "node",
-      "next"
+      "next",
+      "jest"
     ],
     "esModuleInterop": true,
     "isolatedModules": true,
