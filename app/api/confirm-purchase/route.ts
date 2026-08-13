@@ -107,7 +107,6 @@ export async function POST(req: Request) {
       mode: session.mode,
       payment_status: session.payment_status,
       status: session.status,
-      metadata: session.metadata,
       kind: session.metadata?.kind,
     });
     if (
@@ -132,7 +131,6 @@ export async function POST(req: Request) {
         post_id: postId,
         creator_id: creatorId,
         redirect_url: redirectUrl,
-        raw_metadata: session.metadata,
       });
       
       if (!postId) {

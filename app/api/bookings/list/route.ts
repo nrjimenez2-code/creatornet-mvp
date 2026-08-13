@@ -42,7 +42,6 @@ export async function GET(req: NextRequest) {
 
     console.log("[bookings-list] Query result:", {
       count: bookings?.length || 0,
-      bookings: bookings?.map(b => ({ id: b.id, post_id: b.post_id, creator_id: b.creator_id, status: b.status })),
       error: bookingsError?.message,
     });
 

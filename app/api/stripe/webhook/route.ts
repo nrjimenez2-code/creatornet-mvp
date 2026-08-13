@@ -311,8 +311,6 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
       post_title: postDetails?.title || "N/A",
       product_title: productDetails?.title || "N/A",
       session_id: session.id,
-      customer: session.customer,
-      customer_email: session.customer_email,
       note: "Seed endpoint should handle this via client-side",
     });
     // For setup sessions without buyer_id, the seed endpoint should handle it
@@ -878,9 +876,6 @@ export async function POST(req: NextRequest) {
           session_id: session.id,
           mode: session.mode,
           payment_status: session.payment_status,
-          metadata: session.metadata,
-          customer: session.customer,
-          customer_email: session.customer_email,
         });
 
         // Free booking flow (setup mode)

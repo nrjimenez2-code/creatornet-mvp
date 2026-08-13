@@ -344,7 +344,6 @@ function SuccessPage() {
             status: seedRes.status,
             ok: seedRes.ok,
             statusText: seedRes.statusText,
-            headers: Object.fromEntries(seedRes.headers.entries())
           });
           
           console.error("[success-page] 📥 Step 2d: Seed fetch completed", {
