@@ -46,7 +46,9 @@ export async function trackServerEvent(
   const ph = getClient();
   if (!ph) return;
   try {
-    // Buffers locally; does not perform network I/O itself.
+    // NOTE: with flushAt:1 this does kick off the send itself. The point of
+    // the `after()` below is not to move the send, it is to move the AWAIT —
+    // so the response no longer blocks on the round trip completing.
     ph.capture({ distinctId: userId ?? "anonymous", event, properties: props });
 
     try {
