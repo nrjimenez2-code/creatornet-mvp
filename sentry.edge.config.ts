@@ -11,8 +11,10 @@ Sentry.init({
   // Define how likely traces are sampled. Adjust this value in production, or use tracesSampler for greater control.
   tracesSampleRate: 0.1,
 
-  // Enable logs to be sent to Sentry
-  enableLogs: true,
+  // Off deliberately: this forwards console output to Sentry, which means any
+  // future accidental log of a token, cookie or customer email leaves the
+  // server. sendDefaultPii: false does not cover console output.
+  enableLogs: false,
 
   // Enable sending user PII (Personally Identifiable Information)
   // https://docs.sentry.io/platforms/javascript/guides/nextjs/configuration/options/#sendDefaultPii
