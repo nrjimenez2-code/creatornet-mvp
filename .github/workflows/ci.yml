@@ -57,14 +57,12 @@ jobs:
         with:
           node-version: 22
 
-      # Deliberately `npm install`, not `npm ci`.
-      # `npm ci` currently fails on this repo because package-lock.json is out of
-      # sync with package.json. That is worth fixing on its own, but regenerating
-      # the lockfile shifts dependency versions on a live app, so it does not
-      # belong in the same change as adding CI. Switch this to `npm ci` once the
-      # lockfile is repaired.
+      # `npm ci` installs exactly what the lockfile says and fails if the lockfile
+      # and package.json disagree. That is what CI should do — `npm install` would
+      # quietly resolve around a stale lockfile and test something other than what
+      # ships.
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck
         run: npx tsc --noEmit
