@@ -299,7 +299,6 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
     product_id: postDetails?.product_id || "N/A",
     product_title: productDetails?.title || "N/A",
     product_amount: productDetails?.amount_cents || "N/A",
-    metadata: session.metadata,
   });
 
   if (!buyer_id || !creator_id) {

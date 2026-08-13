@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
     const bearerHeader = req.headers.get("authorization");
     console.error("[bookings-seed] 🔍 Auth header check:", {
       hasHeader: !!bearerHeader,
-      headerValue: bearerHeader ? `${bearerHeader.substring(0, 20)}...` : null
     });
     
     if (bearerHeader) {

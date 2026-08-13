@@ -291,7 +291,7 @@ function SuccessPage() {
           
           console.error("[success-page] 🔑✅ Token obtained:", {
             tokenLength: accessToken.length,
-            tokenPreview: `${accessToken.substring(0, 20)}...${accessToken.substring(accessToken.length - 10)}`
+            hasAccessToken: !!accessToken,
           });
           
           const headers: Record<string, string> = {
@@ -303,8 +303,7 @@ function SuccessPage() {
           if (!headers.Authorization || !headers.Authorization.startsWith("Bearer ")) {
             console.error("[success-page] ❌❌❌ CRITICAL: Authorization header missing or invalid!", {
               hasHeader: !!headers.Authorization,
-              headerValue: headers.Authorization || "MISSING",
-              accessToken: accessToken ? `${accessToken.substring(0, 20)}...` : "NULL"
+              hasAccessToken: !!accessToken,
             });
             setStatus("error");
             setMessage("Authentication error. Please sign in again.");
@@ -316,9 +315,9 @@ function SuccessPage() {
             post_id: respPostId,
             hasAuth: !!accessToken,
             tokenLength: accessToken.length,
-            tokenPreview: `${accessToken.substring(0, 20)}...${accessToken.substring(accessToken.length - 10)}`,
+            hasAccessToken: !!accessToken,
             authHeaderPresent: !!headers.Authorization,
-            authHeaderPreview: headers.Authorization ? `${headers.Authorization.substring(0, 30)}...` : "MISSING",
+            hasAuthHeader: !!headers.Authorization,
             url: "/api/bookings/seed",
             method: "POST"
           });

@@ -136,7 +136,6 @@ export async function POST(req: Request) {
       if (!postId) {
         console.error("[confirm-purchase] ⚠️ WARNING: post_id is empty in metadata", {
           session_id: session.id,
-          metadata: session.metadata,
         });
       }
       
