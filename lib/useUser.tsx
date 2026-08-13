@@ -66,10 +66,7 @@ function useProvideUser(): UserContextValue {
           setUserId(session.user.id);
           setLoading(false);
           try {
-            posthog.identify(session.user.id, {
-              email: session.user.email,
-              name: session.user.user_metadata?.full_name ?? session.user.user_metadata?.name ?? null,
-            });
+            posthog.identify(session.user.id);
           } catch { /* ignore */ }
           return;
         }
@@ -96,10 +93,7 @@ function useProvideUser(): UserContextValue {
             cacheTimestamp = Date.now();
             setUserId(user.id);
             try {
-              posthog.identify(user.id, {
-                email: user.email,
-                name: user.user_metadata?.full_name ?? user.user_metadata?.name ?? null,
-              });
+              posthog.identify(user.id);
             } catch { /* ignore */ }
           } else {
             cachedUserId = null;
@@ -135,10 +129,7 @@ function useProvideUser(): UserContextValue {
       setLoading(false);
       if (nextUserId) {
         try {
-          posthog.identify(nextUserId, {
-            email: session?.user?.email,
-            name: session?.user?.user_metadata?.full_name ?? session?.user?.user_metadata?.name ?? null,
-          });
+          posthog.identify(nextUserId);
         } catch { /* ignore */ }
       } else {
         try { posthog.reset(); } catch { /* ignore */ }
