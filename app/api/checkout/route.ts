@@ -114,7 +114,13 @@ export async function POST(req: NextRequest) {
   const body = b as Payload;
   if (!body?.type) return new Response("Missing type", { status: 400 });
 
-  const resolvedBuyerId = (body as BodyBase).buyer_id ?? authUser?.id ?? null;
+  // Identity comes from the verified session ONLY. This used to be
+  //   (body as BodyBase).buyer_id ?? authUser?.id
+  // which let a caller attribute a checkout — and the purchases row the webhook
+  // later writes from this session's metadata — to any user id they chose.
+  // The browser does send buyer_id (components/VideoCard.tsx:735); it is now
+  // ignored, and for a legitimate user it was already equal to the session id.
+  const resolvedBuyerId = authUser?.id ?? null;
   if ((body.type === "product" || body.type === "installments") && !resolvedBuyerId) {
     return Response.json({ error: "Sign in required to checkout." }, { status: 401 });
   }
@@ -311,7 +317,7 @@ export async function POST(req: NextRequest) {
 
       const { data: prod, error } = await supabase
         .from("products")
-        .select("id, product_id, title, type, currency, creator_id")
+        .select("id, product_id, title, type, currency, creator_id, price_cents")
         .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
@@ -340,6 +346,33 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
+      // The buyer must not be able to name their own price. plan_price_cents
+      // arrives in the request body and was previously validated only as ">= 50",
+      // then used directly as the Stripe unit_amount — so any product could be
+      // bought for 50 cents a month by calling this endpoint directly.
+      //
+      // The invariant enforced here is deliberately the weakest one that is
+      // certainly correct: the TOTAL collected across the plan must be at least
+      // the product's stored price. That holds whether price_cents is meant as
+      // the total (per_cents * months == price) or as a per-period amount
+      // (per_cents == price, so the product is comfortably over). It blocks
+      // underpayment without guessing at the pricing model.
+      const productPriceCents = Number(
+        (prod as { price_cents?: number } | null)?.price_cents ?? 0
+      );
+      if (productPriceCents > 0 && per_cents * months < productPriceCents) {
+        console.error("[checkout] installment underpayment rejected", {
+          product_id: body.product_id,
+          months,
+          per_cents,
+          product_price_cents: productPriceCents,
+        });
+        return Response.json(
+          { error: "Installment plan does not cover the product price." },
+          { status: 400 }
+        );
+      }
+
       const instFeeCents = Math.round(per_cents * PLATFORM_FEE_RATE);
       const instCreatorAmount = per_cents - instFeeCents;
       const productType = String((prod as { type?: string } | null)?.type ?? "installment");
