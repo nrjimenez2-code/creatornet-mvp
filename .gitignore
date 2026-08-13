@@ -54,4 +54,9 @@ CreatorNet_dev_brief.pdf
 **/CreatorNet_dev_brief.pdf
 
 # Local SQL — applied directly in Supabase SQL editor, no need to track
-supabase/
+# Ignore supabase/ CONTENTS rather than the directory itself, so the schema snapshot
+# below can be re-included. (Git cannot re-include a path inside an excluded directory.)
+supabase/*
+# Keep the committed schema snapshot. Before it, the schema existed only in the live
+# database, with no migration history and nothing to diff a proposed change against.
+!supabase/schema/
