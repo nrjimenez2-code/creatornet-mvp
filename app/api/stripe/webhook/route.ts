@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
+import { claimStripeEvent } from "@/lib/stripeEvents";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
@@ -868,7 +869,16 @@ export async function POST(req: NextRequest) {
   }
 
   console.log("[webhook] 🎯 Processing event type:", event.type, "Event ID:", event.id);
-  
+
+  // Idempotency. Must be after signature verification (never record an event we
+  // have not authenticated) and before any side effect. Stripe retries until it
+  // gets a 2xx, and can deliver the same event to more than one endpoint.
+  const claim = await claimStripeEvent(event.id, event.type);
+  if (claim === "duplicate") {
+    console.log("[webhook] ⏭️ Already processed, acknowledging without re-running:", event.id);
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
+
   try {
     switch (event.type) {
       case "checkout.session.completed": {

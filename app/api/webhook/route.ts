@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { createSupabaseServer } from "@/lib/supabaseServer";
+import { claimStripeEvent } from "@/lib/stripeEvents";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -29,6 +30,14 @@ export async function POST(req: Request) {
       { error: `Invalid Stripe signature: ${err?.message || "unknown"}` },
       { status: 400 }
     );
+  }
+
+  // Idempotency. Same guard as app/api/stripe/webhook. Both handlers are guarded
+  // because which endpoint(s) Stripe actually delivers to is not visible from the
+  // code — that needs the Stripe dashboard. Guarding both is safe; guessing is not.
+  const claim = await claimStripeEvent(event.id, event.type);
+  if (claim === "duplicate") {
+    return NextResponse.json({ received: true, duplicate: true });
   }
 
   try {
