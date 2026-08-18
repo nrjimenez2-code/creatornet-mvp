@@ -1,0 +1,76 @@
+name: CI
+
+# Runs on every pull request and on pushes to main, so a green check on a PR
+# means "this compiles, typechecks and passes tests" without anyone having to
+# take the author's word for it.
+#
+# GitHub Actions is free for public repositories, so this costs nothing.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel an in-progress run if the branch gets pushed again.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # NOTE: every value below is deliberately FAKE.
+    # This job proves the app COMPILES. It must never hold a real credential,
+    # and it must never be able to reach the production database, Stripe, or R2.
+    # Next.js needs these present at build time; it does not need them to be real.
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.invalid
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-not-a-real-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-not-a-real-key
+      STRIPE_SECRET_KEY: sk_test_ci_not_a_real_key
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci_not_a_real_key
+      STRIPE_WEBHOOK_SECRET: whsec_ci_not_a_real_key
+      R2_ACCOUNT_ID: ci
+      R2_ACCESS_KEY_ID: ci
+      R2_SECRET_ACCESS_KEY: ci
+      R2_BUCKET_NAME: ci
+      R2_PUBLIC_URL: https://example.invalid
+      NEXT_PUBLIC_SITE_URL: https://example.invalid
+      NEXT_PUBLIC_BASE_URL: https://example.invalid
+      APP_URL: https://example.invalid
+      NEXT_PUBLIC_POSTHOG_KEY: phc_ci_not_a_real_key
+      NEXT_PUBLIC_POSTHOG_HOST: https://example.invalid
+      NEXT_PUBLIC_SENTRY_DSN: ""
+      SENTRY_AUTH_TOKEN: ""
+      # Keep Sentry from trying to upload source maps during a CI build.
+      SENTRY_SUPPRESS_GLOBAL_ERROR_HANDLER_FILE_WARNING: "1"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      # Deliberately `npm install`, not `npm ci`.
+      # `npm ci` currently fails on this repo because package-lock.json is out of
+      # sync with package.json. That is worth fixing on its own, but regenerating
+      # the lockfile shifts dependency versions on a live app, so it does not
+      # belong in the same change as adding CI. Switch this to `npm ci` once the
+      # lockfile is repaired.
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
