@@ -32,7 +32,6 @@ export async function POST(req: NextRequest) {
     const bearerHeader = req.headers.get("authorization");
     console.error("[bookings-seed] 🔍 Auth header check:", {
       hasHeader: !!bearerHeader,
-      headerValue: bearerHeader ? `${bearerHeader.substring(0, 20)}...` : null
     });
     
     if (bearerHeader) {
@@ -86,8 +85,6 @@ export async function POST(req: NextRequest) {
         reason: "No valid authentication found",
         authMethod,
         hasAuthHeader: !!bearerHeader,
-        authHeaderValue: bearerHeader ? `${bearerHeader.substring(0, 30)}...` : null,
-        allHeaders: Object.fromEntries(req.headers.entries()),
       });
       return NextResponse.json({ 
         error: "Unauthorized", 
