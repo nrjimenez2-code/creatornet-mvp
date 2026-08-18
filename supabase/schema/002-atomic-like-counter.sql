@@ -36,6 +36,18 @@ $function$;
 
 -- Only the server calls this, with the service-role key. A signed-out visitor
 -- has no business moving a like count directly.
+--
+-- ⚠️ The FROM PUBLIC line is the one that actually does the work, and it was
+-- missing from the first version of this file. Postgres grants EXECUTE on a new
+-- function to PUBLIC by default, and PUBLIC is not a role you can revoke by
+-- naming anon or authenticated: every role inherits it. Revoking only those two
+-- would have left the function callable by anyone holding the public key, which
+-- matters here because it is SECURITY DEFINER and takes an arbitrary integer
+-- delta, so a signed-out visitor could set any post's like count to anything.
+--
+-- Confirmed against the live database: every existing function shows `=X/postgres`
+-- in its ACL, which is exactly this default PUBLIC grant.
+REVOKE EXECUTE ON FUNCTION public.bump_post_likes(uuid, integer) FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION public.bump_post_likes(uuid, integer) FROM anon;
 REVOKE EXECUTE ON FUNCTION public.bump_post_likes(uuid, integer) FROM authenticated;
 
@@ -50,9 +62,15 @@ COMMIT;
 --   SELECT p.proname,
 --          pg_get_function_identity_arguments(p.oid) AS args,
 --          p.prosecdef AS security_definer,
---          array_to_string(p.proconfig, ', ') AS config
+--          array_to_string(p.proconfig, ', ') AS config,
+--          coalesce(array_to_string(p.proacl, ' | '), 'NULL = EXECUTE granted to PUBLIC') AS acl
 --   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 --   WHERE n.nspname = 'public' AND p.proname = 'bump_post_likes';
+--
+-- In the acl column, an entry that starts with a bare `=` (like `=X/postgres`)
+-- means PUBLIC still holds EXECUTE and the lockdown did NOT take. After this
+-- file runs correctly there should be no bare `=` entry, and no anon= or
+-- authenticated= entry either.
 --
 -- Then, on the live site: like a post, unlike it, and confirm the number goes
 -- up by one and back down by one. The app log line
