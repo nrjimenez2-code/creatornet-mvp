@@ -117,3 +117,44 @@ export async function claimStripeEvent(
     return "unrecorded";
   }
 }
+
+/**
+ * Release a claim taken by `claimStripeEvent`.
+ *
+ * ## Why this has to exist
+ *
+ * `claimStripeEvent` inserts the event id BEFORE any side effect, which is what
+ * makes the guard safe against two deliveries racing. But it means a handler
+ * that throws half way through leaves the claim behind. Stripe would retry, the
+ * retry would see its own claim, return "duplicate", and acknowledge without
+ * doing the work. The payment would be captured and never recorded, and Stripe
+ * would stop retrying because it got a 2xx.
+ *
+ * That is worse than having no idempotency guard at all, so the claim must be
+ * released on any failure path that asks Stripe to retry.
+ *
+ * Best effort on purpose: if the delete fails we still surface the original
+ * error. A stuck claim is recoverable by hand; masking the real failure is not.
+ */
+export async function releaseStripeEvent(eventId: string): Promise<void> {
+  const db = admin();
+  if (!db) return;
+
+  try {
+    const { error } = await db.from("stripe_events").delete().eq("id", eventId);
+    if (error) {
+      console.error(
+        "[stripe-events] could not release claim, a retry of this event will be skipped as a duplicate:",
+        eventId,
+        error.code,
+        error.message
+      );
+    }
+  } catch (e) {
+    console.error(
+      "[stripe-events] unexpected error releasing claim:",
+      eventId,
+      e instanceof Error ? e.message : e
+    );
+  }
+}

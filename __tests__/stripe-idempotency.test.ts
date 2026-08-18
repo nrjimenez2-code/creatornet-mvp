@@ -12,14 +12,16 @@
  */
 
 const mockInsert = jest.fn();
+const mockEq = jest.fn();
+const mockDelete = jest.fn(() => ({ eq: mockEq }));
 
 jest.mock("@supabase/supabase-js", () => ({
   createClient: jest.fn(() => ({
-    from: jest.fn(() => ({ insert: mockInsert })),
+    from: jest.fn(() => ({ insert: mockInsert, delete: mockDelete })),
   })),
 }));
 
-import { claimStripeEvent } from "@/lib/stripeEvents";
+import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
 
 const OLD_ENV = process.env;
 
@@ -117,5 +119,45 @@ describe("claimStripeEvent", () => {
 
     expect([a, b].filter((r) => r === "new")).toHaveLength(1);
     expect([a, b].filter((r) => r === "duplicate")).toHaveLength(1);
+  });
+});
+
+/**
+ * Releasing a claim.
+ *
+ * The claim is taken BEFORE any side effect, so a handler that throws half way
+ * leaves the event id behind. Stripe's retry would then see its own claim,
+ * return "duplicate", and acknowledge without doing the work — the payment is
+ * captured and never recorded, and Stripe stops retrying because it got a 2xx.
+ *
+ * That is strictly worse than having no guard, so the failure path has to hand
+ * the claim back.
+ */
+describe("releaseStripeEvent", () => {
+  test("deletes the claim row for that event id", async () => {
+    mockEq.mockResolvedValueOnce({ error: null });
+
+    await releaseStripeEvent("evt_failed_midway");
+
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockEq).toHaveBeenCalledWith("id", "evt_failed_midway");
+  });
+
+  test("a released event can be claimed again, so Stripe's retry is processed", async () => {
+    mockInsert.mockResolvedValueOnce({ error: null });
+    expect(await claimStripeEvent("evt_retry", "checkout.session.completed")).toBe("new");
+
+    mockEq.mockResolvedValueOnce({ error: null });
+    await releaseStripeEvent("evt_retry");
+
+    // The row is gone, so the retry inserts cleanly rather than conflicting.
+    mockInsert.mockResolvedValueOnce({ error: null });
+    expect(await claimStripeEvent("evt_retry", "checkout.session.completed")).toBe("new");
+  });
+
+  test("a failed delete is logged and swallowed, never masking the original error", async () => {
+    mockEq.mockResolvedValueOnce({ error: { code: "XXXXX", message: "boom" } });
+
+    await expect(releaseStripeEvent("evt_delete_fails")).resolves.toBeUndefined();
   });
 });

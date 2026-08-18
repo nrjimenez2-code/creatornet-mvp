@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
-import { claimStripeEvent } from "@/lib/stripeEvents";
+import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
@@ -1029,6 +1029,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[webhook] ❌ Handler error:", e?.message || e, "Stack:", e?.stack);
+    // We are asking Stripe to retry, so the claim taken above has to go back.
+    // Leaving it would make the retry look like a duplicate, and the payment
+    // would never be recorded.
+    if (claim === "new") {
+      await releaseStripeEvent(event.id);
+    }
     return NextResponse.json({ ok: false, error: "handler error" }, { status: 500 });
   }
 }

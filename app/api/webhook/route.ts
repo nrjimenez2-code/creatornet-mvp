@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { createSupabaseServer } from "@/lib/supabaseServer";
-import { claimStripeEvent } from "@/lib/stripeEvents";
+import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -126,6 +126,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: any) {
     console.error("[webhook] handler error:", err);
+    // Asking Stripe to retry, so give the claim back — otherwise the retry is
+    // treated as a duplicate and the event is silently dropped for good.
+    if (claim === "new") {
+      await releaseStripeEvent(event.id);
+    }
     return NextResponse.json(
       { error: "Webhook handler failed" },
       { status: 500 }
