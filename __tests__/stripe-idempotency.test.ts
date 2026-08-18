@@ -161,3 +161,79 @@ describe("releaseStripeEvent", () => {
     await expect(releaseStripeEvent("evt_delete_fails")).resolves.toBeUndefined();
   });
 });
+
+/**
+ * The two handlers must never share a claim key.
+ *
+ * Both routes verify against the same STRIPE_WEBHOOK_SECRET, so if Stripe is
+ * configured with both endpoints registered they would both legitimately accept
+ * the same event. They do DIFFERENT work: the big handler writes purchases,
+ * earnings, bookings and access grants; the small one does its own thing.
+ *
+ * With one shared key, whichever delivery arrived first would make the other
+ * return "duplicate" and skip everything — silently dropping a purchase.
+ * Namespacing per handler keeps each one idempotent against its own retries
+ * without either being able to silence the other.
+ */
+describe("per-handler claim namespacing", () => {
+  test("the same Stripe event can be claimed once per handler", async () => {
+    mockInsert.mockResolvedValueOnce({ error: null });
+    expect(await claimStripeEvent("stripe:evt_shared", "checkout.session.completed")).toBe("new");
+
+    mockInsert.mockResolvedValueOnce({ error: null });
+    expect(await claimStripeEvent("webhook:evt_shared", "checkout.session.completed")).toBe("new");
+
+    expect(mockInsert).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "stripe:evt_shared" }));
+    expect(mockInsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "webhook:evt_shared" }));
+  });
+
+  test("a retry to the SAME handler is still caught as a duplicate", async () => {
+    mockInsert.mockResolvedValueOnce({
+      error: { code: "23505", message: "duplicate key value violates unique constraint" },
+    });
+
+    expect(await claimStripeEvent("stripe:evt_shared", "checkout.session.completed")).toBe("duplicate");
+  });
+});
+
+/**
+ * Pin the prefixes in the route files themselves.
+ *
+ * The tests above prove the library behaves correctly when given distinct keys,
+ * but nothing stops someone editing a route to use the other one's prefix. The
+ * route files cannot be imported here — they build Stripe and Supabase clients
+ * at module scope, which needs real credentials — so this reads them as text,
+ * the same approach used by the platform-fee tripwire.
+ */
+describe("route files use distinct claim prefixes", () => {
+  const read = (rel: string) =>
+    require("fs").readFileSync(require("path").join(__dirname, "..", rel), "utf8");
+
+  const BIG = "app/api/stripe/webhook/route.ts";
+  const SMALL = "app/api/webhook/route.ts";
+
+  test("the big handler claims under stripe:", () => {
+    expect(read(BIG)).toMatch(/const claimKey = `stripe:\$\{event\.id\}`/);
+  });
+
+  test("the small handler claims under webhook:", () => {
+    expect(read(SMALL)).toMatch(/const claimKey = `webhook:\$\{event\.id\}`/);
+  });
+
+  test("the two prefixes are not the same", () => {
+    const grab = (src: string) => src.match(/const claimKey = `([a-z]+):\$\{event\.id\}`/)?.[1];
+    const big = grab(read(BIG));
+    const small = grab(read(SMALL));
+
+    expect(big).toBeDefined();
+    expect(small).toBeDefined();
+    expect(big).not.toBe(small);
+  });
+
+  test("each handler releases the key it claimed, not the bare event id", () => {
+    for (const f of [BIG, SMALL]) {
+      expect(read(f)).toMatch(/releaseStripeEvent\(claimKey\)/);
+      expect(read(f)).not.toMatch(/releaseStripeEvent\(event\.id\)/);
+    }
+  });
+});

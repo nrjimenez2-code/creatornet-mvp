@@ -873,7 +873,14 @@ export async function POST(req: NextRequest) {
   // Idempotency. Must be after signature verification (never record an event we
   // have not authenticated) and before any side effect. Stripe retries until it
   // gets a 2xx, and can deliver the same event to more than one endpoint.
-  const claim = await claimStripeEvent(event.id, event.type);
+  // Namespaced per handler. Both routes verify against the SAME signing secret,
+  // so if Stripe is configured with both endpoints registered they would both
+  // legitimately accept the same event. Sharing one claim key would let whichever
+  // arrived first make the other skip its work entirely — and the two handlers do
+  // DIFFERENT work, so that would silently drop purchases, earnings and access
+  // grants. Which endpoint(s) Stripe delivers to is not visible from the code.
+  const claimKey = `stripe:${event.id}`;
+  const claim = await claimStripeEvent(claimKey, event.type);
   if (claim === "duplicate") {
     console.log("[webhook] ⏭️ Already processed, acknowledging without re-running:", event.id);
     return NextResponse.json({ ok: true, duplicate: true });
@@ -1033,7 +1040,7 @@ export async function POST(req: NextRequest) {
     // Leaving it would make the retry look like a duplicate, and the payment
     // would never be recorded.
     if (claim === "new") {
-      await releaseStripeEvent(event.id);
+      await releaseStripeEvent(claimKey);
     }
     return NextResponse.json({ ok: false, error: "handler error" }, { status: 500 });
   }

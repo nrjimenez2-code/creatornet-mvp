@@ -35,7 +35,10 @@ export async function POST(req: Request) {
   // Idempotency. Same guard as app/api/stripe/webhook. Both handlers are guarded
   // because which endpoint(s) Stripe actually delivers to is not visible from the
   // code — that needs the Stripe dashboard. Guarding both is safe; guessing is not.
-  const claim = await claimStripeEvent(event.id, event.type);
+  // Namespaced per handler — see the note in app/api/stripe/webhook/route.ts.
+  // These two must never share a claim key or one can silence the other.
+  const claimKey = `webhook:${event.id}`;
+  const claim = await claimStripeEvent(claimKey, event.type);
   if (claim === "duplicate") {
     return NextResponse.json({ received: true, duplicate: true });
   }
@@ -129,7 +132,7 @@ export async function POST(req: Request) {
     // Asking Stripe to retry, so give the claim back — otherwise the retry is
     // treated as a duplicate and the event is silently dropped for good.
     if (claim === "new") {
-      await releaseStripeEvent(event.id);
+      await releaseStripeEvent(claimKey);
     }
     return NextResponse.json(
       { error: "Webhook handler failed" },
