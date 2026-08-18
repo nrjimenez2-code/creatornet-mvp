@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { stripe } from "@/lib/stripe";
 import { createSupabaseServer } from "@/lib/supabaseServer";
+import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
 import type Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -29,6 +30,17 @@ export async function POST(req: Request) {
       { error: `Invalid Stripe signature: ${err?.message || "unknown"}` },
       { status: 400 }
     );
+  }
+
+  // Idempotency. Same guard as app/api/stripe/webhook. Both handlers are guarded
+  // because which endpoint(s) Stripe actually delivers to is not visible from the
+  // code — that needs the Stripe dashboard. Guarding both is safe; guessing is not.
+  // Namespaced per handler — see the note in app/api/stripe/webhook/route.ts.
+  // These two must never share a claim key or one can silence the other.
+  const claimKey = `webhook:${event.id}`;
+  const claim = await claimStripeEvent(claimKey, event.type);
+  if (claim === "duplicate") {
+    return NextResponse.json({ received: true, duplicate: true });
   }
 
   try {
@@ -117,6 +129,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true }, { status: 200 });
   } catch (err: any) {
     console.error("[webhook] handler error:", err);
+    // Asking Stripe to retry, so give the claim back — otherwise the retry is
+    // treated as a duplicate and the event is silently dropped for good.
+    if (claim === "new") {
+      await releaseStripeEvent(claimKey);
+    }
     return NextResponse.json(
       { error: "Webhook handler failed" },
       { status: 500 }
