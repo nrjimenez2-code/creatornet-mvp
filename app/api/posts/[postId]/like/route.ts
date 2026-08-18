@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { updateInterestScore } from "@/lib/updateInterestScore";
+import { bumpPostLikes } from "@/lib/postCounters";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -56,22 +57,10 @@ export async function POST(
         return NextResponse.json({ error: deleteError.message }, { status: 500 });
       }
 
-      // Decrement likes_count in posts table
-      const { data: postData, error: postError } = await admin
-        .from("posts")
-        .select("likes_count")
-        .eq("id", postId)
-        .single();
-
-      if (!postError && postData) {
-        const currentCount = (postData.likes_count as number) ?? 0;
-        newCount = Math.max(0, currentCount - 1);
-        
-        await admin
-          .from("posts")
-          .update({ likes_count: newCount })
-          .eq("id", postId);
-      }
+      // Decrement atomically. See lib/postCounters.ts — doing this as
+      // SELECT-then-UPDATE loses concurrent changes.
+      const { count } = await bumpPostLikes(admin, postId, -1);
+      newCount = count ?? 0;
 
       liked = false;
     } else {
@@ -100,22 +89,9 @@ export async function POST(
           return NextResponse.json({ error: insertError.message }, { status: 500 });
         }
       } else {
-        // Increment likes_count in posts table
-        const { data: postData, error: postError } = await admin
-          .from("posts")
-          .select("likes_count")
-          .eq("id", postId)
-          .single();
-
-        if (!postError && postData) {
-          const currentCount = (postData.likes_count as number) ?? 0;
-          newCount = currentCount + 1;
-          
-          await admin
-            .from("posts")
-            .update({ likes_count: newCount })
-            .eq("id", postId);
-        }
+        // Increment atomically. See lib/postCounters.ts.
+        const { count } = await bumpPostLikes(admin, postId, 1);
+        newCount = count ?? 0;
 
         liked = true;
       }
