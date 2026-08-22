@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { bumpPostComments } from "@/lib/postCounters";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -144,22 +145,9 @@ export async function POST(
       .eq("id", user.id)
       .single();
 
-    // Increment comments_count in posts table
-    const { data: postData } = await admin
-      .from("posts")
-      .select("comments_count")
-      .eq("id", postId)
-      .single();
-
-    let newCount = 0;
-    if (postData) {
-      const currentCount = (postData.comments_count as number) ?? 0;
-      newCount = currentCount + 1;
-      await admin
-        .from("posts")
-        .update({ comments_count: newCount })
-        .eq("id", postId);
-    }
+    // Increment comments_count atomically (no read-then-write race).
+    const { count } = await bumpPostComments(admin, postId, 1);
+    const newCount = count ?? 0;
 
     // Format response
     const formattedComment = {

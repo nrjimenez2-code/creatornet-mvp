@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { allowRequest, clientKey } from "@/lib/rateLimit";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+// Sharing is a click, not a stream. Sixty a minute from one address is a bot.
+const RATE = { limit: 60, windowMs: 60_000 };
+
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ postId: string }> }
 ) {
   try {
@@ -13,6 +17,10 @@ export async function POST(
 
     if (!postId) {
       return NextResponse.json({ error: "Missing post_id" }, { status: 400 });
+    }
+
+    if (!allowRequest(`share:${clientKey(req)}`, RATE)) {
+      return NextResponse.json({ success: true, shares_count: null, limited: true });
     }
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
