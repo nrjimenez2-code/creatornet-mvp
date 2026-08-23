@@ -15,6 +15,8 @@ const mockFrom = jest.fn(() => ({
 }));
 
 const admin = { rpc: mockRpc, from: mockFrom } as never;
+/** What PostgREST returns when the SQL function has not been created yet. */
+const MISSING_FN = { code: "PGRST202", message: "Could not find the function public.bump_post_likes in the schema cache" };
 
 import { bumpPostLikes } from "@/lib/postCounters";
 
@@ -77,7 +79,7 @@ describe("bumpPostLikes", () => {
   });
 
   test("the fallback clamps at zero rather than going negative", async () => {
-    mockRpc.mockResolvedValueOnce({ data: null, error: { message: "missing" } });
+    mockRpc.mockResolvedValueOnce({ data: null, error: MISSING_FN });
     mockSingle.mockResolvedValueOnce({ data: { likes_count: 0 }, error: null });
     mockUpdateEq.mockResolvedValueOnce({ error: null });
 
@@ -85,7 +87,7 @@ describe("bumpPostLikes", () => {
   });
 
   test("the fallback treats a null count as zero", async () => {
-    mockRpc.mockResolvedValueOnce({ data: null, error: { message: "missing" } });
+    mockRpc.mockResolvedValueOnce({ data: null, error: MISSING_FN });
     mockSingle.mockResolvedValueOnce({ data: { likes_count: null }, error: null });
     mockUpdateEq.mockResolvedValueOnce({ error: null });
 
@@ -93,7 +95,7 @@ describe("bumpPostLikes", () => {
   });
 
   test("a failed read in the fallback reports null instead of inventing a number", async () => {
-    mockRpc.mockResolvedValueOnce({ data: null, error: { message: "missing" } });
+    mockRpc.mockResolvedValueOnce({ data: null, error: MISSING_FN });
     mockSingle.mockResolvedValueOnce({ data: null, error: { message: "row not found" } });
 
     expect(await bumpPostLikes(admin, "post-1", 1)).toEqual({
@@ -113,5 +115,15 @@ describe("bumpPostLikes", () => {
 
     expect(result.usedFallback).toBe(true);
     expect(result.count).toBe(501);
+  });
+
+  test("a permission error is reported, not papered over with the racy path", async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: { code: "42501", message: "permission denied for function bump_post_likes" } });
+    jest.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await bumpPostLikes(admin, "post-1", 1);
+
+    expect(result).toEqual({ count: null, usedFallback: false });
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 });

@@ -46,6 +46,10 @@ export function allowRequest(
     const elapsed = Math.max(0, now - b.updatedAt);
     b.tokens = Math.min(limit, b.tokens + elapsed * refillPerMs);
     b.updatedAt = now;
+    // Re-insert so Map order reflects recency; eviction above then drops
+    // the least recently used key, not the earliest inserted one.
+    buckets.delete(key);
+    buckets.set(key, b);
   }
 
   if (b.tokens < 1) return false;
