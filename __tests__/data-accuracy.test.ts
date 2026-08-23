@@ -95,6 +95,12 @@ describe("rate limiter", () => {
 });
 
 describe("order status state machine", () => {
+  // The live constraint orders_status_check allows exactly these four.
+  test("the model matches the database constraint", () => {
+    expect([...ORDER_OPEN_STATUSES]).toEqual(["created"]);
+    expect([...ORDER_REFUNDABLE_STATUSES]).toEqual(["paid"]);
+  });
+
   test("open orders can be paid or canceled", () => {
     for (const s of ORDER_OPEN_STATUSES) {
       expect(canTransition(s, "paid")).toBe(true);
@@ -102,12 +108,10 @@ describe("order status state machine", () => {
     }
   });
 
-  test("paid never goes back to created/paid/canceled/failed", () => {
+  test("paid never goes back to created, paid or canceled", () => {
     expect(canTransition("paid", "created")).toBe(false);
-    expect(canTransition("paid", "pending")).toBe(false);
     expect(canTransition("paid", "paid")).toBe(false);
     expect(canTransition("paid", "canceled")).toBe(false);
-    expect(canTransition("paid", "failed")).toBe(false);
   });
 
   test("refunded is terminal: a late checkout.completed cannot re-pay it", () => {
@@ -116,11 +120,10 @@ describe("order status state machine", () => {
     expect(canTransition("refunded", "refunded")).toBe(false);
   });
 
-  test("only paid or open orders can be refunded", () => {
+  test("only paid orders can be refunded", () => {
     expect(canTransition("paid", "refunded")).toBe(true);
+    expect(canTransition("created", "refunded")).toBe(false);
     expect(canTransition("canceled", "refunded")).toBe(false);
-    expect(canTransition("failed", "refunded")).toBe(false);
-    expect([...ORDER_REFUNDABLE_STATUSES]).toEqual(["paid", "created", "pending", "processing"]);
   });
 
   test("a null status (legacy row) is treated as created", () => {

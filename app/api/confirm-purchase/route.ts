@@ -113,7 +113,10 @@ export async function POST(req: Request) {
       (session.metadata?.buyer_user_id as string) ||
       (session.metadata?.buyer_id as string) ||
       null;
-    if (sessionBuyer && sessionBuyer !== user.id) {
+    // Fail closed. Both live session-creation paths write the buyer into the
+    // metadata; a session without one is not something this route should
+    // attach to whoever happens to be signed in.
+    if (!sessionBuyer || sessionBuyer !== user.id) {
       return NextResponse.json({ error: "This purchase belongs to another account." }, { status: 403 });
     }
     console.log("[confirm-purchase] ✅ Session retrieved:", {

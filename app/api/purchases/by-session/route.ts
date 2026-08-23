@@ -55,9 +55,17 @@ export async function GET(req: Request) {
     );
   }
 
+  // Fail closed: a purchase row with no recorded buyer is not "anyone's",
+  // it is nobody's until the webhook fills it in.
   const owner = purchase.buyer_user_id ?? purchase.buyer_id ?? null;
-  if (owner && owner !== user.id) {
+  if (!owner || owner !== user.id) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // checkout writes a "pending" row the moment a session is created, before
+  // any money moves. Fulfillment links are for paid purchases only.
+  if (purchase.status !== "paid") {
+    return NextResponse.json({ error: "Not paid", status: purchase.status }, { status: 402 });
   }
 
   // Resolve the product
