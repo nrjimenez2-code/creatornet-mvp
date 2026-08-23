@@ -1,13 +1,14 @@
 // app/api/confirm-purchase/route.ts
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Use bundled version
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 const supabase = createAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -106,7 +107,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Please sign in to confirm your purchase." }, { status: 401 });
     }
 
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+    const session = await getStripe().checkout.sessions.retrieve(session_id);
     const sessionBuyer =
       (session.metadata?.buyer_user_id as string) ||
       (session.metadata?.buyer_id as string) ||

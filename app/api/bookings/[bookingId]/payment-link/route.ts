@@ -3,9 +3,12 @@ import { eitherIdFilter } from "@/lib/ids";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { randomUUID } from "crypto";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -202,7 +205,7 @@ export async function POST(
     let session: Stripe.Checkout.Session;
 
     if (planType === "full") {
-      session = await stripe.checkout.sessions.create({
+      session = await getStripe().checkout.sessions.create({
         mode: "payment",
         payment_method_types: ["card"],
         line_items: [
@@ -227,7 +230,7 @@ export async function POST(
       });
     } else {
       // installment flow using subscription
-      session = await stripe.checkout.sessions.create({
+      session = await getStripe().checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
         line_items: [

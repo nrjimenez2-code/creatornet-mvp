@@ -1,6 +1,7 @@
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
@@ -19,7 +20,6 @@ const PLATFORM_FEE_RATE = 0.12;
 
 // --- Clients ---
 // NOTE: do NOT pin apiVersion to avoid TS literal mismatches with installed types.
-const stripe = new Stripe(STRIPE_SECRET_KEY);
 const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
@@ -246,7 +246,7 @@ async function insertBookingFromSession(session: Stripe.Checkout.Session) {
   if (!buyer_id && session.customer) {
     try {
       const customer = typeof session.customer === "string" 
-        ? await stripe.customers.retrieve(session.customer)
+        ? await getStripe().customers.retrieve(session.customer)
         : session.customer;
       
       if (customer && !customer.deleted && customer.email) {
@@ -858,7 +858,7 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
   try {
     const rawBody = await req.text(); // IMPORTANT: raw body for signature verification
-    event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+    event = getStripe().webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
     console.log("[webhook] ✅ Signature verified successfully");
   } catch (e: any) {
     console.error("[webhook] ❌ Signature verification failed:", e?.message);
