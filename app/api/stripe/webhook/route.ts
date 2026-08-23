@@ -191,7 +191,7 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
-    .in("status", paid ? ORDER_OPEN_STATUSES : ["created", "pending"]);
+    .in("status", ORDER_OPEN_STATUSES);
   if (error) console.warn("[webhook] finalizeOrderFromCheckoutSession:", error.message);
 }
 
@@ -766,24 +766,24 @@ async function markRefunded(payment_intent_id: string | null) {
 async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
   const orderId = (pi.metadata?.order_id as string) || null;
   if (orderId) {
-    const { data: ord } = await admin.from("orders").select("status").eq("id", orderId).maybeSingle();
-    if (ord && ["pending", "created"].includes((ord as { status?: string }).status ?? "")) {
-      const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
-      const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
-      await admin
-        .from("orders")
-        .update({
-          status: "paid",
-          stripe_payment_intent_id: pi.id,
-          stripe_payment_id: pi.id,
-          gross_amount: amount,
-          platform_fee: fee,
-          creator_amount: creatorAmt,
-          currency: (pi.currency as string) || "usd",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", orderId);
-    }
+    // Guard on the UPDATE itself, not on a prior SELECT: a charge.refunded
+    // landing between a read and this write must not be flipped back to paid.
+    const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
+    const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
+    await admin
+      .from("orders")
+      .update({
+        status: "paid",
+        stripe_payment_intent_id: pi.id,
+        stripe_payment_id: pi.id,
+        gross_amount: amount,
+        platform_fee: fee,
+        creator_amount: creatorAmt,
+        currency: (pi.currency as string) || "usd",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", orderId)
+      .in("status", ORDER_OPEN_STATUSES);
   }
   const buyer =
     (pi.metadata?.buyer_user_id as string) || (pi.metadata?.buyer_id as string) || null;
