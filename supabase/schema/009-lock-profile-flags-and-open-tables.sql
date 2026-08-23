@@ -1,8 +1,8 @@
--- 009 — three things anyone with the public anon key could do, closed
+-- 009 — profiles: server-only columns, and RLS on the last open tables
 --
--- Run in the Supabase SQL editor (or `supabase db query -f`). Verified
--- against production on 2026-08-23 before writing; see the checks at the
--- bottom. No table structure or data changes; grants, RLS and one REVOKE.
+-- Run in the Supabase SQL editor (or `supabase db query -f`). Grants and
+-- RLS only; no table structure or data changes. Applied to production
+-- 2026-08-23 and verified as the authenticated and anon roles.
 --
 -- A. profiles: a signed-in user could UPDATE every column of their own row,
 --    including stripe_account_id, stripe_onboarding_complete,
@@ -12,24 +12,23 @@
 --    earnings and rating. The app only ever writes these through the
 --    service role (Connect routes, webhook, reviews route). The browser
 --    writes username, full_name, bio, tagline, avatar_url, interests only
---    (checked: app/profile/edit, app/onboarding). Column-level REVOKE keeps
---    those working and blocks the rest.
+--    (checked: app/profile/edit, app/onboarding).
 --
 -- B. Four tables had row-level security OFF with full anon/authenticated
 --    grants: booking_payments (Stripe ids, amounts, payment links),
---    profile_reviews, post_engagements, _patch_export. Anyone could read,
---    edit or delete every row with the key shipped in the JS bundle.
---    Enabling RLS with no policies means only the service role can touch
---    them, which is how the app already uses them (bookings/list and the
---    webhook go through the admin client; nothing in components/ or app/
---    pages reads them directly).
+--    profile_reviews, post_engagements, _patch_export. Enabling RLS with
+--    no policies means only the service role can touch them, which is how
+--    the app already uses them. 011 (landont987) enables RLS on the same
+--    four tables; both files are idempotent, whichever runs first.
 --
--- C. set_profile_rating(p_profile_id, p_reviewer_id, p_rating) is
---    SECURITY DEFINER, executable by anyone, and takes the reviewer id as a
---    parameter: rate any creator as any user. Only a dead component
---    (components/ProfileStarRating.tsx, imported nowhere) calls it. The
---    live review flow uses /api/reviews + update_profile_rating via the
---    service role. Revoke from anon/authenticated; service_role keeps it.
+-- NOT in this file any more: revoking set_profile_rating from
+-- authenticated. The deployed ProfileStarRating component calls that
+-- function straight from the browser, and revoking it before the deploy
+-- broke ratings in production for half an hour on 2026-08-23. 011 rewrites
+-- the function to take the reviewer from auth.uid() and keeps the grant,
+-- which closes the forgery without a code dependency. Lesson recorded:
+-- a revoke that assumes a new server route ships in the same deploy as
+-- that route, never ahead of it.
 
 BEGIN;
 
@@ -57,9 +56,6 @@ REVOKE ALL ON public.profile_reviews  FROM anon, authenticated;
 REVOKE ALL ON public.post_engagements FROM anon, authenticated;
 REVOKE ALL ON public._patch_export    FROM anon, authenticated;
 
--- C. rating-as-anyone function
-REVOKE EXECUTE ON FUNCTION public.set_profile_rating(uuid, uuid, integer) FROM PUBLIC, anon, authenticated;
-
 COMMIT;
 
 -- VERIFY (read-only)
@@ -69,11 +65,8 @@ COMMIT;
 -- select relname, relrowsecurity from pg_class
 --   where relname in ('booking_payments','profile_reviews','post_engagements','_patch_export');
 --   -- expect: all true
--- select has_function_privilege('anon','public.set_profile_rating(uuid,uuid,integer)','EXECUTE');
---   -- expect: false
 
 -- ROLLBACK
 -- GRANT INSERT, UPDATE ON public.profiles TO anon, authenticated;  -- restores all columns
 -- ALTER TABLE public.booking_payments DISABLE ROW LEVEL SECURITY;  (and the other three)
 -- GRANT ALL ON public.booking_payments TO anon, authenticated;      (and the other three)
--- GRANT EXECUTE ON FUNCTION public.set_profile_rating(uuid, uuid, integer) TO anon, authenticated;
