@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
 
@@ -47,7 +48,10 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
     );
   }
 
-  let allowed = post.creator_id === user.id;
+  // The creator may preview their own file, but only a file that lives in
+  // their own folder. A post row pointing elsewhere is never signed for them.
+  let allowed =
+    post.creator_id === user.id && isOwnPremiumPath(post.premium_path, user.id);
 
   if (!allowed) {
     const { data: purchase, error: purchaseError } = await admin

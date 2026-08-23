@@ -68,11 +68,11 @@ describe("call-site census", () => {
    * Deliberately exact. A new fee call site should fail this and force whoever
    * added it to go through splitFee(). Update the number only after checking.
    */
-  test("there are exactly 6 splitFee() call sites across the three routes", () => {
+  test("there are exactly 5 splitFee() call sites across the three routes", () => {
     const count = [CHECKOUT, WEBHOOK, PAYMENT_LINK]
       .map(read)
       .reduce((n, s) => n + (s.match(/splitFee\(/g) ?? []).length, 0);
-    expect(count).toBe(6);
+    expect(count).toBe(5); // product checkout 1, webhook 3, payment-link 1 (installment checkout is closed)
   });
 });
 

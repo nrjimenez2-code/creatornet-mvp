@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { headR2Object, deleteR2Object, r2KeyFromPublicUrl } from "@/lib/r2";
 import { isAllowedUpload, maxBytesFor, type UploadFolder } from "@/lib/uploadPolicy";
@@ -47,7 +48,14 @@ export async function POST(req: Request) {
     const content = (body?.content ?? "")?.trim() || null;
     const video_url = (body?.video_url ?? "")?.trim() || null;
     const poster_url = (body?.poster_url ?? "")?.trim() || null;
-    const premium_path = body?.premium_path ?? null;
+    const premiumRaw = body?.premium_path ?? null;
+    if (premiumRaw && !isOwnPremiumPath(premiumRaw, user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Premium file path is not valid." },
+        { status: 400 }
+      );
+    }
+    const premium_path = premiumRaw ? String(premiumRaw).trim() : null;
     const interests = Array.isArray(body?.interests) ? body.interests : body?.interests != null ? [body.interests] : null;
     const product_id: string | null =
       body?.product_id != null && String(body.product_id).trim()

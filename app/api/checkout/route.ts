@@ -1,5 +1,6 @@
 // app/api/checkout/route.ts
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
+import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
 import "server-only";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -131,15 +132,16 @@ export async function POST(req: NextRequest) {
     amount_cents: number,
     currency: string,
     order_id: string | null,
-    creatorId: string | null
+    creatorId: string | null,
+    postId: string | null
   ) {
     const buyerId = resolvedBuyerId;
     const insert: Record<string, unknown> = {
       session_id,
       status: "pending",
       product_id: (body as ProductPayload | PlanPayload).product_id ?? null,
-      post_id: body.post_id ?? null,
-      creator_id: creatorId ?? body.creator_id ?? null,
+      post_id: postId,
+      creator_id: creatorId,
       buyer_id: buyerId,
       amount_cents,
       currency,
@@ -173,8 +175,11 @@ export async function POST(req: NextRequest) {
         throw new Error("Invalid amount (Stripe min 50¢)");
       }
 
-      const creatorId =
-        body.creator_id || (prod as { creator_id?: string }).creator_id || null;
+      // The creator who gets paid is the product's owner. The browser still
+      // sends creator_id (components/VideoCard.tsx) and it used to win over
+      // the product row, which let anyone with a Connect account point the
+      // destination transfer at themselves. It is ignored now.
+      const creatorId = (prod as { creator_id?: string }).creator_id || null;
       if (!creatorId || !(await isCreatorSellReady(creatorId))) {
         return Response.json(
           {
@@ -202,13 +207,25 @@ export async function POST(req: NextRequest) {
       const productType = String((prod as { type?: string }).type ?? "product");
       const category = (body.category ?? "").trim();
 
+      // The post a purchase unlocks must be one that actually sells this
+      // product, by this creator. post_id used to be copied from the body,
+      // so buying the cheapest product on the site with post_id set to any
+      // premium post unlocked that post.
+      const postId = await resolvePostForProduct(supabase, body.post_id, String(prod.id), creatorId);
+      if (postId === INVALID_POST) {
+        return Response.json(
+          { error: "This post does not sell that product." },
+          { status: 400 }
+        );
+      }
+
       const { data: orderRow, error: orderErr } = await supabase
         .from("orders")
         .insert({
           buyer_id: resolvedBuyerId,
           buyer_user_id: resolvedBuyerId,
           creator_id: creatorId,
-          post_id: body.post_id ?? null,
+          post_id: postId,
           amount_cents,
           gross_amount: amount_cents,
           platform_fee: applicationFeeCents,
@@ -227,7 +244,7 @@ export async function POST(req: NextRequest) {
       const meta = stripeMetadataStrings({
         order_id: orderId,
         creator_id: creatorId,
-        post_id: body.post_id || "",
+        post_id: postId || "",
         buyer_id: resolvedBuyerId || "",
         buyer_user_id: resolvedBuyerId || "",
         product_id: body.product_id,
@@ -278,10 +295,10 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", orderId);
 
-      await writePending(session.id, amount_cents, currency, orderId, creatorId);
+      await writePending(session.id, amount_cents, currency, orderId, creatorId, postId);
 
       await trackServerEvent("checkout_started", resolvedBuyerId, {
-        post_id: body.post_id,
+        post_id: postId,
         product_id: body.product_id,
         creator_id: creatorId,
         price: amount_cents / 100,
@@ -289,11 +306,11 @@ export async function POST(req: NextRequest) {
         order_id: orderId,
       });
 
-      if (resolvedBuyerId && body.post_id) {
+      if (resolvedBuyerId && postId) {
         const { data: post } = await supabase
           .from("posts")
           .select("interests")
-          .eq("id", body.post_id)
+          .eq("id", postId)
           .maybeSingle();
         const interestCat = Array.isArray(post?.interests)
           ? ((post.interests[0] as string) ?? null)
@@ -301,7 +318,7 @@ export async function POST(req: NextRequest) {
         updateInterestScore(resolvedBuyerId, interestCat, 15);
       }
 
-      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
+      updatePostMetrics(postId, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
 
       return Response.json({
         url: session.url,
@@ -311,166 +328,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.type === "installments") {
-      const months = Number(body.plan_months);
-      const per_cents = Number(body.plan_price_cents);
-      if (!Number.isFinite(months) || months < 1) throw new Error("plan_months invalid");
-      if (!Number.isFinite(per_cents) || per_cents < 50) throw new Error("plan_price_cents invalid (>=50)");
-      if (!isSafeId(body.product_id)) return new Response("Invalid product_id", { status: 400 });
-
-      const { data: prod, error } = await supabase
-        .from("products")
-        .select("id, product_id, title, type, currency, creator_id, price_cents")
-        .or(eitherIdFilter(["product_id", "id"], body.product_id))
-        .maybeSingle();
-      if (error) throw new Error(`Load product failed: ${error.message}`);
-
-      const currency = (prod?.currency as string) ?? "usd";
-      const instCreatorId =
-        body.creator_id || (prod as { creator_id?: string } | null)?.creator_id || null;
-      if (!instCreatorId || !(await isCreatorSellReady(instCreatorId))) {
-        return Response.json(
-          {
-            error: "This creator is not accepting payments yet.",
-            code: "STRIPE_CONNECT_REQUIRED",
-          },
-          { status: 403 }
-        );
-      }
-      const { data: instProfile } = await supabase
-        .from("profiles")
-        .select("stripe_account_id")
-        .eq("id", instCreatorId)
-        .maybeSingle();
-      const instDest = instProfile?.stripe_account_id as string | undefined;
-      if (!instDest) {
-        return Response.json(
-          { error: "This creator is not accepting payments yet.", code: "STRIPE_CONNECT_REQUIRED" },
-          { status: 403 }
-        );
-      }
-      // The buyer must not be able to name their own price. plan_price_cents
-      // arrives in the request body and was previously validated only as ">= 50",
-      // then used directly as the Stripe unit_amount — so any product could be
-      // bought for 50 cents a month by calling this endpoint directly.
-      //
-      // The invariant enforced here is deliberately the weakest one that is
-      // certainly correct: the TOTAL collected across the plan must be at least
-      // the product's stored price. That holds whether price_cents is meant as
-      // the total (per_cents * months == price) or as a per-period amount
-      // (per_cents == price, so the product is comfortably over). It blocks
-      // underpayment without guessing at the pricing model.
-      const productPriceCents = Number(
-        (prod as { price_cents?: number } | null)?.price_cents ?? 0
+      // Installment checkout charged a browser-supplied plan_price_cents once
+      // (mode: "payment"), so any product could be bought for 50 cents. No
+      // page in the app offers this flow (the buy button only sends
+      // type: "product"), so it is closed rather than patched. Real
+      // installments exist on the booking side (payment-link, Stripe
+      // subscriptions with the price derived from the product).
+      return Response.json(
+        { error: "Installment checkout is not available." },
+        { status: 410 }
       );
-      if (productPriceCents > 0 && per_cents * months < productPriceCents) {
-        console.error("[checkout] installment underpayment rejected", {
-          product_id: body.product_id,
-          months,
-          per_cents,
-          product_price_cents: productPriceCents,
-        });
-        return Response.json(
-          { error: "Installment plan does not cover the product price." },
-          { status: 400 }
-        );
-      }
-
-      const { feeCents: instFeeCents, creatorCents: instCreatorAmount } = splitFee(per_cents);
-      const productType = String((prod as { type?: string } | null)?.type ?? "installment");
-      const category = (body.category ?? "").trim();
-
-      const { data: orderRow, error: orderErr } = await supabase
-        .from("orders")
-        .insert({
-          buyer_id: resolvedBuyerId,
-          buyer_user_id: resolvedBuyerId,
-          creator_id: instCreatorId,
-          post_id: body.post_id ?? null,
-          amount_cents: per_cents,
-          gross_amount: per_cents,
-          platform_fee: instFeeCents,
-          creator_amount: instCreatorAmount,
-          status: "created",
-          currency,
-        })
-        .select("id")
-        .single();
-
-      if (orderErr || !orderRow?.id) {
-        throw new Error(`Failed to create order: ${orderErr?.message ?? "unknown"}`);
-      }
-      const orderId = orderRow.id as string;
-
-      const meta = stripeMetadataStrings({
-        order_id: orderId,
-        creator_id: instCreatorId,
-        post_id: body.post_id || "",
-        buyer_id: resolvedBuyerId || "",
-        buyer_user_id: resolvedBuyerId || "",
-        product_id: body.product_id,
-        product_type: productType,
-        category,
-        platform_fee_percent: PLATFORM_FEE_PERCENT_STR,
-        plan_months: String(months),
-        plan_price_cents: String(per_cents),
-      });
-
-      let session: Stripe.Checkout.Session;
-      try {
-        session = await getStripe().checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: [
-            {
-              price_data: {
-                currency,
-                product_data: { name: body.titleForCheckout || prod?.title || "Installment" },
-                unit_amount: per_cents,
-              },
-              quantity: 1,
-            },
-          ],
-          payment_intent_data: {
-            application_fee_amount: instFeeCents,
-            transfer_data: { destination: instDest },
-            metadata: meta,
-          },
-          metadata: meta,
-          success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${site}/dashboard`,
-        });
-      } catch (e) {
-        await supabase.from("orders").update({ status: "canceled" }).eq("id", orderId);
-        throw e;
-      }
-
-      const piId =
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
-
-      await supabase
-        .from("orders")
-        .update({
-          stripe_checkout_session_id: session.id,
-          stripe_payment_intent_id: piId,
-        })
-        .eq("id", orderId);
-
-      await writePending(session.id, per_cents, currency, orderId, instCreatorId);
-
-      await trackServerEvent("checkout_started", resolvedBuyerId, {
-        post_id: body.post_id,
-        product_id: body.product_id,
-        creator_id: instCreatorId,
-        price: per_cents / 100,
-        product_type: "installment",
-        order_id: orderId,
-      });
-
-      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
-
-      return Response.json({ url: session.url, session_id: session.id, order_id: orderId });
     }
 
     if (body.type === "booking") {
