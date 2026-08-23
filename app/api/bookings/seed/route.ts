@@ -46,14 +46,9 @@ export async function POST(req: NextRequest) {
             authMethod = "bearer_verified";
             console.error("[bookings-seed] ✅ Got user from verified bearer token:", userId);
           } else {
-            // Fallback: decode JWT directly
-            userId = decodeUserId(accessToken);
-            if (userId) {
-              authMethod = "bearer_decoded";
-              console.error("[bookings-seed] ✅ Got user from decoded bearer token:", userId);
-            } else {
-              console.error("[bookings-seed] ❌ Failed to get user from token:", verifyError?.message);
-            }
+            // No unverified fallback. A token Supabase will not vouch for
+            // (expired, revoked, forged) does not get to name a user.
+            console.error("[bookings-seed] ❌ Bearer token rejected:", verifyError?.message);
           }
         } catch (decodeErr: any) {
           console.error("[bookings-seed] ❌ Token decode error:", decodeErr?.message);
@@ -252,16 +247,3 @@ function normalizeBase64(input: string): string {
   return replaced.padEnd(replaced.length + (4 - padding), "=");
 }
 
-function decodeUserId(token: string): string | null {
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) return null;
-    const normalized = normalizeBase64(payload);
-    const json = Buffer.from(normalized, "base64").toString("utf8");
-    const parsed = JSON.parse(json);
-    return typeof parsed?.sub === "string" ? parsed.sub : null;
-  } catch (err) {
-    console.warn("[bookings-seed] decodeUserId failed:", err);
-    return null;
-  }
-}

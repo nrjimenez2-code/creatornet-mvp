@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { eitherIdFilter } from "@/lib/ids";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
@@ -98,7 +99,7 @@ export async function POST(
     const { data: product, error: productError } = await admin
       .from("products")
       .select("id, product_id, title, amount_cents, currency")
-      .or(`product_id.eq.${post.product_id},id.eq.${post.product_id}`)
+      .or(eitherIdFilter(["product_id", "id"], post.product_id))
       .maybeSingle<{
         id: string;
         product_id: string | null;

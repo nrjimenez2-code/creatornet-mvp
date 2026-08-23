@@ -1,4 +1,5 @@
 // app/api/checkout/route.ts
+import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import "server-only";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -156,11 +157,12 @@ export async function POST(req: NextRequest) {
   try {
     if (body.type === "product") {
       if (!body.product_id) return new Response("Missing product_id", { status: 400 });
+      if (!isSafeId(body.product_id)) return new Response("Invalid product_id", { status: 400 });
 
       const { data: prod, error } = await supabase
         .from("products")
         .select("id, product_id, title, type, amount_cents, price_cents, currency, creator_id")
-        .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
+        .or(eitherIdFilter(["product_id", "id"], body.product_id))
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
       if (!prod) throw new Error("Product not found");
@@ -314,11 +316,12 @@ export async function POST(req: NextRequest) {
       const per_cents = Number(body.plan_price_cents);
       if (!Number.isFinite(months) || months < 1) throw new Error("plan_months invalid");
       if (!Number.isFinite(per_cents) || per_cents < 50) throw new Error("plan_price_cents invalid (>=50)");
+      if (!isSafeId(body.product_id)) return new Response("Invalid product_id", { status: 400 });
 
       const { data: prod, error } = await supabase
         .from("products")
         .select("id, product_id, title, type, currency, creator_id, price_cents")
-        .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
+        .or(eitherIdFilter(["product_id", "id"], body.product_id))
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
 

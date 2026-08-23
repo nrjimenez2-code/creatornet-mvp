@@ -1,4 +1,29 @@
 import { NextResponse } from "next/server";
+import { isSafeBookingTarget } from "@/lib/bookingUrl";
+import { headR2Object, deleteR2Object, r2KeyFromPublicUrl } from "@/lib/r2";
+import { isAllowedUpload, maxBytesFor, type UploadFolder } from "@/lib/uploadPolicy";
+
+/** Returns an error message if the object at `url` (if it is ours) is too big or the wrong type; null if fine. */
+async function enforceUploadSize(url: string | null, folder: UploadFolder): Promise<string | null> {
+  if (!url) return null;
+  const key = r2KeyFromPublicUrl(url);
+  if (!key) return null; // not in our bucket (legacy/external URL); nothing to check
+  const head = await headR2Object(key);
+  if (!head) return null; // cannot verify; do not block the creator on an R2 hiccup
+  const max = maxBytesFor(folder);
+  if (head.size > max) {
+    await deleteR2Object(key);
+    const mb = Math.round(max / (1024 * 1024));
+    return folder === "videos"
+      ? `Video is too large. The limit is ${mb} MB.`
+      : `Thumbnail is too large. The limit is ${mb} MB.`;
+  }
+  if (head.contentType && !isAllowedUpload(folder, head.contentType)) {
+    await deleteR2Object(key);
+    return folder === "videos" ? "Uploaded file is not a video." : "Uploaded file is not an image.";
+  }
+  return null;
+}
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
@@ -30,11 +55,27 @@ export async function POST(req: Request) {
         : null;
     const price_cents = typeof body?.price_cents === "number" ? body.price_cents : null;
     const allow_booking = Boolean(body?.allow_booking);
-    const booking_url = (body?.booking_url ?? "")?.trim() || null;
+    const bookingRaw = (body?.booking_url ?? "")?.trim() || null;
+    if (bookingRaw && !isSafeBookingTarget(bookingRaw)) {
+      return NextResponse.json(
+        { error: "Booking link must be an https:// URL." },
+        { status: 400 }
+      );
+    }
+    const booking_url = bookingRaw;
     const hashtags = Array.isArray(body?.hashtags) ? body.hashtags : null;
 
     if (!video_url) {
       return NextResponse.json({ success: false, error: "video_url is required" }, { status: 400 });
+    }
+
+    // Size cap for files that went to our R2 bucket. The presigned PUT cannot
+    // enforce a length (the browser never tells us the size up front), so the
+    // check runs here, after upload and before a post points at the file.
+    // Anything over the cap is deleted and the post is refused.
+    const sizeProblem = await enforceUploadSize(video_url, "videos") ?? await enforceUploadSize(poster_url, "thumbnails");
+    if (sizeProblem) {
+      return NextResponse.json({ success: false, error: sizeProblem }, { status: 413 });
     }
 
     // products table uses "id" as PK (product_id is null); FK may reference products.id — resolve to products.id for insert
