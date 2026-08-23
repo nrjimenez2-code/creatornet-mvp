@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { bumpPostComments } from "@/lib/postCounters";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -146,22 +147,9 @@ export async function DELETE(
       return NextResponse.json({ error: deleteError.message }, { status: 500 });
     }
 
-    // Decrement comments_count in posts table
-    const { data: postData } = await admin
-      .from("posts")
-      .select("comments_count")
-      .eq("id", postId)
-      .single();
-
-    let newCount = 0;
-    if (postData) {
-      const currentCount = (postData.comments_count as number) ?? 0;
-      newCount = Math.max(0, currentCount - 1);
-      await admin
-        .from("posts")
-        .update({ comments_count: newCount })
-        .eq("id", postId);
-    }
+    // Decrement comments_count atomically; never below zero.
+    const { count } = await bumpPostComments(admin, postId, -1);
+    const newCount = count ?? 0;
 
     return NextResponse.json({ 
       success: true,

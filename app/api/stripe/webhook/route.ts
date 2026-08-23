@@ -5,6 +5,8 @@ import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
+import { splitFee } from "@/lib/money";
+import { ORDER_OPEN_STATUSES, ORDER_REFUNDABLE_STATUSES } from "@/lib/orderStatus";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
@@ -16,7 +18,6 @@ const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const PLATFORM_FEE_RATE = 0.12;
 
 // --- Clients ---
 // NOTE: do NOT pin apiVersion to avoid TS literal mismatches with installed types.
@@ -167,13 +168,15 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
   const orderId = (session.metadata?.order_id as string) || null;
   if (!orderId) return;
   const amount = typeof session.amount_total === "number" ? session.amount_total : 0;
-  const fee = Math.round(amount * PLATFORM_FEE_RATE);
-  const creatorAmt = Math.max(0, amount - fee);
+  const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
   const pi =
     typeof session.payment_intent === "string"
       ? session.payment_intent
       : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
   const paid = session.payment_status === "paid";
+  // Status only ever moves forward. A checkout.session.completed that arrives
+  // late (Stripe retries, out-of-order delivery) must not drag an order that
+  // is already paid, refunded or canceled back to "created" or "paid".
   const { error } = await admin
     .from("orders")
     .update({
@@ -187,7 +190,8 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
       currency: session.currency || "usd",
       updated_at: new Date().toISOString(),
     })
-    .eq("id", orderId);
+    .eq("id", orderId)
+    .in("status", paid ? ORDER_OPEN_STATUSES : ["created", "pending"]);
   if (error) console.warn("[webhook] finalizeOrderFromCheckoutSession:", error.message);
 }
 
@@ -760,7 +764,8 @@ async function markRefunded(payment_intent_id: string | null) {
   const { error: oErr } = await admin
     .from("orders")
     .update({ status: "refunded", updated_at: now })
-    .eq("stripe_payment_intent_id", payment_intent_id);
+    .eq("stripe_payment_intent_id", payment_intent_id)
+    .in("status", ORDER_REFUNDABLE_STATUSES);
   if (oErr && !/column|does not exist/i.test(oErr.message)) {
     console.warn("[webhook] markRefunded orders:", oErr.message);
   }
@@ -777,8 +782,7 @@ async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
     const { data: ord } = await admin.from("orders").select("status").eq("id", orderId).maybeSingle();
     if (ord && ["pending", "created"].includes((ord as { status?: string }).status ?? "")) {
       const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
-      const fee = Math.round(amount * PLATFORM_FEE_RATE);
-      const creatorAmt = Math.max(0, amount - fee);
+      const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
       await admin
         .from("orders")
         .update({
@@ -815,12 +819,17 @@ async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
   const orderId = (pi.metadata?.order_id as string) || null;
   const now = new Date().toISOString();
   if (orderId) {
-    await admin.from("orders").update({ status: "canceled", updated_at: now }).eq("id", orderId);
+    await admin
+      .from("orders")
+      .update({ status: "canceled", updated_at: now })
+      .eq("id", orderId)
+      .in("status", ORDER_OPEN_STATUSES);
   }
   await admin
     .from("orders")
     .update({ status: "canceled", updated_at: now })
-    .eq("stripe_payment_intent_id", pi.id);
+    .eq("stripe_payment_intent_id", pi.id)
+    .in("status", ORDER_OPEN_STATUSES);
   await admin
     .from("purchases")
     .update({ status: "failed", access_granted: false })
@@ -920,8 +929,7 @@ export async function POST(req: NextRequest) {
             await attachFulfillmentIfEmpty(purchaseId, product_id);
 
             const amount = typeof session.amount_total === "number" ? session.amount_total : 0;
-            const fee = Math.round(amount * PLATFORM_FEE_RATE);
-            const creatorAmt = Math.max(0, amount - fee);
+            const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
 
             const buyerId =
               (session.metadata?.buyer_user_id as string) ||
@@ -1007,9 +1015,11 @@ export async function POST(req: NextRequest) {
           .update({
             charges_enabled: !!account.charges_enabled,
             payouts_enabled: !!account.payouts_enabled,
-            ...(complete
-              ? { stripe_onboarding_complete: true, onboarding_complete: true }
-              : {}),
+            // Always write the truth, including false. Stripe sends
+            // account.updated when it restricts an account too, and a creator
+            // whose charges are disabled must stop being sellable.
+            stripe_onboarding_complete: complete,
+            onboarding_complete: complete,
           })
           .eq("stripe_account_id", account.id);
         if (acctErr) {

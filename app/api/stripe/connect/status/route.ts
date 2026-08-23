@@ -48,12 +48,17 @@ export async function GET(req: NextRequest) {
       const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
       const isComplete = !!(account.charges_enabled && account.payouts_enabled);
 
-      if (isComplete) {
-        await db
-          .from("profiles")
-          .update({ stripe_onboarding_complete: true })
-          .eq("id", user.id);
-      }
+      // Write every flag together so the two "complete" columns and the
+      // two capability columns never disagree (see supabase/schema/007).
+      await db
+        .from("profiles")
+        .update({
+          stripe_onboarding_complete: isComplete,
+          onboarding_complete: isComplete,
+          charges_enabled: !!account.charges_enabled,
+          payouts_enabled: !!account.payouts_enabled,
+        })
+        .eq("id", user.id);
 
       return NextResponse.json({
         connected: true,

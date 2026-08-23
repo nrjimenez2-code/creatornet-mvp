@@ -9,13 +9,13 @@ import { randomUUID } from "crypto";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+import { splitFee, PLATFORM_FEE_PERCENT } from "@/lib/money";
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-const PLATFORM_FEE_RATE = 0.12;
 
 export async function POST(
   req: NextRequest,
@@ -149,7 +149,7 @@ export async function POST(
     const currency = product.currency || "usd";
     const paymentId = randomUUID();
     const nowIso = new Date().toISOString();
-    const platformFeeCents = Math.round(totalCents * PLATFORM_FEE_RATE);
+    const platformFeeCents = splitFee(totalCents).feeCents;
 
     let installmentMonths: number | null = null;
     let installmentAmountCents: number | null = null;
@@ -250,7 +250,7 @@ export async function POST(
           },
         ],
         subscription_data: {
-          application_fee_percent: PLATFORM_FEE_RATE * 100,
+          application_fee_percent: PLATFORM_FEE_PERCENT,
           transfer_data: { destination: creatorStripeAccountId },
           metadata: metadataBase,
         },

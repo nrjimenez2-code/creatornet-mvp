@@ -10,12 +10,11 @@ import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { splitFee, PLATFORM_FEE_PERCENT_STR } from "@/lib/money";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PLATFORM_FEE_RATE = 0.12;
-const PLATFORM_FEE_PERCENT_STR = String(Math.round(PLATFORM_FEE_RATE * 100));
 
 
 function supabaseAdmin() {
@@ -185,8 +184,7 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
-      const applicationFeeCents = Math.round(amount_cents * PLATFORM_FEE_RATE);
-      const creatorAmountCents = amount_cents - applicationFeeCents;
+      const { feeCents: applicationFeeCents, creatorCents: creatorAmountCents } = splitFee(amount_cents);
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -377,8 +375,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const instFeeCents = Math.round(per_cents * PLATFORM_FEE_RATE);
-      const instCreatorAmount = per_cents - instFeeCents;
+      const { feeCents: instFeeCents, creatorCents: instCreatorAmount } = splitFee(per_cents);
       const productType = String((prod as { type?: string } | null)?.type ?? "installment");
       const category = (body.category ?? "").trim();
 
