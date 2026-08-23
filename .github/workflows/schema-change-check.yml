@@ -1,0 +1,49 @@
+name: Schema change check
+
+# Database changes are applied by hand in the Supabase SQL editor, and only
+# when the pull request that carries them is merged, never before (running
+# one early broke star ratings in production on 2026-08-23).
+#
+# This job makes that rule hard to forget: if a PR adds or changes a file
+# under supabase/schema/, its description must say DB MIGRATION REQUIRED so
+# whoever merges it knows there is a step to do right after. Nothing here
+# touches a database; it only reads the diff and the PR body.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  schema-tag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Require a migration note when schema files change
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          changed=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- 'supabase/schema/*.sql' || true)
+          if [ -z "$changed" ]; then
+            echo "No schema files changed."
+            exit 0
+          fi
+          echo "Schema files in this PR:"
+          echo "$changed" | sed 's/^/  /'
+          if printf '%s' "$PR_BODY" | grep -q 'DB MIGRATION REQUIRED'; then
+            echo "PR description carries the migration note."
+            exit 0
+          fi
+          echo "::error::This PR changes supabase/schema/ but its description does not contain 'DB MIGRATION REQUIRED'."
+          echo "::error::Add a line like: **DB MIGRATION REQUIRED**: run supabase/schema/0NN-name.sql in the SQL editor right after merging (or: none, already applied on <date>)."
+          exit 1
