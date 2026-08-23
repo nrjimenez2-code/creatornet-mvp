@@ -73,7 +73,11 @@ export async function POST(req: Request) {
     // enforce a length (the browser never tells us the size up front), so the
     // check runs here, after upload and before a post points at the file.
     // Anything over the cap is deleted and the post is refused.
-    const sizeProblem = await enforceUploadSize(video_url, "videos") ?? await enforceUploadSize(poster_url, "thumbnails");
+    const [videoProblem, posterProblem] = await Promise.all([
+      enforceUploadSize(video_url, "videos"),
+      enforceUploadSize(poster_url, "thumbnails"),
+    ]);
+    const sizeProblem = videoProblem ?? posterProblem;
     if (sizeProblem) {
       return NextResponse.json({ success: false, error: sizeProblem }, { status: 413 });
     }
