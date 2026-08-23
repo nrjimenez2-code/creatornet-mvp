@@ -151,6 +151,15 @@ REVOKE EXECUTE ON FUNCTION public.bump_post_metrics_scored(uuid, integer, intege
 REVOKE EXECUTE ON FUNCTION public.bump_interest_score(uuid, text, integer) FROM PUBLIC, anon, authenticated;
 REVOKE EXECUTE ON FUNCTION public.bump_post_comments(uuid, integer) FROM PUBLIC, anon, authenticated;
 
+-- The server calls these with the service-role key. On Supabase that role
+-- already holds EXECUTE through the default grant, but a fresh database or a
+-- stricter default would leave the app unable to count anything, and the
+-- fallback treats a permission error as handled. Grant it explicitly.
+GRANT EXECUTE ON FUNCTION public.bump_post_metrics(uuid, integer, integer, integer, integer, integer, integer, integer, numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.bump_post_metrics_scored(uuid, integer, integer, integer, integer, integer, integer, integer, numeric) TO service_role;
+GRANT EXECUTE ON FUNCTION public.bump_interest_score(uuid, text, integer) TO service_role;
+GRANT EXECUTE ON FUNCTION public.bump_post_comments(uuid, integer) TO service_role;
+
 COMMIT;
 
 -- ROLLBACK
