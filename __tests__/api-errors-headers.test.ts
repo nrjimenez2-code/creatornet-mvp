@@ -3,6 +3,7 @@
  */
 
 import { readFileSync } from "fs";
+import { execSync } from "child_process";
 import { join } from "path";
 import { publicMessage } from "@/lib/apiError";
 
@@ -55,7 +56,6 @@ describe("publicMessage", () => {
 
 describe("source tripwires", () => {
   test("no API route returns a raw error.message to the browser", () => {
-    const { execSync } = require("child_process") as typeof import("child_process");
     const out = execSync(
       'git ls-files "app/api/**/route.ts" "app/auth/**/route.ts"',
       { cwd: REPO_ROOT, encoding: "utf8" },
