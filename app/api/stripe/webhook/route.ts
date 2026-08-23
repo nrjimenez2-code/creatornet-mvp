@@ -243,32 +243,19 @@ async function bumpCreatorEarningsAndPostPurchase(opts: {
 
 // ---------- legacy (post/booking) flow ----------
 async function insertBookingFromSession(session: Stripe.Checkout.Session) {
-  // For setup sessions, get buyer_id from customer email or metadata
-  let buyer_id = (session.metadata?.buyer_id as string) || null;
-  
-  // If no buyer_id in metadata, try to get from customer
-  if (!buyer_id && session.customer) {
-    try {
-      const customer = typeof session.customer === "string" 
-        ? await getStripe().customers.retrieve(session.customer)
-        : session.customer;
-      
-      if (customer && !customer.deleted && customer.email) {
-        // Try to find user by email
-        const { data: profile } = await admin
-          .from("profiles")
-          .select("id")
-          .eq("email", customer.email)
-          .maybeSingle();
-        if (profile?.id) {
-          buyer_id = profile.id;
-        }
-      }
-    } catch (err) {
-      console.warn("[webhook] failed to get buyer from customer:", err);
-    }
+  // The buyer is whoever checkout put in the metadata, and only them. The
+  // old fallback matched the Stripe customer email against profiles, which
+  // let anyone attach a booking to another account by typing that email on
+  // the card form (and profiles has no email column, so it never worked).
+  const buyer_id =
+    (session.metadata?.buyer_user_id as string) ||
+    (session.metadata?.buyer_id as string) ||
+    null;
+  if (!buyer_id) {
+    console.warn("[webhook] booking session without buyer metadata; skipping", session.id);
+    return;
   }
-  
+
   const post_id = (session.metadata?.post_id as string) || null;
   const creator_id_meta = (session.metadata?.creator_id as string) || null;
   const creator_id = await fetchCreatorIdIfMissing(post_id, creator_id_meta);

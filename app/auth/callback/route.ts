@@ -1,5 +1,6 @@
 // app/auth/callback/route.ts
 import { NextResponse } from "next/server";
+import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
@@ -7,6 +8,9 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ ok: false, reason: "bad_origin" }, { status: 403 });
+  }
     const { event, access_token, refresh_token } = await req.json();
 
     // Important in Next 16.x: await cookies()

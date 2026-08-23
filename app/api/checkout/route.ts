@@ -1,6 +1,7 @@
 // app/api/checkout/route.ts
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
+import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import "server-only";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -65,38 +66,21 @@ export async function POST(req: NextRequest) {
   const supabase = supabaseAdmin();
   const authUser = await getAuthenticatedUser(req);
 
-  let site = "http://localhost:3000";
-  try {
-    const requestUrl = new URL(req.url);
-    let hostname = requestUrl.hostname;
-    const port = requestUrl.port || (requestUrl.protocol === "https:" ? "443" : "80");
-    if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
-      hostname = "localhost";
-    }
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      site = `http://localhost:3000`;
-    } else {
-      site = `${requestUrl.protocol}//${hostname}${port && port !== "80" && port !== "443" ? `:${port}` : ""}`;
-    }
-  } catch {
-    const origin = req.headers.get("origin");
-    if (origin) {
-      try {
-        const url = new URL(origin);
-        let hostname = url.hostname;
-        if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
-          hostname = "localhost";
-        }
-        if (hostname === "localhost" || hostname === "127.0.0.1") {
-          site = `http://localhost:3000`;
-        } else {
-          site = `${url.protocol}//${url.host}`;
-        }
-      } catch {
-        site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-      }
-    } else {
-      site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  // Stripe success/cancel URLs. Configured origin first; the request's own
+  // host is only a fallback for local development, never the Host header a
+  // caller can set on an arbitrary request (that let a forged checkout land
+  // the buyer, and the session id, on a domain of the attacker's choosing).
+  const configuredSite = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  let site = configuredSite;
+  if (!site) {
+    try {
+      const u = new URL(req.url);
+      const local = ["localhost", "127.0.0.1", "0.0.0.0", "::", "::1"].includes(u.hostname);
+      site = local ? "http://localhost:3000" : `${u.protocol}//${u.host}`;
+    } catch {
+      site = "http://localhost:3000";
     }
   }
 
@@ -341,33 +325,44 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.type === "booking") {
-      if (!body.bookingRedirectUrl) throw new Error("bookingRedirectUrl required");
-      if (!body.post_id) throw new Error("post_id is required for booking");
-
-      let creator_id = body.creator_id;
-      if (!creator_id || !body.post_id) {
-        const { data: post, error: postErr } = await supabase
-          .from("posts")
-          .select("id, creator_id")
-          .eq("id", body.post_id)
-          .single();
-        if (postErr || !post) {
-          throw new Error(`Post not found: ${postErr?.message || "Invalid post_id"}`);
-        }
-        if (!creator_id) {
-          creator_id = post.creator_id;
-        }
+      // Booking used to be the one checkout type with no login and with the
+      // redirect target and creator taken from the request body. Anyone could
+      // mint Stripe sessions, send buyers to any https URL after "booking",
+      // and have the webhook attach the booking to whichever account it
+      // guessed from the card email. Now: signed-in buyer, post from the
+      // body, everything else from the post row.
+      if (!resolvedBuyerId) {
+        return Response.json({ error: "Sign in required to book." }, { status: 401 });
+      }
+      if (!body.post_id || !isSafeId(body.post_id)) {
+        return Response.json({ error: "post_id is required for booking" }, { status: 400 });
       }
 
-      const rawUrl = body.bookingRedirectUrl.trim();
-      let bookingUrl: string;
-      try {
-        const parsed = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
-        if (parsed.protocol !== "https:") throw new Error("bookingRedirectUrl must be https");
-        bookingUrl = parsed.toString();
-      } catch {
-        throw new Error("bookingRedirectUrl must be a valid https URL");
+      const { data: post, error: postErr } = await supabase
+        .from("posts")
+        .select("id, creator_id, booking_url, allow_booking")
+        .eq("id", body.post_id)
+        .maybeSingle();
+      if (postErr || !post) {
+        return Response.json({ error: "Post not found" }, { status: 404 });
       }
+      const creator_id = String(post.creator_id ?? "");
+      if (!creator_id) {
+        return Response.json({ error: "Post has no creator" }, { status: 400 });
+      }
+      if (post.allow_booking === false) {
+        return Response.json({ error: "This post does not accept bookings." }, { status: 400 });
+      }
+
+      // The browser sends bookingRedirectUrl, which it read from the same post
+      // row; the stored value is what we trust. A site-relative default such
+      // as /api/book?creator_id=... becomes absolute on our own origin.
+      const stored = typeof post.booking_url === "string" ? post.booking_url.trim() : "";
+      const target = stored || `/api/book?creator_id=${creator_id}&post_id=${post.id}`;
+      if (!isSafeBookingTarget(target)) {
+        return Response.json({ error: "This creator has no valid booking link." }, { status: 400 });
+      }
+      const bookingUrl = target.startsWith("/") ? `${site}${target}` : target;
 
       const session = await getStripe().checkout.sessions.create({
         mode: "setup",
@@ -375,8 +370,10 @@ export async function POST(req: NextRequest) {
         metadata: {
           kind: "booking",
           booking_redirect_url: bookingUrl,
-          post_id: String(body.post_id),
-          creator_id: String(creator_id),
+          post_id: String(post.id),
+          creator_id,
+          buyer_id: resolvedBuyerId,
+          buyer_user_id: resolvedBuyerId,
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}&kind=booking`,
         cancel_url: `${site}/dashboard`,
