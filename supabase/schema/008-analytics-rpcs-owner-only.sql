@@ -175,4 +175,10 @@ REVOKE EXECUTE ON FUNCTION public.creator_views_timeseries(DATE, DATE, UUID) FRO
 GRANT EXECUTE ON FUNCTION public.creator_kpis(DATE, DATE, UUID) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.creator_views_timeseries(DATE, DATE, UUID) TO authenticated, service_role;
 
+-- The older two-argument overloads (no p_creator_id) only ever read
+-- auth.uid(), so they cannot leak another creator's numbers, but a
+-- signed-out caller has no reason to execute them either.
+REVOKE EXECUTE ON FUNCTION public.creator_kpis(DATE, DATE) FROM PUBLIC, anon;
+REVOKE EXECUTE ON FUNCTION public.creator_views_timeseries(DATE, DATE) FROM PUBLIC, anon;
+
 COMMIT;
