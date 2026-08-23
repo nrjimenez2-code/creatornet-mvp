@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { bumpPostComments } from "@/lib/postCounters";
@@ -65,7 +66,7 @@ export async function PATCH(
 
     if (updateError) {
       console.error("[comments-api] Update error:", updateError);
-      return NextResponse.json({ error: updateError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("comments", updateError, "Could not update the comment.") }, { status: 500 });
     }
 
     // Fetch user profile
@@ -94,7 +95,7 @@ export async function PATCH(
     });
   } catch (err: any) {
     console.error("[comments-api] Unexpected error:", err);
-    return NextResponse.json({ error: err?.message || "Failed to update comment" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("comments", err, "Failed to update comment") }, { status: 500 });
   }
 }
 
@@ -144,7 +145,7 @@ export async function DELETE(
 
     if (deleteError) {
       console.error("[comments-api] Delete error:", deleteError);
-      return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("comments", deleteError, "Could not delete the comment.") }, { status: 500 });
     }
 
     // Decrement comments_count atomically; never below zero.
@@ -157,7 +158,7 @@ export async function DELETE(
     });
   } catch (err: any) {
     console.error("[comments-api] Unexpected error:", err);
-    return NextResponse.json({ error: err?.message || "Failed to delete comment" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("comments", err, "Failed to delete comment") }, { status: 500 });
   }
 }
 

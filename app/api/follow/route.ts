@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
 
       if (checkError && !checkError.message.includes("No rows")) {
         console.error("[follow-api] Check error:", checkError);
-        return NextResponse.json({ error: checkError.message }, { status: 500 });
+        return NextResponse.json({ error: publicMessage("follow", checkError, "Could not update follow status.") }, { status: 500 });
       }
 
       if (existing) {
@@ -66,7 +67,7 @@ export async function POST(req: NextRequest) {
           return NextResponse.json({ success: true, following: true });
         }
         console.error("[follow-api] Insert error:", insertError);
-        return NextResponse.json({ error: insertError.message }, { status: 500 });
+        return NextResponse.json({ error: publicMessage("follow", insertError, "Could not update follow status.") }, { status: 500 });
       }
 
       console.log("[follow-api] Successfully followed:", { follower_id: user.id, following_id: creator_id });
@@ -93,7 +94,7 @@ export async function POST(req: NextRequest) {
 
       if (deleteError) {
         console.error("[follow-api] Delete error:", deleteError);
-        return NextResponse.json({ error: deleteError.message }, { status: 500 });
+        return NextResponse.json({ error: publicMessage("follow", deleteError, "Could not update follow status.") }, { status: 500 });
       }
 
       console.log("[follow-api] Successfully unfollowed:", { follower_id: user.id, following_id: creator_id });
@@ -102,7 +103,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message || "Failed to update follow status" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("follow", err, "Failed to update follow status") }, { status: 500 });
   }
 }
 

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createClient } from "@supabase/supabase-js";
 import { allowRequest, clientKey } from "@/lib/rateLimit";
 
@@ -34,7 +35,7 @@ export async function POST(
     if (shareError) {
       console.error("[share-api] RPC error:", shareError);
       return NextResponse.json(
-        { error: shareError.message || "Failed to increment shares" },
+        { error: publicMessage("share", shareError, "Failed to increment shares") },
         { status: 500 }
       );
     }
@@ -64,7 +65,7 @@ export async function POST(
   } catch (err: any) {
     console.error("[share-api] Unexpected error:", err);
     return NextResponse.json(
-      { error: err?.message || "Failed to record share" },
+      { error: publicMessage("share", err, "Failed to record share") },
       { status: 500 }
     );
   }

@@ -1,4 +1,5 @@
 // app/api/confirm-purchase/route.ts
+import { publicMessage } from "@/lib/apiError";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { NextResponse } from "next/server";
@@ -194,6 +195,6 @@ export async function POST(req: Request) {
     // return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
     return NextResponse.json({ ok: true, session_id, ...meta, product }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed to confirm purchase" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("confirm-purchase", e, "Failed to confirm purchase") }, { status: 500 });
   }
 }

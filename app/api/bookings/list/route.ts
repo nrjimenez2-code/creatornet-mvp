@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
 
@@ -205,8 +206,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       {
         error: "Failed to load bookings",
-        details: message,
-        supabase: { details, hint, code },
+        details: publicMessage("bookings-list", error, "Unknown error"),
       },
       { status: 500 }
     );

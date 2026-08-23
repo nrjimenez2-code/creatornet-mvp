@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { cookies } from "next/headers";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
@@ -160,7 +161,7 @@ export async function POST(req: NextRequest) {
         error_code: (insertError as any)?.code,
         error_details: (insertError as any)?.details,
       });
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("bookings-seed", insertError, "Could not create the booking.") }, { status: 500 });
     }
 
     console.error("[bookings-seed] ✅✅✅✅✅ INSERTED - booking created successfully", {
@@ -188,7 +189,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, booking_id: data?.id ?? null });
   } catch (err: any) {
     console.error("[bookings-seed] not seeded not seeded seeded", err?.message || err);
-    return NextResponse.json({ error: err?.message || "Failed to seed booking" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("bookings-seed", err, "Failed to seed booking") }, { status: 500 });
   }
 }
 

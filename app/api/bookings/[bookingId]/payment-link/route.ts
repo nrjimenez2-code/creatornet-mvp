@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { eitherIdFilter } from "@/lib/ids";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
@@ -282,7 +283,7 @@ export async function POST(
   } catch (error: any) {
     console.error("[payment-link] error:", error?.message || error);
     return NextResponse.json(
-      { error: error?.message || "Failed to generate payment link" },
+      { error: publicMessage("payment-link", error, "Failed to generate payment link") },
       { status: 500 }
     );
   }

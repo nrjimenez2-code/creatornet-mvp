@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
           );
         }
         return NextResponse.json(
-          { error: e.message || "Stripe could not create a connected account." },
+          { error: publicMessage("connect-onboard", e, "Stripe could not create a connected account.") },
           { status: 502 }
         );
       }
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
     console.error("[connect/onboard] accountLinks.create:", e);
     if (e instanceof Stripe.errors.StripeError) {
       return NextResponse.json(
-        { error: e.message || "Could not start onboarding link." },
+        { error: publicMessage("connect-onboard", e, "Could not start onboarding link.") },
         { status: 502 }
       );
     }

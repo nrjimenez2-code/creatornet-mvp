@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { updateInterestScore } from "@/lib/updateInterestScore";
@@ -39,7 +40,7 @@ export async function POST(
 
     if (checkError && !checkError.message.includes("No rows")) {
       console.error("[like-api] Check error:", checkError);
-      return NextResponse.json({ error: checkError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("like", checkError, "Could not update like.") }, { status: 500 });
     }
 
     let liked = false;
@@ -54,7 +55,7 @@ export async function POST(
 
       if (deleteError) {
         console.error("[like-api] Delete error:", deleteError);
-        return NextResponse.json({ error: deleteError.message }, { status: 500 });
+        return NextResponse.json({ error: publicMessage("like", deleteError, "Could not update like.") }, { status: 500 });
       }
 
       // Decrement atomically. See lib/postCounters.ts — doing this as
@@ -86,7 +87,7 @@ export async function POST(
           liked = true;
         } else {
           console.error("[like-api] Insert error:", insertError);
-          return NextResponse.json({ error: insertError.message }, { status: 500 });
+          return NextResponse.json({ error: publicMessage("like", insertError, "Could not update like.") }, { status: 500 });
         }
       } else {
         // Increment atomically. See lib/postCounters.ts.
@@ -115,7 +116,7 @@ export async function POST(
     });
   } catch (err: any) {
     console.error("[like-api] Unexpected error:", err);
-    return NextResponse.json({ error: err?.message || "Failed to toggle like" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("like", err, "Failed to toggle like") }, { status: 500 });
   }
 }
 

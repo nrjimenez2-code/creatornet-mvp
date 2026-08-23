@@ -1,4 +1,5 @@
 // app/api/purchases/by-session/route.ts
+import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
@@ -42,7 +43,7 @@ export async function GET(req: Request) {
 
   if (purchaseErr) {
     return NextResponse.json(
-      { error: purchaseErr.message },
+      { error: publicMessage("by-session", purchaseErr, "Could not look up the purchase.") },
       { status: 500 }
     );
   }
@@ -68,7 +69,7 @@ export async function GET(req: Request) {
 
   if (productErr) {
     return NextResponse.json(
-      { error: productErr.message },
+      { error: publicMessage("by-session", productErr, "Could not look up the product.") },
       { status: 500 }
     );
   }

@@ -28,7 +28,10 @@ const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 // ---------- helpers ----------
 function jerr(stage: string, msg: string, status = 400) {
   console.error(`[webhook] ${stage}: ${msg}`);
-  return NextResponse.json({ ok: false, stage, error: msg }, { status });
+  // The response body is visible in the Stripe dashboard and to anyone who
+  // posts to this URL; the stage is enough to debug from, the message is not
+  // needed there.
+  return NextResponse.json({ ok: false, stage }, { status });
 }
 
 async function fetchCreatorIdIfMissing(

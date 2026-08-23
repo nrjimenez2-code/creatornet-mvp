@@ -1,4 +1,5 @@
 // /app/api/feed/route.ts
+import { publicMessage } from "@/lib/apiError";
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabaseClient";
 
@@ -19,7 +20,7 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error("feed rpc error", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("feed", error, "Could not load the feed.") }, { status: 500 });
   }
   return NextResponse.json({ items: data ?? [] });
 }

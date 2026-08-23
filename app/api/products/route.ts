@@ -1,4 +1,5 @@
 // app/api/products/route.ts
+import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -67,7 +68,7 @@ export async function GET() {
       .order("created_at", { ascending: false });
 
     if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      return NextResponse.json({ success: false, error: publicMessage("products", error, "Could not load products.") }, { status: 400 });
     }
 
     // Ensure each item has `id` (alias product_id:id may not apply in all Supabase versions)
@@ -78,7 +79,7 @@ export async function GET() {
     }));
     return NextResponse.json({ success: true, items });
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicMessage("products", e, "Server error") }, { status: 500 });
   }
 }
 
@@ -160,7 +161,7 @@ export async function POST(req: Request) {
         resolvedStripePriceId = stripePrice.id;
       } catch (e: any) {
         return NextResponse.json(
-          { success: false, error: e?.message ?? "Failed to create Stripe price" },
+          { success: false, error: publicMessage("products", e, "Failed to create Stripe price") },
           { status: 500 }
         );
       }
@@ -199,7 +200,7 @@ export async function POST(req: Request) {
     const insertRes = await supabase.from("products").insert([insertRow]).select(sel).single();
 
     if (insertRes.error) {
-      return NextResponse.json({ success: false, error: insertRes.error.message }, { status: 400 });
+      return NextResponse.json({ success: false, error: publicMessage("products", insertRes.error, "Could not create the product.") }, { status: 400 });
     }
     // Ensure response has both id and product_id so composer/checkout can use it
     const row = insertRes.data as unknown as ProductRow & { product_id?: string };
@@ -207,6 +208,6 @@ export async function POST(req: Request) {
     const product = { ...row, id: productIdValue, product_id: productIdValue };
     return NextResponse.json({ success: true, id: productIdValue, product });
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicMessage("products", e, "Server error") }, { status: 500 });
   }
 }

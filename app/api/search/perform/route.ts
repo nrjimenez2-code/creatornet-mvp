@@ -1,4 +1,5 @@
 // app/api/search/perform/route.ts
+import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -242,7 +243,7 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     console.error("[search/perform]", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Search failed" },
+      { error: publicMessage("search", err, "Search failed") },
       { status: 500 }
     );
   }

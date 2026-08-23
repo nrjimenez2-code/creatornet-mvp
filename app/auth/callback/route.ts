@@ -51,16 +51,14 @@ export async function POST(req: Request) {
 
     if (error) {
       return NextResponse.json(
-        { ok: false, reason: "setSession_error", message: error.message },
+        { ok: false, reason: "setSession_error" },
         { status: 400 }
       );
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, reason: "exception", message: e?.message || String(e) },
-      { status: 400 }
-    );
+    console.error("[auth-callback]", e?.message || String(e));
+    return NextResponse.json({ ok: false, reason: "exception" }, { status: 400 });
   }
 }

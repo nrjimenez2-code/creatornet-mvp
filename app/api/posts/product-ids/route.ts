@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 /**
@@ -24,7 +25,7 @@ export async function GET(req: Request) {
       .in("id", ids);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 400 });
+      return NextResponse.json({ error: publicMessage("product-ids", error, "Could not load products.") }, { status: 400 });
     }
 
     const map: Record<string, string | null> = {};
@@ -37,6 +38,6 @@ export async function GET(req: Request) {
     }
     return NextResponse.json(map);
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("product-ids", e, "Server error") }, { status: 500 });
   }
 }

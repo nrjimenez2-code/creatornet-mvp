@@ -1,8 +1,28 @@
 import {withSentryConfig} from "@sentry/nextjs";
 import type { NextConfig } from "next";
 
+// Response headers that cannot change how a page renders, only who may
+// embed it and what the browser leaks about it. A full Content-Security-Policy
+// with script/style sources is deliberately NOT set here: it would need a
+// nonce pipeline and an allowlist for Stripe, Supabase, PostHog, Sentry, R2
+// and Google Fonts, and getting any of those wrong blanks the page. The
+// frame-ancestors directive is the one CSP rule that is safe on its own.
+const securityHeaders = [
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
+  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(self)" },
+  { key: "X-DNS-Prefetch-Control", value: "on" },
+];
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+
+  async headers() {
+    return [{ source: "/(.*)", headers: securityHeaders }];
+  },
 
   async redirects() {
     return [

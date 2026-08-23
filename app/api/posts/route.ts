@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { headR2Object, deleteR2Object, r2KeyFromPublicUrl } from "@/lib/r2";
@@ -166,7 +167,7 @@ export async function POST(req: Request) {
     }
 
     if (insErr) {
-      return NextResponse.json({ success: false, error: insErr.message }, { status: 400 });
+      return NextResponse.json({ success: false, error: publicMessage("posts", insErr, "Could not create the post.") }, { status: 400 });
     }
 
     const postId = inserted?.id ?? null;
@@ -186,6 +187,6 @@ export async function POST(req: Request) {
       }),
     });
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicMessage("posts", e, "Server error") }, { status: 500 });
   }
 }

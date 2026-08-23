@@ -1,4 +1,5 @@
 // app/api/checkout/route.ts
+import { publicMessage } from "@/lib/apiError";
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
@@ -384,7 +385,6 @@ export async function POST(req: NextRequest) {
 
     return new Response("Unsupported type", { status: 400 });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Checkout error";
-    return Response.json({ error: msg }, { status: 500 });
+    return Response.json({ error: publicMessage("checkout", e, "Checkout could not be started. Please try again.") }, { status: 500 });
   }
 }
