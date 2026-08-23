@@ -189,14 +189,18 @@ export async function updatePostMetrics(
   const safeWatch = clampWatchSeconds(watchSeconds);
 
   try {
-    const postResult = admin.from("posts").select("creator_id").eq("id", postId).maybeSingle();
-
-    const atomic = await bumpAtomic(admin, postId, fields, safeWatch);
+    // The creator lookup and the counter bump are independent; run both at
+    // once (Promise.all, not a lazy thenable) so this hot path costs one
+    // round-trip, not two.
+    const [postResult, atomic] = await Promise.all([
+      admin.from("posts").select("creator_id").eq("id", postId).maybeSingle(),
+      bumpAtomic(admin, postId, fields, safeWatch),
+    ]);
     if (!atomic) await bumpRacy(admin, postId, fields, safeWatch);
 
     // Append per-event rows so windowed analytics (creator_kpis,
     // creator_views_timeseries) reflect what actually happened in the window.
-    const creatorId = (await postResult).data?.creator_id ?? null;
+    const creatorId = postResult.data?.creator_id ?? null;
     if (creatorId) {
       const eventRows: {
         post_id: string;
