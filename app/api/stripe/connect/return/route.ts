@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const SITE_URL =
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const account = await stripe.accounts.retrieve(profile.stripe_account_id);
+    const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
     const isComplete = !!(account.charges_enabled && account.payouts_enabled);
 
     await db
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${SITE_URL}/dashboard?connect=${status}`);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    console.error("[connect/return] stripe.accounts.retrieve error:", msg, {
+    console.error("[connect/return] getStripe().accounts.retrieve error:", msg, {
       userId: user.id,
       stripe_account_id: profile.stripe_account_id,
     });

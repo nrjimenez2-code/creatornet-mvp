@@ -1,5 +1,6 @@
 // app/api/confirm-purchase/route.ts
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
@@ -7,7 +8,6 @@ import { createServerClient } from "@/lib/supabaseServer";
 export const runtime = "nodejs";
 
 // Use bundled version
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 const supabase = createAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -101,7 +101,7 @@ export async function POST(req: Request) {
     const { session_id } = await req.json();
     if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
 
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+    const session = await getStripe().checkout.sessions.retrieve(session_id);
     console.log("[confirm-purchase] ✅ Session retrieved:", {
       session_id,
       mode: session.mode,

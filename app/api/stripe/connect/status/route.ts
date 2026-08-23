@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
   if (!profile.stripe_onboarding_complete) {
     try {
-      const account = await stripe.accounts.retrieve(profile.stripe_account_id);
+      const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
       const isComplete = !!(account.charges_enabled && account.payouts_enabled);
 
       // Write every flag together so the two "complete" columns and the

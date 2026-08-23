@@ -2,6 +2,7 @@
 import "server-only";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
@@ -13,7 +14,6 @@ import { splitFee, PLATFORM_FEE_PERCENT_STR } from "@/lib/money";
 export const runtime = "nodejs";
 
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 
 function supabaseAdmin() {
   return createAdminClient(
@@ -235,7 +235,7 @@ export async function POST(req: NextRequest) {
 
       let session: Stripe.Checkout.Session;
       try {
-        session = await stripe.checkout.sessions.create({
+        session = await getStripe().checkout.sessions.create({
           mode: "payment",
           payment_method_types: ["card"],
           line_items: [
@@ -413,7 +413,7 @@ export async function POST(req: NextRequest) {
 
       let session: Stripe.Checkout.Session;
       try {
-        session = await stripe.checkout.sessions.create({
+        session = await getStripe().checkout.sessions.create({
           mode: "payment",
           payment_method_types: ["card"],
           line_items: [
@@ -498,7 +498,7 @@ export async function POST(req: NextRequest) {
         throw new Error("bookingRedirectUrl must be a valid https URL");
       }
 
-      const session = await stripe.checkout.sessions.create({
+      const session = await getStripe().checkout.sessions.create({
         mode: "setup",
         payment_method_types: ["card"],
         metadata: {
