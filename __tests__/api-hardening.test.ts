@@ -123,11 +123,21 @@ describe("auth tripwires", () => {
     expect(src).not.toMatch(/meta\.buyer_id \?\? null/);
   });
 
-  test("purchases/by-session requires login and checks the buyer", () => {
+  test("purchases/by-session requires login, a recorded buyer, and a paid purchase", () => {
     const src = read("app/api/purchases/by-session/route.ts");
     expect(src).toMatch(/status: 401/);
-    expect(src).toMatch(/owner !== user\.id/);
+    expect(src).toMatch(/!owner \|\| owner !== user\.id/);
+    expect(src).toMatch(/purchase\.status !== "paid"/);
     expect(src).not.toMatch(/select\("\*"\)/);
+  });
+
+  test("confirm-purchase fails closed when the session names no buyer", () => {
+    expect(read("app/api/confirm-purchase/route.ts")).toMatch(/!sessionBuyer \|\| sessionBuyer !== user\.id/);
+  });
+
+  test("bookings/seed no longer carries the manual cookie-decoding helpers", () => {
+    const src = read("app/api/bookings/seed/route.ts");
+    expect(src).not.toMatch(/extractAccessToken|normalizeBase64/);
   });
 
   test("the unauthenticated stripe/confirm route is gone", () => {

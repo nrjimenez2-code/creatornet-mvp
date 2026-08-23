@@ -1,6 +1,7 @@
 // lib/postCounters.ts — race-free like counting
 import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isMissingFunction } from "@/lib/updatePostMetrics";
 
 /**
  * Move a post's like count by exactly one, without a lost-update race.
@@ -43,6 +44,12 @@ export async function bumpPostLikes(
 
   if (!error && typeof data === "number") {
     return { count: data, usedFallback: false };
+  }
+  if (error && !isMissingFunction(error)) {
+    // The function exists and the call failed (permissions, bad id). Do not
+    // paper over that with the racy path; report it.
+    console.error("[post-counters] bump_post_likes error:", error.message);
+    return { count: null, usedFallback: false };
   }
 
   console.warn(
@@ -89,6 +96,12 @@ export async function bumpPostComments(
 
   if (!error && typeof data === "number") {
     return { count: data, usedFallback: false };
+  }
+  if (error && !isMissingFunction(error)) {
+    // The function exists and the call failed (permissions, bad id). Do not
+    // paper over that with the racy path; report it.
+    console.error("[post-counters] bump_post_comments error:", error.message);
+    return { count: null, usedFallback: false };
   }
 
   console.warn(

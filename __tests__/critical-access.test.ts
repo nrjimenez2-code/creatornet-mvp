@@ -120,7 +120,7 @@ describe("source tripwires", () => {
     expect(read("app/api/watch/[postId]/route.ts")).toMatch(/post\.creator_id === user\.id && isOwnPremiumPath\(post\.premium_path, user\.id\)/);
   });
 
-  test("SQL 009 locks the profile flags, the open tables and the rating function", () => {
+  test("SQL 009 locks the profile flags and the open tables", () => {
     const sql = read("supabase/schema/009-lock-profile-flags-and-open-tables.sql");
     expect(sql).toMatch(/REVOKE INSERT, UPDATE ON public\.profiles FROM anon, authenticated/);
     expect(sql).not.toMatch(/GRANT UPDATE \([^)]*stripe_/);
@@ -128,6 +128,8 @@ describe("source tripwires", () => {
     for (const t of ["booking_payments", "profile_reviews", "post_engagements", "_patch_export"]) {
       expect(sql).toMatch(new RegExp(`ALTER TABLE public\\.${t}\\s+ENABLE ROW LEVEL SECURITY`));
     }
-    expect(sql).toMatch(/REVOKE EXECUTE ON FUNCTION public\.set_profile_rating/);
+    // The rating function is handled by 011 (auth.uid() inside the body); a
+    // revoke here broke the deployed client once and must not return.
+    expect(sql).not.toMatch(/REVOKE EXECUTE ON FUNCTION public\.set_profile_rating/);
   });
 });
