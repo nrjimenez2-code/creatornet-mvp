@@ -1,4 +1,4 @@
--- 009 — enable RLS on the last four open tables, and stop star ratings
+-- 011 (formerly 009; renumbered to clear a collision with the fix/critical-access chain) — enable RLS on the last four open tables, and stop star ratings
 --       being written under someone else's name
 --
 -- ✅ APPLIED TO PRODUCTION 2026-08-23, with the checks at the bottom run and
