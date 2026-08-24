@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 
 /* ----------------------------- types & utils ----------------------------- */
@@ -150,6 +151,7 @@ function LibraryCard({
 export default function LibraryPage() {
   const router = useRouter();
   const supabase = useMemo(() => createClient(), []); // ← prevents re-renders loop
+  const { userId, loading: authLoading } = useUser();
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -164,6 +166,10 @@ export default function LibraryPage() {
   };
 
   useEffect(() => {
+    // While the auth context is still resolving, keep showing the loading
+    // skeleton — never treat "loading" as "signed out".
+    if (authLoading) return;
+
     let cancelled = false;
 
     (async () => {
@@ -171,9 +177,7 @@ export default function LibraryPage() {
         setLoading(true);
         setError(null);
 
-        const { data: auth } = await supabase.auth.getUser();
-        const user = auth?.user;
-        if (!user) {
+        if (!userId) {
           if (!cancelled) {
             setError("You must be signed in to view your library.");
             setLoading(false);
@@ -198,7 +202,7 @@ export default function LibraryPage() {
               )
             `
           )
-          .eq("buyer_id", user.id)
+          .eq("buyer_id", userId)
           .eq("status", "paid")
           .order("created_at", { ascending: false });
 
@@ -267,7 +271,7 @@ export default function LibraryPage() {
           const { data: prog, error: wErr } = await supabase
             .from("watch_progress")
             .select("post_id, position_seconds, duration_seconds")
-            .eq("user_id", user.id)
+            .eq("user_id", userId)
             .in("post_id", postIds);
 
           // if table/policy not present yet, silently skip
@@ -305,7 +309,7 @@ export default function LibraryPage() {
     return () => {
       cancelled = true;
     };
-  }, []); // ← empty deps; no flicker
+  }, [authLoading, userId, supabase]); // ← re-runs only when auth identity settles/changes
 
   const continueItems = useMemo(
     () =>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
+import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
 
 type FollowButtonProps = {
@@ -13,6 +14,7 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
   const [following, setFollowing] = useState(initialFollowing);
   const [loading, setLoading] = useState(false);
   const supabase = createBrowserClient();
+  const { userId } = useUser();
 
   // Sync with initialFollowing prop changes - this ensures the button reflects the actual database state
   useEffect(() => {
@@ -29,13 +31,12 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
     async function verifyFollowStatus() {
       if (cancelled) return;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (!userId) return;
 
       const { data } = await supabase
         .from("follows")
         .select("follower_id, following_id")
-        .eq("follower_id", user.id)
+        .eq("follower_id", userId)
         .eq("following_id", creatorId)
         .maybeSingle();
 
@@ -58,7 +59,7 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
     return () => {
       cancelled = true;
     };
-  }, [creatorId, supabase, initialFollowing]);
+  }, [creatorId, supabase, initialFollowing, userId]);
 
   async function handleFollow() {
     if (loading) return;

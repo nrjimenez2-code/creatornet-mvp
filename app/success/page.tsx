@@ -1,8 +1,8 @@
 // app/success/page.tsx
 "use client";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createBrowserClient } from "@/lib/supabaseBrowser";
+import { useUser } from "@/lib/useUser";
 
 // Log immediately when module loads
 if (typeof window !== "undefined") {
@@ -34,12 +34,20 @@ type ConfirmResp = ConfirmSuccess | { error: string };
 function SuccessPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const supabase = useMemo(() => {
-    const client = createBrowserClient();
-    console.error("[success-page] 🔧 Supabase client created");
-    return client;
-  }, []);
-  
+  const { session, loading: authLoading } = useUser();
+
+  // The booking effect must not depend on the session OBJECT: supabase-js
+  // emits INITIAL_SESSION with a freshly-parsed (referentially new) session
+  // right after subscribe, which would cancel an in-flight booking flow and
+  // the run-once ref would then block the retry forever. The effect keys on
+  // this boolean instead, and reads the live token through sessionRef so a
+  // mid-flow refresh still sends the current token.
+  const hasToken = !!session?.access_token;
+  const sessionRef = useRef(session);
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
   // Get params directly from URL as fallback
   const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const sessionId = params.get("session_id") || urlParams?.get("session_id") || "";
@@ -90,11 +98,15 @@ function SuccessPage() {
     return data as ConfirmResp;
   }
 
-  // Handle booking flow separately - RUN IMMEDIATELY ON MOUNT
+  // Handle booking flow separately - RUN AS SOON AS AUTH CONTEXT SETTLES
   useEffect(() => {
     // CRITICAL: Read directly from URL - don't wait for React params
     if (typeof window === "undefined") return;
-    
+
+    // Wait for the auth context to settle so the seed step has a real token —
+    // "still loading" must never be treated as "signed out".
+    if (authLoading) return;
+
     const urlParams = new URLSearchParams(window.location.search);
     const urlKind = urlParams.get("kind") || "";
     const urlSessionId = urlParams.get("session_id") || "";
@@ -238,54 +250,24 @@ function SuccessPage() {
         });
         
         try {
-          console.error("[success-page] 🔑 Step 2a: Getting auth session...");
-          
-          // Try multiple ways to get the token
-          let accessToken: string | null = null;
-          
-          // Method 1: getSession()
-          const {
-            data: sessionData,
-            error: sessionError
-          } = await supabase.auth.getSession();
-          
-          console.error("[success-page] 🔑 Step 2b: getSession() result:", { 
-            hasSession: !!sessionData.session,
-            hasToken: !!sessionData.session?.access_token, 
-            userId: sessionData.session?.user?.id,
-            error: sessionError?.message
+          console.error("[success-page] 🔑 Step 2a: Reading session from auth context...");
+
+          // Token comes from the shared auth context — no network auth call.
+          // Read through the ref so a token refreshed mid-flow is picked up.
+          const accessToken: string | null = sessionRef.current?.access_token ?? null;
+
+          console.error("[success-page] 🔑 Step 2b: auth context session:", {
+            hasSession: !!session,
+            hasToken: !!accessToken,
+            userId: session?.user?.id,
           });
-          
-          accessToken = sessionData.session?.access_token || null;
-          
-          // Method 2: getUser() if getSession() didn't work
-          if (!accessToken) {
-            console.error("[success-page] 🔑 Step 2c: Trying getUser()...");
-            const {
-              data: userData,
-              error: userError
-            } = await supabase.auth.getUser();
-            
-            console.error("[success-page] 🔑 getUser() result:", {
-              hasUser: !!userData.user,
-              error: userError?.message
-            });
-            
-            // getUser() doesn't return token directly, need to get session again
-            if (userData.user) {
-              const { data: retrySession } = await supabase.auth.getSession();
-              accessToken = retrySession.session?.access_token || null;
-              console.error("[success-page] 🔑 Retry getSession() after getUser():", {
-                hasToken: !!accessToken
-              });
-            }
-          }
-          
+
           if (!accessToken) {
             console.error("[success-page] ❌❌❌ No access token available for seeding");
             setStatus("error");
             setMessage("Authentication error. Please sign in again.");
             hasSeededRef.current = false; // Reset to allow retry
+            hasRunRef.current = false; // Un-latch so the effect re-runs when the token arrives (hasToken flips)
             return;
           }
           
@@ -404,7 +386,7 @@ function SuccessPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run ONCE on mount - check URL params directly inside
+  }, [authLoading, hasToken]); // Primitives only: object identity of `session` must never cancel an in-flight flow. hasRunRef guards repeats; URL params read directly inside
 
   // Handle regular purchase flow
   useEffect(() => {
@@ -506,7 +488,7 @@ function SuccessPage() {
     return () => {
       cancelled = true;
     };
-  }, [kindParam, router, sessionId, supabase]);
+  }, [kindParam, router, sessionId]);
 
   const showFulfillment = Boolean(fulfillment && fulfillmentMessage);
 

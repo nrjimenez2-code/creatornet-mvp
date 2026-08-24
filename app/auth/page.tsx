@@ -3,23 +3,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
 
 const supabase = createClient();
 
 export default function AuthPage() {
   const router = useRouter();
+  const { session, loading } = useUser();
 
   // -------- Session redirect on load --------
   const [checking, setChecking] = useState(true);
   useEffect(() => {
+    if (loading) return;
     let mounted = true;
     (async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!mounted) return;
       if (!session) {
         setChecking(false);
         return;
@@ -47,7 +45,7 @@ export default function AuthPage() {
     return () => {
       mounted = false;
     };
-  }, [router]);
+  }, [loading, session, router]);
 
   // -------- UI state --------
   const [input, setInput] = useState("");

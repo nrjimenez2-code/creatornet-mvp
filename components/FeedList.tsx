@@ -59,7 +59,7 @@ const PAGE_SIZE = 20;
 
 export default function FeedList({ activeTab, highlightPostId }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
-  const { userId: viewerId } = useUser(); // only for likes + follow state; feed fetch gets its own auth inside effect
+  const { userId: viewerId, loading: authLoading } = useUser();
 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,11 +110,16 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     setLoading(true);
     setFeedError(null);
 
+    // Wait for the auth context to settle; the effect re-runs when it does.
+    if (authLoading) return;
+
     (async () => {
       try {
         console.log("[Feed] effect ran, activeTab:", activeTab);
-        const { data: authData } = await supabase.auth.getSession();
-        const feedViewerId = authData?.session?.user?.id ?? null;
+        // Read the ref (synced above) instead of depending on viewerId directly,
+        // so a mid-session sign-in/out doesn't refetch until the next tab change —
+        // same as when this effect resolved auth itself.
+        const feedViewerId = viewerIdRef.current;
 
         const discoverParams = { p_user_id: null, p_limit: 20 };
         const followingParams = { p_user_id: feedViewerId, p_limit: 20 };
@@ -536,7 +541,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase]);
+  }, [activeTab, supabase, authLoading]);
 
   // Track video_impression when a new post enters view
   useEffect(() => {

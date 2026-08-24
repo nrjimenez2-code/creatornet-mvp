@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import { extractHashtags } from "@/lib/hashtags";
 
 /* ------------------------------------------------------------------ */
@@ -236,7 +237,7 @@ async function uploadPremiumToSupabase(
 export default function PostComposer({ onPosted }: Props) {
   const supabase = createClient();
 
-  const [userId, setUserId] = useState<string | null>(null);
+  const { userId } = useUser();
 
   // Post fields
   const [title, setTitle] = useState("");
@@ -274,15 +275,13 @@ export default function PostComposer({ onPosted }: Props) {
   // Derived: hashtags from caption (kept up to date as you type)
   const hashtags = useMemo(() => extractHashtags(caption), [caption]);
 
-  // Load auth + interests
+  // Load interests (identity comes from the useUser context)
   useEffect(() => {
     (async () => {
-      const [{ data: auth }, { data: prof, error }] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from("profiles").select("interests").limit(1),
-      ]);
-
-      setUserId(auth.user?.id ?? null);
+      const { data: prof, error } = await supabase
+        .from("profiles")
+        .select("interests")
+        .limit(1);
 
       const interests =
         !error && Array.isArray(prof?.[0]?.interests)
