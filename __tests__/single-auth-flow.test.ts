@@ -56,6 +56,7 @@ const AUTH_CALL = /auth\s*\.\s*(getUser|getSession)\s*\(/;
 const SERVER_PAGE_EXCEPTIONS = [
   "app/page.tsx",
   "app/access/[purchaseId]/page.tsx",
+  "app/admin/layout.tsx",
   "app/creators/[creatorId]/page.tsx",
   "app/dashboard/analytics/page.tsx",
   "app/profile/page.tsx",
