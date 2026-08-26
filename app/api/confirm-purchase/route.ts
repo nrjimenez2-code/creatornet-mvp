@@ -1,19 +1,25 @@
 // app/api/confirm-purchase/route.ts
+import { publicMessage } from "@/lib/apiError";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 // Use bundled version
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 const supabase = createAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.Session) {
+async function upsertPaidBySession(
+  sessionId: string,
+  session: Stripe.Checkout.Session,
+  callerId: string
+) {
   const payment_intent_id =
     typeof session.payment_intent === "string"
       ? session.payment_intent
@@ -26,16 +32,7 @@ async function upsertPaidBySession(sessionId: string, session: Stripe.Checkout.S
   const post_id = meta.post_id ?? null;
   const creator_id = meta.creator_id ?? null;
 
-  let buyer_id = meta.buyer_id ?? null;
-  if (!buyer_id) {
-    try {
-      const auth = createServerClient();
-      const { data: { user } } = await auth.auth.getUser();
-      if (user?.id) buyer_id = user.id;
-    } catch {
-      // ignore
-    }
-  }
+  const buyer_id = callerId;
 
   // find existing purchase by session or PI
   let purchaseId: string | null = null;
@@ -101,7 +98,27 @@ export async function POST(req: Request) {
     const { session_id } = await req.json();
     if (!session_id) return NextResponse.json({ error: "Missing session_id" }, { status: 400 });
 
-    const session = await stripe.checkout.sessions.retrieve(session_id);
+    // The success page calls this right after Stripe redirects back, in the
+    // buyer's own browser, so their session cookie is present. A caller who
+    // only knows a session id (they appear in URLs) must not be able to get
+    // someone else's purchase written to themselves, or read its details.
+    const auth = createServerClient();
+    const { data: { user } } = await auth.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Please sign in to confirm your purchase." }, { status: 401 });
+    }
+
+    const session = await getStripe().checkout.sessions.retrieve(session_id);
+    const sessionBuyer =
+      (session.metadata?.buyer_user_id as string) ||
+      (session.metadata?.buyer_id as string) ||
+      null;
+    // Fail closed. Both live session-creation paths write the buyer into the
+    // metadata; a session without one is not something this route should
+    // attach to whoever happens to be signed in.
+    if (!sessionBuyer || sessionBuyer !== user.id) {
+      return NextResponse.json({ error: "This purchase belongs to another account." }, { status: 403 });
+    }
     console.log("[confirm-purchase] ✅ Session retrieved:", {
       session_id,
       mode: session.mode,
@@ -159,7 +176,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const meta = await upsertPaidBySession(session_id, session);
+    const meta = await upsertPaidBySession(session_id, session, user.id);
     let product: Record<string, any> | null = null;
     if (meta.product_id) {
       const { data: prodRow } = await supabase
@@ -181,6 +198,6 @@ export async function POST(req: Request) {
     // return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
     return NextResponse.json({ ok: true, session_id, ...meta, product }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json({ error: e?.message || "Failed to confirm purchase" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("confirm-purchase", e, "Failed to confirm purchase") }, { status: 500 });
   }
 }

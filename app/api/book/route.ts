@@ -1,6 +1,7 @@
 // app/api/book/route.ts
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { isSafeBookingTarget } from "@/lib/bookingUrl";
 
 /**
  * Server-only Supabase credentials.
@@ -9,15 +10,9 @@ import { createClient } from "@supabase/supabase-js";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-function isHttpUrl(s: unknown): s is string {
-  if (typeof s !== "string") return false;
-  try {
-    const u = new URL(s);
-    return u.protocol === "http:" || u.protocol === "https:";
-  } catch {
-    return false;
-  }
-}
+// Only https, no embedded credentials, or a site-relative path.
+// See lib/bookingUrl.ts for the reasoning.
+const isHttpUrl = isSafeBookingTarget;
 
 export async function GET(req: Request) {
   try {

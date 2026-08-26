@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -45,7 +46,7 @@ export async function POST(req: Request) {
 
     if (error) {
       return NextResponse.json(
-        { error: error.message },
+        { error: publicMessage("post-creators", error, "Could not load creators.") },
         { status: 500 }
       );
     }
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ creators });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message ?? "Unknown error" },
+      { error: publicMessage("post-creators", err, "Unknown error") },
       { status: 500 }
     );
   }

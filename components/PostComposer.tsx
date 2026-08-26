@@ -3,6 +3,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import { extractHashtags } from "@/lib/hashtags";
 
 /* ------------------------------------------------------------------ */
@@ -100,7 +101,12 @@ function normalizeBookingUrl(u: string): string | null {
 /* R2 upload — public files (videos + thumbnails)                    */
 /* ------------------------------------------------------------------ */
 
-const UPLOAD_TIMEOUT_MS = 120_000;
+type UploadProgressCb = (loaded: number, total: number) => void;
+
+// Abort an upload only after this long with ZERO progress — not a flat wall-clock
+// cap, since a large file on a slow connection legitimately takes minutes.
+const UPLOAD_STALL_TIMEOUT_MS = 30_000;
+const UPLOAD_MAX_ATTEMPTS = 3;
 
 async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
   const objectUrl = URL.createObjectURL(videoFile);
@@ -154,45 +160,111 @@ async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
   }
 }
 
+/**
+ * PUT a file to a presigned URL via XHR so we can (a) report real upload
+ * progress, (b) check the HTTP status and fail on a non-2xx response — plain
+ * fetch treats a 403/5xx as success, which silently saved dead URLs — and
+ * (c) abort on a genuine stall rather than a flat wall-clock cap.
+ */
+function putFileWithProgress(
+  uploadUrl: string,
+  file: File,
+  onProgress?: UploadProgressCb
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+
+    const settle = (err?: Error) => {
+      if (settled) return;
+      settled = true;
+      if (stallTimer) clearTimeout(stallTimer);
+      if (err) reject(err);
+      else resolve();
+    };
+
+    const armStall = () => {
+      if (stallTimer) clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        if (settled) return;
+        settled = true; // claim the result before abort() fires onabort
+        try {
+          xhr.abort();
+        } catch {
+          /* ignore */
+        }
+        reject(
+          new Error("Upload stalled — no progress. Check your connection and try again.")
+        );
+      }, UPLOAD_STALL_TIMEOUT_MS);
+    };
+
+    xhr.open("PUT", uploadUrl, true);
+    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+
+    xhr.upload.onprogress = (e) => {
+      armStall(); // real progress → restart the stall clock
+      if (onProgress && e.lengthComputable) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = () =>
+      xhr.status >= 200 && xhr.status < 300
+        ? settle()
+        : settle(new Error(`Storage rejected the upload (HTTP ${xhr.status}).`));
+    xhr.onerror = () => settle(new Error("Network error during upload."));
+    xhr.onabort = () => settle(new Error("Upload aborted."));
+
+    armStall();
+    xhr.send(file);
+  });
+}
+
 async function uploadToR2(
   file: File,
-  folder: "videos" | "thumbnails"
+  folder: "videos" | "thumbnails",
+  onProgress?: UploadProgressCb
 ): Promise<string> {
-  const res = await fetch("/api/upload/presign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify({
-      filename: file.name,
-      contentType: file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4"),
-      folder,
-    }),
-  });
+  let lastErr: unknown = null;
 
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string })?.error ?? "Failed to get upload URL");
+  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
+    // Fresh presign per attempt — presigned URLs are short-lived.
+    const res = await fetch("/api/upload/presign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4"),
+        folder,
+      }),
+    });
+
+    if (!res.ok) {
+      // Auth/validation failures won't fix themselves on retry — surface now.
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { error?: string })?.error ?? "Failed to get upload URL");
+    }
+
+    const { uploadUrl, publicUrl } = (await res.json()) as {
+      uploadUrl: string;
+      publicUrl: string;
+    };
+
+    try {
+      await putFileWithProgress(uploadUrl, file, onProgress);
+      return publicUrl;
+    } catch (e) {
+      lastErr = e;
+      if (attempt < UPLOAD_MAX_ATTEMPTS) {
+        // Linear backoff, then re-presign and retry.
+        await new Promise((r) => setTimeout(r, attempt * 1000));
+      }
+    }
   }
 
-  const { uploadUrl, publicUrl } = (await res.json()) as {
-    uploadUrl: string;
-    publicUrl: string;
-  };
-
-  const upload = fetch(uploadUrl, {
-    method: "PUT",
-    headers: { "Content-Type": file.type || "application/octet-stream" },
-    body: file,
-  });
-
-  await Promise.race([
-    upload,
-    new Promise<never>((_, rej) =>
-      setTimeout(() => rej(new Error("Upload timed out")), UPLOAD_TIMEOUT_MS)
-    ),
-  ]);
-
-  return publicUrl;
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error("Upload failed after multiple attempts.");
 }
 
 /* ------------------------------------------------------------------ */
@@ -236,7 +308,7 @@ async function uploadPremiumToSupabase(
 export default function PostComposer({ onPosted }: Props) {
   const supabase = createClient();
 
-  const [userId, setUserId] = useState<string | null>(null);
+  const { userId } = useUser();
 
   // Post fields
   const [title, setTitle] = useState("");
@@ -267,6 +339,8 @@ export default function PostComposer({ onPosted }: Props) {
   // UI state
   const [myTags, setMyTags] = useState<Tag[]>([]);
   const [posting, setPosting] = useState(false);
+  const [uploadPct, setUploadPct] = useState<number | null>(null);
+  const [uploadStage, setUploadStage] = useState<string>("");
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
@@ -274,15 +348,13 @@ export default function PostComposer({ onPosted }: Props) {
   // Derived: hashtags from caption (kept up to date as you type)
   const hashtags = useMemo(() => extractHashtags(caption), [caption]);
 
-  // Load auth + interests
+  // Load interests (identity comes from the useUser context)
   useEffect(() => {
     (async () => {
-      const [{ data: auth }, { data: prof, error }] = await Promise.all([
-        supabase.auth.getUser(),
-        supabase.from("profiles").select("interests").limit(1),
-      ]);
-
-      setUserId(auth.user?.id ?? null);
+      const { data: prof, error } = await supabase
+        .from("profiles")
+        .select("interests")
+        .limit(1);
 
       const interests =
         !error && Array.isArray(prof?.[0]?.interests)
@@ -402,19 +474,29 @@ export default function PostComposer({ onPosted }: Props) {
 
     try {
       // 1) promo video → R2 (zero egress)
-      const video_url = await uploadToR2(videoFile, "videos");
+      setUploadStage("Uploading video");
+      setUploadPct(0);
+      const video_url = await uploadToR2(videoFile, "videos", (loaded, total) =>
+        setUploadPct(Math.round((loaded / total) * 100))
+      );
 
       // 2) optional thumbnail → R2 (auto-generate one from video when missing)
       let poster_url: string | null = null;
       const thumbnailSource =
         thumbFile ?? (videoFile ? await generateVideoThumbnail(videoFile) : null);
       if (thumbnailSource) {
-        poster_url = await uploadToR2(thumbnailSource, "thumbnails");
+        setUploadStage("Uploading thumbnail");
+        setUploadPct(0);
+        poster_url = await uploadToR2(thumbnailSource, "thumbnails", (loaded, total) =>
+          setUploadPct(Math.round((loaded / total) * 100))
+        );
       }
 
       // 3) optional premium file → Supabase (stays private)
       let premium_path: string | null = null;
       if (premiumFile) {
+        setUploadStage("Uploading premium file");
+        setUploadPct(null); // Supabase path has no granular progress
         premium_path = await uploadPremiumToSupabase(supabase, premiumFile, userId);
       }
 
@@ -435,6 +517,8 @@ export default function PostComposer({ onPosted }: Props) {
           : null;
 
       // 6) create post via API (server verifies product_id and inserts with admin client to satisfy posts_product_fk)
+      setUploadStage("Publishing");
+      setUploadPct(null);
       const postRes = await fetch("/api/posts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -481,9 +565,15 @@ export default function PostComposer({ onPosted }: Props) {
       onPosted?.();
     } catch (err: unknown) {
       console.error("Create post failed:", err);
-      alert((err as { message?: string })?.message ?? "Failed to post. Try again.");
+      const base =
+        (err as { message?: string })?.message ?? "Failed to post. Try again.";
+      // Name the stage that failed; the picked files are intentionally NOT cleared
+      // here (the reset only runs on success), so the user can just hit Post again.
+      alert(uploadStage ? `${uploadStage} failed: ${base}` : base);
     } finally {
       setPosting(false);
+      setUploadPct(null);
+      setUploadStage("");
     }
   }
 
@@ -737,6 +827,22 @@ export default function PostComposer({ onPosted }: Props) {
         </label>
       </div>
 
+      {/* Upload progress */}
+      {posting && uploadPct !== null && (
+        <div className="mt-4 space-y-1">
+          <div className="flex items-center justify-between text-xs text-white/60">
+            <span>{uploadStage || "Uploading"}…</span>
+            <span>{uploadPct}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full rounded-full bg-[#4A35C7] transition-[width] duration-150"
+              style={{ width: `${uploadPct}%` }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="mt-4 flex items-center justify-between text-sm">
         <span className="text-xs text-white/50">{chars} / 300</span>
@@ -745,7 +851,11 @@ export default function PostComposer({ onPosted }: Props) {
           disabled={!canPost || posting}
           className="rounded-full bg-[#4A35C7] px-5 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50"
         >
-          {posting ? "Posting…" : "Post"}
+          {posting
+            ? uploadPct !== null
+              ? `${uploadStage || "Uploading"}… ${uploadPct}%`
+              : `${uploadStage || "Posting"}…`
+            : "Post"}
         </button>
       </div>
     </div>

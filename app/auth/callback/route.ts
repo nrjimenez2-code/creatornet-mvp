@@ -1,5 +1,6 @@
 // app/auth/callback/route.ts
 import { NextResponse } from "next/server";
+import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 
@@ -7,6 +8,9 @@ export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+  if (!isSameOriginRequest(req)) {
+    return NextResponse.json({ ok: false, reason: "bad_origin" }, { status: 403 });
+  }
     const { event, access_token, refresh_token } = await req.json();
 
     // Important in Next 16.x: await cookies()
@@ -47,16 +51,14 @@ export async function POST(req: Request) {
 
     if (error) {
       return NextResponse.json(
-        { ok: false, reason: "setSession_error", message: error.message },
+        { ok: false, reason: "setSession_error" },
         { status: 400 }
       );
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });
   } catch (e: any) {
-    return NextResponse.json(
-      { ok: false, reason: "exception", message: e?.message || String(e) },
-      { status: 400 }
-    );
+    console.error("[auth-callback]", e?.message || String(e));
+    return NextResponse.json({ ok: false, reason: "exception" }, { status: 400 });
   }
 }

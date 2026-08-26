@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { useRequireUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
@@ -28,10 +29,14 @@ export default function WatchPage() {
   const supabase = createClient();
   const router = useRouter();
 
+  // Signed-out users go to the dashboard where they can see the post in the feed
+  const { userId, loading: authLoading } = useRequireUser(
+    `/dashboard?postId=${postId}`
+  );
+
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const lastSaveRef = useRef<number>(0);
   const userIdForProgress = useRef<string | null>(null);
@@ -40,30 +45,24 @@ export default function WatchPage() {
     let cancelled = false;
 
     (async () => {
+      // Wait for the auth context to settle; useRequireUser handles the
+      // signed-out redirect.
+      if (authLoading || !userId) return;
+
       if (!postId) {
         setError("Invalid post.");
         setLoading(false);
         return;
       }
 
-      const { data: auth } = await supabase.auth.getUser();
-      const user = auth?.user;
-      if (user) {
-        setCurrentUserId(user.id);
-        userIdForProgress.current = user.id;
-      }
-      if (!user) {
-        // Redirect to dashboard where they can see the post in the feed
-        router.push(`/dashboard?postId=${postId}`);
-        return;
-      }
+      userIdForProgress.current = userId;
 
       if (!fromProfile) {
         // Check purchase entitlement first
         const { data: purchase, error: purErr } = await supabase
           .from("purchases")
           .select("id")
-          .eq("buyer_id", user.id)
+          .eq("buyer_id", userId)
           .eq("post_id", postId)
           .eq("status", "paid")
           .maybeSingle();
@@ -128,7 +127,7 @@ export default function WatchPage() {
     return () => {
       cancelled = true;
     };
-  }, [postId, supabase, router]);
+  }, [postId, supabase, router, userId, authLoading]);
 
   // Load resume point + save progress on watch
   useEffect(() => {
@@ -212,7 +211,7 @@ export default function WatchPage() {
   const displayCreator =
     post.creator?.full_name || post.creator?.username || "Creator";
   const creatorProfileHref = post.creator_id
-    ? currentUserId && post.creator_id === currentUserId
+    ? userId && post.creator_id === userId
       ? "/profile"
       : post.creator?.username
         ? `/profile/${encodeURIComponent(post.creator.username)}`

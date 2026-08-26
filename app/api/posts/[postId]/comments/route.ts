@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { bumpPostComments } from "@/lib/postCounters";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -31,7 +33,7 @@ export async function GET(
 
     if (commentsError) {
       console.error("[comments-api] Fetch error:", commentsError);
-      return NextResponse.json({ error: commentsError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("comments", commentsError, "Could not load comments.") }, { status: 500 });
     }
 
     // Fetch user profiles for all commenters
@@ -83,7 +85,7 @@ export async function GET(
     });
   } catch (err: any) {
     console.error("[comments-api] Unexpected error:", err);
-    return NextResponse.json({ error: err?.message || "Failed to fetch comments" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("comments", err, "Failed to fetch comments") }, { status: 500 });
   }
 }
 
@@ -134,7 +136,7 @@ export async function POST(
 
     if (insertError) {
       console.error("[comments-api] Insert error:", insertError);
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("comments", insertError, "Could not post the comment.") }, { status: 500 });
     }
 
     // Fetch user profile
@@ -144,22 +146,9 @@ export async function POST(
       .eq("id", user.id)
       .single();
 
-    // Increment comments_count in posts table
-    const { data: postData } = await admin
-      .from("posts")
-      .select("comments_count")
-      .eq("id", postId)
-      .single();
-
-    let newCount = 0;
-    if (postData) {
-      const currentCount = (postData.comments_count as number) ?? 0;
-      newCount = currentCount + 1;
-      await admin
-        .from("posts")
-        .update({ comments_count: newCount })
-        .eq("id", postId);
-    }
+    // Increment comments_count atomically (no read-then-write race).
+    const { count } = await bumpPostComments(admin, postId, 1);
+    const newCount = count ?? 0;
 
     // Format response
     const formattedComment = {
@@ -182,7 +171,7 @@ export async function POST(
     });
   } catch (err: any) {
     console.error("[comments-api] Unexpected error:", err);
-    return NextResponse.json({ error: err?.message || "Failed to create comment" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("comments", err, "Failed to create comment") }, { status: 500 });
   }
 }
 

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -43,7 +44,7 @@ export async function GET(req: NextRequest) {
 
     if (error) {
       console.error("[api/profiles] Error:", error);
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("profiles", error, "Could not load profiles.") }, { status: 500 });
     }
 
     return NextResponse.json({
@@ -57,7 +58,7 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     console.error("[api/profiles] Unexpected error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Internal server error" },
+      { error: publicMessage("profiles", err, "Internal server error") },
       { status: 500 }
     );
   }

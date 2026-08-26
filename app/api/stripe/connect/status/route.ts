@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -45,15 +45,20 @@ export async function GET(req: NextRequest) {
 
   if (!profile.stripe_onboarding_complete) {
     try {
-      const account = await stripe.accounts.retrieve(profile.stripe_account_id);
+      const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
       const isComplete = !!(account.charges_enabled && account.payouts_enabled);
 
-      if (isComplete) {
-        await db
-          .from("profiles")
-          .update({ stripe_onboarding_complete: true })
-          .eq("id", user.id);
-      }
+      // Write every flag together so the two "complete" columns and the
+      // two capability columns never disagree (see supabase/schema/007).
+      await db
+        .from("profiles")
+        .update({
+          stripe_onboarding_complete: isComplete,
+          onboarding_complete: isComplete,
+          charges_enabled: !!account.charges_enabled,
+          payouts_enabled: !!account.payouts_enabled,
+        })
+        .eq("id", user.id);
 
       return NextResponse.json({
         connected: true,

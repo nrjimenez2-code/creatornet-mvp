@@ -3,6 +3,7 @@
 import { useCallback, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 
 interface ProfileStarRatingProps {
   userId: string;
@@ -18,6 +19,7 @@ export default function ProfileStarRating({
   enableNavigation = true,
 }: ProfileStarRatingProps) {
   const supabase = createClient();
+  const { userId: viewerId } = useUser();
   const [currentRating, setCurrentRating] = useState(Number(rating) || 0);
   const [currentCount, setCurrentCount] = useState(Number(reviewCount) || 0);
   const [hoverValue, setHoverValue] = useState<number | null>(null);
@@ -44,8 +46,7 @@ export default function ProfileStarRating({
     if (!userId || loading) return;
     setLoading(true);
 
-    const { data: auth } = await supabase.auth.getUser();
-    const reviewerId = auth?.user?.id;
+    const reviewerId = viewerId;
     if (!reviewerId) {
       alert("Please sign in to leave a review.");
       setLoading(false);

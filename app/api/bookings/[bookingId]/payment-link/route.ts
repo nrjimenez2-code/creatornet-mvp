@@ -1,17 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
+import { eitherIdFilter } from "@/lib/ids";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { randomUUID } from "crypto";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+import { splitFee, PLATFORM_FEE_PERCENT } from "@/lib/money";
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-const PLATFORM_FEE_RATE = 0.12;
 
 export async function POST(
   req: NextRequest,
@@ -98,7 +103,7 @@ export async function POST(
     const { data: product, error: productError } = await admin
       .from("products")
       .select("id, product_id, title, amount_cents, currency")
-      .or(`product_id.eq.${post.product_id},id.eq.${post.product_id}`)
+      .or(eitherIdFilter(["product_id", "id"], post.product_id))
       .maybeSingle<{
         id: string;
         product_id: string | null;
@@ -145,7 +150,7 @@ export async function POST(
     const currency = product.currency || "usd";
     const paymentId = randomUUID();
     const nowIso = new Date().toISOString();
-    const platformFeeCents = Math.round(totalCents * PLATFORM_FEE_RATE);
+    const platformFeeCents = splitFee(totalCents).feeCents;
 
     let installmentMonths: number | null = null;
     let installmentAmountCents: number | null = null;
@@ -201,7 +206,7 @@ export async function POST(
     let session: Stripe.Checkout.Session;
 
     if (planType === "full") {
-      session = await stripe.checkout.sessions.create({
+      session = await getStripe().checkout.sessions.create({
         mode: "payment",
         payment_method_types: ["card"],
         line_items: [
@@ -226,7 +231,7 @@ export async function POST(
       });
     } else {
       // installment flow using subscription
-      session = await stripe.checkout.sessions.create({
+      session = await getStripe().checkout.sessions.create({
         mode: "subscription",
         payment_method_types: ["card"],
         line_items: [
@@ -246,7 +251,7 @@ export async function POST(
           },
         ],
         subscription_data: {
-          application_fee_percent: PLATFORM_FEE_RATE * 100,
+          application_fee_percent: PLATFORM_FEE_PERCENT,
           transfer_data: { destination: creatorStripeAccountId },
           metadata: metadataBase,
         },
@@ -278,7 +283,7 @@ export async function POST(
   } catch (error: any) {
     console.error("[payment-link] error:", error?.message || error);
     return NextResponse.json(
-      { error: error?.message || "Failed to generate payment link" },
+      { error: publicMessage("payment-link", error, "Failed to generate payment link") },
       { status: 500 }
     );
   }

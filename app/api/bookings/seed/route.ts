@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
@@ -46,14 +46,9 @@ export async function POST(req: NextRequest) {
             authMethod = "bearer_verified";
             console.error("[bookings-seed] ✅ Got user from verified bearer token:", userId);
           } else {
-            // Fallback: decode JWT directly
-            userId = decodeUserId(accessToken);
-            if (userId) {
-              authMethod = "bearer_decoded";
-              console.error("[bookings-seed] ✅ Got user from decoded bearer token:", userId);
-            } else {
-              console.error("[bookings-seed] ❌ Failed to get user from token:", verifyError?.message);
-            }
+            // No unverified fallback. A token Supabase will not vouch for
+            // (expired, revoked, forged) does not get to name a user.
+            console.error("[bookings-seed] ❌ Bearer token rejected:", verifyError?.message);
           }
         } catch (decodeErr: any) {
           console.error("[bookings-seed] ❌ Token decode error:", decodeErr?.message);
@@ -165,7 +160,7 @@ export async function POST(req: NextRequest) {
         error_code: (insertError as any)?.code,
         error_details: (insertError as any)?.details,
       });
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      return NextResponse.json({ error: publicMessage("bookings-seed", insertError, "Could not create the booking.") }, { status: 500 });
     }
 
     console.error("[bookings-seed] ✅✅✅✅✅ INSERTED - booking created successfully", {
@@ -193,11 +188,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, booking_id: data?.id ?? null });
   } catch (err: any) {
     console.error("[bookings-seed] not seeded not seeded seeded", err?.message || err);
-    return NextResponse.json({ error: err?.message || "Failed to seed booking" }, { status: 500 });
+    return NextResponse.json({ error: publicMessage("bookings-seed", err, "Failed to seed booking") }, { status: 500 });
   }
 }
 
-type CookieStore = Awaited<ReturnType<typeof cookies>>;
 
 function extractBearerToken(header: string | null): string | null {
   if (!header) return null;
@@ -205,63 +199,5 @@ function extractBearerToken(header: string | null): string | null {
   return match ? match[1].trim() : null;
 }
 
-function extractAccessToken(cookieStore: CookieStore): string | null {
-  try {
-    const projectRef = new URL(SUPABASE_URL).host.split(".")[0];
-    const cookieName = `sb-${projectRef}-auth-token`;
-    const cookie = cookieStore.get(cookieName);
-    if (!cookie?.value) return null;
 
-    let raw = cookie.value;
-    if (raw.startsWith("base64-")) {
-      raw = raw.slice("base64-".length);
-    }
 
-    let parsed: any = null;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      try {
-        const normalized = normalizeBase64(raw);
-        const decoded = Buffer.from(normalized, "base64").toString("utf8");
-        parsed = JSON.parse(decoded);
-      } catch {
-        parsed = null;
-      }
-    }
-
-    if (!parsed) return null;
-    if (Array.isArray(parsed)) {
-      const [access_token] = parsed;
-      return typeof access_token === "string" ? access_token : null;
-    }
-    if (typeof parsed === "object") {
-      return typeof parsed?.access_token === "string" ? parsed.access_token : null;
-    }
-    return null;
-  } catch (err) {
-    console.warn("[bookings-seed] extractAccessToken failed:", err);
-    return null;
-  }
-}
-
-function normalizeBase64(input: string): string {
-  const replaced = input.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = replaced.length % 4;
-  if (padding === 0) return replaced;
-  return replaced.padEnd(replaced.length + (4 - padding), "=");
-}
-
-function decodeUserId(token: string): string | null {
-  try {
-    const [, payload] = token.split(".");
-    if (!payload) return null;
-    const normalized = normalizeBase64(payload);
-    const json = Buffer.from(normalized, "base64").toString("utf8");
-    const parsed = JSON.parse(json);
-    return typeof parsed?.sub === "string" ? parsed.sub : null;
-  } catch (err) {
-    console.warn("[bookings-seed] decodeUserId failed:", err);
-    return null;
-  }
-}

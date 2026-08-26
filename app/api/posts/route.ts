@@ -1,4 +1,31 @@
 import { NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
+import { isOwnPremiumPath } from "@/lib/premiumPath";
+import { isSafeBookingTarget } from "@/lib/bookingUrl";
+import { headR2Object, deleteR2Object, r2KeyFromPublicUrl } from "@/lib/r2";
+import { isAllowedUpload, maxBytesFor, type UploadFolder } from "@/lib/uploadPolicy";
+
+/** Returns an error message if the object at `url` (if it is ours) is too big or the wrong type; null if fine. */
+async function enforceUploadSize(url: string | null, folder: UploadFolder): Promise<string | null> {
+  if (!url) return null;
+  const key = r2KeyFromPublicUrl(url);
+  if (!key) return null; // not in our bucket (legacy/external URL); nothing to check
+  const head = await headR2Object(key);
+  if (!head) return null; // cannot verify; do not block the creator on an R2 hiccup
+  const max = maxBytesFor(folder);
+  if (head.size > max) {
+    await deleteR2Object(key);
+    const mb = Math.round(max / (1024 * 1024));
+    return folder === "videos"
+      ? `Video is too large. The limit is ${mb} MB.`
+      : `Thumbnail is too large. The limit is ${mb} MB.`;
+  }
+  if (head.contentType && !isAllowedUpload(folder, head.contentType)) {
+    await deleteR2Object(key);
+    return folder === "videos" ? "Uploaded file is not a video." : "Uploaded file is not an image.";
+  }
+  return null;
+}
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
@@ -22,7 +49,14 @@ export async function POST(req: Request) {
     const content = (body?.content ?? "")?.trim() || null;
     const video_url = (body?.video_url ?? "")?.trim() || null;
     const poster_url = (body?.poster_url ?? "")?.trim() || null;
-    const premium_path = body?.premium_path ?? null;
+    const premiumRaw = body?.premium_path ?? null;
+    if (premiumRaw && !isOwnPremiumPath(premiumRaw, user.id)) {
+      return NextResponse.json(
+        { success: false, error: "Premium file path is not valid." },
+        { status: 400 }
+      );
+    }
+    const premium_path = premiumRaw ? String(premiumRaw).trim() : null;
     const interests = Array.isArray(body?.interests) ? body.interests : body?.interests != null ? [body.interests] : null;
     const product_id: string | null =
       body?.product_id != null && String(body.product_id).trim()
@@ -30,11 +64,31 @@ export async function POST(req: Request) {
         : null;
     const price_cents = typeof body?.price_cents === "number" ? body.price_cents : null;
     const allow_booking = Boolean(body?.allow_booking);
-    const booking_url = (body?.booking_url ?? "")?.trim() || null;
+    const bookingRaw = (body?.booking_url ?? "")?.trim() || null;
+    if (bookingRaw && !isSafeBookingTarget(bookingRaw)) {
+      return NextResponse.json(
+        { error: "Booking link must be an https:// URL." },
+        { status: 400 }
+      );
+    }
+    const booking_url = bookingRaw;
     const hashtags = Array.isArray(body?.hashtags) ? body.hashtags : null;
 
     if (!video_url) {
       return NextResponse.json({ success: false, error: "video_url is required" }, { status: 400 });
+    }
+
+    // Size cap for files that went to our R2 bucket. The presigned PUT cannot
+    // enforce a length (the browser never tells us the size up front), so the
+    // check runs here, after upload and before a post points at the file.
+    // Anything over the cap is deleted and the post is refused.
+    const [videoProblem, posterProblem] = await Promise.all([
+      enforceUploadSize(video_url, "videos"),
+      enforceUploadSize(poster_url, "thumbnails"),
+    ]);
+    const sizeProblem = videoProblem ?? posterProblem;
+    if (sizeProblem) {
+      return NextResponse.json({ success: false, error: sizeProblem }, { status: 413 });
     }
 
     // products table uses "id" as PK (product_id is null); FK may reference products.id — resolve to products.id for insert
@@ -117,7 +171,7 @@ export async function POST(req: Request) {
     }
 
     if (insErr) {
-      return NextResponse.json({ success: false, error: insErr.message }, { status: 400 });
+      return NextResponse.json({ success: false, error: publicMessage("posts", insErr, "Could not create the post.") }, { status: 400 });
     }
 
     const postId = inserted?.id ?? null;
@@ -137,6 +191,6 @@ export async function POST(req: Request) {
       }),
     });
   } catch (e: any) {
-    return NextResponse.json({ success: false, error: e?.message ?? "Server error" }, { status: 500 });
+    return NextResponse.json({ success: false, error: publicMessage("posts", e, "Server error") }, { status: 500 });
   }
 }

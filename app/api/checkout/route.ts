@@ -1,20 +1,24 @@
 // app/api/checkout/route.ts
+import { publicMessage } from "@/lib/apiError";
+import { eitherIdFilter, isSafeId } from "@/lib/ids";
+import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
+import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import "server-only";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { splitFee, PLATFORM_FEE_PERCENT_STR } from "@/lib/money";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-const PLATFORM_FEE_RATE = 0.12;
-const PLATFORM_FEE_PERCENT_STR = String(Math.round(PLATFORM_FEE_RATE * 100));
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: undefined });
 
 function supabaseAdmin() {
   return createAdminClient(
@@ -63,38 +67,21 @@ export async function POST(req: NextRequest) {
   const supabase = supabaseAdmin();
   const authUser = await getAuthenticatedUser(req);
 
-  let site = "http://localhost:3000";
-  try {
-    const requestUrl = new URL(req.url);
-    let hostname = requestUrl.hostname;
-    const port = requestUrl.port || (requestUrl.protocol === "https:" ? "443" : "80");
-    if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
-      hostname = "localhost";
-    }
-    if (hostname === "localhost" || hostname === "127.0.0.1") {
-      site = `http://localhost:3000`;
-    } else {
-      site = `${requestUrl.protocol}//${hostname}${port && port !== "80" && port !== "443" ? `:${port}` : ""}`;
-    }
-  } catch {
-    const origin = req.headers.get("origin");
-    if (origin) {
-      try {
-        const url = new URL(origin);
-        let hostname = url.hostname;
-        if (hostname === "0.0.0.0" || hostname === "::" || hostname === "::1") {
-          hostname = "localhost";
-        }
-        if (hostname === "localhost" || hostname === "127.0.0.1") {
-          site = `http://localhost:3000`;
-        } else {
-          site = `${url.protocol}//${url.host}`;
-        }
-      } catch {
-        site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-      }
-    } else {
-      site = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+  // Stripe success/cancel URLs. Configured origin first; the request's own
+  // host is only a fallback for local development, never the Host header a
+  // caller can set on an arbitrary request (that let a forged checkout land
+  // the buyer, and the session id, on a domain of the attacker's choosing).
+  const configuredSite = (process.env.NEXT_PUBLIC_SITE_URL || process.env.NEXT_PUBLIC_BASE_URL || "")
+    .trim()
+    .replace(/\/+$/, "");
+  let site = configuredSite;
+  if (!site) {
+    try {
+      const u = new URL(req.url);
+      const local = ["localhost", "127.0.0.1", "0.0.0.0", "::", "::1"].includes(u.hostname);
+      site = local ? "http://localhost:3000" : `${u.protocol}//${u.host}`;
+    } catch {
+      site = "http://localhost:3000";
     }
   }
 
@@ -130,15 +117,16 @@ export async function POST(req: NextRequest) {
     amount_cents: number,
     currency: string,
     order_id: string | null,
-    creatorId: string | null
+    creatorId: string | null,
+    postId: string | null
   ) {
     const buyerId = resolvedBuyerId;
     const insert: Record<string, unknown> = {
       session_id,
       status: "pending",
       product_id: (body as ProductPayload | PlanPayload).product_id ?? null,
-      post_id: body.post_id ?? null,
-      creator_id: creatorId ?? body.creator_id ?? null,
+      post_id: postId,
+      creator_id: creatorId,
       buyer_id: buyerId,
       amount_cents,
       currency,
@@ -156,11 +144,12 @@ export async function POST(req: NextRequest) {
   try {
     if (body.type === "product") {
       if (!body.product_id) return new Response("Missing product_id", { status: 400 });
+      if (!isSafeId(body.product_id)) return new Response("Invalid product_id", { status: 400 });
 
       const { data: prod, error } = await supabase
         .from("products")
         .select("id, product_id, title, type, amount_cents, price_cents, currency, creator_id")
-        .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
+        .or(eitherIdFilter(["product_id", "id"], body.product_id))
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
       if (!prod) throw new Error("Product not found");
@@ -171,8 +160,11 @@ export async function POST(req: NextRequest) {
         throw new Error("Invalid amount (Stripe min 50¢)");
       }
 
-      const creatorId =
-        body.creator_id || (prod as { creator_id?: string }).creator_id || null;
+      // The creator who gets paid is the product's owner. The browser still
+      // sends creator_id (components/VideoCard.tsx) and it used to win over
+      // the product row, which let anyone with a Connect account point the
+      // destination transfer at themselves. It is ignored now.
+      const creatorId = (prod as { creator_id?: string }).creator_id || null;
       if (!creatorId || !(await isCreatorSellReady(creatorId))) {
         return Response.json(
           {
@@ -182,8 +174,7 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
-      const applicationFeeCents = Math.round(amount_cents * PLATFORM_FEE_RATE);
-      const creatorAmountCents = amount_cents - applicationFeeCents;
+      const { feeCents: applicationFeeCents, creatorCents: creatorAmountCents } = splitFee(amount_cents);
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -201,13 +192,25 @@ export async function POST(req: NextRequest) {
       const productType = String((prod as { type?: string }).type ?? "product");
       const category = (body.category ?? "").trim();
 
+      // The post a purchase unlocks must be one that actually sells this
+      // product, by this creator. post_id used to be copied from the body,
+      // so buying the cheapest product on the site with post_id set to any
+      // premium post unlocked that post.
+      const postId = await resolvePostForProduct(supabase, body.post_id, String(prod.id), creatorId);
+      if (postId === INVALID_POST) {
+        return Response.json(
+          { error: "This post does not sell that product." },
+          { status: 400 }
+        );
+      }
+
       const { data: orderRow, error: orderErr } = await supabase
         .from("orders")
         .insert({
           buyer_id: resolvedBuyerId,
           buyer_user_id: resolvedBuyerId,
           creator_id: creatorId,
-          post_id: body.post_id ?? null,
+          post_id: postId,
           amount_cents,
           gross_amount: amount_cents,
           platform_fee: applicationFeeCents,
@@ -226,7 +229,7 @@ export async function POST(req: NextRequest) {
       const meta = stripeMetadataStrings({
         order_id: orderId,
         creator_id: creatorId,
-        post_id: body.post_id || "",
+        post_id: postId || "",
         buyer_id: resolvedBuyerId || "",
         buyer_user_id: resolvedBuyerId || "",
         product_id: body.product_id,
@@ -237,7 +240,7 @@ export async function POST(req: NextRequest) {
 
       let session: Stripe.Checkout.Session;
       try {
-        session = await stripe.checkout.sessions.create({
+        session = await getStripe().checkout.sessions.create({
           mode: "payment",
           payment_method_types: ["card"],
           line_items: [
@@ -277,10 +280,10 @@ export async function POST(req: NextRequest) {
         })
         .eq("id", orderId);
 
-      await writePending(session.id, amount_cents, currency, orderId, creatorId);
+      await writePending(session.id, amount_cents, currency, orderId, creatorId, postId);
 
       await trackServerEvent("checkout_started", resolvedBuyerId, {
-        post_id: body.post_id,
+        post_id: postId,
         product_id: body.product_id,
         creator_id: creatorId,
         price: amount_cents / 100,
@@ -288,11 +291,11 @@ export async function POST(req: NextRequest) {
         order_id: orderId,
       });
 
-      if (resolvedBuyerId && body.post_id) {
+      if (resolvedBuyerId && postId) {
         const { data: post } = await supabase
           .from("posts")
           .select("interests")
-          .eq("id", body.post_id)
+          .eq("id", postId)
           .maybeSingle();
         const interestCat = Array.isArray(post?.interests)
           ? ((post.interests[0] as string) ?? null)
@@ -300,7 +303,7 @@ export async function POST(req: NextRequest) {
         updateInterestScore(resolvedBuyerId, interestCat, 15);
       }
 
-      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
+      updatePostMetrics(postId, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
 
       return Response.json({
         url: session.url,
@@ -310,205 +313,68 @@ export async function POST(req: NextRequest) {
     }
 
     if (body.type === "installments") {
-      const months = Number(body.plan_months);
-      const per_cents = Number(body.plan_price_cents);
-      if (!Number.isFinite(months) || months < 1) throw new Error("plan_months invalid");
-      if (!Number.isFinite(per_cents) || per_cents < 50) throw new Error("plan_price_cents invalid (>=50)");
-
-      const { data: prod, error } = await supabase
-        .from("products")
-        .select("id, product_id, title, type, currency, creator_id, price_cents")
-        .or(`product_id.eq.${body.product_id},id.eq.${body.product_id}`)
-        .maybeSingle();
-      if (error) throw new Error(`Load product failed: ${error.message}`);
-
-      const currency = (prod?.currency as string) ?? "usd";
-      const instCreatorId =
-        body.creator_id || (prod as { creator_id?: string } | null)?.creator_id || null;
-      if (!instCreatorId || !(await isCreatorSellReady(instCreatorId))) {
-        return Response.json(
-          {
-            error: "This creator is not accepting payments yet.",
-            code: "STRIPE_CONNECT_REQUIRED",
-          },
-          { status: 403 }
-        );
-      }
-      const { data: instProfile } = await supabase
-        .from("profiles")
-        .select("stripe_account_id")
-        .eq("id", instCreatorId)
-        .maybeSingle();
-      const instDest = instProfile?.stripe_account_id as string | undefined;
-      if (!instDest) {
-        return Response.json(
-          { error: "This creator is not accepting payments yet.", code: "STRIPE_CONNECT_REQUIRED" },
-          { status: 403 }
-        );
-      }
-      // The buyer must not be able to name their own price. plan_price_cents
-      // arrives in the request body and was previously validated only as ">= 50",
-      // then used directly as the Stripe unit_amount — so any product could be
-      // bought for 50 cents a month by calling this endpoint directly.
-      //
-      // The invariant enforced here is deliberately the weakest one that is
-      // certainly correct: the TOTAL collected across the plan must be at least
-      // the product's stored price. That holds whether price_cents is meant as
-      // the total (per_cents * months == price) or as a per-period amount
-      // (per_cents == price, so the product is comfortably over). It blocks
-      // underpayment without guessing at the pricing model.
-      const productPriceCents = Number(
-        (prod as { price_cents?: number } | null)?.price_cents ?? 0
+      // Installment checkout charged a browser-supplied plan_price_cents once
+      // (mode: "payment"), so any product could be bought for 50 cents. No
+      // page in the app offers this flow (the buy button only sends
+      // type: "product"), so it is closed rather than patched. Real
+      // installments exist on the booking side (payment-link, Stripe
+      // subscriptions with the price derived from the product).
+      return Response.json(
+        { error: "Installment checkout is not available." },
+        { status: 410 }
       );
-      if (productPriceCents > 0 && per_cents * months < productPriceCents) {
-        console.error("[checkout] installment underpayment rejected", {
-          product_id: body.product_id,
-          months,
-          per_cents,
-          product_price_cents: productPriceCents,
-        });
-        return Response.json(
-          { error: "Installment plan does not cover the product price." },
-          { status: 400 }
-        );
-      }
-
-      const instFeeCents = Math.round(per_cents * PLATFORM_FEE_RATE);
-      const instCreatorAmount = per_cents - instFeeCents;
-      const productType = String((prod as { type?: string } | null)?.type ?? "installment");
-      const category = (body.category ?? "").trim();
-
-      const { data: orderRow, error: orderErr } = await supabase
-        .from("orders")
-        .insert({
-          buyer_id: resolvedBuyerId,
-          buyer_user_id: resolvedBuyerId,
-          creator_id: instCreatorId,
-          post_id: body.post_id ?? null,
-          amount_cents: per_cents,
-          gross_amount: per_cents,
-          platform_fee: instFeeCents,
-          creator_amount: instCreatorAmount,
-          status: "created",
-          currency,
-        })
-        .select("id")
-        .single();
-
-      if (orderErr || !orderRow?.id) {
-        throw new Error(`Failed to create order: ${orderErr?.message ?? "unknown"}`);
-      }
-      const orderId = orderRow.id as string;
-
-      const meta = stripeMetadataStrings({
-        order_id: orderId,
-        creator_id: instCreatorId,
-        post_id: body.post_id || "",
-        buyer_id: resolvedBuyerId || "",
-        buyer_user_id: resolvedBuyerId || "",
-        product_id: body.product_id,
-        product_type: productType,
-        category,
-        platform_fee_percent: PLATFORM_FEE_PERCENT_STR,
-        plan_months: String(months),
-        plan_price_cents: String(per_cents),
-      });
-
-      let session: Stripe.Checkout.Session;
-      try {
-        session = await stripe.checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: [
-            {
-              price_data: {
-                currency,
-                product_data: { name: body.titleForCheckout || prod?.title || "Installment" },
-                unit_amount: per_cents,
-              },
-              quantity: 1,
-            },
-          ],
-          payment_intent_data: {
-            application_fee_amount: instFeeCents,
-            transfer_data: { destination: instDest },
-            metadata: meta,
-          },
-          metadata: meta,
-          success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${site}/dashboard`,
-        });
-      } catch (e) {
-        await supabase.from("orders").update({ status: "canceled" }).eq("id", orderId);
-        throw e;
-      }
-
-      const piId =
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
-
-      await supabase
-        .from("orders")
-        .update({
-          stripe_checkout_session_id: session.id,
-          stripe_payment_intent_id: piId,
-        })
-        .eq("id", orderId);
-
-      await writePending(session.id, per_cents, currency, orderId, instCreatorId);
-
-      await trackServerEvent("checkout_started", resolvedBuyerId, {
-        post_id: body.post_id,
-        product_id: body.product_id,
-        creator_id: instCreatorId,
-        price: per_cents / 100,
-        product_type: "installment",
-        order_id: orderId,
-      });
-
-      updatePostMetrics(body.post_id ?? null, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
-
-      return Response.json({ url: session.url, session_id: session.id, order_id: orderId });
     }
 
     if (body.type === "booking") {
-      if (!body.bookingRedirectUrl) throw new Error("bookingRedirectUrl required");
-      if (!body.post_id) throw new Error("post_id is required for booking");
-
-      let creator_id = body.creator_id;
-      if (!creator_id || !body.post_id) {
-        const { data: post, error: postErr } = await supabase
-          .from("posts")
-          .select("id, creator_id")
-          .eq("id", body.post_id)
-          .single();
-        if (postErr || !post) {
-          throw new Error(`Post not found: ${postErr?.message || "Invalid post_id"}`);
-        }
-        if (!creator_id) {
-          creator_id = post.creator_id;
-        }
+      // Booking used to be the one checkout type with no login and with the
+      // redirect target and creator taken from the request body. Anyone could
+      // mint Stripe sessions, send buyers to any https URL after "booking",
+      // and have the webhook attach the booking to whichever account it
+      // guessed from the card email. Now: signed-in buyer, post from the
+      // body, everything else from the post row.
+      if (!resolvedBuyerId) {
+        return Response.json({ error: "Sign in required to book." }, { status: 401 });
+      }
+      if (!body.post_id || !isSafeId(body.post_id)) {
+        return Response.json({ error: "post_id is required for booking" }, { status: 400 });
       }
 
-      const rawUrl = body.bookingRedirectUrl.trim();
-      let bookingUrl: string;
-      try {
-        const parsed = new URL(/^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`);
-        if (parsed.protocol !== "https:") throw new Error("bookingRedirectUrl must be https");
-        bookingUrl = parsed.toString();
-      } catch {
-        throw new Error("bookingRedirectUrl must be a valid https URL");
+      const { data: post, error: postErr } = await supabase
+        .from("posts")
+        .select("id, creator_id, booking_url, allow_booking")
+        .eq("id", body.post_id)
+        .maybeSingle();
+      if (postErr || !post) {
+        return Response.json({ error: "Post not found" }, { status: 404 });
+      }
+      const creator_id = String(post.creator_id ?? "");
+      if (!creator_id) {
+        return Response.json({ error: "Post has no creator" }, { status: 400 });
+      }
+      if (post.allow_booking === false) {
+        return Response.json({ error: "This post does not accept bookings." }, { status: 400 });
       }
 
-      const session = await stripe.checkout.sessions.create({
+      // The browser sends bookingRedirectUrl, which it read from the same post
+      // row; the stored value is what we trust. A site-relative default such
+      // as /api/book?creator_id=... becomes absolute on our own origin.
+      const stored = typeof post.booking_url === "string" ? post.booking_url.trim() : "";
+      const target = stored || `/api/book?creator_id=${creator_id}&post_id=${post.id}`;
+      if (!isSafeBookingTarget(target)) {
+        return Response.json({ error: "This creator has no valid booking link." }, { status: 400 });
+      }
+      const bookingUrl = target.startsWith("/") ? `${site}${target}` : target;
+
+      const session = await getStripe().checkout.sessions.create({
         mode: "setup",
         payment_method_types: ["card"],
         metadata: {
           kind: "booking",
           booking_redirect_url: bookingUrl,
-          post_id: String(body.post_id),
-          creator_id: String(creator_id),
+          post_id: String(post.id),
+          creator_id,
+          buyer_id: resolvedBuyerId,
+          buyer_user_id: resolvedBuyerId,
         },
         success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}&kind=booking`,
         cancel_url: `${site}/dashboard`,
@@ -519,7 +385,6 @@ export async function POST(req: NextRequest) {
 
     return new Response("Unsupported type", { status: 400 });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : "Checkout error";
-    return Response.json({ error: msg }, { status: 500 });
+    return Response.json({ error: publicMessage("checkout", e, "Checkout could not be started. Please try again.") }, { status: 500 });
   }
 }

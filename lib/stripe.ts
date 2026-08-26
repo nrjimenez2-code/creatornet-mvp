@@ -1,7 +1,17 @@
 // /lib/stripe.ts
-import Stripe from 'stripe';
+//
+// Kept for the two routes that import `{ stripe }` from here. The client is
+// now created on first use (see lib/stripeClient.ts) instead of at import,
+// so a build environment without STRIPE_SECRET_KEY no longer crashes at
+// "Collecting page data". The Proxy keeps `stripe.checkout.sessions...`
+// call sites working unchanged.
+import type Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 
-// Cast the apiVersion to `any` so TS doesn't force a specific union like "2025-10-29.clover"
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
-  apiVersion: '2024-06-20' as any,
+export const stripe: Stripe = new Proxy({} as Stripe, {
+  get(_target, prop) {
+    const real = getStripe() as unknown as Record<string | symbol, unknown>;
+    const value = real[prop];
+    return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(real) : value;
+  },
 });

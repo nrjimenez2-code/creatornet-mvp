@@ -12,6 +12,7 @@ import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import StripeConnectBanner from "@/components/StripeConnectBanner";
 import MobileStripeConnectGateModal from "@/components/MobileStripeConnectGateModal";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type Tab = "following" | "discover";
@@ -20,6 +21,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
+  const { userId } = useUser();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [stripeGateOpen, setStripeGateOpen] = useState(false);
   const [createChecking, setCreateChecking] = useState(false);
@@ -49,13 +51,11 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
     const timeoutId = setTimeout(() => {
       (async () => {
         try {
-          const { data } = await supabase.auth.getUser();
-          const user = data?.user;
-          if (!user || cancelled) return;
+          if (!userId || cancelled) return;
           const { data: profile } = await supabase
             .from("profiles")
             .select("avatar_url")
-            .eq("id", user.id)
+            .eq("id", userId)
             .maybeSingle();
           if (!cancelled) {
             // Only use app profile picture; no OAuth/metadata avatar — when none set, UI uses Default_DP.png
@@ -71,7 +71,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       cancelled = true;
       clearTimeout(timeoutId);
     };
-  }, [supabase]);
+  }, [supabase, userId]);
 
   /** Below `lg`, sidebar (and Stripe banner) are hidden — gate create post on Connect readiness. */
   async function handleRequestCreatePost() {

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 
@@ -133,7 +134,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("Review submission error:", err);
     return NextResponse.json(
-      { error: err.message || "Failed to submit review" },
+      { error: publicMessage("reviews", err, "Failed to submit review") },
       { status: 500 }
     );
   }

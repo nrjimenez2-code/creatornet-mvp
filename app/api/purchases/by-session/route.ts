@@ -1,6 +1,8 @@
 // app/api/purchases/by-session/route.ts
+import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createServerClient } from "@/lib/supabaseServer";
 
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
@@ -23,16 +25,25 @@ export async function GET(req: Request) {
     );
   }
 
+  // Session ids show up in success URLs and browser history. Fulfillment
+  // links (Discord invites, Whop listings, file URLs) are what the buyer
+  // paid for, so only the buyer gets them.
+  const auth = createServerClient();
+  const { data: { user } } = await auth.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   // Look up purchase by session
   const { data: purchase, error: purchaseErr } = await admin
     .from("purchases")
-    .select("*")
+    .select("id, status, product_id, buyer_id, buyer_user_id")
     .eq("session_id", session_id)
     .maybeSingle();
 
   if (purchaseErr) {
     return NextResponse.json(
-      { error: purchaseErr.message },
+      { error: publicMessage("by-session", purchaseErr, "Could not look up the purchase.") },
       { status: 500 }
     );
   }
@@ -44,16 +55,29 @@ export async function GET(req: Request) {
     );
   }
 
+  // Fail closed: a purchase row with no recorded buyer is not "anyone's",
+  // it is nobody's until the webhook fills it in.
+  const owner = purchase.buyer_user_id ?? purchase.buyer_id ?? null;
+  if (!owner || owner !== user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // checkout writes a "pending" row the moment a session is created, before
+  // any money moves. Fulfillment links are for paid purchases only.
+  if (purchase.status !== "paid") {
+    return NextResponse.json({ error: "Not paid", status: purchase.status }, { status: 402 });
+  }
+
   // Resolve the product
   const { data: product, error: productErr } = await admin
     .from("products")
-    .select("*")
+    .select("fulfillment, discord_channel_id, whop_listing_id, external_url")
     .eq("product_id", purchase.product_id)
     .maybeSingle();
 
   if (productErr) {
     return NextResponse.json(
-      { error: productErr.message },
+      { error: publicMessage("by-session", productErr, "Could not look up the product.") },
       { status: 500 }
     );
   }

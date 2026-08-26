@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 type TagPost = {
@@ -220,7 +221,7 @@ export async function GET(
   } catch (err) {
     console.error("[api/tag] error:", err);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Failed to load tag feed" },
+      { error: publicMessage("tag", err, "Failed to load tag feed") },
       { status: 500 }
     );
   }

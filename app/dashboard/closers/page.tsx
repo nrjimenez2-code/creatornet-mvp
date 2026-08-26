@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
+import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
 
@@ -78,8 +79,9 @@ type BookingBundle = {
 
 export default function ClosersManagerPage() {
   const supabase = useMemo(() => createBrowserClient(), []);
-  const [creatorId, setCreatorId] = useState<string | null>(null);
-  const [accessToken, setAccessToken] = useState<string | null>(null);
+  // creator id (profiles.id == auth.uid) and access token come from the shared auth context
+  const { userId: creatorId, session } = useUser();
+  const accessToken = session?.access_token ?? null;
 
   // list state
   const [targets, setTargets] = useState<Target[]>([]);
@@ -100,33 +102,6 @@ export default function ClosersManagerPage() {
   const [newUrl, setNewUrl] = useState("");
   const [newWeight, setNewWeight] = useState<number>(1);
   const [newActive, setNewActive] = useState(true);
-
-  // get current user → creator id (profiles.id == auth.uid)
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      const uid = data.user?.id || null;
-      setCreatorId(uid);
-    })();
-  }, [supabase]);
-
-  useEffect(() => {
-    let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setAccessToken(data.session?.access_token ?? null);
-    });
-
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      setAccessToken(session?.access_token ?? null);
-      setCreatorId(session?.user?.id ?? null);
-    });
-
-    return () => {
-      mounted = false;
-      listener.subscription.unsubscribe();
-    };
-  }, [supabase]);
 
   const loadTargets = useCallback(async () => {
     if (!creatorId) return;
@@ -235,12 +210,7 @@ export default function ClosersManagerPage() {
     setBookingsLoading(true);
     setBookingsError(null);
     try {
-      let token = accessToken;
-      if (!token) {
-        const { data } = await supabase.auth.getSession();
-        token = data.session?.access_token ?? null;
-        if (token) setAccessToken(token);
-      }
+      const token = accessToken;
       if (!token) {
         throw new Error("Missing auth session. Please sign in again.");
       }
@@ -261,7 +231,7 @@ export default function ClosersManagerPage() {
     } finally {
       setBookingsLoading(false);
     }
-  }, [accessToken, supabase]);
+  }, [accessToken]);
 
   useEffect(() => {
     if (creatorId && accessToken) {
@@ -343,14 +313,7 @@ export default function ClosersManagerPage() {
       if (!window.confirm("Remove this booking and any generated links?")) return;
       setDeletingId(bookingId);
       try {
-        let currentToken = accessToken;
-        if (!currentToken) {
-          const { data: sessionData } = await supabase.auth.getSession();
-          currentToken = sessionData.session?.access_token ?? null;
-          if (currentToken) {
-            setAccessToken(currentToken);
-          }
-        }
+        const currentToken = accessToken;
         if (!currentToken) {
           throw new Error("Missing auth session. Please sign in again.");
         }
@@ -378,7 +341,7 @@ export default function ClosersManagerPage() {
         setDeletingId(null);
       }
     },
-    [accessToken, latestLink, supabase]
+    [accessToken, latestLink]
   );
 
   const testRoundRobin = async () => {

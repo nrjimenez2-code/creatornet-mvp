@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { publicMessage } from "@/lib/apiError";
 import Stripe from "stripe";
+import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const SITE_URL =
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
 
   if (!stripeAccountId) {
     try {
-      const account = await stripe.accounts.create({
+      const account = await getStripe().accounts.create({
         type: "express",
         email: user.email ?? undefined,
         capabilities: {
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
           );
         }
         return NextResponse.json(
-          { error: e.message || "Stripe could not create a connected account." },
+          { error: publicMessage("connect-onboard", e, "Stripe could not create a connected account.") },
           { status: 502 }
         );
       }
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const accountLink = await stripe.accountLinks.create({
+    const accountLink = await getStripe().accountLinks.create({
       account: stripeAccountId,
       refresh_url: `${SITE_URL}/api/stripe/connect/refresh`,
       return_url: `${SITE_URL}/api/stripe/connect/return`,
@@ -115,7 +116,7 @@ export async function POST(req: NextRequest) {
     console.error("[connect/onboard] accountLinks.create:", e);
     if (e instanceof Stripe.errors.StripeError) {
       return NextResponse.json(
-        { error: e.message || "Could not start onboarding link." },
+        { error: publicMessage("connect-onboard", e, "Could not start onboarding link.") },
         { status: 502 }
       );
     }
