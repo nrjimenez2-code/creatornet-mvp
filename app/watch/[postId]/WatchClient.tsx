@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 
 /** Types */
 type Post = {
@@ -26,6 +27,7 @@ const MAX_RESUME_SEC = 24 * 60 * 60; // cap a single video at 24h
 
 export default function WatchClient({ postId }: { postId: string }) {
   const supabase = createClient();
+  const { userId, loading: authLoading } = useUser();
 
   const [post, setPost] = useState<Post | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,20 +64,21 @@ export default function WatchClient({ postId }: { postId: string }) {
     }).catch(() => {});
   }
 
-  /** ---------------- Fetch post + auth + resume ---------------- */
+  /** ---------------- Fetch post + resume (auth from context) ---------------- */
   useEffect(() => {
+    // Wait for the auth context to settle so we know whether to prefetch
+    // resume progress; signed-out viewers still get the post.
+    if (authLoading) return;
+
     let cancelled = false;
 
     (async () => {
       try {
-        const [{ data: auth }, { data: p, error: postErr }] = await Promise.all([
-          supabase.auth.getUser(),
-          supabase
-            .from("posts")
-            .select("id,title,video_url,poster_url,interests")
-            .eq("id", postId)
-            .single(),
-        ]);
+        const { data: p, error: postErr } = await supabase
+          .from("posts")
+          .select("id,title,video_url,poster_url,interests")
+          .eq("id", postId)
+          .single();
 
         if (cancelled) return;
 
@@ -86,12 +89,12 @@ export default function WatchClient({ postId }: { postId: string }) {
           return;
         }
 
-        userIdRef.current = auth?.user?.id ?? null;
+        userIdRef.current = userId;
         setPost(p as Post);
         setLoading(false);
 
         // If signed in, prefetch resume progress from API
-        if (auth?.user?.id) {
+        if (userId) {
           try {
             const res = await fetch(`/api/watch/progress?post_id=${postId}`, {
               method: "GET",
@@ -123,7 +126,7 @@ export default function WatchClient({ postId }: { postId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [postId, supabase]);
+  }, [postId, supabase, userId, authLoading]);
 
   /** ---------------- Video wiring + listeners ---------------- */
   useEffect(() => {

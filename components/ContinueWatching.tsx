@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 
 type ProgressRow = {
   post_id: string;
@@ -24,16 +25,18 @@ type Item = {
 
 export default function ContinueWatching() {
   const supabase = createClient();
+  const { userId, loading: authLoading } = useUser();
 
   const [items, setItems] = useState<Item[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+
     let cancelled = false;
 
     (async () => {
-      const { data: auth } = await supabase.auth.getUser();
-      const uid = auth.user?.id;
+      const uid = userId;
       if (!uid) {
         setItems([]);
         setLoading(false);
@@ -89,7 +92,7 @@ export default function ContinueWatching() {
     return () => {
       cancelled = true;
     };
-  }, [supabase]);
+  }, [userId, authLoading, supabase]);
 
   const visible = useMemo(
     () => items.filter((it) => it.post !== null).slice(0, 6),

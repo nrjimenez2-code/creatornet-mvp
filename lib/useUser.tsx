@@ -6,143 +6,88 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
+import { useRouter } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabaseClient";
 import posthog from "posthog-js";
 
 type UserContextValue = {
   userId: string | null;
+  session: Session | null;
   loading: boolean;
 };
 
 const UserContext = createContext<UserContextValue | undefined>(undefined);
 
-// Global cache for user ID to avoid repeated getUser() calls
-let cachedUserId: string | null = null;
-let cacheTimestamp = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
 function useProvideUser(): UserContextValue {
-  const [userId, setUserId] = useState<string | null>(cachedUserId);
-  const [loading, setLoading] = useState(!cachedUserId);
-  const supabaseRef = useRef(createClient());
-  const supabase = supabaseRef.current;
+  const [session, setSession] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const supabase = createClient();
     let cancelled = false;
 
-    async function loadUser() {
-      const now = Date.now();
-      if (cachedUserId && now - cacheTimestamp < CACHE_DURATION) {
-        setUserId(cachedUserId);
-        setLoading(false);
-        return;
-      }
-
-      setLoading(true);
-
-      try {
-        const {
-          data: { session },
-          error: sessionError,
-        } = await supabase.auth.getSession();
-
+    // Seed once from the persisted session (local read in supabase-js v2 — no
+    // network round trip). All later state comes from the subscription below.
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
         if (cancelled) return;
-
-        if (sessionError && sessionError.status === 429) {
-          console.warn("Rate limited on getSession(), using cached user ID if available");
-          if (cachedUserId) {
-            setUserId(cachedUserId);
-            setLoading(false);
-            return;
-          }
-        }
-
-        if (session?.user?.id) {
-          cachedUserId = session.user.id;
-          cacheTimestamp = Date.now();
-          setUserId(session.user.id);
-          setLoading(false);
+        setSession(data.session);
+        setLoading(false);
+        const id = data.session?.user?.id;
+        if (id) {
           try {
-            posthog.identify(session.user.id);
-          } catch { /* ignore */ }
-          return;
-        }
-
-        if (!sessionError || sessionError.status !== 429) {
-          const {
-            data: { user },
-            error: userError,
-          } = await supabase.auth.getUser();
-
-          if (cancelled) return;
-
-          if (userError && userError.status === 429) {
-            console.warn("Rate limited on getUser(), using cached user ID if available");
-            if (cachedUserId) {
-              setUserId(cachedUserId);
-              setLoading(false);
-              return;
-            }
+            posthog.identify(id);
+          } catch {
+            /* analytics must never break auth */
           }
-
-          if (user?.id) {
-            cachedUserId = user.id;
-            cacheTimestamp = Date.now();
-            setUserId(user.id);
-            try {
-              posthog.identify(user.id);
-            } catch { /* ignore */ }
-          } else {
-            cachedUserId = null;
-            setUserId(null);
-          }
-        } else {
-          cachedUserId = null;
-          setUserId(null);
         }
-      } catch (err: any) {
-        console.error("Error getting user:", err);
-        if (err?.status === 429 && cachedUserId) {
-          console.warn("Rate limited, using cached user ID");
-          setUserId(cachedUserId);
-        } else if (!cancelled) {
-          cachedUserId = null;
-          setUserId(null);
-        }
-      } finally {
+      })
+      .catch((err: unknown) => {
+        console.error("Error reading persisted session:", err);
         if (!cancelled) {
+          setSession(null);
           setLoading(false);
         }
-      }
-    }
+      });
 
-    loadUser();
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      const nextUserId = session?.user?.id ?? null;
-      cachedUserId = nextUserId;
-      cacheTimestamp = nextUserId ? Date.now() : 0;
-      setUserId(nextUserId);
-      setLoading(false);
-      if (nextUserId) {
+    // Handles SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED, USER_UPDATED (and
+    // INITIAL_SESSION). No redirects here — pages decide via useRequireUser.
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      (_event, nextSession) => {
+        if (cancelled) return;
+        setSession(nextSession);
+        setLoading(false);
+        const id = nextSession?.user?.id ?? null;
         try {
-          posthog.identify(nextUserId);
-        } catch { /* ignore */ }
-      } else {
-        try { posthog.reset(); } catch { /* ignore */ }
-      }
-    });
+          if (id) {
+            posthog.identify(id);
+          } else {
+            posthog.reset();
+          }
+        } catch {
+          /* analytics must never break auth */
+        }
+      },
+    );
 
     return () => {
       cancelled = true;
       sub.subscription.unsubscribe();
     };
-  }, [supabase]);
+  }, []);
 
-  return useMemo(() => ({ userId, loading }), [userId, loading]);
+  return useMemo(
+    () => ({
+      userId: session?.user?.id ?? null,
+      session,
+      loading,
+    }),
+    [session, loading],
+  );
 }
 
 export function UserProvider({ children }: { children: ReactNode }) {
@@ -151,9 +96,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
 }
 
 /**
- * Hook to get the current user ID with caching to prevent rate limits
+ * Single client-side auth source. Reads the session held by the provider —
+ * client components must use this instead of calling supabase.auth directly.
  */
-export function useUser() {
+export function useUser(): UserContextValue {
   const context = useContext(UserContext);
   if (!context) {
     throw new Error("useUser must be used within a UserProvider");
@@ -162,11 +108,20 @@ export function useUser() {
 }
 
 /**
- * Clear the user cache (useful after sign out)
+ * For pages that require a signed-in user: redirects (replace) to
+ * `redirectTo` once loading settles with no user.
  */
-export function clearUserCache() {
-  cachedUserId = null;
-  cacheTimestamp = 0;
+export function useRequireUser(
+  redirectTo = "/auth",
+): { userId: string | null; loading: boolean } {
+  const { userId, loading } = useUser();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !userId) {
+      router.replace(redirectTo);
+    }
+  }, [loading, userId, redirectTo, router]);
+
+  return { userId, loading };
 }
-
-

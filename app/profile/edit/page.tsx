@@ -3,12 +3,15 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
+import { useRequireUser, useUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 export default function EditProfilePage() {
   const router = useRouter();
   const supabase = createBrowserClient();
+  const { session } = useUser();
+  const { userId, loading } = useRequireUser();
 
   const [username, setUsername] = useState("");
   const [tagline, setTagline] = useState("");
@@ -19,29 +22,23 @@ export default function EditProfilePage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  // Load current profile
+  // Load current profile (signed-out users are redirected by useRequireUser)
   useEffect(() => {
+    if (loading || !userId) return;
     (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) {
-        router.replace("/auth");
-        return;
-      }
       const { data } = await supabase
         .from("profiles")
         .select("username, tagline, avatar_url, bio")
-        .eq("id", user.id)
+        .eq("id", userId)
         .maybeSingle();
 
-      setUsername(data?.username ?? user.email?.split("@")[0] ?? "");
+      setUsername(data?.username ?? session?.user?.email?.split("@")[0] ?? "");
       setTagline(data?.tagline ?? "");
       setAvatarUrl(data?.avatar_url ?? "");
       setBio(data?.bio ?? "");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loading, userId]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -49,11 +46,7 @@ export default function EditProfilePage() {
     setErr(null);
     setMsg(null);
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
-      if (userErr || !user) throw userErr || new Error("No user");
+      if (!userId) throw new Error("No user");
 
       const trimmedUsername = username.trim();
       if (!trimmedUsername) {
@@ -67,7 +60,7 @@ export default function EditProfilePage() {
         .from("profiles")
         .upsert(
           {
-            id: user.id,
+            id: userId,
             username: trimmedUsername,
             tagline: tagline.trim() === "" ? null : tagline.trim(),
             avatar_url: avatarUrl || null,
@@ -104,14 +97,10 @@ export default function EditProfilePage() {
     setMsg(null);
 
     try {
-      const {
-        data: { user },
-        error: userErr,
-      } = await supabase.auth.getUser();
-      if (userErr || !user) throw userErr || new Error("No user");
+      if (!userId) throw new Error("No user");
 
       const ext = file.name.split(".").pop() || "png";
-      const filePath = `${user.id}/avatar-${Date.now()}.${ext}`;
+      const filePath = `${userId}/avatar-${Date.now()}.${ext}`;
 
       const { error: uploadErr } = await supabase.storage
         .from("avatars")
@@ -133,7 +122,7 @@ export default function EditProfilePage() {
         .from("profiles")
         .upsert(
           {
-            id: user.id,
+            id: userId,
             avatar_url: publicUrl,
           },
           { onConflict: "id" }

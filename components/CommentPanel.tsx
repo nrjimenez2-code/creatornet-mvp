@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import Link from "next/link";
 import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
 type Comment = {
@@ -28,6 +29,8 @@ type CommentPanelProps = {
 
 export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }: CommentPanelProps) {
   const supabase = createClient();
+  const { userId, session } = useUser();
+  const userEmail = session?.user?.email;
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -40,25 +43,26 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
   const inputRef = useRef<HTMLInputElement>(null);
   const commentsEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch current user
+  // Fetch current user's profile (identity comes from the auth context)
   useEffect(() => {
+    if (!userId) {
+      setCurrentUser(null);
+      return;
+    }
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data: profile } = await supabase
-          .from("profiles")
-          .select("username, avatar_url")
-          .eq("id", user.id)
-          .maybeSingle();
-        
-        setCurrentUser({
-          id: user.id,
-          username: profile?.username || user.email?.split("@")[0] || "user",
-          avatar_url: profile?.avatar_url || null,
-        });
-      }
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username, avatar_url")
+        .eq("id", userId)
+        .maybeSingle();
+
+      setCurrentUser({
+        id: userId,
+        username: profile?.username || userEmail?.split("@")[0] || "user",
+        avatar_url: profile?.avatar_url || null,
+      });
     })();
-  }, [supabase]);
+  }, [userId, userEmail, supabase]);
 
   // Fetch comments
   const fetchComments = useCallback(async () => {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
+import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
 
 type Interest =
@@ -30,21 +31,12 @@ export default function Page() {
   const router = useRouter();
   const supabase = createClient();
 
-  const [userId, setUserId] = useState<string | null>(null);
+  const { userId } = useUser();
   const [username, setUsername] = useState("");
   const [usernameOk, setUsernameOk] = useState<boolean | null>(null);
   const [usernameErr, setUsernameErr] = useState<string | null>(null);
   const [selected, setSelected] = useState<Interest[]>([]);
   const [saving, setSaving] = useState(false);
-
-  // Load user id once
-  useEffect(() => {
-    (async () => {
-      const { data } = await supabase.auth.getUser();
-      setUserId(data.user?.id ?? null);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const debounced = useDebounced(username, 350);
 
