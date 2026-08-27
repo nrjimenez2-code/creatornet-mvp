@@ -16,6 +16,14 @@ export function getStripe(): Stripe {
   if (!key) {
     throw new Error("STRIPE_SECRET_KEY is not set in this environment.");
   }
-  client = new Stripe(key, { apiVersion: undefined });
+  client = new Stripe(key, {
+    apiVersion: undefined,
+    // Cap each Stripe request at 20s (the SDK default is 80s). Without this a
+    // hung Stripe call holds a serverless slot for over a minute — the exact
+    // "servers hit their ceiling" failure mode under launch traffic. The SDK
+    // retries transient network/5xx errors on its own up to maxNetworkRetries.
+    timeout: 20_000,
+    maxNetworkRetries: 2,
+  });
   return client;
 }
