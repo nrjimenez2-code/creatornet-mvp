@@ -5,55 +5,22 @@ import VideoCard from "./VideoCard";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
+import {
+  mapFeedV3Rows,
+  isWithinRenderWindow,
+  stringArrayOrNull,
+  type FeedTab,
+  type PostRow,
+} from "@/lib/feedV3";
 
-export type Tab = "following" | "discover";
+export type Tab = FeedTab;
+export type { PostRow } from "@/lib/feedV3";
 
 type FeedListProps = {
   activeTab: Tab;
   onChangeTab: (t: Tab) => void; // kept for API stability
   highlightPostId?: string | null;
 };
-
-export type PostRow = {
-  id: string;
-  creator_id: string | null;
-  product_id: string | null;
-  price_cents: number | null;
-  creator_name?: string | null;
-  /** Handle for /profile/[username] (from API / profiles join) */
-  creator_username?: string | null;
-  creator_avatar_url?: string | null;
-  title: string | null;
-  video_url: string | null;
-  poster_url: string | null;
-  content: string | null;
-  interests: string[] | null;
-  hashtags?: string[] | null;
-  created_at: string | null;
-  product_type?: string | null;
-  is_following?: boolean | null;
-  likes_count?: number | null;
-  comments_count?: number | null;
-  shares_count?: number | null;
-  is_liked?: boolean | null;
-  allow_booking?: boolean | null;
-  booking_url?: string | null;
-  /** When false, hide buy CTA (optional; omitted = allow). */
-  creator_can_sell?: boolean | null;
-};
-
-/** Hosts that often time out or fail; don't request video from them (show poster only to avoid console errors). */
-const UNRELIABLE_VIDEO_HOSTS = ["sample-videos.com"];
-
-function isUnreliableVideoUrl(url: string | null): boolean {
-  if (!url || typeof url !== "string") return false;
-  try {
-    const host = new URL(url.trim()).hostname.toLowerCase();
-    return UNRELIABLE_VIDEO_HOSTS.some((bad) => host === bad || host.endsWith("." + bad));
-  } catch {
-    return false;
-  }
-}
 
 const PAGE_SIZE = 20;
 
@@ -64,14 +31,24 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
-  const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(false);
   const loadingMoreRef = useRef(false);
+  const activeTabRef = useRef<Tab>(activeTab);
   const viewerIdRef = useRef<string | null>(null);
+  // Bumped on every fresh feed load (tab change / auth settle). An in-flight
+  // loadMore from a previous generation must throw its response away instead
+  // of appending another tab's posts or clobbering the new pagination cursor.
+  const fetchGenRef = useRef(0);
 
-  // Sync viewerId to ref so loadMore can read it without stale closure
+  // Sync activeTab to ref so loadMore can read it without a stale closure
+  useEffect(() => {
+    activeTabRef.current = activeTab;
+  }, [activeTab]);
+
+  // Sync viewerId to a ref so the load effect can read it without refetching
+  // on every sign-in/out (see the comment inside the effect).
   useEffect(() => {
     viewerIdRef.current = viewerId ?? null;
   }, [viewerId]);
@@ -82,6 +59,9 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   }, []);
   const [globalSoundOn, setGlobalSoundOn] = useState(false);
   const [activePostId, setActivePostId] = useState<string | null>(null);
+  // Mirror of items for event callbacks (the realtime handler) that need the
+  // current list without a stale closure.
+  const itemsRef = useRef<PostRow[]>([]);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
   const wheelLockRef = useRef(false);
@@ -101,10 +81,10 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   useEffect(() => {
     let cancelled = false;
 
-    // Reset pagination on every tab change / reload
+    // Reset pagination on every tab change / reload; invalidate stale loadMores.
+    fetchGenRef.current += 1;
     offsetRef.current = 0;
     hasMoreRef.current = false;
-    setHasMore(false);
 
     // Always set loading when fetching (including tab switches)
     setLoading(true);
@@ -115,65 +95,27 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
 
     (async () => {
       try {
-        console.log("[Feed] effect ran, activeTab:", activeTab);
         // Read the ref (synced above) instead of depending on viewerId directly,
         // so a mid-session sign-in/out doesn't refetch until the next tab change —
         // same as when this effect resolved auth itself.
-        const feedViewerId = viewerIdRef.current;
-
-        const discoverParams = { p_user_id: null, p_limit: 20 };
-        const followingParams = { p_user_id: feedViewerId, p_limit: 20 };
-        let data: unknown = null;
-        let error: { message: string; code?: string } | null = null;
-
-        if (activeTab === "discover") {
-          const ranked = await supabase.rpc("get_feed_v2", {
-            p_user_id: feedViewerId,
-            p_limit: 20,
-            p_offset: 0,
-          });
-          error = ranked.error;
-          if (!ranked.error && Array.isArray(ranked.data) && ranked.data.length > 0) {
-            const postIds = (ranked.data as { post_id: string }[]).map((r) => r.post_id);
-            const postsResult = await supabase
-              .from("posts")
-              .select("id, creator_id, product_id, title, video_url, poster_url, interests, hashtags, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
-              .in("id", postIds);
-            if (postsResult.error) {
-              error = postsResult.error;
-            } else {
-              const postMap = new Map((postsResult.data ?? []).map((p: any) => [p.id, p]));
-              data = postIds.map((id) => postMap.get(id)).filter(Boolean);
-            }
-          } else if (!ranked.error) {
-            data = [];
+        if (activeTab === "following" && !viewerIdRef.current) {
+          // Following feed needs a logged-in user; keep UI stable if session
+          // is temporarily unavailable (the RPC would return no rows anyway).
+          if (!cancelled) {
+            setItems([]);
+            setFeedError(null);
+            setLoading(false);
           }
-          console.log("[Feed] get_feed_v2(discover) — length:", Array.isArray(data) ? (data as unknown[]).length : 0, "error:", error?.message ?? null);
-        } else {
-          if (!feedViewerId) {
-            // Following feed needs a logged-in user; keep UI stable if session is temporarily unavailable.
-            data = [];
-            error = null;
-            const safeRows: unknown[] = Array.isArray(data) ? data : [];
-            if (!cancelled) {
-              setItems([]);
-              setFeedError(null);
-              setLoading(false);
-              if (safeRows.length) {
-                setActivePostId((prev) => prev ?? null);
-              }
-            }
-            return;
-          }
-          let result = await supabase.rpc("get_feed_following", followingParams);
-          data = result.data;
-          error = result.error;
-          if (error?.code === "42883" || (error?.message && error.message.includes("does not exist"))) {
-            result = await supabase.rpc("get_feed_v1", followingParams);
-            data = result.data;
-            error = result.error;
-          }
+          return;
         }
+
+        // ONE call: ranked posts + creator profile + product meta + viewer
+        // is_liked / is_following. The viewer is auth.uid() server-side.
+        const { data, error } = await supabase.rpc("get_feed_v3", {
+          p_tab: activeTab,
+          p_limit: PAGE_SIZE,
+          p_offset: 0,
+        });
 
         if (error) {
           console.error("Feed RPC error:", error);
@@ -184,254 +126,17 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           return;
         }
 
-        let mapped: PostRow[] = [];
+        const rawCount = Array.isArray(data) ? data.length : 0;
+        const mapped = mapFeedV3Rows(data);
 
-        const rawRows: unknown[] = Array.isArray(data) ? data : [];
-        console.log("[Feed] rawRows.length:", rawRows.length, "data type:", typeof data, data === null ? "(null)" : "");
-
-        if (rawRows.length > 0) {
-          const baseRows: PostRow[] = rawRows
-            .map((r: any) => {
-              const postId = (r.post_id as string) ?? (r.id as string) ?? "";
-              const rawVideo = (r.video_url as string) ?? null;
-              const rawPoster = (r.poster_url as string) ?? null;
-              const trimmedVideo = typeof rawVideo === "string" ? rawVideo.trim() : null;
-              const videoUrl =
-                trimmedVideo && !isUnreliableVideoUrl(trimmedVideo) ? trimmedVideo : null;
-
-              const derivedName =
-                (r.creator_name as string) ??
-                (r.full_name as string) ??
-                (r.username as string) ??
-                null;
-              const derivedAvatar = (r.avatar_url as string) ?? null;
-
-              const rawUsername =
-                (r.creator_username as string) ?? (r.username as string) ?? null;
-
-              return {
-                id: postId,
-                creator_id: (r.creator_id as string) ?? null,
-                product_id: (r.product_id as string) ?? null,
-                price_cents: (r.price_cents as number) ?? 0,
-                title: (r.title as string) ?? null,
-                video_url: videoUrl,
-                poster_url: typeof rawPoster === "string" ? rawPoster.trim() : null,
-                content: (r.title as string) ?? "",
-                interests: Array.isArray(r.interests) ? (r.interests as string[]) : Array.isArray(r.tags) ? (r.tags as string[]) : [],
-                hashtags: Array.isArray(r.hashtags) ? (r.hashtags as string[]) : null,
-                created_at: null,
-                likes_count: (r.likes_count as number) ?? 0,
-                comments_count: (r.comments_count as number) ?? 0,
-                shares_count: (r.shares_count as number) ?? 0,
-                allow_booking: (r.allow_booking as boolean) ?? false,
-                booking_url: (r.booking_url as string) ?? null,
-                is_following: (r.is_following as boolean) ?? false,
-                creator_name: derivedName,
-                creator_username: rawUsername,
-                creator_avatar_url: derivedAvatar,
-              };
-            })
-            .filter((p) => p.video_url || p.poster_url);
-
-          console.log("[Feed] baseRows after filter (video_url or poster_url):", baseRows.length);
-
-          // Always get product_id from server (RPC/realtime often omit it) so "Pay in full" works
-          const postIds = baseRows.map((p) => p.id);
-          if (postIds.length > 0) {
-            try {
-              const origin = typeof window !== "undefined" ? window.location.origin : "";
-              const res = await fetch(
-                `${origin}/api/posts/product-ids?ids=${encodeURIComponent(postIds.join(","))}`,
-                { credentials: "include" }
-              );
-              const productIdByPostId = (await res.json().catch(() => ({}))) as Record<string, string | null>;
-              baseRows.forEach((p) => {
-                if (p.id in productIdByPostId) {
-                  (p as { product_id: string | null }).product_id = productIdByPostId[p.id] ?? null;
-                }
-              });
-            } catch (_) {
-              // keep existing product_id if fetch fails
-            }
-          }
-
-          const productIds = Array.from(
-            new Set(
-              baseRows
-                .map((p) => p.product_id)
-                .filter((id): id is string => Boolean(id))
-            )
-          );
-          const creatorIds = Array.from(
-            new Set(
-              baseRows
-                .map((p) => p.creator_id)
-                .filter((id): id is string => Boolean(id))
-            )
-          );
-
-          // Fetch all additional data in parallel for maximum speed
-          const productPromise = productIds.length
-            ? supabase
-                .from("products")
-                .select("product_id, type, amount_cents, price_cents")
-                .in("product_id", productIds)
-            : Promise.resolve(null);
-          // Fetch creator profiles via API (service role) so avatars show on video cards despite RLS
-          const profilePromise =
-            creatorIds.length > 0
-              ? fetch(
-                  `${typeof window !== "undefined" ? window.location.origin : ""}/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
-                  { credentials: "include" }
-                )
-                  .then(async (r) => {
-                    const body = (await r
-                      .json()
-                      .catch(() => ({}))) as {
-                      profiles?: Array<{
-                        id: string;
-                        full_name: string | null;
-                        username: string | null;
-                        avatar_url: string | null;
-                      }>;
-                      error?: string;
-                    };
-
-                    // Session can expire briefly; don't fail whole feed over avatar lookup.
-                    if (!r.ok) {
-                      if (r.status === 401) return { data: [], error: null };
-                      return { data: [], error: new Error(body.error || `Profiles API failed (${r.status})`) };
-                    }
-                    if (body.error) {
-                      if (body.error === "Unauthorized") return { data: [], error: null };
-                      return { data: [], error: new Error(body.error) };
-                    }
-                    return { data: body.profiles ?? [], error: null };
-                  })
-                  .catch((err: unknown) => {
-                    console.error("Profile lookup error:", err);
-                    return { data: null, error: err };
-                  })
-              : Promise.resolve({ data: [], error: null });
-          const likesPromise = feedViewerId && postIds.length > 0
-            ? supabase
-                .from("likes")
-                .select("post_id")
-                .eq("user_id", feedViewerId)
-                .in("post_id", postIds)
-            : Promise.resolve(null);
-
-          // Execute all lookups in parallel - this is the key optimization
-          const followsPromise = feedViewerId && creatorIds.length > 0
-            ? supabase
-                .from("follows")
-                .select("following_id")
-                .eq("follower_id", feedViewerId)
-                .in("following_id", creatorIds)
-            : Promise.resolve(null);
-
-          const [productRes, profileRes, likesRes, followsRes] = await Promise.all([
-            productPromise,
-            profilePromise,
-            likesPromise,
-            followsPromise,
-          ]);
-
-          const productMetaMap = new Map<string, { type: string | null; price: number | null }>();
-          if (productRes?.error) {
-            console.error("Product lookup error:", productRes.error);
-          } else if (productRes?.data) {
-            for (const row of productRes.data) {
-              const typed = row as { product_id: string; type?: string | null; amount_cents?: number | null; price_cents?: number | null };
-              const derivedPrice =
-                (typeof typed.amount_cents === "number" && typed.amount_cents > 0 && typed.amount_cents) ||
-                (typeof typed.price_cents === "number" && typed.price_cents > 0 && typed.price_cents) ||
-                null;
-              productMetaMap.set(typed.product_id, {
-                type: typed.type ?? null,
-                price: derivedPrice,
-              });
-            }
-          }
-
-          const profileMap = new Map<
-            string,
-            { full_name: string | null; username: string | null; avatar_url: string | null }
-          >();
-          if (profileRes?.error) {
-            console.error("Profile lookup error:", profileRes.error);
-          } else if (profileRes?.data) {
-            for (const row of profileRes.data) {
-              const typed = row as {
-                id: string;
-                full_name?: string | null;
-                username?: string | null;
-                avatar_url?: string | null;
-              };
-              profileMap.set(typed.id, {
-                full_name: typed.full_name ?? null,
-                username: typed.username ?? null,
-                avatar_url: typed.avatar_url ?? null,
-              });
-            }
-          }
-
-          // Process likes data (already fetched in parallel above)
-          let likedPostIds = new Set<string>();
-          if (likesRes?.error) {
-            console.error("Error fetching likes:", likesRes.error);
-          } else if (likesRes?.data) {
-            likedPostIds = new Set(likesRes.data.map((l) => l.post_id as string));
-          }
-
-          // Which creators the viewer follows (so we hide + when already following)
-          let followedCreatorIds = new Set<string>();
-          if (followsRes?.error) {
-            console.error("Error fetching follows:", followsRes.error);
-          } else if (followsRes?.data) {
-            followedCreatorIds = new Set(followsRes.data.map((r) => r.following_id as string));
-          }
-
-          mapped = baseRows.map((p) => {
-            const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
-            const meta = p.product_id ? productMetaMap.get(p.product_id) : null;
-            const resolvedPrice =
-              typeof p.price_cents === "number" && p.price_cents > 0
-                ? p.price_cents
-                : meta?.price ?? p.price_cents ?? 0;
-            const isFollowing = p.creator_id ? followedCreatorIds.has(p.creator_id) : (p.is_following ?? false);
-            return {
-              ...p,
-              price_cents: resolvedPrice,
-              product_type: p.product_id
-                ? meta?.type ?? null
-                : null,
-              creator_name:
-                profile?.full_name ??
-                profile?.username ??
-                p.creator_name ??
-                null,
-              creator_username: profile?.username ?? p.creator_username ?? null,
-              creator_avatar_url:
-                profile?.avatar_url ?? p.creator_avatar_url ?? null,
-              is_liked: likedPostIds.has(p.id),
-              is_following: isFollowing,
-            };
-          });
-
-        }
-
-        console.log("[Feed] final mapped.length:", mapped.length);
         if (!cancelled) {
           setItems(mapped);
           setFeedError(null);
           setLoading(false);
-          // Set up pagination for discover tab
-          offsetRef.current = mapped.length;
-          const canLoadMore = activeTab === "discover" && mapped.length >= PAGE_SIZE;
-          hasMoreRef.current = canLoadMore;
-          setHasMore(canLoadMore);
+          // Offset advances by RPC rows consumed, not by post-filter length,
+          // so a dropped media-less row can never shift later pages.
+          offsetRef.current = rawCount;
+          hasMoreRef.current = rawCount >= PAGE_SIZE;
           if (mapped.length) {
             setActivePostId((prev) => prev ?? mapped[0]?.id ?? null);
           }
@@ -452,20 +157,58 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         "postgres_changes",
         { event: "*", schema: "public", table: "posts" },
         (payload) => {
+          // DELETE payloads carry `new: {}` (truthy!) and the row in `old`,
+          // so the event type — not truthiness — must pick the record.
+          const eventRow = (payload.eventType === "DELETE"
+            ? payload.old
+            : payload.new) as {
+            id?: string;
+            post_id?: string;
+            video_url?: string | null;
+            poster_url?: string | null;
+            hidden_at?: string | null;
+            removed_at?: string | null;
+          };
+          const removedId = eventRow?.id ?? eventRow?.post_id;
+          if (!removedId) return;
+
+          // Drop the post on delete, on losing its media, or on being
+          // moderated (hidden/removed — mirrors the feed's WHERE clause). If
+          // it was the one on screen, hand the render window to a neighbor so
+          // it doesn't collapse back to the top of the feed.
+          // A truncated payload (payload.errors set, e.g. an oversized row)
+          // can omit media URLs on a healthy post — never read that omission
+          // as "media removed"; explicit deletes and moderation still apply.
+          const payloadErrors = (payload as { errors?: string[] | null }).errors;
+          const payloadTruncated = Array.isArray(payloadErrors) && payloadErrors.length > 0;
+          if (
+            payload.eventType === "DELETE" ||
+            (!payloadTruncated && !eventRow.video_url && !eventRow.poster_url) ||
+            eventRow.hidden_at != null ||
+            eventRow.removed_at != null
+          ) {
+            const current = itemsRef.current;
+            const idx = current.findIndex((p) => p.id === removedId);
+            if (idx >= 0) {
+              const remaining = current.filter((p) => p.id !== removedId);
+              // Sync the mirror immediately: a second removal in the same
+              // batch must not pick this (now dead) post as a neighbor.
+              itemsRef.current = remaining;
+              const neighborId = remaining.length
+                ? remaining[Math.min(idx, remaining.length - 1)].id
+                : null;
+              setActivePostId((prevActive) =>
+                prevActive === removedId ? neighborId : prevActive
+              );
+            }
+            setItems((prev) => prev.filter((p) => p.id !== removedId));
+            return;
+          }
+
           setItems((prev) => {
-            const row = (payload.new || payload.old) as any;
+            const row = payload.new as any;
             const postId = (row?.id ?? row?.post_id) as string | undefined;
             if (!postId) return prev;
-
-            // delete -> drop
-            if (payload.eventType === "DELETE") {
-              return prev.filter((p) => p.id !== postId);
-            }
-
-            // hide if media missing
-            if (!row.video_url && !row.poster_url) {
-              return prev.filter((p) => p.id !== postId);
-            }
 
             const i = prev.findIndex((p) => p.id === postId);
             if (i >= 0) {
@@ -481,12 +224,8 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                 allow_booking:
                   row.allow_booking ?? next[i].allow_booking ?? false,
                 booking_url: row.booking_url ?? next[i].booking_url,
-                interests: Array.isArray(row.interests)
-                  ? row.interests
-                  : next[i].interests,
-                hashtags: Array.isArray(row.hashtags)
-                  ? row.hashtags
-                  : next[i].hashtags,
+                interests: stringArrayOrNull(row.interests) ?? next[i].interests,
+                hashtags: stringArrayOrNull(row.hashtags) ?? next[i].hashtags,
                 is_following: next[i].is_following,
               };
               return next;
@@ -501,8 +240,8 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
               video_url: row.video_url ?? null,
               poster_url: row.poster_url ?? null,
               content: row.title ?? "",
-              interests: Array.isArray(row.interests) ? row.interests : [],
-              hashtags: Array.isArray(row.hashtags) ? row.hashtags : null,
+              interests: stringArrayOrNull(row.interests) ?? [],
+              hashtags: stringArrayOrNull(row.hashtags),
               created_at: row.created_at ?? null,
               likes_count: 0,
               comments_count: 0,
@@ -543,6 +282,10 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     };
   }, [activeTab, supabase, authLoading]);
 
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
+
   // Track video_impression when a new post enters view
   useEffect(() => {
     if (!activePostId) return;
@@ -555,17 +298,32 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     });
   }, [activePostId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Scroll to highlighted post when it loads
+  // Scroll to highlighted post when it loads — once per highlight id, so later
+  // items updates (loadMore appends, realtime) can't yank the user back. The
+  // active id is seeded first so the target's VideoCard is mounted (not a
+  // placeholder) when the scroll lands on it, and the IntersectionObserver is
+  // suppressed while the scroll travels so posts passing through the viewport
+  // can't steal the active id back (with a timeout so it can never wedge).
+  const highlightHandledRef = useRef<string | null>(null);
+  const pendingHighlightScrollRef = useRef<string | null>(null);
   useEffect(() => {
-    if (highlightPostId && items.length > 0) {
-      const element = sectionRefs.current.get(highlightPostId);
-      if (element) {
-        // Wait a bit for layout to settle
-        setTimeout(() => {
-          element.scrollIntoView({ behavior: "smooth", block: "center" });
-        }, 300);
+    if (!highlightPostId || items.length === 0) return;
+    if (highlightHandledRef.current === highlightPostId) return;
+    const element = sectionRefs.current.get(highlightPostId);
+    if (!element) return; // not loaded yet; retry on the next items change
+    highlightHandledRef.current = highlightPostId;
+    pendingHighlightScrollRef.current = highlightPostId;
+    setActivePostId(highlightPostId);
+    // Wait a bit for layout to settle
+    setTimeout(() => {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 300);
+    // Safety valve: never suppress the observer for more than a few seconds.
+    setTimeout(() => {
+      if (pendingHighlightScrollRef.current === highlightPostId) {
+        pendingHighlightScrollRef.current = null;
       }
-    }
+    }, 4000);
   }, [highlightPostId, items]);
 
   useEffect(() => {
@@ -578,6 +336,13 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
         if (visible) {
           const id = (visible.target as HTMLElement).dataset.postId;
           if (id) {
+            // While a highlight scroll is traveling, only its target may
+            // claim the active slot; posts passing by are ignored.
+            const pending = pendingHighlightScrollRef.current;
+            if (pending) {
+              if (id !== pending) return;
+              pendingHighlightScrollRef.current = null;
+            }
             setActivePostId((prev) => (prev === id ? prev : id));
           }
         }
@@ -667,192 +432,41 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     [stepScrollWithLock]
   );
 
-  // Load next page of posts from the posts table directly (discover only)
+  // Load the next page (both tabs — same single RPC, offset paginated)
   const loadMore = useCallback(async () => {
     if (!hasMoreRef.current || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
 
+    const gen = fetchGenRef.current;
     const currentOffset = offsetRef.current;
-    const feedViewerId = viewerIdRef.current;
 
     try {
-      const ranked = await supabase.rpc("get_feed_v2", {
-        p_user_id: feedViewerId,
+      const { data, error } = await supabase.rpc("get_feed_v3", {
+        p_tab: activeTabRef.current,
         p_limit: PAGE_SIZE,
         p_offset: currentOffset,
       });
 
-      if (ranked.error) {
-        console.error("[Feed] loadMore error:", ranked.error);
+      // The tab changed (or the feed reloaded) while this request was in
+      // flight — its rows belong to a dead generation. Touch nothing.
+      if (gen !== fetchGenRef.current) return;
+
+      if (error) {
+        console.error("[Feed] loadMore error:", error);
         return;
       }
 
-      const rankedRows = Array.isArray(ranked.data) ? ranked.data as { post_id: string }[] : [];
-      if (!rankedRows.length) {
+      const rawCount = Array.isArray(data) ? data.length : 0;
+      if (!rawCount) {
         hasMoreRef.current = false;
-        setHasMore(false);
         return;
       }
 
-      const postIds = rankedRows.map((r) => r.post_id);
-      const { data: rawData, error: postsError } = await supabase
-        .from("posts")
-        .select("id, creator_id, product_id, title, video_url, poster_url, interests, hashtags, price_cents, allow_booking, booking_url, created_at, likes_count, comments_count, shares_count")
-        .in("id", postIds);
+      const mapped = mapFeedV3Rows(data);
 
-      if (postsError) {
-        console.error("[Feed] loadMore posts error:", postsError);
-        return;
-      }
-
-      // Reorder to match ranked order
-      const postMap = new Map((rawData ?? []).map((p: any) => [p.id, p]));
-      const rows = postIds.map((id) => postMap.get(id)).filter(Boolean) as any[];
-
-      if (!rows.length) {
-        hasMoreRef.current = false;
-        setHasMore(false);
-        return;
-      }
-
-      // Map to PostRow
-      const baseRows: PostRow[] = rows
-        .map((r: any) => {
-          const trimmedVideo = typeof r.video_url === "string" ? r.video_url.trim() : null;
-          const videoUrl = trimmedVideo && !isUnreliableVideoUrl(trimmedVideo) ? trimmedVideo : null;
-          return {
-            id: r.id,
-            creator_id: r.creator_id ?? null,
-            product_id: r.product_id ?? null,
-            price_cents: r.price_cents ?? 0,
-            title: r.title ?? null,
-            video_url: videoUrl,
-            poster_url: typeof r.poster_url === "string" ? r.poster_url.trim() : null,
-            content: r.title ?? "",
-            interests: Array.isArray(r.interests) ? r.interests : [],
-            hashtags: Array.isArray(r.hashtags) ? r.hashtags : null,
-            created_at: r.created_at ?? null,
-            likes_count: r.likes_count ?? 0,
-            comments_count: r.comments_count ?? 0,
-            shares_count: r.shares_count ?? 0,
-            allow_booking: r.allow_booking ?? false,
-            booking_url: r.booking_url ?? null,
-            is_following: false,
-            creator_name: null,
-            creator_username: null,
-            creator_avatar_url: null,
-          };
-        })
-        .filter((p) => p.video_url || p.poster_url);
-
-      if (!baseRows.length) {
-        offsetRef.current = currentOffset + rankedRows.length;
-        const newHasMore = rankedRows.length >= PAGE_SIZE;
-        hasMoreRef.current = newHasMore;
-        setHasMore(newHasMore);
-        return;
-      }
-
-      const creatorIds = Array.from(
-        new Set(baseRows.map((p) => p.creator_id).filter((id): id is string => Boolean(id)))
-      );
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-
-      // Fetch product IDs override
-      try {
-        const res = await fetch(
-          `${origin}/api/posts/product-ids?ids=${encodeURIComponent(postIds.join(","))}`,
-          { credentials: "include" }
-        );
-        const productIdByPostId = (await res.json().catch(() => ({}))) as Record<string, string | null>;
-        baseRows.forEach((p) => {
-          if (p.id in productIdByPostId) {
-            (p as { product_id: string | null }).product_id = productIdByPostId[p.id] ?? null;
-          }
-        });
-      } catch {}
-
-      const productIds = Array.from(
-        new Set(baseRows.map((p) => p.product_id).filter((id): id is string => Boolean(id)))
-      );
-
-      const [productRes, profileRes, likesRes, followsRes] = await Promise.all([
-        productIds.length
-          ? supabase
-              .from("products")
-              .select("product_id, type, amount_cents, price_cents")
-              .in("product_id", productIds)
-          : Promise.resolve(null),
-        creatorIds.length
-          ? fetch(
-              `${origin}/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
-              { credentials: "include" }
-            )
-              .then(async (r) => {
-                const body = (await r.json().catch(() => ({}))) as {
-                  profiles?: Array<{ id: string; full_name: string | null; username: string | null; avatar_url: string | null }>;
-                };
-                if (!r.ok) return { data: [], error: null };
-                return { data: body.profiles ?? [], error: null };
-              })
-              .catch(() => ({ data: [], error: null }))
-          : Promise.resolve({ data: [], error: null }),
-        feedViewerId && postIds.length
-          ? supabase.from("likes").select("post_id").eq("user_id", feedViewerId).in("post_id", postIds)
-          : Promise.resolve(null),
-        feedViewerId && creatorIds.length
-          ? supabase.from("follows").select("following_id").eq("follower_id", feedViewerId).in("following_id", creatorIds)
-          : Promise.resolve(null),
-      ]);
-
-      const productMetaMap = new Map<string, { type: string | null; price: number | null }>();
-      if (productRes?.data) {
-        for (const row of productRes.data) {
-          const typed = row as { product_id: string; type?: string | null; amount_cents?: number | null; price_cents?: number | null };
-          const derivedPrice =
-            (typeof typed.amount_cents === "number" && typed.amount_cents > 0 && typed.amount_cents) ||
-            (typeof typed.price_cents === "number" && typed.price_cents > 0 && typed.price_cents) ||
-            null;
-          productMetaMap.set(typed.product_id, { type: typed.type ?? null, price: derivedPrice });
-        }
-      }
-
-      const profileMap = new Map<string, { full_name: string | null; username: string | null; avatar_url: string | null }>();
-      if (profileRes?.data) {
-        for (const row of profileRes.data) {
-          const typed = row as { id: string; full_name?: string | null; username?: string | null; avatar_url?: string | null };
-          profileMap.set(typed.id, { full_name: typed.full_name ?? null, username: typed.username ?? null, avatar_url: typed.avatar_url ?? null });
-        }
-      }
-
-      const likedPostIds = new Set<string>(likesRes?.data?.map((l) => l.post_id as string) ?? []);
-      const followedCreatorIds = new Set<string>(followsRes?.data?.map((r) => r.following_id as string) ?? []);
-
-      const mapped: PostRow[] = baseRows.map((p) => {
-        const profile = p.creator_id ? profileMap.get(p.creator_id) : null;
-        const meta = p.product_id ? productMetaMap.get(p.product_id) : null;
-        const resolvedPrice =
-          typeof p.price_cents === "number" && p.price_cents > 0
-            ? p.price_cents
-            : meta?.price ?? p.price_cents ?? 0;
-        return {
-          ...p,
-          price_cents: resolvedPrice,
-          product_type: p.product_id ? meta?.type ?? null : null,
-          creator_name: profile?.full_name ?? profile?.username ?? null,
-          creator_username: profile?.username ?? null,
-          creator_avatar_url: profile?.avatar_url ?? null,
-          is_liked: likedPostIds.has(p.id),
-          is_following: p.creator_id ? followedCreatorIds.has(p.creator_id) : false,
-        };
-      });
-
-      // Update offset and hasMore
-      offsetRef.current = currentOffset + rankedRows.length;
-      const newHasMore = rankedRows.length >= PAGE_SIZE;
-      hasMoreRef.current = newHasMore;
-      setHasMore(newHasMore);
+      offsetRef.current = currentOffset + rawCount;
+      hasMoreRef.current = rawCount >= PAGE_SIZE;
 
       // Deduplicate and append
       setItems((prev) => {
@@ -868,14 +482,14 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     }
   }, [supabase]);
 
-  // Trigger loadMore when user is within 3 posts of the end (discover only)
+  // Trigger loadMore when the user is within 3 posts of the end (both tabs)
   useEffect(() => {
-    if (activeTab !== "discover" || !activePostId || !items.length) return;
+    if (!activePostId || !items.length) return;
     const currentIndex = items.findIndex((p) => p.id === activePostId);
     if (currentIndex >= items.length - 3) {
       loadMore();
     }
-  }, [activePostId, items.length, activeTab, loadMore]);
+  }, [activePostId, items.length, loadMore]);
 
   if (loading && items.length === 0) {
     return (
@@ -894,8 +508,10 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             <p className="text-xs text-gray-500 max-w-md mb-3">{feedError}</p>
             <p className="text-xs text-gray-600">
               Check: (1) Browser console for details. (2) Supabase project has RPC{" "}
-              <code className="bg-black/30 px-1 rounded">get_feed_discover</code> or{" "}
-              <code className="bg-black/30 px-1 rounded">get_feed_v1</code>. (3) <code className="bg-black/30 px-1 rounded">posts</code> table has rows with <code className="bg-black/30 px-1 rounded">video_url</code> or <code className="bg-black/30 px-1 rounded">poster_url</code>.
+              <code className="bg-black/30 px-1 rounded">get_feed_v3</code>. (3){" "}
+              <code className="bg-black/30 px-1 rounded">posts</code> table has rows with{" "}
+              <code className="bg-black/30 px-1 rounded">video_url</code> or{" "}
+              <code className="bg-black/30 px-1 rounded">poster_url</code>.
             </p>
           </>
         ) : (
@@ -904,6 +520,10 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       </div>
     );
   }
+
+  const activeIndex = activePostId
+    ? items.findIndex((p) => p.id === activePostId)
+    : 0;
 
   return (
     <div className="relative h-full min-h-0">
@@ -936,12 +556,15 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
           allowBooking ||
           (sellable && creatorCanSell) ||
           (price > 0 && creatorCanSell);
+        // Virtualization: only mount the heavy VideoCard (and its <video>)
+        // near the viewport; distant sections keep their full-height slot so
+        // scroll-snap geometry and the IntersectionObserver keep working.
+        const isMounted = isWithinRenderWindow(idx, activeIndex);
 
           return (
             <section
-              key={`${p.id}-${idx}`}
+              key={p.id}
               className="snap-start snap-always lg:snap-always h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
-         
               data-post-id={p.id}
               ref={(el) => {
                 const map = sectionRefs.current;
@@ -954,49 +577,55 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             >
 
               <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
-
-                <VideoCard
-                  // media
-                  src={p.video_url || undefined}
-                  poster={p.poster_url || "/file.svg"}
-                  // meta
-                  creator={p.creator_name ?? "Creator"}
-                  creatorAvatarUrl={p.creator_avatar_url ?? null}
-                  caption={p.content || ""}
-                  hashtags={
-                    Array.isArray(p.hashtags) && p.hashtags.length
-                      ? p.hashtags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ")
-                      : Array.isArray(p.interests) && p.interests.length
-                        ? p.interests.map((t) => `#${t}`).join(" ")
-                        : "#entrepreneur #focus"
-                  }
-                  hashtagsList={Array.isArray(p.hashtags) ? p.hashtags : null}
-                  // social counts
-                  likes={p.likes_count ?? 0}
-                  comments={p.comments_count ?? 0}
-                  shares={p.shares_count ?? 0}
-                  // CTA & commerce
-                  showCTA={showCTA}
-                  postId={p.id}
-                  postCategory={normalizeCategory(p.interests?.[0] ?? null)}
-                  productId={p.product_id ?? null}
-                  creatorId={p.creator_id ?? null}
-                  creatorUsername={p.creator_username ?? null}
-                  priceCents={price}
-                  titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
-                  productType={p.product_type ?? null}
-                  showFollowButton={activeTab === "discover"}
-                  isFollowingCreator={p.is_following ?? false}
-                  onFollowChange={handleFollowChange}
-                  // booking
-                  allowBooking={allowBooking}
-                  bookingRedirectUrl={allowBooking ? p.booking_url! : null}
-                  soundEnabled={isSoundOn}
-                  onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
-                  mobileMuteButtonSide="left"
-                  tapToTogglePlayback
-                  isLiked={p.is_liked ?? false}
-                />
+                {isMounted ? (
+                  <VideoCard
+                    // media
+                    src={p.video_url || undefined}
+                    poster={p.poster_url || "/file.svg"}
+                    // meta
+                    creator={p.creator_name ?? "Creator"}
+                    creatorAvatarUrl={p.creator_avatar_url ?? null}
+                    caption={p.content || ""}
+                    hashtags={
+                      Array.isArray(p.hashtags) && p.hashtags.length
+                        ? p.hashtags.map((t) => (t.startsWith("#") ? t : `#${t}`)).join(" ")
+                        : Array.isArray(p.interests) && p.interests.length
+                          ? p.interests.map((t) => `#${t}`).join(" ")
+                          : "#entrepreneur #focus"
+                    }
+                    hashtagsList={Array.isArray(p.hashtags) ? p.hashtags : null}
+                    // social counts
+                    likes={p.likes_count ?? 0}
+                    comments={p.comments_count ?? 0}
+                    shares={p.shares_count ?? 0}
+                    // CTA & commerce
+                    showCTA={showCTA}
+                    postId={p.id}
+                    postCategory={normalizeCategory(p.interests?.[0] ?? null)}
+                    productId={p.product_id ?? null}
+                    creatorId={p.creator_id ?? null}
+                    creatorUsername={p.creator_username ?? null}
+                    priceCents={price}
+                    titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
+                    productType={p.product_type ?? null}
+                    showFollowButton={activeTab === "discover"}
+                    isFollowingCreator={p.is_following ?? false}
+                    onFollowChange={handleFollowChange}
+                    // booking
+                    allowBooking={allowBooking}
+                    bookingRedirectUrl={allowBooking ? p.booking_url! : null}
+                    soundEnabled={isSoundOn}
+                    onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+                    mobileMuteButtonSide="left"
+                    tapToTogglePlayback
+                    isLiked={p.is_liked ?? false}
+                  />
+                ) : (
+                  <div
+                    aria-hidden="true"
+                    className="w-full h-full bg-black"
+                  />
+                )}
               </div>
             </section>
           );
