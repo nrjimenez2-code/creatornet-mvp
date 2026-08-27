@@ -2,6 +2,7 @@
 
 import posthog from "posthog-js";
 import { useEffect } from "react";
+import { shouldSendEvent } from "@/lib/posthogSampling";
 
 export default function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -13,6 +14,12 @@ export default function PostHogProvider({ children }: { children: React.ReactNod
       capture_pageview: true,
       capture_pageleave: true,
       autocapture: false,
+      // Sample the highest-volume events (pageview/pageleave/video_impression)
+      // client-side; returning null drops the event before it is sent.
+      before_send: (event) => {
+        if (!event) return null;
+        return shouldSendEvent(event.event) ? event : null;
+      },
     });
   }, []);
 
