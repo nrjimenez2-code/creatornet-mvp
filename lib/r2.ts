@@ -16,8 +16,10 @@ export const R2_BUCKET = process.env.R2_BUCKET_NAME ?? "creatornet-media";
 export const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL!;
 
 /**
- * Returns a presigned PUT URL valid for 5 minutes.
- * The client uploads the file directly to R2 — no proxying through Vercel.
+ * Returns a presigned PUT URL valid for 1 hour. The client uploads the file
+ * directly to R2 — no proxying through Vercel. The signature must outlive the
+ * whole upload: a 500MB video on a slow mobile connection can easily take
+ * longer than the old 5-minute window, which killed every such upload.
  */
 export async function createPresignedUploadUrl(
   key: string,
@@ -28,7 +30,7 @@ export async function createPresignedUploadUrl(
     Key: key,
     ContentType: contentType,
   });
-  return getSignedUrl(r2Client, cmd, { expiresIn: 300 });
+  return getSignedUrl(r2Client, cmd, { expiresIn: 3600 });
 }
 
 /** Turns an R2 object key into its public CDN URL. */
