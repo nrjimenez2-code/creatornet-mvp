@@ -9,6 +9,7 @@ import {
   IconGrid,
   IconPlaySquare,
   IconSearch,
+  IconStar,
   IconUsers,
 } from "@/components/admin/icons";
 import type { ReactNode } from "react";
@@ -32,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
     showFlagCount: true,
   },
   { href: "/admin/commerce", label: "Commerce", exact: false, icon: <IconCard size={17} /> },
+  { href: "/admin/reviews", label: "Reviews", exact: false, icon: <IconStar size={17} /> },
 ];
 
 function openPalette() {

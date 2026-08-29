@@ -6,6 +6,7 @@ import { useAdminData } from "@/components/admin/AdminDataContext";
 import { Avatar, StatusBadge, VideoThumb } from "@/components/admin/ui";
 import {
   IconCard,
+  IconStar,
   IconGrid,
   IconPlaySquare,
   IconSearch,
@@ -33,6 +34,7 @@ const PAGES = [
   { title: "Users & Creators", href: "/admin/users", icon: <IconUsers size={15} /> },
   { title: "Content", href: "/admin/content", icon: <IconPlaySquare size={15} /> },
   { title: "Commerce", href: "/admin/commerce", icon: <IconCard size={15} /> },
+  { title: "Reviews", href: "/admin/reviews", icon: <IconStar size={15} /> },
 ] as const;
 
 function rank(haystack: string, query: string): number {
