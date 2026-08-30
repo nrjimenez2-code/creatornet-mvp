@@ -22,8 +22,11 @@ export default function TermsPage() {
     <main>
       <h1 className="text-3xl font-bold">Terms of Service</h1>
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
+      {/* TODO(Noah): replace "the CreatorNet team" with the registered legal
+          entity, and supply a mailing address + governing-law state for
+          sections 8 and 10, before or at launch. */}
       <p className="mt-4 text-gray-700 leading-relaxed">
-        These Terms govern your use of CreatorNet, operated by [COMPANY LEGAL NAME]
+        These Terms govern your use of CreatorNet, operated by the CreatorNet team
         (&quot;CreatorNet&quot;, &quot;we&quot;, &quot;us&quot;). By accessing or using the
         service you agree to them. If you don&apos;t agree, don&apos;t use CreatorNet.
       </p>
@@ -106,10 +109,15 @@ export default function TermsPage() {
         </p>
       </Section>
 
-      <Section title="8. Governing law">
+      <Section title="8. Disputes">
         <p>
-          These Terms are governed by the laws of [GOVERNING LAW STATE], without regard to its
-          conflict-of-law rules, and disputes will be resolved in the courts located there.
+          If something goes wrong, contact{" "}
+          <a className="underline" href="mailto:support@creatornet.net">
+            support@creatornet.net
+          </a>{" "}
+          first — most issues can be resolved informally. Where a governing-law and venue
+          designation is required, it will be added to these Terms as CreatorNet&apos;s legal
+          setup is finalized and flagged as a material change.
         </p>
       </Section>
 
@@ -123,7 +131,6 @@ export default function TermsPage() {
 
       <Section title="10. Contact">
         <p>
-          [COMPANY LEGAL NAME], [MAILING ADDRESS] ·{" "}
           <a className="underline" href="mailto:support@creatornet.net">
             support@creatornet.net
           </a>

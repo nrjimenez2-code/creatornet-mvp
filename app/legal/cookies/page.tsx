@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AnalyticsOptOut from "@/components/AnalyticsOptOut";
 
 export const metadata: Metadata = {
   title: "Cookies Policy",
@@ -49,10 +50,12 @@ export default function CookiesPolicyPage() {
 
       <Section title="Opting out of analytics">
         <p>
-          Choose &quot;Decline analytics&quot; in the cookie notice, and PostHog stops
-          collecting from your browser. Your choice is remembered on this device. Blocking all
-          cookies in your browser also works, but will sign you out.
+          Choose &quot;Decline analytics&quot; in the cookie notice — or use the control below
+          any time — and PostHog stops collecting from your browser. Your choice is remembered
+          on this device. Blocking all cookies in your browser also works, but will sign you
+          out.
         </p>
+        <AnalyticsOptOut />
       </Section>
 
       <Section title="Contact">

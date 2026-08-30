@@ -30,7 +30,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .is("hidden_at", null)
       .is("removed_at", null)
       .limit(MAX_POST_ROWS);
-    if (postsError || !posts) return staticEntries;
+    if (postsError || !posts) {
+      console.error("[sitemap] posts query failed, serving static entries:", postsError);
+      return staticEntries;
+    }
 
     const creatorIds = [...new Set(posts.map((p) => p.creator_id).filter(Boolean))];
     if (creatorIds.length === 0) return staticEntries;
@@ -39,7 +42,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .from("profiles")
       .select("username")
       .in("id", creatorIds);
-    if (profilesError || !profiles) return staticEntries;
+    if (profilesError || !profiles) {
+      console.error("[sitemap] profiles query failed, serving static entries:", profilesError);
+      return staticEntries;
+    }
 
     const creatorEntries: MetadataRoute.Sitemap = profiles
       .filter((p): p is { username: string } => typeof p.username === "string" && p.username.length > 0)
@@ -50,7 +56,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }));
 
     return [...staticEntries, ...creatorEntries];
-  } catch {
+  } catch (err) {
+    console.error("[sitemap] creator lookup threw, serving static entries:", err);
     return staticEntries;
   }
 }

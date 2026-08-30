@@ -21,7 +21,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const router = useRouter();
   const searchParams = useSearchParams();
   const supabase = useMemo(() => createClient(), []);
-  const { userId } = useUser();
+  const { userId, loading: authLoading } = useUser();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [stripeGateOpen, setStripeGateOpen] = useState(false);
   const [createChecking, setCreateChecking] = useState(false);
@@ -270,8 +270,11 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       </div>
 
       {/* MOBILE BOTTOM: signed-out visitors get a sticky join CTA in the slot
-          the nav occupies; signed-in users get the TikTok-style nav. */}
-      {!userId ? (
+          the nav occupies; signed-in users get the TikTok-style nav. Nothing
+          renders until the auth context settles — the session is seeded async,
+          so branching on !userId alone would flash the signed-out CTA at
+          every signed-in user on first paint. */}
+      {authLoading ? null : !userId ? (
         <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
           <div className="flex h-[52px] items-center justify-between gap-3 px-4">
             <p className="min-w-0 truncate text-xs text-white/70">

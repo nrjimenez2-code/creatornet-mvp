@@ -23,11 +23,13 @@ export default function PrivacyPolicyPage() {
       <h1 className="text-3xl font-bold">Privacy Policy</h1>
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
 
+      {/* TODO(Noah): add the registered legal entity and mailing address here
+          before or at launch. */}
       <Section title="Who we are">
         <p>
           CreatorNet is a platform where creators share short videos and sell products,
-          courses, and 1-on-1 calls. It is operated by [COMPANY LEGAL NAME], [MAILING
-          ADDRESS]. For anything privacy-related, contact{" "}
+          courses, and 1-on-1 calls, operated by the CreatorNet team. For anything
+          privacy-related, contact{" "}
           <a className="underline" href="mailto:privacy@creatornet.net">
             privacy@creatornet.net
           </a>
@@ -85,8 +87,9 @@ export default function PrivacyPolicyPage() {
             is collected and stored by Stripe, not us.
           </li>
           <li>
-            <strong>PostHog</strong> (US cloud) — product analytics. You can opt out via the
-            cookie notice or your browser settings.
+            <strong>PostHog</strong> (US cloud) — product analytics. You can opt out of
+            analytics collected from your browser via the cookie notice or the control on
+            our Cookies Policy page.
           </li>
           <li>
             <strong>Sentry</strong> — error reporting, including on-error screen replay as
@@ -116,7 +119,12 @@ export default function PrivacyPolicyPage() {
       <Section title="Your choices">
         <ul className="list-disc pl-6 space-y-2">
           <li>Update your profile at any time from the app.</li>
-          <li>Opt out of analytics via the cookie notice (&quot;Decline analytics&quot;).</li>
+          <li>
+            Opt out of analytics collected from your browser via the cookie notice
+            (&quot;Decline analytics&quot;) or the control on our Cookies Policy page. A small
+            number of events our servers record to run the service — like completed
+            purchases — aren&apos;t affected by this browser setting.
+          </li>
           <li>
             Request access to, or deletion of, your data by emailing{" "}
             <a className="underline" href="mailto:privacy@creatornet.net">
