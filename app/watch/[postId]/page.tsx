@@ -244,6 +244,7 @@ export default function WatchPage() {
                 className="h-full w-full object-contain bg-black"
                 src={post.video_url}
                 poster={post.poster_url || undefined}
+                aria-label={post.title ?? "Video"}
                 controls
                 playsInline
                 id="watch-video-player"
@@ -311,9 +312,10 @@ export default function WatchPage() {
           <div className="flex items-center gap-3 flex-1 min-w-0">
             <div className="h-12 w-12 sm:h-14 sm:w-14 overflow-hidden rounded-full border border-white/30 bg-white/10 flex-shrink-0">
               {/* eslint-disable-next-line @next/next/no-img-element */}
+              {/* Decorative: the creator's name is the adjacent link text. */}
               <img
                 src={post.creator?.avatar_url || DEFAULT_AVATAR_URL}
-                alt={displayCreator}
+                alt=""
                 className="h-full w-full object-cover"
               />
             </div>

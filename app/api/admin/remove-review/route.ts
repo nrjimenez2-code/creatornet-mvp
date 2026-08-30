@@ -46,7 +46,10 @@ export async function POST(req: NextRequest) {
     admin = ctx.admin;
   } catch (err) {
     if (err instanceof AdminAuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
+      // Fixed strings, not err.message: route files must never echo a caught
+      // error's message to the browser (api-errors-headers tripwire).
+      const message = err.status === 401 ? "Not signed in" : "Admin role required";
+      return NextResponse.json({ error: message }, { status: err.status });
     }
     console.error("[admin:remove_review] auth check failed:", err);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });

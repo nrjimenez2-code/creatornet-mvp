@@ -268,12 +268,13 @@ export default function TagFeedPage() {
                 key={p.id}
                 type="button"
                 onClick={() => openModal(index)}
+                aria-label={`Open post: ${p.title || p.content || "untitled"}`}
                 className="group relative flex aspect-square items-center justify-center overflow-hidden bg-white/5 border border-white/10 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
               >
                 {p.poster_url ? (
                   <img
                     src={p.poster_url}
-                    alt="Post thumbnail"
+                    alt=""
                     className="h-full w-full object-cover transition group-hover:scale-105"
                     loading="lazy"
                   />

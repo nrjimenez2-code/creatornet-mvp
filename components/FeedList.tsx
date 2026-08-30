@@ -504,15 +504,17 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
       <div className="w-full flex flex-col items-center justify-center py-10 px-4 text-center">
         {feedError ? (
           <>
-            <p className="text-sm text-red-400 font-medium mb-1">Error loading feed</p>
-            <p className="text-xs text-gray-500 max-w-md mb-3">{feedError}</p>
-            <p className="text-xs text-gray-600">
-              Check: (1) Browser console for details. (2) Supabase project has RPC{" "}
-              <code className="bg-black/30 px-1 rounded">get_feed_v3</code>. (3){" "}
-              <code className="bg-black/30 px-1 rounded">posts</code> table has rows with{" "}
-              <code className="bg-black/30 px-1 rounded">video_url</code> or{" "}
-              <code className="bg-black/30 px-1 rounded">poster_url</code>.
+            <p className="text-sm text-red-400 font-medium mb-1">Couldn&apos;t load the feed</p>
+            <p className="text-xs text-gray-500 max-w-md mb-3">
+              Something went wrong on our end. Give it another try.
             </p>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-full border border-gray-700 px-4 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-900 transition-colors"
+            >
+              Try again
+            </button>
           </>
         ) : (
           <p className="text-sm text-gray-500">No posts yet.</p>
@@ -581,7 +583,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                   <VideoCard
                     // media
                     src={p.video_url || undefined}
-                    poster={p.poster_url || "/file.svg"}
+                    poster={p.poster_url || undefined}
                     // meta
                     creator={p.creator_name ?? "Creator"}
                     creatorAvatarUrl={p.creator_avatar_url ?? null}

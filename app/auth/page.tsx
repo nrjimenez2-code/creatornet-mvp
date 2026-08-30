@@ -30,8 +30,11 @@ export default function AuthPage() {
         .maybeSingle();
 
       if (error) {
+        // Signed in but the interests check failed — don't strand the user on
+        // the auth page looking like the login did nothing. The feed is the
+        // safe default; onboarding re-offers itself from there if needed.
         console.error("Profile check error:", error);
-        setChecking(false);
+        router.replace("/dashboard");
         return;
       }
 
@@ -51,7 +54,10 @@ export default function AuthPage() {
   const [input, setInput] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [msgKind, setMsgKind] = useState<"info" | "error">("info");
   const [sending, setSending] = useState(false);
+  const [oauthPending, setOauthPending] = useState<"google" | "apple" | null>(null);
+  const [oauthError, setOauthError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
 
   // Spotlight state
@@ -98,8 +104,10 @@ export default function AuthPage() {
       });
       if (error) throw error;
       trackEvent("signup_completed", { method: "email" });
+      setMsgKind("info");
       setMsg("📧 Check your inbox for the sign-in link!");
     } catch (err: any) {
+      setMsgKind("error");
       setMsg(err?.message ?? "Something went wrong.");
     } finally {
       setSending(false);
@@ -107,8 +115,12 @@ export default function AuthPage() {
   }
 
   async function oauth(provider: "google" | "apple") {
+    if (oauthPending) return;
+    setOauthPending(provider);
+    setOauthError(null);
+
     // Use production URL if available, otherwise use current origin
-    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL 
+    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL
       ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "")}/auth`
       : `${window.location.origin}/auth`;
 
@@ -116,7 +128,12 @@ export default function AuthPage() {
       provider,
       options: { redirectTo: redirectUrl },
     });
-    if (error) alert(error.message);
+    if (error) {
+      setOauthError(error.message || "Couldn't start sign-in. Try again.");
+      setOauthPending(null);
+    }
+    // On success the browser navigates to the provider — keep pending so the
+    // buttons stay disabled during the redirect.
   }
 
   // Spotlight handlers (only when motion is OK)
@@ -189,12 +206,15 @@ export default function AuthPage() {
         <p className="mt-1 text-[15px] font-semibold text-[#9370DB]">
           Scroll, Learn, Earn.
         </p>
+        <p className="mt-2 text-[13px] text-gray-500">
+          Short videos from creators who teach. Free to join.
+        </p>
 
         <button
           onClick={() => setShowForm(!showForm)}
           className="w-full mt-6 py-3 text-[15px] font-semibold text-white bg-[#9370DB] rounded-md shadow-md hover:scale-[1.015] hover:shadow-lg active:scale-[0.99] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
         >
-          Email
+          Continue with email
         </button>
 
         <div className="relative my-4">
@@ -210,23 +230,33 @@ export default function AuthPage() {
 
         <button
           onClick={() => oauth("apple")}
-          className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-md py-2.5 mb-2 bg-white hover:bg-gray-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+          disabled={oauthPending !== null}
+          aria-busy={oauthPending === "apple"}
+          className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-md py-2.5 mb-2 bg-white hover:bg-gray-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <AppleIcon className="w-5 h-5 text-black" />
           <span className="font-medium text-gray-800 text-[14.5px]">
-            Continue with Apple
+            {oauthPending === "apple" ? "Opening Apple…" : "Continue with Apple"}
           </span>
         </button>
 
         <button
           onClick={() => oauth("google")}
-          className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-md py-2.5 bg-white hover:bg-gray-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+          disabled={oauthPending !== null}
+          aria-busy={oauthPending === "google"}
+          className="w-full flex items-center justify-center gap-2 border border-gray-200 rounded-md py-2.5 bg-white hover:bg-gray-50 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2 disabled:opacity-60 disabled:cursor-not-allowed"
         >
           <GoogleIcon className="w-5 h-5" />
           <span className="font-medium text-gray-800 text-[14.5px]">
-            Continue with Google
+            {oauthPending === "google" ? "Opening Google…" : "Continue with Google"}
           </span>
         </button>
+
+        {oauthError && (
+          <p className="mt-2 text-xs text-red-600" role="alert">
+            {oauthError}
+          </p>
+        )}
 
         {showForm && (
           <div className="mt-6 text-left" aria-live="polite">
@@ -252,7 +282,14 @@ export default function AuthPage() {
                 {sending ? "Sending…" : "Send sign-in link"}
               </button>
               {msg && (
-                <p className="text-xs text-center text-gray-600 mt-1">{msg}</p>
+                <p
+                  role={msgKind === "error" ? "alert" : "status"}
+                  className={`text-xs text-center mt-1 ${
+                    msgKind === "error" ? "text-red-600" : "text-gray-600"
+                  }`}
+                >
+                  {msg}
+                </p>
               )}
             </form>
           </div>

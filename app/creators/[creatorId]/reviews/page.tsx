@@ -1,11 +1,44 @@
 import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import BackButton from "@/components/BackButton";
 import ReviewForm from "@/components/ReviewForm";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { creatorId } = await params;
+  const id = creatorId?.trim();
+  if (!id) return { title: "Reviews" };
+  try {
+    const byId = await supabaseAdmin
+      .from("profiles")
+      .select("username, full_name")
+      .eq("id", id)
+      .maybeSingle();
+    const profile =
+      byId.data ??
+      (
+        await supabaseAdmin
+          .from("profiles")
+          .select("username, full_name")
+          .eq("username", id)
+          .maybeSingle()
+      ).data;
+    const name = profile?.full_name || profile?.username;
+    return {
+      title: name ? `Reviews for ${name}` : "Reviews",
+      description: name
+        ? `What buyers say about ${name} on CreatorNet.`
+        : "Creator reviews on CreatorNet.",
+    };
+  } catch {
+    return { title: "Reviews" };
+  }
+}
 
 type ReviewRecord = {
   id?: string;

@@ -21,17 +21,28 @@ export default function EditProfilePage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  // If the profile never loaded, saving would overwrite real fields with
+  // empties — block the form until a reload succeeds.
+  const [loadFailed, setLoadFailed] = useState(false);
 
   // Load current profile (signed-out users are redirected by useRequireUser)
   useEffect(() => {
     if (loading || !userId) return;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
         .select("username, tagline, avatar_url, bio")
         .eq("id", userId)
         .maybeSingle();
 
+      if (error) {
+        console.error("Profile load failed:", error);
+        setLoadFailed(true);
+        setErr("Couldn't load your profile. Refresh the page before editing — saving now could overwrite your info.");
+        return;
+      }
+
+      setLoadFailed(false);
       setUsername(data?.username ?? session?.user?.email?.split("@")[0] ?? "");
       setTagline(data?.tagline ?? "");
       setAvatarUrl(data?.avatar_url ?? "");
@@ -42,6 +53,7 @@ export default function EditProfilePage() {
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (loadFailed) return;
     setSaving(true);
     setErr(null);
     setMsg(null);
@@ -224,7 +236,7 @@ export default function EditProfilePage() {
         <div className="flex gap-3">
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || loadFailed}
             className="rounded-xl bg-[#4A35C7] px-4 py-2 text-white font-medium disabled:opacity-60"
             suppressHydrationWarning
           >

@@ -23,16 +23,6 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
   },
-
-  async redirects() {
-    return [
-      {
-        source: "/",
-        destination: "/auth",
-        permanent: false,
-      },
-    ];
-  },
 };
 
 // Sentry config - sourcemap upload will be skipped if SENTRY_AUTH_TOKEN is not set

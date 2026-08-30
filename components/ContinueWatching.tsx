@@ -144,7 +144,7 @@ export default function ContinueWatching() {
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={post.poster_url}
-                    alt={post.title ?? "Video"}
+                    alt=""
                     className="w-full h-full object-cover"
                     loading="lazy"
                   />

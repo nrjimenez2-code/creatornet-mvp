@@ -28,6 +28,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  // Bumped after a successful post: remounts FeedList so the new post shows up.
+  const [feedRefreshKey, setFeedRefreshKey] = useState(0);
 
   const closeStripeGate = useCallback(() => setStripeGateOpen(false), []);
   const openComposerAfterStripe = useCallback(() => setIsComposerOpen(true), []);
@@ -205,7 +207,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={avatarUrl || DEFAULT_AVATAR_URL}
-                    alt="Profile avatar"
+                    alt=""
                     className="h-full w-full object-cover"
                   />
                 </span>
@@ -256,16 +258,34 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           </div>
         </aside>
 
-        {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll */}
-        <div className="h-screen min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
+        {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll.
+            100dvh (not h-screen=100vh) so the container matches the 100dvh snap
+            sections when the mobile URL bar is visible. */}
+        <div className="h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
+            <FeedList key={feedRefreshKey} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
           </div>
         </div>
       </div>
 
-      {/* MOBILE BOTTOM NAV (TikTok style) */}
+      {/* MOBILE BOTTOM: signed-out visitors get a sticky join CTA in the slot
+          the nav occupies; signed-in users get the TikTok-style nav. */}
+      {!userId ? (
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
+          <div className="flex h-[52px] items-center justify-between gap-3 px-4">
+            <p className="min-w-0 truncate text-xs text-white/70">
+              Follow creators and unlock their offers
+            </p>
+            <Link
+              href="/auth"
+              className="btn-icon-small flex-shrink-0 rounded-full bg-[#4A35C7] px-4 py-1.5 text-sm font-semibold text-white hover:brightness-95 transition"
+            >
+              Join CreatorNet
+            </Link>
+          </div>
+        </div>
+      ) : (
       <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
         <div className="grid grid-cols-5 h-[52px]">
           <button
@@ -324,7 +344,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             <span className="h-6 w-6 rounded-full border border-white/25 bg-white/10 overflow-hidden flex items-center justify-center">
               <img
                 src={avatarUrl || DEFAULT_AVATAR_URL}
-                alt="Profile avatar"
+                alt=""
                 className="h-full w-full object-cover"
               />
             </span>
@@ -332,6 +352,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           </Link>
         </div>
       </nav>
+      )}
 
       {/* SEARCH DRAWER */}
       <SearchDrawer open={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
@@ -360,7 +381,10 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       />
 
       {isComposerOpen && (
-        <PostComposerModal onClose={() => setIsComposerOpen(false)} />
+        <PostComposerModal
+          onClose={() => setIsComposerOpen(false)}
+          onPosted={() => setFeedRefreshKey((k) => k + 1)}
+        />
       )}
     </section>
   );
