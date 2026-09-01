@@ -35,6 +35,13 @@ export default function WatchPage() {
   );
 
   const [post, setPost] = useState<Post | null>(null);
+  // The downloadable file a buyer actually paid for. GET /api/watch/[postId]
+  // re-checks entitlement server-side and returns a short-lived signed URL;
+  // 404 simply means this post has no premium file attached.
+  const [premiumUrl, setPremiumUrl] = useState<string | null>(null);
+  const [premiumState, setPremiumState] = useState<"idle" | "none" | "error">(
+    "idle"
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -99,17 +106,34 @@ export default function WatchPage() {
 
       let creatorProfile: Post["creator"] = null;
       if (data.creator_id) {
-        const { data: creatorData } = await supabase
-          .from("profiles")
-          .select("full_name, username, avatar_url")
-          .eq("id", data.creator_id)
-          .maybeSingle();
-        if (creatorData) {
-          creatorProfile = {
-            full_name: creatorData.full_name ?? null,
-            username: creatorData.username ?? null,
-            avatar_url: creatorData.avatar_url ?? null,
-          };
+        // Via /api/profiles, not a direct table read: public.profiles has no
+        // cross-user SELECT policy, so this returned null for every creator
+        // except yourself and the page showed a purchased video with no
+        // attribution at all.
+        try {
+          const res = await fetch(
+            `/api/profiles?ids=${encodeURIComponent(data.creator_id)}`,
+            { credentials: "include" }
+          );
+          if (res.ok) {
+            const { profiles } = (await res.json()) as {
+              profiles?: {
+                full_name: string | null;
+                username: string | null;
+                avatar_url: string | null;
+              }[];
+            };
+            const creatorData = profiles?.[0];
+            if (creatorData) {
+              creatorProfile = {
+                full_name: creatorData.full_name ?? null,
+                username: creatorData.username ?? null,
+                avatar_url: creatorData.avatar_url ?? null,
+              };
+            }
+          }
+        } catch {
+          // Attribution is not worth failing the whole page for.
         }
       }
 
@@ -169,6 +193,36 @@ export default function WatchPage() {
     return () => video.removeEventListener("timeupdate", saveProgress);
   }, [post]);
 
+
+  // Fetch the premium file's signed URL. Until this existed, a buyer could pay
+  // for a post with an attached file and had no way to get it: nothing in the
+  // app called either route that can sign it.
+  useEffect(() => {
+    if (!post?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/watch/${post.id}`, {
+          credentials: "include",
+        });
+        if (cancelled) return;
+        if (res.ok) {
+          const { url } = (await res.json()) as { url?: string };
+          setPremiumUrl(url ?? null);
+          setPremiumState(url ? "idle" : "none");
+        } else if (res.status === 404) {
+          setPremiumState("none"); // no premium file on this post
+        } else {
+          setPremiumState("error");
+        }
+      } catch {
+        if (!cancelled) setPremiumState("error");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [post?.id]);
   if (loading) {
     return (
       <main className="relative flex items-center justify-center min-h-screen text-gray-500">
@@ -234,6 +288,32 @@ export default function WatchPage() {
           {post.title ?? "Video"}
         </h1>
       </div>
+
+      {premiumUrl && (
+        <div className="mb-4 rounded-xl border border-white/15 bg-white/5 px-4 py-3">
+          <p className="text-sm font-medium text-white">Your download is ready</p>
+          <p className="mt-0.5 text-xs text-white/60">
+            This is the file included with your purchase. The link expires in an
+            hour — reload this page for a fresh one.
+          </p>
+          <a
+            href={premiumUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-3 inline-flex items-center gap-2 rounded-lg bg-[#4A35C7] px-4 py-2 text-sm font-semibold text-white hover:brightness-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+          >
+            Download file
+          </a>
+        </div>
+      )}
+      {premiumState === "error" && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <p className="text-sm text-amber-200">
+            Your download could not be prepared. Reload the page to try again —
+            your purchase is safe.
+          </p>
+        </div>
+      )}
       
       <div className="mx-auto flex max-w-[3500px] justify-center">
         <div className="relative w-full rounded-2xl sm:rounded-[32px] border-4 sm:border-[14px] border-gray-200 bg-black/90 p-1 sm:px-2 sm:py-2 shadow-inner">
