@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
@@ -8,10 +9,18 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 // PATCH: Update a comment
+// Editing and deleting comments were the two mutating comment paths left
+// unlimited; creating one is already limited in ../route.ts.
+const COMMENT_EDIT_RATE = { limit: 30, windowMs: 60_000 };
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ postId: string; commentId: string }> }
 ) {
+  if (!allowRequest(clientKey(req), COMMENT_EDIT_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const { commentId } = await params;
     
@@ -104,6 +113,10 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ postId: string; commentId: string }> }
 ) {
+  if (!allowRequest(clientKey(req), COMMENT_EDIT_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const { postId, commentId } = await params;
     

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 
@@ -23,10 +24,18 @@ if (!SERVICE_ROLE_KEY) {
  * token and delete their bookings. The closers page already sends a real
  * token, so nothing changes for it.
  */
+// Cancelling a booking is rare and destructive; a script should not be able
+// to walk it.
+const BOOKING_DELETE_RATE = { limit: 20, windowMs: 60_000 };
+
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ bookingId: string }> }
 ) {
+  if (!allowRequest(clientKey(req), BOOKING_DELETE_RATE)) {
+    return tooManyRequests();
+  }
+
   const { bookingId } = await params;
   if (!bookingId) {
     return NextResponse.json({ error: "Missing booking id" }, { status: 400 });
