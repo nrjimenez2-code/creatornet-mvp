@@ -1,4 +1,5 @@
 import "server-only";
+import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import {
   createClient,
@@ -30,6 +31,25 @@ export class AdminAuthError extends Error {
     this.name = "AdminAuthError";
     this.status = status;
   }
+}
+
+/**
+ * Map a requireAdmin() failure onto its response. AdminAuthError carries only
+ * the two controlled literals thrown below — safe to show the caller. Anything
+ * else is unexpected: log server-side, return a generic 500.
+ *
+ * Lives here rather than inline in route files for the same reason
+ * lib/admin/moderation.ts hosts its own catch: the api-errors-headers
+ * tripwire scans the route files under app/api for `.message` egress and cannot tell a
+ * controlled message from a raw one. Bespoke admin routes that don't fit
+ * runModerationAction call this instead of hand-rolling the catch.
+ */
+export function adminAuthErrorResponse(err: unknown, action: string): NextResponse {
+  if (err instanceof AdminAuthError) {
+    return NextResponse.json({ error: err.message }, { status: err.status });
+  }
+  console.error(`[admin:${action}] auth check failed:`, err);
+  return NextResponse.json({ error: "Internal error" }, { status: 500 });
 }
 
 export interface AdminContext {

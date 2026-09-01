@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { AdminAuthError, requireAdmin } from "@/lib/admin/server";
+import { adminAuthErrorResponse, requireAdmin } from "@/lib/admin/server";
 
 export const runtime = "nodejs";
 
@@ -45,11 +45,7 @@ export async function POST(req: NextRequest) {
     actorId = ctx.user.id;
     admin = ctx.admin;
   } catch (err) {
-    if (err instanceof AdminAuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    }
-    console.error("[admin:remove_review] auth check failed:", err);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    return adminAuthErrorResponse(err, "remove_review");
   }
 
   let rawBody: unknown;

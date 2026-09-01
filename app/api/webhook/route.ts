@@ -7,6 +7,11 @@ import type Stripe from "stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// This handler's Stripe usage is local signature verification (no network
+// call), but it performs several DB writes per event; 60s is the same uniform
+// safety ceiling the other Stripe-touching routes get, so a slow night can't
+// have Vercel's 10s plan default drop a signed event mid-processing.
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;

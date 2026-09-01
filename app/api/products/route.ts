@@ -34,6 +34,12 @@ type ProductRow = {
 };
 
 // ---------------- GET ----------------
+export const runtime = "nodejs";
+// POST creates a Stripe product then a price — two sequential calls on the
+// shared 20s-timeout/2-retry client (lib/stripeClient.ts). Without maxDuration
+// Vercel's 10s plan default can kill the function between them.
+export const maxDuration = 60;
+
 export async function GET() {
   try {
     const supabase = await createSupabaseServer();

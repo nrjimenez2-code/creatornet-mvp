@@ -8,6 +8,10 @@ import { createServerClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Stripe calls are capped at 20s with 2 retries (lib/stripeClient.ts); without
+// maxDuration Vercel's 10s plan default can kill the function mid-call. 60s
+// covers the worst legitimate case and is allowed on every Vercel plan.
+export const maxDuration = 60;
 
 // Use bundled version
 const supabase = createAdminClient(

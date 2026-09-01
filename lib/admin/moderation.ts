@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
-import { AdminAuthError, requireAdmin } from "@/lib/admin/server";
+import { adminAuthErrorResponse, requireAdmin } from "@/lib/admin/server";
 import type { UserStatus, VideoStatus } from "@/types/admin";
 
 const TARGET_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
@@ -94,11 +94,7 @@ export async function runModerationAction<Row>(
     actorId = ctx.user.id;
     admin = ctx.admin;
   } catch (err) {
-    if (err instanceof AdminAuthError) {
-      return NextResponse.json({ error: err.message }, { status: err.status });
-    }
-    console.error(`[admin:${spec.action}] auth check failed:`, err);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    return adminAuthErrorResponse(err, spec.action);
   }
 
   let rawBody: unknown;
