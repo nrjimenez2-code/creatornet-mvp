@@ -1,6 +1,7 @@
 // app/api/products/route.ts
 import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripe } from "@/lib/stripe";
@@ -90,7 +91,16 @@ export async function GET() {
 }
 
 // ---------------- POST ----------------
+// Creating a product is a deliberate, infrequent act; 20/min is far above
+// honest use and well below what a script would want.
+const PRODUCT_RATE = { limit: 20, windowMs: 60_000 };
+
 export async function POST(req: Request) {
+  if (!allowRequest(clientKey(req), PRODUCT_RATE)) {
+    return tooManyRequests();
+  }
+
+
   try {
     const supabase = await createSupabaseServer();
 

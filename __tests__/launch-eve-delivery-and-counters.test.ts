@@ -11,6 +11,7 @@ process.env.NEXT_PUBLIC_SITE_URL = "https://www.creatornet.net";
 
 import { createMockClient, type MockClient, type Op } from "./__mocks__/supabaseQueryMock";
 import { purchaseTerminalFilter } from "@/lib/orderStatus";
+import { _resetRateLimits } from "@/lib/rateLimit";
 
 let db: MockClient;
 let authUser: { id: string } | null = { id: "buyer_1" };
@@ -29,6 +30,7 @@ jest.mock("@/lib/postCounters", () => ({ bumpPostComments: (...a: unknown[]) => 
 
 beforeEach(() => {
   jest.clearAllMocks();
+  _resetRateLimits();
   jest.resetModules();
   authUser = { id: "buyer_1" };
   bumpPostComments.mockResolvedValue({ count: 3, usedFallback: false });
@@ -175,8 +177,13 @@ describe("CN-02: confirm-purchase grants access", () => {
 // ---------------------------------------------------------------------------
 
 describe("CN-09: deleting a comment only affects its own post", () => {
+  // A real NextRequest always carries headers; the route now reads them for
+  // rate limiting, so the stub has to be at least this realistic.
   function req() {
-    return { } as any;
+    return new Request("https://x/api/posts/p/comments/c", {
+      method: "DELETE",
+      headers: { "x-forwarded-for": "5.5.5.5" },
+    }) as any;
   }
 
   /**
