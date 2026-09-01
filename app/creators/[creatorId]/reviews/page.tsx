@@ -230,7 +230,11 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
 
         {/* Review Form */}
         <div className="mt-10">
-          <ReviewForm creatorId={creatorId} />
+          {/* resolvedCreatorId, not the raw route param: this page is reachable
+              as /creators/<username>/reviews too, and posting a username into
+              reviews.creator_id (a uuid column) failed the cast, so the review
+              could never be submitted from a username URL. */}
+          <ReviewForm creatorId={resolvedCreatorId} />
         </div>
 
         <div className="mt-10 space-y-4">

@@ -24,6 +24,25 @@ export const ORDER_TERMINAL_STATUSES = ["refunded", "canceled"] as const;
 
 export type OrderStatus = "created" | "paid" | "refunded" | "canceled";
 
+/**
+ * The `purchases` half of the same idea.
+ *
+ * `purchases.status` has no CHECK constraint and a looser vocabulary than
+ * `orders.status` (pending | processing | active | paid | complete | refunded |
+ * failed), so this is an explicit list of the states a Stripe event must never
+ * move a row OUT of, rather than a full state machine.
+ *
+ * Once money has been given back or the charge failed, no later or replayed
+ * event may put the row back to paid — that is how a refunded buyer kept
+ * permanent access to the file they were refunded for.
+ */
+export const PURCHASE_TERMINAL_STATUSES = ["refunded", "failed"] as const;
+
+/** PostgREST `not.in` list form: `("refunded","failed")`. */
+export function purchaseTerminalFilter(): string {
+  return `(${PURCHASE_TERMINAL_STATUSES.map((s) => `"${s}"`).join(",")})`;
+}
+
 /** True if a transition from `from` to `to` is allowed by the rules above. */
 export function canTransition(from: string | null | undefined, to: OrderStatus): boolean {
   const f = (from ?? "created") as string;

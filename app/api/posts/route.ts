@@ -160,6 +160,27 @@ export async function POST(req: Request) {
     let productDropped = false;
 
     if (insErr?.message?.includes("posts_product_fk") && finalProductId) {
+      // Retrying without the product is only acceptable for a FREE post.
+      //
+      // This retry used to run unconditionally and kept `price_cents`, so a
+      // failed product link produced a post that advertises a price and has no
+      // product — and /api/checkout rejects those with "Missing product_id",
+      // meaning the Buy button is dead on arrival. 14 such rows exist in
+      // production. For a priced post the honest outcome is to fail, so the
+      // creator finds out now instead of discovering it when a buyer can't pay.
+      const isPriced = typeof price_cents === "number" && price_cents > 0;
+      if (isPriced) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "This post could not be linked to its product, so it cannot be sold. Please try attaching the product again.",
+            code: "PRODUCT_LINK_FAILED",
+          },
+          { status: 400 }
+        );
+      }
+
       productDropped = true;
       const retryResult = await supabaseAdmin
         .from("posts")

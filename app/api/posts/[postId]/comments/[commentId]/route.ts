@@ -122,14 +122,26 @@ export async function DELETE(
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    // Verify the comment belongs to the user
+    // Verify the comment belongs to the user AND to the post in the URL.
+    //
+    // post_id used to be neither selected nor checked, and the decrement below
+    // used the URL's postId. So deleting your own comment on post A via
+    // DELETE /api/posts/<B>/comments/<id> decremented post B's comments_count
+    // — any user could drive an unrelated post's counter to zero by repeatedly
+    // creating and deleting their own comments, while post A's counter was
+    // never decremented and inflated permanently.
     const { data: existingComment, error: fetchError } = await admin
       .from("comments")
-      .select("id, user_id")
+      .select("id, user_id, post_id")
       .eq("id", commentId)
       .single();
 
     if (fetchError || !existingComment) {
+      return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+    }
+
+
+    if (String(existingComment.post_id) !== String(postId)) {
       return NextResponse.json({ error: "Comment not found" }, { status: 404 });
     }
 
@@ -148,8 +160,9 @@ export async function DELETE(
       return NextResponse.json({ error: publicMessage("comments", deleteError, "Could not delete the comment.") }, { status: 500 });
     }
 
-    // Decrement comments_count atomically; never below zero.
-    const { count } = await bumpPostComments(admin, postId, -1);
+    // Decrement comments_count atomically; never below zero. Keyed on the
+    // comment's own post_id, which the check above has proven equals postId.
+    const { count } = await bumpPostComments(admin, String(existingComment.post_id), -1);
     const newCount = count ?? 0;
 
     return NextResponse.json({ 
