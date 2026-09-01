@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
 import { publicMessage } from "@/lib/apiError";
 import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
@@ -51,6 +52,12 @@ export async function POST(req: Request) {
     } = await supabase.auth.getUser();
     if (authErr || !user) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    // A banned account may not create anything. Fails open on a lookup error —
+    // see lib/bannedUser.ts.
+    if (await isUserBanned(supabase, user.id)) {
+      return bannedResponse();
     }
 
     const body = await req.json().catch(() => ({}));

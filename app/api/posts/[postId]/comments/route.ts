@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
 import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
@@ -115,6 +116,12 @@ export async function POST(
 
     if (authError || !user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // A banned account may not create anything. Fails open on a lookup error —
+    // see lib/bannedUser.ts.
+    if (await isUserBanned(supabase, user.id)) {
+      return bannedResponse();
     }
 
     const body = await req.json();
