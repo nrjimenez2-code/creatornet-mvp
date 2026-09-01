@@ -67,19 +67,28 @@ export default function EditProfilePage() {
         return;
       }
 
-      // Upsert with explicit id; conflict on 'id'
+      // NEVER .upsert() on public.profiles from the browser client.
+      //
+      // PostgREST compiles .upsert() to
+      //   INSERT ... ON CONFLICT ("id") DO UPDATE SET "id" = EXCLUDED."id", ...
+      // and migration 009 grants `authenticated` INSERT on `id` but NOT UPDATE.
+      // Every user who already has a profile row takes the DO UPDATE branch, so
+      // the save failed with 42501 permission denied — profile editing was
+      // broken for every existing user. This is the same bug that broke
+      // onboarding and was fixed in #108; that fix did not reach this page.
+      //
+      // A plain UPDATE touches only columns `authenticated` can write. The row
+      // always exists here: the page is only reachable for a signed-in user,
+      // and onboarding creates the row.
       const { error } = await supabase
         .from("profiles")
-        .upsert(
-          {
-            id: userId,
-            username: trimmedUsername,
-            tagline: tagline.trim() === "" ? null : tagline.trim(),
-            avatar_url: avatarUrl || null,
-            bio: bio.trim() === "" ? null : bio.trim(),
-          },
-          { onConflict: "id" }
-        );
+        .update({
+          username: trimmedUsername,
+          tagline: tagline.trim() === "" ? null : tagline.trim(),
+          avatar_url: avatarUrl || null,
+          bio: bio.trim() === "" ? null : bio.trim(),
+        })
+        .eq("id", userId);
 
       if (error) throw error;
 

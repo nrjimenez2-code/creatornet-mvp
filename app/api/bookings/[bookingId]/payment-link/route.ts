@@ -6,6 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { randomUUID } from "crypto";
+import { getSiteUrl } from "@/lib/siteUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,7 +21,10 @@ const SUPABASE_URL: string =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
+// See the note in app/api/stripe/connect/onboard/route.ts: a local fallback
+// to localhost poisons success/cancel URLs on the Vercel projects that do not
+// set NEXT_PUBLIC_SITE_URL.
+const SITE_URL = getSiteUrl();
 
 export async function POST(
   req: NextRequest,

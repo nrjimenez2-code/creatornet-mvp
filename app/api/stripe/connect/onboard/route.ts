@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { getSiteUrl } from "@/lib/siteUrl";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,10 +15,12 @@ export const maxDuration = 60;
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  process.env.NEXT_PUBLIC_BASE_URL ||
-  "http://localhost:3000";
+// getSiteUrl(), not a local fallback chain. Two of the three Vercel projects
+// do not set NEXT_PUBLIC_SITE_URL, and the local chain here ended at
+// "http://localhost:3000" — so on those deployments Stripe Connect onboarding
+// handed the creator return/refresh URLs pointing at their own machine and
+// onboarding could never complete. lib/siteUrl.ts exists for exactly this.
+const SITE_URL = getSiteUrl();
 
 function admin() {
   return createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {

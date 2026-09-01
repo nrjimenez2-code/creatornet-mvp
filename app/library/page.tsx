@@ -365,6 +365,10 @@ export default function LibraryPage() {
           <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
             <BackButton hrefOverride="/dashboard" />
           </div>
+          {/* `error` was set but never rendered, so a buyer whose purchases
+              failed to load saw a blank page with a back link — indistinguish-
+              able from "you own nothing". */}
+          <p className="mt-12">{error}</p>
           <div className="mt-4">
             <Link href="/dashboard" className="underline text-sm">
               Back to dashboard

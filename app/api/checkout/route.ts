@@ -152,7 +152,9 @@ export async function POST(req: NextRequest) {
 
       const { data: prod, error } = await supabase
         .from("products")
-        .select("id, product_id, title, type, amount_cents, price_cents, currency, creator_id")
+        .select(
+          "id, product_id, title, type, amount_cents, price_cents, currency, creator_id, discord_invite_url, whop_listing_url, deliver_url"
+        )
         .or(eitherIdFilter(["product_id", "id"], body.product_id))
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
@@ -206,6 +208,51 @@ export async function POST(req: NextRequest) {
           { error: "This post does not sell that product." },
           { status: 400 }
         );
+      }
+
+      // Refuse to take money for a digital product that has nothing to hand
+      // over.
+      //
+      // A "video" or "course" promises a file. The buyer gets it from
+      // posts.premium_path (signed by GET /api/watch/[postId]) or from a
+      // fulfillment link on the product. When a product of those types has
+      // NEITHER, the buyer pays and receives a 404 — the charge-and-deliver-
+      // nothing case. As of this commit that describes 16 live posts.
+      //
+      // Deliberately narrow: only the two types that promise a file are
+      // checked. Service products ("mentorship") and any type this code does
+      // not recognise are left alone, because for them the transaction is the
+      // booking or a conversation, not a download. Blocking those would cost
+      // the creator a legitimate sale.
+      const DIGITAL_GOOD_TYPES = new Set(["video", "course"]);
+      if (DIGITAL_GOOD_TYPES.has(productType)) {
+        const p = prod as {
+          discord_invite_url?: string | null;
+          whop_listing_url?: string | null;
+          deliver_url?: string | null;
+        };
+        const hasLink = Boolean(p.discord_invite_url || p.whop_listing_url || p.deliver_url);
+
+        let hasFile = false;
+        if (!hasLink && postId) {
+          const { data: postFile } = await supabase
+            .from("posts")
+            .select("premium_path")
+            .eq("id", postId)
+            .maybeSingle();
+          hasFile = Boolean(postFile?.premium_path);
+        }
+
+        if (!hasLink && !hasFile) {
+          return Response.json(
+            {
+              error:
+                "This creator hasn't attached the file yet, so it can't be purchased right now.",
+              code: "NO_DELIVERABLE",
+            },
+            { status: 409 }
+          );
+        }
       }
 
       const { data: orderRow, error: orderErr } = await supabase
@@ -304,10 +351,17 @@ export async function POST(req: NextRequest) {
         const interestCat = Array.isArray(post?.interests)
           ? ((post.interests[0] as string) ?? null)
           : null;
-        updateInterestScore(resolvedBuyerId, interestCat, 15);
+        // Fire-and-forget analytics: attach a catch so a rejected promise can
+        // never surface as an unhandled rejection and take down the invocation
+        // that is in the middle of returning a live Stripe checkout URL.
+        void updateInterestScore(resolvedBuyerId, interestCat, 15)?.catch?.((e: unknown) =>
+          console.warn("[checkout] updateInterestScore failed:", e)
+        );
       }
 
-      updatePostMetrics(postId, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null);
+      void updatePostMetrics(postId, { checkout_starts: 1 }, undefined, resolvedBuyerId ?? null)?.catch?.(
+        (e: unknown) => console.warn("[checkout] updatePostMetrics failed:", e)
+      );
 
       return Response.json({
         url: session.url,

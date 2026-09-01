@@ -6,7 +6,11 @@ import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
 import { splitFee } from "@/lib/money";
-import { ORDER_OPEN_STATUSES, ORDER_REFUNDABLE_STATUSES } from "@/lib/orderStatus";
+import {
+  ORDER_OPEN_STATUSES,
+  ORDER_REFUNDABLE_STATUSES,
+  purchaseTerminalFilter,
+} from "@/lib/orderStatus";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
@@ -512,7 +516,32 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
     .maybeSingle();
   if (findErr) throw new Error(`seed find error: ${findErr.message}`);
 
-  if (existing?.id) {
+  // Fall back to the (buyer_id, post_id) pair before giving up.
+  //
+  // `purchases` carries UNIQUE (buyer_id, post_id). /api/checkout writes a
+  // pending row on EVERY checkout start, and swallows the resulting duplicate
+  // error on the second start for the same post. So a buyer who abandons
+  // checkout once and completes it on a retry has a pending row keyed to the
+  // FIRST session id and nothing at all for the session that actually paid.
+  //
+  // Looking up by session_id alone missed that row, fell through to the insert
+  // below, hit the same unique constraint, swallowed it, and returned null —
+  // which made the caller skip fulfillment entirely: no access grant, no
+  // creator earnings, no purchase_completed event. The buyer was charged and
+  // got nothing. This lookup is what closes that path.
+  let resolved = existing;
+  if (!resolved && buyer_id && post_id) {
+    const { data: byPair, error: pairErr } = await admin
+      .from("purchases")
+      .select("id")
+      .eq("buyer_id", buyer_id)
+      .eq("post_id", post_id)
+      .maybeSingle();
+    if (pairErr) throw new Error(`seed pair-find error: ${pairErr.message}`);
+    if (byPair?.id) resolved = byPair;
+  }
+
+  if (resolved?.id) {
     const { data: upd, error: updErr } = await admin
       .from("purchases")
       .update({
@@ -532,11 +561,15 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
         access_granted: oneTimePaid,
         status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
       })
-      .eq("id", existing.id)
+      .eq("id", resolved.id)
+      // Same terminal-status guard as reconcilePaymentIntentSucceeded: a
+      // checkout.session.completed that arrives (or is retried) after a refund
+      // must not put the row back to paid and re-grant the file.
+      .not("status", "in", purchaseTerminalFilter())
       .select("id")
       .maybeSingle();
     if (updErr) throw new Error(`seed update error: ${updErr.message}`);
-    return upd?.id ?? existing.id;
+    return upd?.id ?? resolved.id;
   }
 
   const { data: ins, error: insErr } = await admin
@@ -567,7 +600,47 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
     throw new Error(`seed insert error: ${insErr.message}`);
   }
 
-  return ins?.id ?? null;
+  if (ins?.id) return ins.id;
+
+  // The insert lost a race against a concurrent delivery (or against a pending
+  // row written between the lookup above and here). Returning null used to make
+  // the caller skip fulfillment altogether, which is the worst possible outcome
+  // for a payment that has already been captured. Re-read the row the
+  // constraint is protecting and finish the job against it.
+  if (buyer_id && post_id) {
+    const { data: raced } = await admin
+      .from("purchases")
+      .select("id")
+      .eq("buyer_id", buyer_id)
+      .eq("post_id", post_id)
+      .maybeSingle();
+    if (raced?.id) {
+      const { error: raceUpdErr } = await admin
+        .from("purchases")
+        .update({
+          session_id: session.id,
+          payment_intent_id,
+          subscription_id,
+          order_id,
+          amount_cents,
+          currency,
+          access_granted: oneTimePaid,
+          status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
+        })
+        .eq("id", raced.id);
+      if (raceUpdErr) {
+        throw new Error(`seed race-update error: ${raceUpdErr.message}`);
+      }
+      return raced.id;
+    }
+  }
+
+  // Nothing to attach the payment to. Throw rather than return null so the
+  // claim is released and Stripe retries, instead of silently acknowledging a
+  // payment we never recorded.
+  throw new Error(
+    `seed could not resolve a purchases row for session ${session.id} (buyer=${buyer_id}, post=${post_id})`
+  );
 }
 
 async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Promise<boolean> {
@@ -694,14 +767,44 @@ async function handleInvoicePaymentSucceeded(inv: any) {
 
   const paid_count = (purchase.paid_count || 0) + 1;
   const target = purchase.target_months || 1;
+  const planComplete = paid_count >= target;
 
   await admin
     .from("purchases")
     .update({
       paid_count,
-      status: paid_count >= target ? "complete" : "active",
+      status: planComplete ? "complete" : "active",
     })
     .eq("id", purchase.id);
+
+  // Tell Stripe to stop once the plan is paid off.
+  //
+  // An "installment plan" is created as an open-ended monthly subscription
+  // (app/api/bookings/[bookingId]/payment-link). This block used to mark the
+  // purchase 'complete' at month N and nothing more — Stripe was never told to
+  // stop, so the buyer's card kept being charged every month, forever, after
+  // the plan was fully paid.
+  //
+  // Bounding it at creation time would be better (it would hold even if this
+  // webhook never fires), but stripe@19.3.0's Checkout SessionCreateParams
+  // does not accept `cancel_at` inside subscription_data, so the only place to
+  // do it is here. Best effort and swallowed on failure: a throw here would
+  // release the idempotency claim and make Stripe retry the whole invoice,
+  // which is a worse failure than a subscription that needs cancelling by hand.
+  if (planComplete && subscription_id) {
+    try {
+      await getStripe().subscriptions.update(subscription_id, {
+        cancel_at_period_end: true,
+      });
+      console.log("[webhook] installment plan complete, subscription set to cancel:", subscription_id);
+    } catch (e: any) {
+      console.error(
+        "[webhook] FAILED to cancel completed installment subscription — it will keep billing until cancelled by hand:",
+        subscription_id,
+        e?.message || e
+      );
+    }
+  }
 
   const bookingPaymentId =
     (inv?.metadata?.booking_payment_id as string) ||
@@ -803,7 +906,18 @@ async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
     patch.user_id = buyer;
     patch.buyer_id = buyer;
   }
-  const { error } = await admin.from("purchases").update(patch).eq("payment_intent_id", pi.id);
+  // Guard on the UPDATE itself, exactly as the orders write above does. Without
+  // this, a charge.refunded that already ran markRefunded (status='refunded',
+  // access_granted=false) was undone by a later or retried
+  // payment_intent.succeeded: the row went back to paid with access_granted
+  // true, and the refunded buyer kept the file. lib/orderStatus.ts states the
+  // invariant that every status write carries a guard; purchases was the one
+  // table where that was not true.
+  const { error } = await admin
+    .from("purchases")
+    .update(patch)
+    .eq("payment_intent_id", pi.id)
+    .not("status", "in", purchaseTerminalFilter());
   if (error && !/0 rows|No rows/i.test(error.message)) {
     console.warn("[webhook] reconcilePaymentIntentSucceeded purchases:", error.message);
   }
@@ -950,10 +1064,14 @@ export async function POST(req: NextRequest) {
               const category = Array.isArray(post?.interests)
                 ? ((post.interests[0] as string) ?? null)
                 : null;
-              updateInterestScore(buyerId, category, 25);
+              void updateInterestScore(buyerId, category, 25)?.catch?.((e: unknown) =>
+                console.warn("[webhook] updateInterestScore failed:", e)
+              );
             }
 
-            updatePostMetrics(postId ?? null, { purchases: 1 });
+            void updatePostMetrics(postId ?? null, { purchases: 1 })?.catch?.((e: unknown) =>
+              console.warn("[webhook] updatePostMetrics failed:", e)
+            );
 
             await bumpCreatorEarningsAndPostPurchase({
               creator_id: (session.metadata?.creator_id as string) || null,

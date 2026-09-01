@@ -5,6 +5,8 @@ import { getStripe } from "@/lib/stripeClient";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
+import { splitFee } from "@/lib/money";
+import { ORDER_OPEN_STATUSES, purchaseTerminalFilter } from "@/lib/orderStatus";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +39,39 @@ async function upsertPaidBySession(
   const creator_id = meta.creator_id ?? null;
 
   const buyer_id = callerId;
+  const order_id = meta.order_id ?? null;
+
+  // Finalize the order too.
+  //
+  // Every financial figure the admin dashboard shows — gross, platform fee,
+  // creator payout (lib/admin/commerce-data.ts) — is computed from `orders`
+  // rows with status='paid'. Only the webhook ever moved an order to paid, and
+  // it has never run for a checkout, so the dashboard read $0 while purchases
+  // recorded real sales. Guarded with the same .in(ORDER_OPEN_STATUSES) the
+  // webhook uses so this can never drag a refunded order back to paid.
+  if (order_id) {
+    const amount = amount_cents ?? 0;
+    const { feeCents, creatorCents } = splitFee(amount);
+    const { error: orderErr } = await supabase
+      .from("orders")
+      .update({
+        status: "paid",
+        stripe_checkout_session_id: sessionId,
+        stripe_payment_intent_id: payment_intent_id,
+        stripe_payment_id: payment_intent_id,
+        gross_amount: amount,
+        platform_fee: feeCents,
+        creator_amount: creatorCents,
+        currency: currency ?? "usd",
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order_id)
+      .in("status", ORDER_OPEN_STATUSES);
+    if (orderErr) {
+      // Never fail the buyer's confirmation over bookkeeping.
+      console.warn("[confirm-purchase] order finalize failed:", orderErr.message);
+    }
+  }
 
   // find existing purchase by session or PI
   let purchaseId: string | null = null;
@@ -61,6 +96,11 @@ async function upsertPaidBySession(
     }
   }
 
+  // A one-time payment that Stripe reports as paid. Subscriptions are advanced
+  // by invoice.payment_succeeded instead and must not be granted here.
+  const oneTimePaid =
+    session.mode === "payment" && session.payment_status === "paid" && !session.subscription;
+
   const updateFields: Record<string, any> = {
     status: "paid",
     paid_at: new Date().toISOString(),
@@ -71,15 +111,72 @@ async function upsertPaidBySession(
     creator_id,
     buyer_id,
     payment_intent_id,
+    // This route is the ONLY post-payment path the browser actually triggers
+    // (/success calls it as soon as Stripe redirects back). It used to set
+    // status='paid' and stop there — but both premium gates
+    // (/api/premium/access and GET /api/watch/[postId]) require
+    // access_granted, which only the webhook ever set. So a buyer whose
+    // payment was confirmed here still got a 402 when they tried to download
+    // the file they had just paid for. Granting here makes delivery work
+    // without depending on a webhook that has never fired in production.
+    access_granted: oneTimePaid,
   };
+
+  // Last resort: find the row by the (buyer_id, post_id) pair.
+  //
+  // This is the same fallback the webhook's seedPurchaseFromProductSession
+  // does, and it belongs here far more urgently: /success calls this route in
+  // the buyer's own browser the instant Stripe redirects back, and the webhook
+  // has never once fired for a checkout in production.
+  //
+  // `purchases` carries UNIQUE (buyer_id, post_id). /api/checkout writes a
+  // pending row on EVERY checkout start and swallows the resulting duplicate on
+  // the second, so a buyer who abandons checkout once and pays on the retry has
+  // a pending row keyed to the FIRST session id, carrying no payment intent,
+  // and nothing at all for the session that actually paid. Both lookups above
+  // then miss, the insert below violates that unique constraint and throws, and
+  // the buyer gets a 500 from the page whose entire job is to confirm their
+  // purchase — after the order finalize above has already booked the revenue.
+  // Six orders in production have exactly this shape.
+  let attachedToAnotherPayment = false;
+  if (!purchaseId && post_id) {
+    const byPair = await supabase
+      .from("purchases")
+      .select("id, payment_intent_id")
+      .eq("buyer_id", buyer_id)
+      .eq("post_id", post_id)
+      .maybeSingle();
+    const pairRow = byPair.data as { id?: string; payment_intent_id?: string | null } | null;
+    if (!byPair.error && pairRow?.id) {
+      purchaseId = pairRow.id;
+      // One row per (buyer, post) is a database constraint, so a SECOND
+      // purchase of the same post necessarily lands on the row the first one
+      // already owns. Leave that row's payment references alone in that case:
+      // payment_intent_id is itself UNIQUE, and the first charge's reference is
+      // the one worth keeping. Access was already granted, so the buyer still
+      // gets what they paid for and no longer sees a 500.
+      attachedToAnotherPayment =
+        Boolean(pairRow.payment_intent_id) && pairRow.payment_intent_id !== payment_intent_id;
+      if (attachedToAnotherPayment) {
+        delete updateFields.payment_intent_id;
+      } else {
+        // Point the row at the session that actually paid.
+        updateFields.session_id = sessionId;
+      }
+    }
+  }
 
   if (purchaseId) {
     const { data: updRow, error: updErr } = await supabase
       .from("purchases")
       .update(updateFields)
       .eq("id", purchaseId)
+      // Because this route now grants access, it also has to carry the same
+      // terminal-status guard the webhook does — otherwise a refunded buyer
+      // could re-open /success and hand themselves the file back.
+      .not("status", "in", purchaseTerminalFilter())
       .select("id,status")
-      .single();
+      .maybeSingle();
     if (updErr) throw new Error(updErr.message);
     status = updRow?.status ?? "paid";
   } else {
