@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
+import {
+  parseAuthErrorFromUrl,
+  friendlyAuthError,
+  urlWithoutAuthError,
+} from "@/lib/authError";
 
 const supabase = createClient();
 
@@ -59,6 +64,54 @@ export default function AuthPage() {
   const [oauthPending, setOauthPending] = useState<"google" | "apple" | null>(null);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
+
+  // -------- Surface a sign-in that failed --------
+  //
+  // A failed OAuth round-trip comes back to this page with the reason in the
+  // URL. lib/supabaseClient.ts uses the implicit flow, so that reason lands in
+  // the hash fragment. Nothing in the app read it, so a failed sign-in rendered
+  // an ordinary, error-free sign-in page — indistinguishable from "I clicked it
+  // and nothing happened", which is how this was reported to us.
+  //
+  // Verified against production before writing this: the hash is still intact
+  // seconds after load, so reading it from an effect is reliable and needs no
+  // race-avoiding tricks.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const parsed = parseAuthErrorFromUrl(window.location.search, window.location.hash);
+    if (!parsed) return;
+
+    // Our own words only — see lib/authError.ts for why the provider's text is
+    // never rendered.
+    //
+    // The set-state-in-effect rule below is disabled deliberately. It guards
+    // against effects that re-derive state React could compute during render.
+    // This is neither: it is a one-shot read of an external, immutable value
+    // (the URL the provider redirected us to), it runs only when a sign-in
+    // actually failed, and it cannot cascade because the dependency list is
+    // empty. Both render-time alternatives are worse here — a lazy useState
+    // initializer desynchronises server and client HTML, and useSyncExternalStore
+    // needs a module-level cache that would replay a stale error after a
+    // client-side navigation back to this page.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOauthError(friendlyAuthError(parsed));
+
+    // The provider's own wording is kept for diagnosis, where no victim can
+    // read it. This is also the first time an auth failure becomes visible in
+    // analytics at all.
+    console.warn("[auth] sign-in failed:", parsed.code, parsed.description);
+    trackEvent("auth_oauth_failed", {
+      error_code: parsed.code,
+      error_description: parsed.description,
+    });
+
+    // Take the failure out of the address bar so a refresh does not replay it.
+    window.history.replaceState(
+      null,
+      "",
+      urlWithoutAuthError(window.location.pathname, window.location.search, window.location.hash)
+    );
+  }, []);
 
   // Spotlight state
   const [spot, setSpot] = useState<{ x: string; y: string }>({
