@@ -237,15 +237,33 @@ export default function LibraryPage() {
           { username: string | null; full_name: string | null }
         >();
         if (creatorIds.length > 0) {
-          const { data: profs } = await supabase
-            .from("profiles")
-            .select("id, username, full_name")
-            .in("id", creatorIds);
-          for (const p of profs ?? []) {
-            profileById.set(p.id, {
-              username: p.username ?? null,
-              full_name: p.full_name ?? null,
-            });
+          // Via /api/profiles, not a direct table read: public.profiles has no
+          // cross-user SELECT policy (only `is_admin()` and `auth.uid() = id`),
+          // so reading another creator's row with the RLS-scoped browser client
+          // returns nothing and every item renders as an anonymous "Creator".
+          // That route is auth-gated and returns display columns only.
+          try {
+            const res = await fetch(
+              `/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
+              { credentials: "include" }
+            );
+            if (res.ok) {
+              const { profiles } = (await res.json()) as {
+                profiles?: {
+                  id: string;
+                  username: string | null;
+                  full_name: string | null;
+                }[];
+              };
+              for (const p of profiles ?? []) {
+                profileById.set(p.id, {
+                  username: p.username ?? null,
+                  full_name: p.full_name ?? null,
+                });
+              }
+            }
+          } catch {
+            // Names are decoration here — a failure must not blank the library.
           }
         }
 
