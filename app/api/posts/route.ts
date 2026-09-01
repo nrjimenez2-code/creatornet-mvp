@@ -29,11 +29,20 @@ async function enforceUploadSize(url: string | null, folder: UploadFolder): Prom
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 /**
  * POST /api/posts – create a post (server-side so product_id FK is verified with admin client)
  */
+// Creating a post involves an upload first, so this is naturally slow. Ten a
+// minute only ever catches automated posting.
+const CREATE_POST_RATE = { limit: 10, windowMs: 60_000 };
+
 export async function POST(req: Request) {
+  if (!allowRequest(`createPost:${clientKey(req)}`, CREATE_POST_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const supabase = createSupabaseServer();
     const {

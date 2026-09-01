@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
+
+// Reviews are rare and they move a creator's public rating, so this is the
+// tightest limit here. Ten a minute is far more than anyone writes honestly.
+const REVIEW_RATE = { limit: 10, windowMs: 60_000 };
 
 export async function POST(req: NextRequest) {
+  if (!allowRequest(`review:${clientKey(req)}`, REVIEW_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const supabase = createServerClient();
 

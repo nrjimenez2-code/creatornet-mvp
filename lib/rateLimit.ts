@@ -8,6 +8,27 @@
 // for a site this size, and it costs nothing to block. If stats inflation
 // becomes a real problem, swap the Map for Upstash/Redis behind the same
 // function signature.
+//
+// COVERAGE, and what is deliberately left alone.
+// Limited: post-metrics, interest-score, share, comments, likes, follow,
+// reviews, search/perform, upload/presign, and post creation.
+//
+// NOT limited, on purpose — do not "finish the job" by adding these:
+//   * /api/stripe/webhook and /api/webhook — these are Stripe's own calls.
+//     Refusing one drops a payment notification.
+//   * /api/checkout, /api/confirm-purchase, /api/premium/access — the money
+//     path. A false positive here means a buyer is charged and refused their
+//     file, which is far worse than the abuse it would prevent.
+//   * /api/auth/callback — refusing this breaks signing in.
+//   * /api/admin/* — already behind an admin check, and locking the founder
+//     out of his own moderation tools during a spike is the wrong trade.
+//   * /api/watch/progress — legitimately high-frequency (playback position).
+//
+// Keying is by IP, matching the existing routes. That is weaker than keying by
+// user id behind carrier NAT, which is why every limit here is set generously:
+// these numbers are meant to catch scripts, not people.
+
+import { NextResponse } from "next/server";
 
 type Bucket = { tokens: number; updatedAt: number };
 
@@ -67,4 +88,23 @@ export function clientKey(req: { headers: { get(name: string): string | null } }
 /** Test hook. */
 export function _resetRateLimits(): void {
   buckets.clear();
+}
+
+/**
+ * The standard response for a caller who has run out of budget.
+ *
+ * 429 with a Retry-After, so a well-behaved client backs off and a human sees
+ * a sentence rather than a stack trace. Routes where a refusal would break
+ * something the user cares about (a share, a metrics ping) should return their
+ * normal success shape with a `limited` flag instead — see
+ * app/api/posts/[postId]/share/route.ts.
+ */
+export function tooManyRequests(
+  message = "You're doing that a bit too fast. Wait a moment and try again.",
+  retryAfterSeconds = 60
+): NextResponse {
+  return NextResponse.json(
+    { error: message, code: "RATE_LIMITED" },
+    { status: 429, headers: { "Retry-After": String(retryAfterSeconds) } }
+  );
 }

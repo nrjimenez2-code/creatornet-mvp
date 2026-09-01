@@ -4,14 +4,23 @@ import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { bumpPostLikes } from "@/lib/postCounters";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+// Likes are tapped fast while scrolling, so this is set high on purpose: it is
+// here to stop a script inflating a post, not to police an enthusiastic user.
+const LIKE_RATE = { limit: 120, windowMs: 60_000 };
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ postId: string }> }
 ) {
+  if (!allowRequest(`like:${clientKey(req)}`, LIKE_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const { postId } = await params;
     

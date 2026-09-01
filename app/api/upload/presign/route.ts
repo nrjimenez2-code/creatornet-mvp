@@ -2,8 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { createPresignedUploadUrl, r2PublicUrl } from "@/lib/r2";
 import { isAllowedUpload, safeExtension, type UploadFolder } from "@/lib/uploadPolicy";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
+
+// Each call hands out a signed URL that can write to object storage. Thirty a
+// minute covers a real upload session with room to spare.
+const PRESIGN_RATE = { limit: 30, windowMs: 60_000 };
 
 export async function POST(req: NextRequest) {
+  if (!allowRequest(`presign:${clientKey(req)}`, PRESIGN_RATE)) {
+    return tooManyRequests();
+  }
+
   const supabase = await createServerSupabase();
   const {
     data: { user },
