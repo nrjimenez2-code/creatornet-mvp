@@ -12,6 +12,10 @@ import { updatePostMetrics } from "@/lib/updatePostMetrics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Stripe calls are capped at 20s with 2 retries (lib/stripeClient.ts); without
+// maxDuration Vercel's 10s plan default can kill the function mid-call. 60s
+// covers the worst legitimate case and is allowed on every Vercel plan.
+export const maxDuration = 60;
 
 // --- ENV ---
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;

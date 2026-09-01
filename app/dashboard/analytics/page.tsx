@@ -79,6 +79,36 @@ async function loadViewsSeries(
   return (data || []) as Point[];
 }
 
+// Spec P5 requires a Likes metric. Likes live in their own table (no
+// creator_id column), so count them through the likes.post_id -> posts.id
+// FK with an inner-join filter — one round trip, no client-side id list.
+// Live RLS (verified 2026-08-30): likes and posts SELECT are public, so the
+// session client can read both. Soft-fails to 0 like the loaders above, but
+// logs the failure so a broken query can't masquerade as a quiet week.
+async function loadLikes(
+  start: string,
+  end: string,
+  creatorId: string
+): Promise<number> {
+  const supabase = createServerClient();
+
+  // `end` is an inclusive date; count up to the start of the next day.
+  const endExclusive = new Date(`${end}T00:00:00Z`);
+  endExclusive.setUTCDate(endExclusive.getUTCDate() + 1);
+
+  const { count, error } = await supabase
+    .from("likes")
+    .select("id, posts!inner(creator_id)", { count: "exact", head: true })
+    .eq("posts.creator_id", creatorId)
+    .gte("created_at", `${start}T00:00:00Z`)
+    .lt("created_at", endExclusive.toISOString());
+  if (error) {
+    console.error("[analytics] likes count failed:", error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 // --- Page ----------------------------------------------------------
 
 export default async function AnalyticsPage() {
@@ -91,15 +121,18 @@ export default async function AnalyticsPage() {
     redirect("/auth");
   }
 
-  const [kpisResult, seriesResult] = await Promise.allSettled([
+  const [kpisResult, seriesResult, likesResult] = await Promise.allSettled([
     loadKpis(start, end, user.id),
     loadViewsSeries(start, end, user.id),
+    loadLikes(start, end, user.id),
   ]);
 
   const kpis =
     kpisResult.status === "fulfilled" ? kpisResult.value : ({} as Kpis);
   const series: Point[] =
     seriesResult.status === "fulfilled" ? seriesResult.value : [];
+  const likes: number =
+    likesResult.status === "fulfilled" ? likesResult.value : 0;
 
   const safeKpis: Kpis = {
     views: kpis?.views ?? 0,
@@ -118,6 +151,7 @@ export default async function AnalyticsPage() {
 
   const cards = [
     { label: "Views", value: safeKpis.views.toLocaleString() },
+    { label: "Likes", value: likes.toLocaleString() },
     { label: "Unique Clicks", value: safeKpis.unique_clicks.toLocaleString() },
     { label: "Checkouts Started", value: safeKpis.checkouts_started.toLocaleString() },
     { label: "CTR", value: pct(ctr) },
