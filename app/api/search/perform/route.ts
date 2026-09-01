@@ -2,6 +2,7 @@
 import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 type CreatorHit = {
   id: string;
@@ -83,7 +84,15 @@ const postSelect = `
   likes_count
 `;
 
+// Unauthenticated and the most expensive query in the app. Sixty a minute is
+// generous for a person typing and cheap protection against a scraper.
+const SEARCH_RATE = { limit: 60, windowMs: 60_000 };
+
 export async function POST(req: Request) {
+  if (!allowRequest(`search:${clientKey(req)}`, SEARCH_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const { q } = (await req.json().catch(() => ({}))) as { q?: string };
     const query = (q ?? "").trim();

@@ -2,11 +2,20 @@ import { NextRequest, NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+// Follow/unfollow. Sixty a minute is far above human use and well below what a
+// follow-spam script wants.
+const FOLLOW_RATE = { limit: 60, windowMs: 60_000 };
+
 export async function POST(req: NextRequest) {
+  if (!allowRequest(`follow:${clientKey(req)}`, FOLLOW_RATE)) {
+    return tooManyRequests();
+  }
+
   try {
     const supabase = createServerClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
