@@ -86,14 +86,57 @@ export default function Page() {
     const lower = username.trim().toLowerCase();
     setSaving(true);
 
-    const { error } = await supabase
-      .from("profiles")
-      .update({ username: lower, interests: selected })
-      .eq("id", userId);
+    // INSERT first, then fall back to UPDATE. Signing up creates an auth user
+    // but NO profiles row (there is no database trigger), so the original
+    // `.update().eq("id", userId)` matched zero rows, returned no error, and
+    // sent the user to /dashboard having saved nothing — which bounced them
+    // straight back here on their next visit.
+    //
+    // Deliberately NOT `.upsert()`: PostgREST compiles it to
+    //   INSERT ... ON CONFLICT("id") DO UPDATE SET "id" = EXCLUDED."id", ...
+    // and migration 009 revoked table-level INSERT/UPDATE, granting
+    // `authenticated` INSERT on `id` but NOT UPDATE on it. The upsert therefore
+    // fails with 42501 permission denied before it ever runs. Verified against
+    // production: has_column_privilege(authenticated, profiles, id, UPDATE) is
+    // false, and pg_stat_statements shows PostgREST emitting the id assignment.
+    // Insert (id, username, interests) and update (username, interests) are
+    // both within the granted column lists.
+    let saveError = null as { code?: string; message: string } | null;
 
-    if (error) {
-      console.error(error);
-      setUsernameErr(error.message);
+    const insertRes = await supabase
+      .from("profiles")
+      .insert({ id: userId, username: lower, interests: selected });
+
+    if (insertRes.error) {
+      const isDuplicate = insertRes.error.code === "23505";
+      const isOwnRowConflict =
+        isDuplicate && /profiles_pkey/i.test(insertRes.error.message);
+
+      if (isOwnRowConflict) {
+        // The row already exists (a returning user, or a row created by the
+        // profile editor / Stripe onboarding). Update the two columns we own.
+        const updateRes = await supabase
+          .from("profiles")
+          .update({ username: lower, interests: selected })
+          .eq("id", userId);
+        saveError = updateRes.error;
+      } else {
+        saveError = insertRes.error;
+      }
+    }
+
+    if (saveError) {
+      console.error(saveError);
+      // A username taken between the availability check and this save comes
+      // back as a raw constraint violation; do not show that to the user.
+      const takenUsername =
+        saveError.code === "23505" &&
+        /profiles_username_unique/i.test(saveError.message);
+      setUsernameErr(
+        takenUsername
+          ? "That username was just taken — please pick another."
+          : "Could not save your profile. Please try again."
+      );
       setSaving(false);
       return;
     }
@@ -102,10 +145,15 @@ export default function Page() {
     router.replace("/dashboard");
   }
 
+  // Must match the gate in app/page.tsx, which sends the user back here when
+  // `!username || interests.length === 0`. If Continue were enabled with no
+  // interests picked, the profile would save and "/" would bounce them
+  // straight back — the same loop this page is being fixed for.
   const canContinue =
     !!userId &&
     username.trim().length >= 3 &&
-    (usernameOk === true || usernameOk === null);
+    usernameOk === true &&
+    selected.length > 0;
 
   const helperText = useMemo(() => {
     if (usernameErr) return usernameErr;
@@ -194,12 +242,6 @@ export default function Page() {
             {saving ? "Saving…" : "Continue"}
           </button>
 
-          <p
-            onClick={() => router.replace("/dashboard")}
-            className="text-sm text-gray-600 underline cursor-pointer text-center"
-          >
-            Skip for now
-          </p>
         </form>
       </div>
     </main>
