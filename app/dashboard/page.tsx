@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
@@ -10,7 +10,6 @@ import SearchDrawer from "@/components/SearchDrawer";
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import StripeConnectBanner from "@/components/StripeConnectBanner";
-import MobileStripeConnectGateModal from "@/components/MobileStripeConnectGateModal";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -23,16 +22,12 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const supabase = useMemo(() => createClient(), []);
   const { userId, loading: authLoading } = useUser();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
-  const [stripeGateOpen, setStripeGateOpen] = useState(false);
-  const [createChecking, setCreateChecking] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("discover");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   // Bumped after a successful post: remounts FeedList so the new post shows up.
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
 
-  const closeStripeGate = useCallback(() => setStripeGateOpen(false), []);
-  const openComposerAfterStripe = useCallback(() => setIsComposerOpen(true), []);
 
   // Check for postId in URL to highlight specific video
   useEffect(() => {
@@ -75,30 +70,21 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
     };
   }, [supabase, userId]);
 
-  /** Below `lg`, sidebar (and Stripe banner) are hidden — gate create post on Connect readiness. */
-  async function handleRequestCreatePost() {
-    if (typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches) {
-      setIsComposerOpen(true);
-      return;
-    }
-    setCreateChecking(true);
-    try {
-      const res = await fetch("/api/stripe/connect/status", { credentials: "include" });
-      if (!res.ok) {
-        setStripeGateOpen(true);
-        return;
-      }
-      const data = await res.json();
-      if (data.connected && data.onboarding_complete) {
-        setIsComposerOpen(true);
-      } else {
-        setStripeGateOpen(true);
-      }
-    } catch {
-      setStripeGateOpen(true);
-    } finally {
-      setCreateChecking(false);
-    }
+  /**
+   * Open the composer on every viewport.
+   *
+   * This used to gate below `lg` on Stripe Connect being fully onboarded, which
+   * blocked posting ANYTHING from a phone — including a free video — for any
+   * creator without Connect. That is stricter than the server, which only
+   * requires Connect when a post actually sells something
+   * (app/api/posts/route.ts: `selling && !isCreatorSellReady` → 403), and it is
+   * unnecessary: PostComposer already fetches the Connect status itself and,
+   * when it is not ready, disables the price and product controls and clears
+   * attachBuy/productId/price, so a non-connected creator can only produce a
+   * free post.
+   */
+  function handleRequestCreatePost() {
+    setIsComposerOpen(true);
   }
 
   // useEffect(() => {
@@ -320,12 +306,10 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           <button
             type="button"
             onClick={handleRequestCreatePost}
-            disabled={createChecking}
-            aria-busy={createChecking}
             className="flex flex-col items-center justify-center gap-1 text-xs text-white disabled:opacity-60"
           >
             <span className="inline-flex h-8 w-9 items-center justify-center rounded-md bg-[#4A35C7] text-white text-xl font-bold leading-none shadow-[0_0_18px_rgba(74,53,199,0.45)]">
-              <span className="-translate-y-[1px]">{createChecking ? "…" : "+"}</span>
+              <span className="-translate-y-[1px]">+</span>
             </span>
             <span>Create</span>
           </button>
@@ -364,8 +348,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       <button
         type="button"
         onClick={handleRequestCreatePost}
-        disabled={createChecking}
-        aria-busy={createChecking}
         className="
           hidden md:flex fixed left-5 bottom-5 z-40
           h-10 rounded-full bg-[#4A35C7] px-4 text-white text-sm font-semibold
@@ -373,15 +355,9 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           disabled:opacity-60
         "
       >
-        <span className="text-lg leading-none">{createChecking ? "…" : "+"}</span>
+        <span className="text-lg leading-none">+</span>
         Create post
       </button>
-
-      <MobileStripeConnectGateModal
-        open={stripeGateOpen}
-        onClose={closeStripeGate}
-        onReady={openComposerAfterStripe}
-      />
 
       {isComposerOpen && (
         <PostComposerModal
