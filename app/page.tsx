@@ -1,30 +1,14 @@
 import { redirect } from "next/navigation";
-import { createSupabaseServer } from "@/lib/supabaseServer";
+import { resolveOnboardingRedirect } from "@/lib/onboardingGate";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function Home() {
-  const supabase = await createSupabaseServer();
-
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-
-  if (!session) redirect("/auth");
-
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("username, interests")
-    .eq("id", session.user.id)
-    .maybeSingle();
-
-  const username = profile?.username;
-  const interests = Array.isArray(profile?.interests) ? profile!.interests : [];
-
-  if (!username || interests.length === 0) {
-    redirect("/onboarding");
-  }
+  // The check itself now lives in lib/onboardingGate.ts, shared with
+  // app/dashboard/layout.tsx so the two cannot drift apart.
+  const target = await resolveOnboardingRedirect();
+  if (target) redirect(target);
 
   redirect("/dashboard");
 }

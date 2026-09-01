@@ -54,7 +54,11 @@ const AUTH_CALL = /auth\s*\.\s*(getUser|getSession)\s*\(/;
  * app/ + components/ allowed to call auth.getUser()/getSession().
  */
 const SERVER_PAGE_EXCEPTIONS = [
-  "app/page.tsx",
+  // app/page.tsx was here until the onboarding gate moved into
+  // lib/onboardingGate.ts. It no longer touches supabase auth itself, and lib
+  // is deliberately out of this scan's scope (see the header). Removing it is
+  // what "the exception list is exact" asks for — the list should shrink as
+  // call sites migrate, never grow quietly.
   "app/access/[purchaseId]/page.tsx",
   "app/admin/layout.tsx",
   "app/creators/[creatorId]/page.tsx",

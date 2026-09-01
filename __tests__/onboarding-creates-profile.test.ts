@@ -82,10 +82,20 @@ describe("onboarding cannot exit into a state the root gate rejects", () => {
     expect(src).not.toMatch(/onClick=\{\(\)\s*=>\s*router\.replace\("\/dashboard"\)\}/);
   });
 
-  test("the root gate this file must satisfy has not moved", () => {
-    // If someone changes app/page.tsx's gate, this test should fail loudly so
-    // both sides get updated together.
-    const rootGate = read("app/page.tsx");
-    expect(rootGate).toMatch(/!username\s*\|\|\s*interests\.length\s*===\s*0/);
+  test("the gate this file must satisfy has not moved", () => {
+    // If someone changes the gate, this test should fail loudly so both sides
+    // get updated together. The gate used to be inline in app/page.tsx; it now
+    // lives in lib/onboardingGate.ts precisely so there is only one copy.
+    const gate = read("lib/onboardingGate.ts");
+    expect(gate).toMatch(/!username\s*\|\|\s*interests\.length\s*===\s*0/);
+  });
+
+  test("every entry point actually uses that one gate", () => {
+    // The gate used to exist only on "/", so a shared link landing on
+    // /dashboard walked straight past it. Both entry points must go through
+    // the shared helper, or the bypass comes back.
+    for (const rel of ["app/page.tsx", "app/dashboard/layout.tsx"]) {
+      expect(read(rel)).toMatch(/resolveOnboardingRedirect/);
+    }
   });
 });

@@ -145,10 +145,11 @@ export default function Page() {
     router.replace("/dashboard");
   }
 
-  // Must match the gate in app/page.tsx, which sends the user back here when
-  // `!username || interests.length === 0`. If Continue were enabled with no
-  // interests picked, the profile would save and "/" would bounce them
-  // straight back — the same loop this page is being fixed for.
+  // Must match resolveOnboardingRedirect() in lib/onboardingGate.ts, which
+  // sends the user back here when `!username || interests.length === 0`. That
+  // gate now runs on "/" AND on the /dashboard layout, so if Continue were
+  // enabled with no interests picked, the profile would save and the very next
+  // page would bounce them straight back — the same loop this page fixes.
   const canContinue =
     !!userId &&
     username.trim().length >= 3 &&
