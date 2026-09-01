@@ -1,0 +1,52 @@
+-- 018 — credit creator earnings exactly once per purchase.
+-- APPLIED to production 2026-09-01 (migrations 018_credit_purchase_earnings and
+-- 018b_fix_reverse_purchase_earnings_returning). This file is the record.
+-- Backup + rollback: ~/.creatornet/db-backup-2026-09-01-earnings-crediting/
+--
+-- WHY
+-- /api/confirm-purchase is the only post-payment path the browser actually
+-- triggers, and it never credited the creator. Only the webhook did, and the
+-- webhook has never fired for a checkout in production. A real sale would have
+-- delivered the file and shown revenue on the admin dashboard while the
+-- creator's balance stayed at 0. Verified before the change:
+--   sum(profiles.total_earnings_cents) = 0 across every creator.
+--
+-- WHY NOT JUST CALL THE OLD HELPER FROM BOTH PATHS
+-- bumpCreatorEarningsAndPostPurchase was a read-modify-write with no
+-- idempotency. Calling it from both paths would have paid the creator TWICE for
+-- one sale whenever both ran — worse than the bug it fixed. This replaces it
+-- with an atomic claim, which also removes its lost-update race (was 017 D).
+--
+-- VERIFIED AGAINST PRODUCTION inside a rolled-back DO block:
+--   credit  -> t, second credit  -> f, earnings 0->1234 (delta exactly 1234),
+--   purchase_count 0->1,
+--   reverse -> t, second reverse -> f, balances back to 0/0. ROUND TRIP CLEAN.
+--   Afterwards: sum(total_earnings_cents)=0, no claims left — rollback held.
+--
+-- NOTE ON 018b: the first cut of reverse_purchase_earnings read the credited
+-- amount with `UPDATE ... SET earnings_credited_cents = null ... RETURNING
+-- earnings_credited_cents`. RETURNING yields the NEW row, which had just been
+-- nulled, so the reversal always refunded nothing while reporting success. The
+-- check block caught it before any real money existed. 018b takes the old value
+-- under a FOR UPDATE lock first.
+
+alter table public.purchases
+  add column if not exists earnings_credited_at    timestamptz,
+  add column if not exists earnings_credited_cents integer;
+
+-- credit_purchase_earnings(purchase, creator_cents) -> did THIS call credit?
+--   * atomic claim on earnings_credited_at IS NULL, so exactly one caller wins
+--   * refuses refunded/failed purchases
+--   * single-statement increments, so no lost updates
+--
+-- reverse_purchase_earnings(purchase) -> did THIS call reverse?
+--   * releases the claim under a row lock, reversing the exact amount credited
+--   * greatest(0, ...) so a balance can never go negative
+--
+-- Both: SECURITY DEFINER, search_path pinned to public, EXECUTE revoked from
+-- PUBLIC/anon/authenticated and granted only to service_role. Verified:
+--   anon_can_credit=false  auth_can_credit=false
+--   anon_can_reverse=false auth_can_reverse=false  service_can_credit=true
+--
+-- The full function bodies are in the applied migrations; see
+-- mcp list_migrations, or lib/creatorEarnings.ts for the only intended caller.

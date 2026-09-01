@@ -7,6 +7,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
 import { splitFee } from "@/lib/money";
 import { ORDER_OPEN_STATUSES, purchaseTerminalFilter } from "@/lib/orderStatus";
+import { creditPurchaseEarnings } from "@/lib/creatorEarnings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -76,6 +77,8 @@ async function upsertPaidBySession(
   // find existing purchase by session or PI
   let purchaseId: string | null = null;
   let status: string | null = null;
+  /** Did we actually write the purchase row? False means a terminal-status guard blocked it. */
+  let wrote = false;
 
   const bySession = await supabase
     .from("purchases")
@@ -178,6 +181,9 @@ async function upsertPaidBySession(
       .select("id,status")
       .maybeSingle();
     if (updErr) throw new Error(updErr.message);
+    // A null row means the terminal-status guard above matched nothing, i.e.
+    // this purchase is refunded or failed. Remember that: it must not be paid out.
+    wrote = Boolean(updRow?.id);
     status = updRow?.status ?? "paid";
   } else {
     const { data: ins, error: insErr } = await supabase
@@ -188,6 +194,23 @@ async function upsertPaidBySession(
     if (insErr) throw new Error(insErr.message);
     purchaseId = ins?.id ?? null;
     status = ins?.status ?? "paid";
+    wrote = Boolean(ins?.id);
+  }
+
+  // Pay the creator.
+  //
+  // This route is the only post-payment path the browser actually triggers, and
+  // it never did this — only the webhook did, and the webhook has never fired
+  // for a checkout in production. The result was that a real sale delivered the
+  // file and showed revenue on the admin dashboard while the creator's balance
+  // stayed at zero.
+  //
+  // Crediting is exactly-once in the database (migration 018), so the webhook
+  // arriving later for the same purchase cannot pay the creator a second time.
+  // Bookkeeping never blocks delivery: a failure here is logged loudly and the
+  // buyer still gets their file.
+  if (oneTimePaid && wrote && purchaseId) {
+    await creditPurchaseEarnings(supabase, purchaseId, amount_cents);
   }
 
   return { purchase_id: purchaseId, status: status ?? "paid", post_id, product_id, creator_id };
