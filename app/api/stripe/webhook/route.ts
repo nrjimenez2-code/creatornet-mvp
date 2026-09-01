@@ -13,6 +13,10 @@ import {
 } from "@/lib/orderStatus";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
+import {
+  creditPurchaseEarnings,
+  reverseEarningsForPaymentIntent,
+} from "@/lib/creatorEarnings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -206,51 +210,6 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
   if (error) console.warn("[webhook] finalizeOrderFromCheckoutSession:", error.message);
 }
 
-async function bumpCreatorEarningsAndPostPurchase(opts: {
-  creator_id: string | null;
-  post_id: string | null;
-  creator_amount_cents: number;
-}) {
-  const { creator_id, post_id, creator_amount_cents } = opts;
-  if (creator_id && creator_amount_cents > 0) {
-    const { data: prof, error: selErr } = await admin
-      .from("profiles")
-      .select("total_earnings_cents")
-      .eq("id", creator_id)
-      .maybeSingle();
-    if (
-      !selErr &&
-      prof &&
-      typeof (prof as { total_earnings_cents?: unknown }).total_earnings_cents === "number"
-    ) {
-      const cur = Number((prof as { total_earnings_cents: number }).total_earnings_cents) || 0;
-      const { error } = await admin
-        .from("profiles")
-        .update({ total_earnings_cents: cur + creator_amount_cents })
-        .eq("id", creator_id);
-      if (error && !/column|does not exist/i.test(error.message)) {
-        console.warn("[webhook] bumpCreatorEarnings:", error.message);
-      }
-    }
-  }
-  if (post_id) {
-    const { data: row, error: pErr } = await admin
-      .from("posts")
-      .select("purchase_count")
-      .eq("id", post_id)
-      .maybeSingle();
-    if (!pErr && row && typeof (row as { purchase_count?: number }).purchase_count === "number") {
-      const cur = Number((row as { purchase_count: number }).purchase_count) || 0;
-      const { error } = await admin
-        .from("posts")
-        .update({ purchase_count: cur + 1 })
-        .eq("id", post_id);
-      if (error && !/column|does not exist/i.test(error.message)) {
-        console.warn("[webhook] bumpPostPurchaseCount:", error.message);
-      }
-    }
-  }
-}
 
 // ---------- legacy (post/booking) flow ----------
 async function insertBookingFromSession(session: Stripe.Checkout.Session) {
@@ -871,6 +830,15 @@ async function markRefunded(payment_intent_id: string | null) {
     .update({ status: "refunded", access_granted: false })
     .eq("payment_intent_id", payment_intent_id);
   if (error) console.warn("[webhook] markRefunded error:", error.message);
+
+  // Take the creator's credit back. Without this a refunded sale left the
+  // creator permanently credited for money the buyer no longer paid — and the
+  // very first thing anyone does after a test purchase is refund it.
+  // Idempotent, so a replayed charge.refunded reverses only once.
+  const reversed = await reverseEarningsForPaymentIntent(admin, payment_intent_id);
+  if (reversed > 0) {
+    console.log("[webhook] reversed creator earnings for", reversed, "purchase(s)");
+  }
 }
 
 async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
@@ -1073,11 +1041,10 @@ export async function POST(req: NextRequest) {
               console.warn("[webhook] updatePostMetrics failed:", e)
             );
 
-            await bumpCreatorEarningsAndPostPurchase({
-              creator_id: (session.metadata?.creator_id as string) || null,
-              post_id: postId,
-              creator_amount_cents: creatorAmt,
-            });
+            // Exactly-once in the database (migration 018), so /api/confirm-purchase
+            // having already credited this same purchase from the browser cannot
+            // pay the creator twice.
+            await creditPurchaseEarnings(admin, purchaseId, amount);
           }
 
           break;
