@@ -122,6 +122,50 @@ async function upsertPaidBySession(
     access_granted: oneTimePaid,
   };
 
+  // Last resort: find the row by the (buyer_id, post_id) pair.
+  //
+  // This is the same fallback the webhook's seedPurchaseFromProductSession
+  // does, and it belongs here far more urgently: /success calls this route in
+  // the buyer's own browser the instant Stripe redirects back, and the webhook
+  // has never once fired for a checkout in production.
+  //
+  // `purchases` carries UNIQUE (buyer_id, post_id). /api/checkout writes a
+  // pending row on EVERY checkout start and swallows the resulting duplicate on
+  // the second, so a buyer who abandons checkout once and pays on the retry has
+  // a pending row keyed to the FIRST session id, carrying no payment intent,
+  // and nothing at all for the session that actually paid. Both lookups above
+  // then miss, the insert below violates that unique constraint and throws, and
+  // the buyer gets a 500 from the page whose entire job is to confirm their
+  // purchase — after the order finalize above has already booked the revenue.
+  // Six orders in production have exactly this shape.
+  let attachedToAnotherPayment = false;
+  if (!purchaseId && post_id) {
+    const byPair = await supabase
+      .from("purchases")
+      .select("id, payment_intent_id")
+      .eq("buyer_id", buyer_id)
+      .eq("post_id", post_id)
+      .maybeSingle();
+    const pairRow = byPair.data as { id?: string; payment_intent_id?: string | null } | null;
+    if (!byPair.error && pairRow?.id) {
+      purchaseId = pairRow.id;
+      // One row per (buyer, post) is a database constraint, so a SECOND
+      // purchase of the same post necessarily lands on the row the first one
+      // already owns. Leave that row's payment references alone in that case:
+      // payment_intent_id is itself UNIQUE, and the first charge's reference is
+      // the one worth keeping. Access was already granted, so the buyer still
+      // gets what they paid for and no longer sees a 500.
+      attachedToAnotherPayment =
+        Boolean(pairRow.payment_intent_id) && pairRow.payment_intent_id !== payment_intent_id;
+      if (attachedToAnotherPayment) {
+        delete updateFields.payment_intent_id;
+      } else {
+        // Point the row at the session that actually paid.
+        updateFields.session_id = sessionId;
+      }
+    }
+  }
+
   if (purchaseId) {
     const { data: updRow, error: updErr } = await supabase
       .from("purchases")
