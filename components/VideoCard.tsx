@@ -137,6 +137,9 @@ export default function VideoCard(props: VideoCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [commentPanelOpen, setCommentPanelOpen] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  // Money path: one in-flight checkout at a time, errors shown inline (not alert()).
+  const [checkoutState, setCheckoutState] = useState<"idle" | "starting">("idle");
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const buyButtonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null);
@@ -686,6 +689,10 @@ export default function VideoCard(props: VideoCardProps) {
   }, [canFollow, creatorId, followLoading, isFollowing, onFollow, onFollowChange, supabase, cachedUserId]);
 
   const handleBuy = useCallback(async () => {
+    // A second tap while the checkout POST is in flight would create a
+    // duplicate Stripe session — ignore it.
+    if (checkoutState !== "idle") return;
+
     trackEvent("buy_clicked", {
       post_id: postId,
       creator_id: creatorId,
@@ -702,6 +709,9 @@ export default function VideoCard(props: VideoCardProps) {
       return;
     }
 
+    setCheckoutState("starting");
+    setCheckoutError(null);
+
     let resolvedProductId = productId;
     if (!resolvedProductId && postId) {
       try {
@@ -717,7 +727,8 @@ export default function VideoCard(props: VideoCardProps) {
     }
 
     if (!resolvedProductId) {
-      alert("No product attached to this post yet.");
+      setCheckoutError("No product attached to this post yet.");
+      setCheckoutState("idle");
       return;
     }
 
@@ -746,12 +757,15 @@ export default function VideoCard(props: VideoCardProps) {
         throw new Error("Not a valid checkout URL returned from server.");
       }
 
+      // Keep "starting" while the browser navigates to Stripe so the
+      // button stays disabled.
       window.location.assign(url);
     } catch (e) {
       console.error("[buy] error:", e);
-      alert((e as Error).message || "Failed to start checkout.");
+      setCheckoutError((e as Error).message || "Failed to start checkout.");
+      setCheckoutState("idle");
     }
-  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId]);
+  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId, checkoutState]);
   // Fire-and-forget interest score update (never blocks UI)
   const scoreInterest = useCallback((delta: number) => {
     const pid = postIdRef.current;
@@ -775,6 +789,8 @@ export default function VideoCard(props: VideoCardProps) {
   }, []);
 
   const handleBook = useCallback(async () => {
+    if (checkoutState !== "idle") return;
+
     trackEvent("call_booking_started", {
       post_id: postIdRef.current,
       creator_id: creatorIdRef.current,
@@ -787,9 +803,12 @@ export default function VideoCard(props: VideoCardProps) {
     }
 
     if (!bookingRedirectUrl) {
-      alert("No booking link is configured for this post.");
+      setCheckoutError("No booking link is configured for this post.");
       return;
     }
+
+    setCheckoutState("starting");
+    setCheckoutError(null);
 
     try {
       const res = await fetch("/api/checkout", {
@@ -810,14 +829,17 @@ export default function VideoCard(props: VideoCardProps) {
       }
 
       const url = typeof data?.url === "string" ? data.url : "";
-      if (url && (url.startsWith("http://") || url.startsWith("https://"))) {
-        window.location.assign(url);
+      if (!url || !(url.startsWith("http://") || url.startsWith("https://"))) {
+        // Previously a silent no-op: the button just appeared dead.
+        throw new Error("Not a valid booking URL returned from server.");
       }
+      window.location.assign(url);
     } catch (e) {
       console.error("[book] error:", e);
-      alert((e as Error).message || "Failed to start booking.");
+      setCheckoutError((e as Error).message || "Failed to start booking.");
+      setCheckoutState("idle");
     }
-  }, [onBook, bookingRedirectUrl, postId, creatorId]);
+  }, [onBook, bookingRedirectUrl, postId, creatorId, checkoutState]);
 
   const handleAvatarClick = useCallback(
     async (e?: React.MouseEvent) => {
@@ -903,7 +925,7 @@ export default function VideoCard(props: VideoCardProps) {
         ) : poster ? (
           <img
             src={poster}
-            alt=""
+            alt={displayTitle || "Post media"}
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
 
             style={{ borderRadius: "16px 16px 0 0" }}
@@ -1024,11 +1046,12 @@ export default function VideoCard(props: VideoCardProps) {
                 >
                   <button
                     role="menuitem"
+                    disabled={checkoutState === "starting"}
                     onClick={() => {
                       setMenuOpen(false);
                       handleBuy();
                     }}
-                    className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition"
+                    className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition disabled:opacity-60"
                   >
                     Pay in full {((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}` : ""}
                   </button>
@@ -1037,11 +1060,12 @@ export default function VideoCard(props: VideoCardProps) {
                       <div className="h-px bg-white/30" />
                       <button
                         role="menuitem"
+                        disabled={checkoutState === "starting"}
                         onClick={() => {
                           setMenuOpen(false);
                           handleBook();
                         }}
-                        className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition"
+                        className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition disabled:opacity-60"
                       >
                         Book
                       </button>
@@ -1050,6 +1074,15 @@ export default function VideoCard(props: VideoCardProps) {
                 </div>,
                 document.body
               )}
+              {checkoutState === "starting" ? (
+                <p className="mt-1.5 text-xs text-white/80" role="status">
+                  Opening secure checkout…
+                </p>
+              ) : checkoutError ? (
+                <p className="mt-1.5 text-xs text-red-400" role="alert">
+                  {checkoutError}
+                </p>
+              ) : null}
             </div>
           )}
           </div>
@@ -1078,9 +1111,10 @@ export default function VideoCard(props: VideoCardProps) {
             aria-label={`${displayCreator} profile`}
             style={{ pointerEvents: "auto", zIndex: 51 }}
           >
+            {/* Decorative: the button's aria-label already names the creator. */}
             <img
               src={displayAvatar}
-              alt={displayCreator}
+              alt=""
               className="h-full w-full object-cover pointer-events-none"
             />
           </button>

@@ -339,6 +339,7 @@ export default function PostComposer({ onPosted }: Props) {
   // UI state
   const [myTags, setMyTags] = useState<Tag[]>([]);
   const [posting, setPosting] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState<string>("");
   const [loadingProducts, setLoadingProducts] = useState(false);
@@ -464,12 +465,13 @@ export default function PostComposer({ onPosted }: Props) {
   async function handlePost() {
     if (!userId || !videoFile || !selectedTag) return;
 
-    // If a non-empty URL is provided but invalid, block and alert.
+    // If a non-empty URL is provided but invalid, block with an inline error.
     if (attachBooking && bookingRaw !== "" && !bookingNormalized) {
-      alert("Please enter a valid https booking link (or leave it blank to auto-route).");
+      setPostError("Please enter a valid https booking link (or leave it blank to auto-route).");
       return;
     }
 
+    setPostError(null);
     setPosting(true);
 
     try {
@@ -569,7 +571,7 @@ export default function PostComposer({ onPosted }: Props) {
         (err as { message?: string })?.message ?? "Failed to post. Try again.";
       // Name the stage that failed; the picked files are intentionally NOT cleared
       // here (the reset only runs on success), so the user can just hit Post again.
-      alert(uploadStage ? `${uploadStage} failed: ${base}` : base);
+      setPostError(uploadStage ? `${uploadStage} failed: ${base}` : base);
     } finally {
       setPosting(false);
       setUploadPct(null);
@@ -841,6 +843,12 @@ export default function PostComposer({ onPosted }: Props) {
             />
           </div>
         </div>
+      )}
+
+      {postError && !posting && (
+        <p className="mt-3 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-xs text-red-300" role="alert">
+          {postError}
+        </p>
       )}
 
       {/* Footer */}

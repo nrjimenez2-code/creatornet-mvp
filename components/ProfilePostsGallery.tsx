@@ -141,13 +141,14 @@ export default function ProfilePostsGallery({
             key={post.id}
             type="button"
             onClick={() => openModal(index)}
+            aria-label={`Open post: ${post.title || post.content || "untitled"}`}
             className="group relative flex aspect-square items-center justify-center overflow-hidden bg-white/5 border border-white/10 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
           >
             {post.poster_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={post.poster_url}
-                alt="Post thumbnail"
+                alt=""
                 className="h-full w-full object-cover transition group-hover:scale-105"
                 loading="lazy"
               />

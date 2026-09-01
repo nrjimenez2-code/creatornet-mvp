@@ -2,8 +2,9 @@
 import Link from "next/link";
 
 export const metadata = {
-  title: "Payment canceled | CreatorNet",
+  title: "Payment canceled",
   description: "Your checkout was canceled.",
+  robots: { index: false, follow: false },
 };
 
 // Static is fine here
@@ -12,8 +13,8 @@ export const revalidate = false;
 
 export default function CancelPage() {
   return (
-    <main className="min-h-screen flex items-center justify-center p-6">
-      <div className="max-w-md w-full border rounded-xl p-6 text-center">
+    <main className="min-h-svh bg-white text-gray-900 flex items-center justify-center p-6">
+      <div className="max-w-md w-full border border-gray-200 rounded-xl p-6 text-center">
         <h1 className="text-xl font-semibold mb-2">Payment canceled</h1>
         <p className="text-sm text-gray-600 mb-6">
           No charge was made. You can close this page or go back and try again.

@@ -33,6 +33,7 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
   const userEmail = session?.user?.email;
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [commentText, setCommentText] = useState("");
   const [currentUser, setCurrentUser] = useState<{ id: string; username: string; avatar_url: string | null } | null>(null);
@@ -82,11 +83,15 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
       const data = await res.json();
       if (res.ok && data.success) {
         setComments(data.comments || []);
+        setLoadError(false);
       } else {
+        // A failed load must not render as "No comments yet".
         console.error("Failed to fetch comments:", data.error);
+        setLoadError(true);
       }
     } catch (err) {
       console.error("Error fetching comments:", err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -312,6 +317,19 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
             <div className="flex items-center justify-center h-full">
               <p className="text-white/60">Loading comments...</p>
             </div>
+          ) : loadError && comments.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3">
+              <p className="text-white/60" role="alert">
+                Couldn&apos;t load comments.
+              </p>
+              <button
+                type="button"
+                onClick={() => fetchComments()}
+                className="rounded-full border border-white/20 px-4 py-1.5 text-xs font-medium text-white/80 hover:bg-white/10 transition-colors"
+              >
+                Try again
+              </button>
+            </div>
           ) : comments.length === 0 ? (
             <div className="flex items-center justify-center h-full">
               <p className="text-white/60">No comments yet. Be the first to comment!</p>
@@ -324,7 +342,7 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
                   <div className="flex-shrink-0">
                     <img
                       src={comment.user.avatar_url || DEFAULT_AVATAR_URL}
-                      alt={displayName(comment)}
+                      alt=""
                       className="h-10 w-10 rounded-full object-cover"
                     />
                   </div>

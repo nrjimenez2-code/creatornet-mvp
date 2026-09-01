@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import type { Metadata } from "next";
 import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
@@ -9,6 +10,7 @@ import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -16,6 +18,64 @@ export const dynamic = "force-dynamic";
 type Props = {
   params: Promise<{ creatorId: string }>;
 };
+
+type MetadataProfile = {
+  username: string | null;
+  full_name: string | null;
+  tagline: string | null;
+  bio: string | null;
+  avatar_url: string | null;
+};
+
+// Same id-or-username resolution as the page itself, scoped to metadata fields.
+async function findProfileForMetadata(creatorId: string): Promise<MetadataProfile | null> {
+  const fields = "username, full_name, tagline, bio, avatar_url";
+  const byId = await supabaseAdmin
+    .from("profiles")
+    .select(fields)
+    .eq("id", creatorId)
+    .maybeSingle();
+  if (byId.data) return byId.data;
+  const byUsername = await supabaseAdmin
+    .from("profiles")
+    .select(fields)
+    .eq("username", creatorId)
+    .maybeSingle();
+  return byUsername.data ?? null;
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { creatorId } = await params;
+  if (!creatorId) return {};
+  try {
+    const profile = await findProfileForMetadata(creatorId);
+    if (!profile) return {};
+
+    const name = profile.full_name || profile.username || "Creator";
+    const title = profile.username ? `${name} (@${profile.username})` : name;
+    const description =
+      profile.tagline ||
+      (profile.bio ? profile.bio.slice(0, 160) : `Watch ${name}'s videos and offers on CreatorNet.`);
+    const canonicalPath = `/creators/${encodeURIComponent(profile.username || creatorId)}`;
+    const avatar =
+      profile.avatar_url && profile.avatar_url.startsWith("http") ? profile.avatar_url : undefined;
+
+    return {
+      title,
+      description,
+      alternates: { canonical: canonicalPath },
+      openGraph: {
+        title,
+        description,
+        url: canonicalPath,
+        ...(avatar ? { images: [{ url: avatar }] } : {}),
+      },
+      ...(avatar ? { twitter: { card: "summary", images: [avatar] } } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
 
 export default async function CreatorPublicProfilePage({ params }: Props) {
   const { creatorId } = await params;

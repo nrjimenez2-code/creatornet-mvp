@@ -50,6 +50,7 @@ function SearchPage() {
   const qParam = sp.get("q") ?? "";
   const [query, setQuery] = useState(qParam);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // sections
   const [recent, setRecent] = useState<string[]>([]);
@@ -115,6 +116,7 @@ function SearchPage() {
     }
 
     setLoading(true);
+    setSearchError(null);
     try {
       const res = await fetch("/api/search/perform", {
         method: "POST",
@@ -122,10 +124,11 @@ function SearchPage() {
         body: JSON.stringify({ q }),
       });
 
-      // if server returns non-200, keep UI stable
+      // A failed search must not masquerade as "no results".
       if (!res.ok) {
         setCreators([]);
         setPosts([]);
+        setSearchError("Search isn't working right now. Try again in a moment.");
         return;
       }
 
@@ -175,6 +178,11 @@ function SearchPage() {
         query: q,
         results_count: mappedCreators.length + mappedPosts.length,
       });
+    } catch {
+      // Network failure — surface it instead of an unhandled rejection.
+      setCreators([]);
+      setPosts([]);
+      setSearchError("Search isn't working right now. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -361,8 +369,23 @@ function SearchPage() {
 
           {loading && <p className="text-sm text-white/60">Searching…</p>}
 
+          {!loading && searchError && (
+            <div className="rounded-lg border border-red-400/30 bg-red-500/10 px-4 py-3">
+              <p className="text-sm text-red-300" role="alert">
+                {searchError}
+              </p>
+              <button
+                type="button"
+                onClick={() => doSearch(query)}
+                className="mt-2 rounded-full border border-white/20 px-4 py-1.5 text-xs font-medium text-white/80 hover:bg-white/10 transition-colors"
+              >
+                Try again
+              </button>
+            </div>
+          )}
+
           {/* For You tab */}
-          {!loading && tab === "for-you" && (
+          {!loading && !searchError && tab === "for-you" && (
             <div className="space-y-6">
               {noUserFound && (
                 <p className="text-sm text-white/80 rounded-lg border border-white/10 bg-white/5 px-4 py-3">
@@ -392,7 +415,7 @@ function SearchPage() {
           )}
 
           {/* Creators tab */}
-          {!loading && tab === "creators" && (
+          {!loading && !searchError && tab === "creators" && (
             <div className="space-y-4">
               {isTagSearch ? (
                 <p className="text-sm text-white/60 py-4">
@@ -411,7 +434,7 @@ function SearchPage() {
           )}
 
           {/* Videos tab */}
-          {!loading && tab === "videos" && (
+          {!loading && !searchError && tab === "videos" && (
             <div>
               {isTagSearch ? (
                 <PostsGrid items={posts} />
@@ -426,7 +449,7 @@ function SearchPage() {
           )}
 
           {/* Tags tab */}
-          {!loading && tab === "tags" && (
+          {!loading && !searchError && tab === "tags" && (
             <div>
               {isTagSearch ? (
                 <>
@@ -563,13 +586,14 @@ function PostsGrid({ items }: { items: Post[] }) {
               setActiveIndex(index);
               setIsOpen(true);
             }}
+            aria-label={p.caption ? `Open post: ${p.caption}` : "Open post"}
             className="group aspect-square overflow-hidden border border-white/10 bg-black/60 block hover:ring-2 hover:ring-white/20 transition"
           >
             {p.poster_url ? (
               <img
                 src={p.poster_url}
                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                alt={p.caption || "Post thumbnail"}
+                alt=""
                 loading="lazy"
               />
             ) : p.media_url ? (
@@ -614,6 +638,7 @@ function PostsGrid({ items }: { items: Post[] }) {
                     <video
                       src={post.media_url}
                       poster={post.poster_url || undefined}
+                      aria-label={post.caption || "Video"}
                       className="h-full w-full object-cover"
                       controls
                       autoPlay={index === activeIndex}

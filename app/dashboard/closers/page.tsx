@@ -86,6 +86,7 @@ export default function ClosersManagerPage() {
   // list state
   const [targets, setTargets] = useState<Target[]>([]);
   const [loading, setLoading] = useState(true);
+  const [targetsError, setTargetsError] = useState(false);
   const [savingRow, setSavingRow] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ url: string; target_id: string } | null>(null);
@@ -111,7 +112,14 @@ export default function ClosersManagerPage() {
       .select("id, creator_id, name, booking_url, weight, active, uses_count, last_used_at")
       .eq("creator_id", creatorId)
       .order("name", { ascending: true });
-    if (!error && data) setTargets(data as Target[]);
+    if (!error && data) {
+      setTargets(data as Target[]);
+      setTargetsError(false);
+    } else {
+      // A swallowed load error looked like an empty list, inviting duplicate re-adds.
+      console.error("Booking targets load failed:", error);
+      setTargetsError(true);
+    }
     setLoading(false);
   }, [supabase, creatorId]);
 
@@ -474,6 +482,15 @@ export default function ClosersManagerPage() {
               <tr>
                 <td className="px-3 py-4 text-white/70" colSpan={7}>
                   Loading…
+                </td>
+              </tr>
+            ) : targetsError ? (
+              <tr>
+                <td className="px-3 py-4 text-red-300" colSpan={7}>
+                  Couldn&apos;t load your booking targets.{" "}
+                  <button type="button" onClick={() => loadTargets()} className="underline">
+                    Try again
+                  </button>
                 </td>
               </tr>
             ) : targets.length === 0 ? (

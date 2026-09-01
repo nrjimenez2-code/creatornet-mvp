@@ -25,7 +25,8 @@ export default function ProfileShareButton() {
       >
         <img
           src="/share.png"
-          alt="Share"
+          alt=""
+          aria-hidden="true"
           className="w-5 h-5 object-contain"
         />
       </button>
