@@ -20,6 +20,18 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
           <Link href="/legal/cookies" className="text-gray-600 hover:text-gray-900 hover:underline">
             Cookies Policy
           </Link>
+          <Link href="/legal/refunds" className="text-gray-600 hover:text-gray-900 hover:underline">
+            Refunds
+          </Link>
+          <Link href="/legal/delivery" className="text-gray-600 hover:text-gray-900 hover:underline">
+            Delivery &amp; Cancellation
+          </Link>
+          <Link href="/legal/creators" className="text-gray-600 hover:text-gray-900 hover:underline">
+            Creator Policy
+          </Link>
+          <Link href="/legal/support" className="text-gray-600 hover:text-gray-900 hover:underline">
+            Support
+          </Link>
         </nav>
         {children}
         <footer className="mt-14 border-t border-gray-200 pt-6 text-sm text-gray-500">
