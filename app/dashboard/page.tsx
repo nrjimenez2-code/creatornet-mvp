@@ -308,8 +308,16 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             onClick={handleRequestCreatePost}
             className="flex flex-col items-center justify-center gap-1 text-xs text-white disabled:opacity-60"
           >
-            <span className="inline-flex h-8 w-9 items-center justify-center rounded-md bg-[#4A35C7] text-white text-xl font-bold leading-none shadow-[0_0_18px_rgba(74,53,199,0.45)]">
-              <span className="-translate-y-[1px]">+</span>
+            {/* Per Noah's reference: an outlined rounded square with a thin plus,
+                not a filled purple pill. Same footprint as before so the tab bar
+                does not shift. */}
+            <span
+              aria-hidden="true"
+              className="inline-flex h-7 w-8 items-center justify-center rounded-[7px] border-[1.5px] border-white/90 bg-transparent text-white"
+            >
+              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+                <path d="M12 6v12M6 12h12" />
+              </svg>
             </span>
             <span>Create</span>
           </button>
