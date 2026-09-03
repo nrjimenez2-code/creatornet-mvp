@@ -3,6 +3,7 @@ import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
+import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 type CreatorHit = {
   id: string;
@@ -110,15 +111,11 @@ export async function POST(req: Request) {
       const tagPattern = `%${tag}%`;
       const captionTagPattern = `%#${tag}%`;
       const [fromHashtags, fromCaption] = await Promise.all([
-        admin
-          .from("posts")
-          .select(postSelect)
+        onlyVisiblePosts(admin.from("posts").select(postSelect))
           .ilike("hashtags", tagPattern)
           .order("likes_count", { ascending: false, nullsFirst: false })
           .limit(30),
-        admin
-          .from("posts")
-          .select(postSelect)
+        onlyVisiblePosts(admin.from("posts").select(postSelect))
           .ilike("content", captionTagPattern)
           .order("likes_count", { ascending: false, nullsFirst: false })
           .limit(30),
@@ -185,9 +182,7 @@ export async function POST(req: Request) {
     // - If no creators matched, fall back to caption search.
     let postData: RawPostRow[] | null = null;
     if (creatorIds.length > 0) {
-      const byCreator = await admin
-        .from("posts")
-        .select(postSelect)
+      const byCreator = await onlyVisiblePosts(admin.from("posts").select(postSelect))
         .in("creator_id", creatorIds)
         .order("created_at", { ascending: false })
         .limit(30);
@@ -198,7 +193,7 @@ export async function POST(req: Request) {
         postData = (byCreator.data ?? []) as RawPostRow[];
       }
     } else {
-      const res = await admin.from("posts").select(postSelect).ilike("content", pattern).order("created_at", { ascending: false }).limit(30);
+      const res = await onlyVisiblePosts(admin.from("posts").select(postSelect)).ilike("content", pattern).order("created_at", { ascending: false }).limit(30);
       if (res.error) {
         console.error("[search/perform] caption-only error:", res.error.message);
         postData = [];
@@ -231,9 +226,7 @@ export async function POST(req: Request) {
 
       const suggestedIds = suggested_creators.map((c) => c.id);
       if (suggestedIds.length > 0) {
-        const { data: suggestedPostRows } = await admin
-          .from("posts")
-          .select(postSelect)
+        const { data: suggestedPostRows } = await onlyVisiblePosts(admin.from("posts").select(postSelect))
           .in("creator_id", suggestedIds)
           .order("created_at", { ascending: false })
           .limit(12);

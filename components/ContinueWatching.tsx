@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
+import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 type ProgressRow = {
   post_id: string;
@@ -66,10 +67,9 @@ export default function ContinueWatching() {
       }
 
       // 2) fetch posts in one shot
-      const { data: posts, error: pErr } = await supabase
-        .from("posts")
-        .select("id,title,poster_url,video_url")
-        .in("id", ids);
+      const { data: posts, error: pErr } = await onlyVisiblePosts(
+        supabase.from("posts").select("id,title,poster_url,video_url")
+      ).in("id", ids);
 
       if (pErr) {
         console.debug("posts fetch:", pErr.message);

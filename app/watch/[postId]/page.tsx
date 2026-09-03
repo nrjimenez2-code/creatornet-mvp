@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { useRequireUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 type Post = {
   id: string;
@@ -88,10 +89,11 @@ export default function WatchPage() {
         }
       }
 
-      // Fetch the post itself
-      const { data, error: postErr } = await supabase
-        .from("posts")
-        .select("id, creator_id, title, video_url, poster_url")
+      // Fetch the post itself. A hidden or removed post is filtered out here,
+      // so it lands in the same "Post not found." branch as a nonexistent id.
+      const { data, error: postErr } = await onlyVisiblePosts(
+        supabase.from("posts").select("id, creator_id, title, video_url, poster_url")
+      )
         .eq("id", postId)
         .maybeSingle();
 

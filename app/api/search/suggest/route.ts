@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 export async function GET(req: Request) {
   const { searchParams } = new URL(req.url);
@@ -31,9 +32,7 @@ export async function GET(req: Request) {
     console.warn("[search/suggest] creators lookup failed:", creatorsErr.message);
   }
 
-  const { data: tags, error: tagsErr } = await supabase
-    .from("posts")
-    .select("hashtags")
+  const { data: tags, error: tagsErr } = await onlyVisiblePosts(supabase.from("posts").select("hashtags"))
     .ilike("hashtags", `%${safeQ}%`)
     .limit(5);
   if (tagsErr) {
