@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
+import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlacement";
 import BuyButton from "./BuyButton";
 import CommentPanel from "./CommentPanel";
 import { useUser } from "@/lib/useUser";
@@ -142,7 +143,7 @@ export default function VideoCard(props: VideoCardProps) {
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const buyButtonRef = useRef<HTMLButtonElement>(null);
-  const [dropdownPosition, setDropdownPosition] = useState<{ top: number; left: number } | null>(null);
+  const [dropdownPosition, setDropdownPosition] = useState<DropdownPlacement | null>(null);
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
   const { userId: cachedUserId } = useUser();
@@ -268,13 +269,11 @@ export default function VideoCard(props: VideoCardProps) {
       return;
     }
     const rect = buyButtonRef.current.getBoundingClientRect();
-    const dropdownMaxWidth = 200;
-    const winW = typeof window !== "undefined" ? window.innerWidth : 400;
-    const left = Math.max(8, Math.min(rect.left, winW - dropdownMaxWidth - 8));
-    setDropdownPosition({
-      top: rect.bottom + 8,
-      left,
-    });
+    const viewport = {
+      width: typeof window !== "undefined" ? window.innerWidth : 400,
+      height: typeof window !== "undefined" ? window.innerHeight : 800,
+    };
+    setDropdownPosition(placeBuyDropdown(rect, viewport));
   }, [menuOpen]);
 
   useEffect(() => {
@@ -1041,7 +1040,9 @@ export default function VideoCard(props: VideoCardProps) {
                   className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-gradient-to-b from-[#B5BAC2]/45 to-[#B5BAC2]/30 backdrop-blur-sm border border-white/25 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.25)] overflow-hidden"
                   style={{
                     left: dropdownPosition.left,
-                    top: dropdownPosition.top,
+                    ...("top" in dropdownPosition
+                      ? { top: dropdownPosition.top }
+                      : { bottom: dropdownPosition.bottom }),
                   }}
                 >
                   <button
