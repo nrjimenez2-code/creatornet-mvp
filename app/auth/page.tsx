@@ -372,6 +372,28 @@ export default function AuthPage() {
           </a>
           .
         </p>
+        <p className="mt-2 text-xs text-gray-500">
+          <a
+            href="/legal/refunds"
+            className="underline hover:text-[#9370DB] transition-colors"
+          >
+            Refund policy
+          </a>
+          {" · "}
+          <a
+            href="/legal/delivery"
+            className="underline hover:text-[#9370DB] transition-colors"
+          >
+            Delivery &amp; cancellation
+          </a>
+          {" · "}
+          <a
+            href="/legal/support"
+            className="underline hover:text-[#9370DB] transition-colors"
+          >
+            Support
+          </a>
+        </p>
       </div>
     </main>
   );
