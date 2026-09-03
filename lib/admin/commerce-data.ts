@@ -30,6 +30,7 @@ interface OrderRow {
   status: string;
   gross_amount: number;
   platform_fee: number;
+  processing_fee: number | null;
   creator_amount: number;
   /** Nullable in the live schema — updated_at (NOT NULL) is the fallback. */
   created_at: string | null;
@@ -86,6 +87,10 @@ function uniqueIds(values: ReadonlyArray<string | null>): string[] {
   );
 }
 
+function safeCents(value: number | null | undefined): number {
+  return Number.isSafeInteger(value) && (value ?? -1) >= 0 ? (value as number) : 0;
+}
+
 export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
   const admin = adminClient();
 
@@ -93,7 +98,7 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
     admin
       .from("orders")
       .select(
-        "id, buyer_id, buyer_user_id, creator_id, post_id, booking_id, status, gross_amount, platform_fee, creator_amount, created_at, updated_at",
+        "id, buyer_id, buyer_user_id, creator_id, post_id, booking_id, status, gross_amount, platform_fee, processing_fee, creator_amount, created_at, updated_at",
       )
       .order("created_at", { ascending: false, nullsFirst: false })
       .limit(MAX_ROWS)
@@ -188,9 +193,10 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
       // honest and lets the admin cross-reference Stripe/DB directly.
       offerTitle: `Order ${shortId(row.id)}`,
       kind,
-      grossCents: row.gross_amount,
-      feeCents: row.platform_fee,
-      creatorCents: row.creator_amount,
+      grossCents: safeCents(row.gross_amount),
+      feeCents: safeCents(row.platform_fee),
+      processingFeeCents: safeCents(row.processing_fee),
+      creatorCents: safeCents(row.creator_amount),
       status: ORDER_STATUS_MAP[row.status] ?? "pending",
       createdAt: row.created_at ?? row.updated_at,
     };

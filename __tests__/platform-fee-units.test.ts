@@ -17,6 +17,7 @@ import {
   PLATFORM_FEE_RATE,
   PLATFORM_FEE_PERCENT,
   PLATFORM_FEE_PERCENT_STR,
+  calculateCreatorFees,
   splitFee,
 } from "@/lib/money";
 
@@ -63,22 +64,43 @@ describe("Stripe percent fields get the percent form", () => {
   });
 });
 
-describe("call-site census", () => {
-  /**
-   * Deliberately exact. A new fee call site should fail this and force whoever
-   * added it to go through splitFee(). Update the number only after checking.
-   */
-  test("there are exactly 5 splitFee() call sites across the three routes", () => {
-    const count = [CHECKOUT, WEBHOOK, PAYMENT_LINK]
-      .map(read)
-      .reduce((n, s) => n + (s.match(/splitFee\(/g) ?? []).length, 0);
-    expect(count).toBe(5); // product checkout 1, webhook 3, payment-link 1 (installment checkout is closed)
+describe("centralized call sites", () => {
+  test.each([CHECKOUT, PAYMENT_LINK])(
+    "%s creates new payment splits through calculateCreatorFees()",
+    (file) => {
+      expect(read(file)).toMatch(/calculateCreatorFees\(/);
+    },
+  );
+
+  test("the webhook restores the immutable split from Stripe metadata", () => {
+    expect(read(WEBHOOK)).toMatch(/creatorFeesFromMetadata\(/);
+  });
+
+  test("new-payment routes do not use the legacy splitFee() helper", () => {
+    for (const file of [CHECKOUT, PAYMENT_LINK]) {
+      expect(read(file)).not.toMatch(/splitFee\(/);
+    }
   });
 });
 
 describe("the arithmetic", () => {
   test("a $100.00 charge yields a 1200 cent fee and 8800 to the creator", () => {
     expect(splitFee(10_000)).toEqual({ grossCents: 10_000, feeCents: 1200, creatorCents: 8800 });
+  });
+
+  test("the disabled creator-processing rollout preserves that legacy split", () => {
+    expect(
+      calculateCreatorFees(10_000, {
+        enabled: false,
+        basisPoints: 0,
+        fixedCents: 0,
+        version: "platform-only-v1",
+      }),
+    ).toMatchObject({
+      platformFeeCents: 1200,
+      processingFeeCents: 0,
+      creatorNetCents: 8800,
+    });
   });
 
   test("fee + creator always equals gross", () => {

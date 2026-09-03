@@ -4,6 +4,7 @@ import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import "server-only";
+import { createHash, randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
@@ -13,7 +14,11 @@ import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
-import { splitFee, PLATFORM_FEE_PERCENT_STR } from "@/lib/money";
+import {
+  calculateCreatorFees,
+  creatorFeeMetadata,
+  PLATFORM_FEE_PERCENT_STR,
+} from "@/lib/money";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -58,6 +63,47 @@ type BookingPayload = BodyBase & {
 };
 
 type Payload = ProductPayload | PlanPayload | BookingPayload;
+
+type ProductCheckoutAttempt = {
+  id: string;
+  buyer_id: string;
+  purchase_identity: string;
+  creator_id: string;
+  product_id: string;
+  post_id: string | null;
+  attempt_key: string;
+  order_id: string;
+  terms_fingerprint: string;
+  stripe_checkout_session_id: string | null;
+  stripe_checkout_url: string | null;
+  status: "creating" | "open" | "complete";
+};
+
+const PRODUCT_CHECKOUT_ATTEMPT_COLUMNS =
+  "id, buyer_id, purchase_identity, creator_id, product_id, post_id, attempt_key, order_id, terms_fingerprint, stripe_checkout_session_id, stripe_checkout_url, status";
+
+function productCheckoutFingerprint(value: Record<string, string | number | null>): string {
+  const canonical = Object.keys(value)
+    .sort()
+    .map((key) => `${key}=${String(value[key] ?? "")}`)
+    .join("\n");
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return Boolean(
+    error &&
+      typeof error === "object" &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "23505"
+  );
+}
+
+function isMissingStripeResource(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const stripeError = error as { code?: unknown; statusCode?: unknown };
+  return stripeError.code === "resource_missing" || stripeError.statusCode === 404;
+}
 
 function stripeMetadataStrings(meta: Record<string, string>): Record<string, string> {
   const out: Record<string, string> = {};
@@ -122,13 +168,16 @@ export async function POST(req: NextRequest) {
     currency: string,
     order_id: string | null,
     creatorId: string | null,
-    postId: string | null
-  ) {
+    postId: string | null,
+    productId: string,
+    reusablePurchaseId: string | null,
+    expectedPriorSessionId: string | null
+  ): Promise<boolean> {
     const buyerId = resolvedBuyerId;
     const insert: Record<string, unknown> = {
       session_id,
       status: "pending",
-      product_id: (body as ProductPayload | PlanPayload).product_id ?? null,
+      product_id: productId,
       post_id: postId,
       creator_id: creatorId,
       buyer_id: buyerId,
@@ -139,10 +188,57 @@ export async function POST(req: NextRequest) {
     if (buyerId) {
       insert.buyer_user_id = buyerId;
     }
+
+    const loadWinner = async () => {
+      const identityColumn = postId ? "post_id" : "product_id";
+      const identityValue = postId || productId;
+      const { data, error } = await supabase
+        .from("purchases")
+        .select("id, status, session_id, order_id")
+        .eq("buyer_id", buyerId)
+        .eq(identityColumn, identityValue)
+        .maybeSingle();
+      if (error) {
+        throw new Error(`Failed to verify checkout winner: ${error.message}`);
+      }
+      return data as
+        | { id: string; status: string; session_id: string | null; order_id: string | null }
+        | null;
+    };
+
+    if (reusablePurchaseId) {
+      let update = supabase
+        .from("purchases")
+        .update(insert)
+        .eq("id", reusablePurchaseId)
+        .in("status", ["pending", "processing", "failed"]);
+      update = expectedPriorSessionId
+        ? update.eq("session_id", expectedPriorSessionId)
+        : update.is("session_id", null);
+      const { data, error } = await update
+        .select("id")
+        .maybeSingle();
+      if (error) {
+        throw new Error(
+          `Failed to reuse pending purchase: ${error.message}`
+        );
+      }
+      if (data?.id) return true;
+
+      const winner = await loadWinner();
+      return Boolean(winner && winner.session_id === session_id && winner.order_id === order_id);
+    }
+
     const { error } = await supabase.from("purchases").insert(insert).select("id").single();
-    if (error && !`${error.message}`.toLowerCase().includes("duplicate")) {
+    if (!error) return true;
+    if (!isUniqueViolation(error)) {
       throw new Error(`Failed to write pending purchase: ${error.message}`);
     }
+
+    // A simultaneous request can win the buyer/product uniqueness constraint.
+    // It is safe only when Stripe returned the same idempotent session to both.
+    const winner = await loadWinner();
+    return Boolean(winner && winner.session_id === session_id && winner.order_id === order_id);
   }
 
   try {
@@ -180,7 +276,9 @@ export async function POST(req: NextRequest) {
           { status: 403 }
         );
       }
-      const { feeCents: applicationFeeCents, creatorCents: creatorAmountCents } = splitFee(amount_cents);
+      // This is calculated entirely from the server-owned product price and
+      // server environment. The browser cannot select or alter either fee.
+      const fees = calculateCreatorFees(amount_cents);
 
       const { data: profile } = await supabase
         .from("profiles")
@@ -255,67 +353,430 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      const { data: orderRow, error: orderErr } = await supabase
-        .from("orders")
-        .insert({
+      // The current schema intentionally has one purchase row per buyer/post
+      // (and per buyer/product). Reusing an abandoned, unfulfilled attempt is
+      // safe; charging against a paid, active, complete, or refunded row is not.
+      // A refunded row has already consumed its exactly-once earnings claim, so
+      // accepting a second payment into it would charge without new access or
+      // creator earnings. Reject that case before creating a Stripe session.
+      const purchaseIdentityColumn = postId ? "post_id" : "product_id";
+      const resolvedProductId = String(prod.id);
+      const purchaseIdentityValue = postId || resolvedProductId;
+      const { data: priorPurchase, error: priorPurchaseError } = await supabase
+        .from("purchases")
+        .select("id, status, access_granted, session_id, order_id")
+        .eq("buyer_id", resolvedBuyerId)
+        .eq(purchaseIdentityColumn, purchaseIdentityValue)
+        .maybeSingle();
+      if (priorPurchaseError) {
+        throw new Error(`Failed to check prior purchase: ${priorPurchaseError.message}`);
+      }
+      const reusablePurchaseId =
+        priorPurchase && ["pending", "processing", "failed"].includes(priorPurchase.status)
+          ? String(priorPurchase.id)
+          : null;
+      if (priorPurchase && !reusablePurchaseId) {
+        return Response.json(
+          {
+            error: priorPurchase.access_granted
+              ? "You already own this product."
+              : "This product cannot be purchased again automatically. Contact support if you need help.",
+            code: "PURCHASE_ALREADY_EXISTS",
+          },
+          { status: 409 }
+        );
+      }
+
+      const stripe = getStripe();
+      const feeMeta = creatorFeeMetadata(fees);
+      // A browser-supplied display title would make otherwise identical Stripe
+      // requests differ and defeat idempotency. Checkout always uses the
+      // server-owned product title.
+      const checkoutTitle = String(prod.title || "Purchase");
+      const purchaseIdentity = postId ? `post:${postId}` : `product:${resolvedProductId}`;
+      const termsFingerprint = productCheckoutFingerprint({
+        version: "creatornet-product-checkout-v1",
+        buyer_id: resolvedBuyerId,
+        creator_id: creatorId,
+        product_id: resolvedProductId,
+        post_id: postId,
+        amount_cents,
+        currency,
+        destination,
+        checkout_title: checkoutTitle,
+        site,
+        category,
+        platform_fee_cents: fees.platformFeeCents,
+        processing_fee_cents: fees.processingFeeCents,
+        total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+        creator_net_cents: fees.creatorNetCents,
+        fee_schedule_version: fees.feeScheduleVersion,
+      });
+
+      const loadAttempt = async (): Promise<ProductCheckoutAttempt | null> => {
+        const { data, error } = await supabase
+          .from("product_checkout_attempts")
+          .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+          .eq("buyer_id", resolvedBuyerId)
+          .eq("purchase_identity", purchaseIdentity)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to load checkout attempt: ${error.message}`);
+        return (data as ProductCheckoutAttempt | null) ?? null;
+      };
+
+      const claimAttempt = async (): Promise<ProductCheckoutAttempt> => {
+        const candidate = {
+          buyer_id: resolvedBuyerId,
+          purchase_identity: purchaseIdentity,
+          creator_id: creatorId,
+          product_id: resolvedProductId,
+          post_id: postId,
+          attempt_key: randomUUID(),
+          // An existing order is reusable only while its recorded Stripe
+          // session is the attempt being recovered. Failed/partial rows with no
+          // session may point at a canceled order, which must not be revived.
+          order_id:
+            priorPurchase?.session_id && priorPurchase?.order_id
+              ? priorPurchase.order_id
+              : randomUUID(),
+          terms_fingerprint: termsFingerprint,
+          stripe_checkout_session_id: priorPurchase?.session_id || null,
+          stripe_checkout_url: null,
+          status: priorPurchase?.session_id ? "open" : "creating",
+        };
+        const { data, error } = await supabase
+          .from("product_checkout_attempts")
+          .insert(candidate)
+          .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+          .maybeSingle();
+        if (!error && data) return data as ProductCheckoutAttempt;
+        if (error && !isUniqueViolation(error)) {
+          throw new Error(`Failed to claim checkout attempt: ${error.message}`);
+        }
+        const winner = await loadAttempt();
+        if (!winner) throw new Error("Checkout attempt could not be claimed safely.");
+        return winner;
+      };
+
+      const rotateAttempt = async (
+        current: ProductCheckoutAttempt
+      ): Promise<ProductCheckoutAttempt> => {
+        const replacement = {
+          creator_id: creatorId,
+          product_id: resolvedProductId,
+          post_id: postId,
+          attempt_key: randomUUID(),
+          order_id: randomUUID(),
+          terms_fingerprint: termsFingerprint,
+          stripe_checkout_session_id: null,
+          stripe_checkout_url: null,
+          status: "creating",
+          updated_at: new Date().toISOString(),
+        };
+        const { data, error } = await supabase
+          .from("product_checkout_attempts")
+          .update(replacement)
+          .eq("id", current.id)
+          .eq("attempt_key", current.attempt_key)
+          .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+          .maybeSingle();
+        if (error) throw new Error(`Failed to rotate checkout attempt: ${error.message}`);
+        if (data) {
+          const { error: cancelError } = await supabase
+            .from("orders")
+            .update({ status: "canceled" })
+            .eq("id", current.order_id)
+            .eq("status", "created");
+          if (cancelError) {
+            throw new Error(`Failed to retire prior checkout order: ${cancelError.message}`);
+          }
+          return data as ProductCheckoutAttempt;
+        }
+        const winner = await loadAttempt();
+        if (!winner) throw new Error("Replacement checkout attempt was lost.");
+        return winner;
+      };
+
+      const ensureOrder = async (attempt: ProductCheckoutAttempt): Promise<void> => {
+        const order = {
+          id: attempt.order_id,
           buyer_id: resolvedBuyerId,
           buyer_user_id: resolvedBuyerId,
           creator_id: creatorId,
           post_id: postId,
           amount_cents,
           gross_amount: amount_cents,
-          platform_fee: applicationFeeCents,
-          creator_amount: creatorAmountCents,
+          platform_fee: fees.platformFeeCents,
+          processing_fee: fees.processingFeeCents,
+          total_creator_deduction: fees.totalCreatorDeductionCents,
+          creator_amount: fees.creatorNetCents,
+          fee_schedule_version: fees.feeScheduleVersion,
           status: "created",
           currency,
-        })
-        .select("id")
-        .single();
+        };
+        const { error } = await supabase.from("orders").insert(order);
+        if (!error) return;
+        if (!isUniqueViolation(error)) {
+          throw new Error(`Failed to create order: ${error.message}`);
+        }
 
-      if (orderErr || !orderRow?.id) {
-        throw new Error(`Failed to create order: ${orderErr?.message ?? "unknown"}`);
+        const { data: existing, error: loadError } = await supabase
+          .from("orders")
+          .select(
+            "id, buyer_id, creator_id, post_id, amount_cents, gross_amount, platform_fee, processing_fee, total_creator_deduction, creator_amount, fee_schedule_version, status, currency"
+          )
+          .eq("id", attempt.order_id)
+          .maybeSingle();
+        if (loadError || !existing) {
+          throw new Error(`Failed to verify existing order: ${loadError?.message ?? "missing"}`);
+        }
+        const matches =
+          existing.buyer_id === resolvedBuyerId &&
+          existing.creator_id === creatorId &&
+          (existing.post_id ?? null) === postId &&
+          Number(existing.amount_cents) === amount_cents &&
+          Number(existing.gross_amount) === amount_cents &&
+          Number(existing.platform_fee) === fees.platformFeeCents &&
+          Number(existing.processing_fee) === fees.processingFeeCents &&
+          Number(existing.total_creator_deduction) === fees.totalCreatorDeductionCents &&
+          Number(existing.creator_amount) === fees.creatorNetCents &&
+          existing.fee_schedule_version === fees.feeScheduleVersion &&
+          existing.status === "created" &&
+          String(existing.currency).toLowerCase() === currency.toLowerCase();
+        if (!matches) throw new Error("Existing checkout order does not match current terms.");
+      };
+
+      const retrieveSession = async (sessionId: string): Promise<Stripe.Checkout.Session | null> => {
+        try {
+          return await stripe.checkout.sessions.retrieve(sessionId);
+        } catch (error) {
+          if (isMissingStripeResource(error)) return null;
+          // Unknown/network failures are deliberately not treated as absence:
+          // the session could still be payable, so creating another would be unsafe.
+          throw error;
+        }
+      };
+
+      const sessionMatchesCurrentTerms = (session: Stripe.Checkout.Session): boolean => {
+        const meta = session.metadata || {};
+        const productMatches =
+          meta.product_id === resolvedProductId ||
+          meta.product_id === body.product_id ||
+          (prod.product_id && meta.product_id === String(prod.product_id));
+        const immutableFeesMatch = Object.entries(feeMeta).every(
+          ([key, value]) => meta[key] === value
+        );
+        const modernAttemptMatches = meta.checkout_attempt_key
+          ? meta.checkout_attempt_key === attempt.attempt_key &&
+            meta.checkout_terms_fingerprint === termsFingerprint
+          : true;
+        return (
+          session.mode === "payment" &&
+          session.amount_total === amount_cents &&
+          String(session.currency || "").toLowerCase() === currency.toLowerCase() &&
+          meta.buyer_id === resolvedBuyerId &&
+          meta.creator_id === creatorId &&
+          meta.post_id === (postId || "") &&
+          Boolean(productMatches) &&
+          immutableFeesMatch &&
+          modernAttemptMatches
+        );
+      };
+
+      const expirePayableSession = async (
+        session: Stripe.Checkout.Session
+      ): Promise<"expired" | "complete"> => {
+        if (session.status === "complete" || session.payment_status === "paid") return "complete";
+        if (session.status === "expired") return "expired";
+        try {
+          const expired = await stripe.checkout.sessions.expire(session.id);
+          return expired.status === "complete" || expired.payment_status === "paid"
+            ? "complete"
+            : "expired";
+        } catch {
+          // Another request may have expired or completed it between retrieve
+          // and expire. Re-read it; only an explicit terminal state is safe.
+          const current = await retrieveSession(session.id);
+          if (!current || current.status === "expired") return "expired";
+          if (current.status === "complete" || current.payment_status === "paid") return "complete";
+          throw new Error("Prior Stripe Checkout Session could not be retired safely.");
+        }
+      };
+
+      const retireOpenOrder = async (orderId: string): Promise<void> => {
+        const { error } = await supabase
+          .from("orders")
+          .update({ status: "canceled" })
+          .eq("id", orderId)
+          .eq("status", "created");
+        if (error) throw new Error(`Failed to retire checkout order: ${error.message}`);
+      };
+
+      const completedCheckoutResponse = (attempt: ProductCheckoutAttempt, sessionId: string) =>
+        Response.json({
+          url: `${site}/success?session_id=${encodeURIComponent(sessionId)}`,
+          session_id: sessionId,
+          order_id: attempt.order_id,
+          reused: true,
+        });
+
+      let attempt = await claimAttempt();
+      // CAS rotation can lose to another request. Re-evaluate the winning row a
+      // bounded number of times instead of ever creating from stale state.
+      for (let pass = 0; pass < 4; pass += 1) {
+        if (attempt.stripe_checkout_session_id) {
+          const existingSession = await retrieveSession(attempt.stripe_checkout_session_id);
+          if (existingSession?.status === "complete" || existingSession?.payment_status === "paid") {
+            await supabase
+              .from("product_checkout_attempts")
+              .update({ status: "complete", updated_at: new Date().toISOString() })
+              .eq("id", attempt.id)
+              .eq("attempt_key", attempt.attempt_key);
+            return completedCheckoutResponse(attempt, attempt.stripe_checkout_session_id);
+          }
+
+          if (
+            attempt.terms_fingerprint === termsFingerprint &&
+            existingSession?.status === "open" &&
+            existingSession.payment_status === "unpaid" &&
+            existingSession.url &&
+            sessionMatchesCurrentTerms(existingSession)
+          ) {
+            await ensureOrder(attempt);
+            const pendingWon = await writePending(
+              existingSession.id,
+              amount_cents,
+              currency,
+              attempt.order_id,
+              creatorId,
+              postId,
+              resolvedProductId,
+              reusablePurchaseId,
+              priorPurchase?.session_id || null
+            );
+            if (!pendingWon) throw new Error("Another checkout attempt became authoritative.");
+            return Response.json({
+              url: existingSession.url,
+              session_id: existingSession.id,
+              order_id: attempt.order_id,
+              reused: true,
+            });
+          }
+
+          if (existingSession?.status === "open") {
+            const retired = await expirePayableSession(existingSession);
+            if (retired === "complete") {
+              return completedCheckoutResponse(attempt, existingSession.id);
+            }
+          } else if (existingSession && existingSession.status !== "expired") {
+            throw new Error("Prior Stripe Checkout Session is in an unknown state.");
+          }
+        }
+
+        if (
+          attempt.terms_fingerprint !== termsFingerprint ||
+          Boolean(attempt.stripe_checkout_session_id)
+        ) {
+          attempt = await rotateAttempt(attempt);
+          continue;
+        }
+        break;
       }
-      const orderId = orderRow.id as string;
 
+      if (
+        attempt.terms_fingerprint !== termsFingerprint ||
+        attempt.stripe_checkout_session_id
+      ) {
+        throw new Error("Checkout attempt could not be stabilized safely.");
+      }
+
+      await ensureOrder(attempt);
+      const orderId = attempt.order_id;
       const meta = stripeMetadataStrings({
         order_id: orderId,
         creator_id: creatorId,
         post_id: postId || "",
         buyer_id: resolvedBuyerId || "",
         buyer_user_id: resolvedBuyerId || "",
-        product_id: body.product_id,
+        product_id: resolvedProductId,
         product_type: productType,
         category,
         platform_fee_percent: PLATFORM_FEE_PERCENT_STR,
+        checkout_attempt_key: attempt.attempt_key,
+        checkout_terms_fingerprint: termsFingerprint,
+        ...feeMeta,
       });
 
       let session: Stripe.Checkout.Session;
       try {
-        session = await getStripe().checkout.sessions.create({
-          mode: "payment",
-          payment_method_types: ["card"],
-          line_items: [
-            {
-              price_data: {
-                currency,
-                product_data: { name: body.titleForCheckout || prod.title || "Purchase" },
-                unit_amount: amount_cents,
+        session = await stripe.checkout.sessions.create(
+          {
+            mode: "payment",
+            payment_method_types: ["card"],
+            line_items: [
+              {
+                price_data: {
+                  currency,
+                  product_data: { name: checkoutTitle },
+                  unit_amount: amount_cents,
+                },
+                quantity: 1,
               },
-              quantity: 1,
+            ],
+            payment_intent_data: {
+              // Stripe receives one application fee, while CreatorNet stores and
+              // displays its 12% fee and payment processing as separate amounts.
+              application_fee_amount: fees.totalCreatorDeductionCents,
+              transfer_data: { destination },
+              metadata: meta,
             },
-          ],
-          payment_intent_data: {
-            application_fee_amount: applicationFeeCents,
-            transfer_data: { destination },
             metadata: meta,
+            success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${site}/dashboard`,
           },
-          metadata: meta,
-          success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${site}/dashboard`,
-        });
+          { idempotencyKey: `creatornet-product-checkout:${attempt.attempt_key}` }
+        );
       } catch (e) {
-        await supabase.from("orders").update({ status: "canceled" }).eq("id", orderId);
+        // Do not cancel the stable order here: an ambiguous network error can
+        // still have created the session, and the next request must retry with
+        // the same key and exact parameters to recover it.
         throw e;
+      }
+
+      if (!session.url) {
+        const retired = await expirePayableSession(session);
+        if (retired === "expired") await retireOpenOrder(orderId);
+        throw new Error("Stripe did not return a Checkout URL.");
+      }
+
+      const { data: savedAttempt, error: saveAttemptError } = await supabase
+        .from("product_checkout_attempts")
+        .update({
+          stripe_checkout_session_id: session.id,
+          stripe_checkout_url: session.url,
+          status: "open",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", attempt.id)
+        .eq("attempt_key", attempt.attempt_key)
+        .eq("terms_fingerprint", termsFingerprint)
+        .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+        .maybeSingle();
+      if (saveAttemptError) {
+        const retired = await expirePayableSession(session);
+        if (retired === "expired") await retireOpenOrder(orderId);
+        throw new Error(`Failed to save checkout attempt: ${saveAttemptError.message}`);
+      }
+      if (!savedAttempt) {
+        const winner = await loadAttempt();
+        if (winner?.stripe_checkout_session_id !== session.id) {
+          const retired = await expirePayableSession(session);
+          if (retired === "expired") await retireOpenOrder(orderId);
+          throw new Error("Another checkout attempt won while Stripe was creating the session.");
+        }
+        attempt = winner;
+      } else {
+        attempt = savedAttempt as ProductCheckoutAttempt;
       }
 
       const piId =
@@ -323,15 +784,35 @@ export async function POST(req: NextRequest) {
           ? session.payment_intent
           : (session.payment_intent as Stripe.PaymentIntent | null)?.id ?? null;
 
-      await supabase
+      const { error: orderUpdateError } = await supabase
         .from("orders")
         .update({
           stripe_checkout_session_id: session.id,
           stripe_payment_intent_id: piId,
         })
         .eq("id", orderId);
+      if (orderUpdateError) {
+        const retired = await expirePayableSession(session);
+        if (retired === "expired") await retireOpenOrder(orderId);
+        throw new Error(`Failed to attach Stripe session to order: ${orderUpdateError.message}`);
+      }
 
-      await writePending(session.id, amount_cents, currency, orderId, creatorId, postId);
+      const pendingWon = await writePending(
+        session.id,
+        amount_cents,
+        currency,
+        orderId,
+        creatorId,
+        postId,
+        resolvedProductId,
+        reusablePurchaseId,
+        priorPurchase?.session_id || null
+      );
+      if (!pendingWon) {
+        const retired = await expirePayableSession(session);
+        if (retired === "expired") await retireOpenOrder(orderId);
+        throw new Error("Another checkout attempt became authoritative.");
+      }
 
       await trackServerEvent("checkout_started", resolvedBuyerId, {
         post_id: postId,

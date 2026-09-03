@@ -88,7 +88,7 @@ export async function GET(req: NextRequest) {
         ? admin
             .from("booking_payments")
             .select(
-              "id, booking_id, plan_type, installment_months, status, link_url, stripe_checkout_session_id, stripe_payment_intent_id, stripe_subscription_id, amount_total_cents, installment_amount_cents, platform_fee_cents, currency, created_at, completed_at, link_sent_at, closer_user_id"
+              "id, booking_id, plan_type, installment_months, status, link_url, stripe_checkout_session_id, stripe_payment_intent_id, stripe_subscription_id, amount_total_cents, installment_amount_cents, platform_fee_cents, processing_fee_cents, total_creator_deduction_cents, creator_net_cents, fee_schedule_version, currency, created_at, completed_at, link_sent_at, closer_user_id"
             )
             .in("booking_id", bookingIds)
             .order("created_at", { ascending: false })

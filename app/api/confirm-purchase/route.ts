@@ -1,13 +1,20 @@
 // app/api/confirm-purchase/route.ts
 import { publicMessage } from "@/lib/apiError";
+import { eitherIdFilter } from "@/lib/ids";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
-import { splitFee } from "@/lib/money";
+import { creatorFeesFromMetadata } from "@/lib/money";
 import { ORDER_OPEN_STATUSES, purchaseTerminalFilter } from "@/lib/orderStatus";
 import { creditPurchaseEarnings } from "@/lib/creatorEarnings";
+import {
+  assertConfiguredApplicationFee,
+  recordPaymentFeeLedger,
+  retrieveStripeFeeDetails,
+} from "@/lib/paymentFeeLedger";
+import { reconcileKnownPaymentRefund } from "@/lib/paymentRefunds";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +28,34 @@ const supabase = createAdminClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+type FulfillmentProduct = {
+  id: string | null;
+  title: string | null;
+  type: string | null;
+  discord_invite_url: string | null;
+  whop_listing_url: string | null;
+};
+
+async function loadFulfillmentProduct(
+  productId: string | null | undefined
+): Promise<FulfillmentProduct | null> {
+  if (!productId) return null;
+  const { data: prodRow, error } = await supabase
+    .from("products")
+    .select("id, product_id, type, discord_invite_url, whop_listing_url, title")
+    .or(eitherIdFilter(["product_id", "id"], productId))
+    .maybeSingle();
+  if (error) throw new Error(`Product fulfillment lookup failed: ${error.message}`);
+  if (!prodRow) return null;
+  return {
+    id: prodRow.product_id ?? prodRow.id ?? null,
+    type: prodRow.type ?? null,
+    discord_invite_url: prodRow.discord_invite_url ?? null,
+    whop_listing_url: prodRow.whop_listing_url ?? null,
+    title: prodRow.title ?? null,
+  };
+}
 
 async function upsertPaidBySession(
   sessionId: string,
@@ -41,6 +76,17 @@ async function upsertPaidBySession(
 
   const buyer_id = callerId;
   const order_id = meta.order_id ?? null;
+  const fees = creatorFeesFromMetadata(session.metadata, amount_cents ?? 0);
+  // A one-time payment that Stripe reports as paid. Subscriptions are advanced
+  // by invoice.payment_succeeded instead and must not be granted here.
+  const oneTimePaid =
+    session.mode === "payment" && session.payment_status === "paid" && !session.subscription;
+  const stripeFee = oneTimePaid
+    ? await retrieveStripeFeeDetails(payment_intent_id, fees.processingFeeEnabled)
+    : null;
+  if (oneTimePaid) {
+    assertConfiguredApplicationFee(`checkout ${sessionId}`, fees, stripeFee);
+  }
 
   // Finalize the order too.
   //
@@ -52,7 +98,6 @@ async function upsertPaidBySession(
   // webhook uses so this can never drag a refunded order back to paid.
   if (order_id) {
     const amount = amount_cents ?? 0;
-    const { feeCents, creatorCents } = splitFee(amount);
     const { error: orderErr } = await supabase
       .from("orders")
       .update({
@@ -61,8 +106,20 @@ async function upsertPaidBySession(
         stripe_payment_intent_id: payment_intent_id,
         stripe_payment_id: payment_intent_id,
         gross_amount: amount,
-        platform_fee: feeCents,
-        creator_amount: creatorCents,
+        platform_fee: fees.platformFeeCents,
+        processing_fee: fees.processingFeeCents,
+        total_creator_deduction: fees.totalCreatorDeductionCents,
+        creator_amount: fees.creatorNetCents,
+        fee_schedule_version: fees.feeScheduleVersion,
+        ...(stripeFee
+          ? {
+              stripe_charge_id: stripeFee.chargeId,
+              stripe_balance_transaction_id: stripeFee.balanceTransactionId,
+              actual_stripe_fee: stripeFee.actualStripeFeeCents,
+              processing_fee_variance:
+                fees.processingFeeCents - stripeFee.actualStripeFeeCents,
+            }
+          : {}),
         currency: currency ?? "usd",
         updated_at: new Date().toISOString(),
       })
@@ -99,11 +156,6 @@ async function upsertPaidBySession(
     }
   }
 
-  // A one-time payment that Stripe reports as paid. Subscriptions are advanced
-  // by invoice.payment_succeeded instead and must not be granted here.
-  const oneTimePaid =
-    session.mode === "payment" && session.payment_status === "paid" && !session.subscription;
-
   const updateFields: Record<string, any> = {
     status: "paid",
     paid_at: new Date().toISOString(),
@@ -114,6 +166,11 @@ async function upsertPaidBySession(
     creator_id,
     buyer_id,
     payment_intent_id,
+    platform_fee_cents: fees.platformFeeCents,
+    processing_fee_cents: fees.processingFeeCents,
+    total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+    creator_net_cents: fees.creatorNetCents,
+    fee_schedule_version: fees.feeScheduleVersion,
     // This route is the ONLY post-payment path the browser actually triggers
     // (/success calls it as soon as Stripe redirects back). It used to set
     // status='paid' and stop there — but both premium gates
@@ -182,7 +239,7 @@ async function upsertPaidBySession(
       .maybeSingle();
     if (updErr) throw new Error(updErr.message);
     // A null row means the terminal-status guard above matched nothing, i.e.
-    // this purchase is refunded or failed. Remember that: it must not be paid out.
+    // this purchase is refunded. Remember that: it must not be paid out.
     wrote = Boolean(updRow?.id);
     status = updRow?.status ?? "paid";
   } else {
@@ -210,7 +267,30 @@ async function upsertPaidBySession(
   // Bookkeeping never blocks delivery: a failure here is logged loudly and the
   // buyer still gets their file.
   if (oneTimePaid && wrote && purchaseId) {
-    await creditPurchaseEarnings(supabase, purchaseId, amount_cents);
+    if (creator_id) {
+      await recordPaymentFeeLedger(supabase, {
+        breakdown: fees,
+        currency: currency ?? "usd",
+        creatorId: creator_id,
+        purchaseId,
+        orderId: order_id,
+        checkoutSessionId: sessionId,
+        paymentIntentId: payment_intent_id,
+        stripeFee,
+        status: "paid",
+      });
+    }
+    await creditPurchaseEarnings(
+      supabase,
+      purchaseId,
+      amount_cents,
+      fees.creatorNetCents
+    );
+    // Stripe can deliver charge.refunded before this browser fallback has
+    // linked the purchase. Reapply any durable refund state immediately after
+    // writing and crediting the sale so late event order cannot restore access
+    // or creator earnings.
+    await reconcileKnownPaymentRefund(supabase, payment_intent_id);
   }
 
   return { purchase_id: purchaseId, status: status ?? "paid", post_id, product_id, creator_id };
@@ -252,7 +332,6 @@ export async function POST(req: Request) {
     });
     if (
       session.mode === "setup" ||
-      session.payment_status === "no_payment_required" ||
       session.metadata?.kind === "booking"
     ) {
       const redirectUrl =
@@ -293,6 +372,87 @@ export async function POST(req: Request) {
       );
     }
 
+    // Subscription checkout completion is not proof that CreatorNet applied
+    // the exact per-invoice fee or credited the installment. The signed
+    // invoice.payment_succeeded webhook owns those mutations. This browser
+    // route only polls the resulting purchase state; it must never regress an
+    // active/complete subscription to the one-time "paid" state.
+    if (session.mode === "subscription") {
+      const subscriptionId =
+        typeof session.subscription === "string"
+          ? session.subscription
+          : session.subscription?.id ?? null;
+      const columns =
+        "id, status, access_granted, product_id, post_id, creator_id";
+      let purchaseResult = await supabase
+        .from("purchases")
+        .select(columns)
+        .eq("session_id", session.id)
+        .maybeSingle();
+      if (purchaseResult.error) {
+        throw new Error(`Subscription purchase lookup failed: ${purchaseResult.error.message}`);
+      }
+      if (!purchaseResult.data && subscriptionId) {
+        purchaseResult = await supabase
+          .from("purchases")
+          .select(columns)
+          .eq("subscription_id", subscriptionId)
+          .maybeSingle();
+        if (purchaseResult.error) {
+          throw new Error(
+            `Subscription purchase lookup failed: ${purchaseResult.error.message}`
+          );
+        }
+      }
+
+      const purchase = purchaseResult.data as {
+        id: string;
+        status: string | null;
+        access_granted: boolean | null;
+        product_id: string | null;
+        post_id: string | null;
+        creator_id: string | null;
+      } | null;
+      if (!purchase) {
+        return NextResponse.json(
+          { ok: true, session_id, status: "pending" },
+          { status: 202 }
+        );
+      }
+      if (purchase.status === "refunded") {
+        return NextResponse.json(
+          { error: "This installment purchase was refunded." },
+          { status: 409 }
+        );
+      }
+
+      const accessReady =
+        purchase.access_granted === true &&
+        ["active", "complete", "paid"].includes(purchase.status || "");
+      if (!accessReady) {
+        return NextResponse.json(
+          {
+            ok: true,
+            session_id,
+            purchase_id: purchase.id,
+            status: "pending",
+          },
+          { status: 202 }
+        );
+      }
+
+      return NextResponse.json({
+        ok: true,
+        session_id,
+        purchase_id: purchase.id,
+        status: "paid",
+        post_id: purchase.post_id,
+        product_id: purchase.product_id,
+        creator_id: purchase.creator_id,
+        product: await loadFulfillmentProduct(purchase.product_id),
+      });
+    }
+
     if (!(session.status === "complete" || session.payment_status === "paid")) {
       return NextResponse.json(
         { error: `Session not paid. status=${session.status}, payment_status=${session.payment_status}` },
@@ -301,23 +461,7 @@ export async function POST(req: Request) {
     }
 
     const meta = await upsertPaidBySession(session_id, session, user.id);
-    let product: Record<string, any> | null = null;
-    if (meta.product_id) {
-      const { data: prodRow } = await supabase
-        .from("products")
-        .select("product_id, type, discord_invite_url, whop_listing_url, title")
-        .eq("product_id", meta.product_id)
-        .maybeSingle();
-      if (prodRow) {
-        product = {
-          id: prodRow.product_id,
-          type: prodRow.type,
-          discord_invite_url: prodRow.discord_invite_url,
-          whop_listing_url: prodRow.whop_listing_url,
-          title: prodRow.title,
-        };
-      }
-    }
+    const product = await loadFulfillmentProduct(meta.product_id);
 
     // return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
     return NextResponse.json({ ok: true, session_id, ...meta, product }, { status: 200 });

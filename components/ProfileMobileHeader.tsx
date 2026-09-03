@@ -139,6 +139,13 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
                 Analytics
               </Link>
               <Link
+                href="/dashboard/earnings"
+                className="w-full px-3 py-2 rounded-lg text-sm text-white hover:bg-white/10 transition"
+                onClick={() => setDrawerOpen(false)}
+              >
+                Earnings
+              </Link>
+              <Link
                 href="/dashboard/closers"
                 className="w-full px-3 py-2 rounded-lg text-sm text-white hover:bg-white/10 transition"
                 onClick={() => setDrawerOpen(false)}

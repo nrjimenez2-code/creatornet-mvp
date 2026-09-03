@@ -4,19 +4,40 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
-import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
-import { splitFee } from "@/lib/money";
+import {
+  claimStripeEvent,
+  completeStripeEvent,
+  releaseStripeEvent,
+} from "@/lib/stripeEvents";
+import {
+  calculateCreatorFeesFromMetadataSchedule,
+  creatorFeeMetadata,
+  creatorFeesFromMetadata,
+} from "@/lib/money";
 import {
   ORDER_OPEN_STATUSES,
-  ORDER_REFUNDABLE_STATUSES,
   purchaseTerminalFilter,
 } from "@/lib/orderStatus";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
+import { creditPurchaseEarnings } from "@/lib/creatorEarnings";
 import {
-  creditPurchaseEarnings,
-  reverseEarningsForPaymentIntent,
-} from "@/lib/creatorEarnings";
+  assertConfiguredApplicationFee,
+  creditLedgerEarnings,
+  recordPaymentFeeLedger,
+  retrieveStripeFeeDetails,
+  type StripeFeeDetails,
+} from "@/lib/paymentFeeLedger";
+import {
+  applyPaymentRefundState,
+  reconcileKnownPaymentRefund,
+  recordPaymentRefundState,
+} from "@/lib/paymentRefunds";
+import {
+  applyPaymentDisputeState,
+  reconcileKnownPaymentDispute,
+  recordPaymentDisputeState,
+} from "@/lib/paymentDisputes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -183,7 +204,7 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
   const orderId = (session.metadata?.order_id as string) || null;
   if (!orderId) return;
   const amount = typeof session.amount_total === "number" ? session.amount_total : 0;
-  const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
+  const fees = creatorFeesFromMetadata(session.metadata, amount);
   const pi =
     typeof session.payment_intent === "string"
       ? session.payment_intent
@@ -200,14 +221,19 @@ async function finalizeOrderFromCheckoutSession(session: Stripe.Checkout.Session
       stripe_payment_intent_id: pi,
       stripe_payment_id: pi,
       gross_amount: amount,
-      platform_fee: fee,
-      creator_amount: creatorAmt,
+      platform_fee: fees.platformFeeCents,
+      processing_fee: fees.processingFeeCents,
+      total_creator_deduction: fees.totalCreatorDeductionCents,
+      creator_amount: fees.creatorNetCents,
+      fee_schedule_version: fees.feeScheduleVersion,
       currency: session.currency || "usd",
       updated_at: new Date().toISOString(),
     })
     .eq("id", orderId)
     .in("status", ORDER_OPEN_STATUSES);
-  if (error) console.warn("[webhook] finalizeOrderFromCheckoutSession:", error.message);
+  if (error) {
+    throw new Error(`checkout order finalization failed: ${error.message}`);
+  }
 }
 
 
@@ -428,8 +454,8 @@ function safeJson(val: any) {
   }
 }
 
-/** Seed/attach purchase rows for product checkouts (one-time or subscription). Returns purchase id if available. */
-async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session): Promise<string | null> {
+/** Seed/attach the purchase row for a product checkout, or fail so Stripe retries. */
+async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session): Promise<string> {
   const buyer_id =
     (session.metadata?.buyer_user_id as string) ||
     (session.metadata?.buyer_id as string) ||
@@ -452,17 +478,15 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
   const subscription_id = (session.subscription as string) || null;
   const amount_cents = typeof session.amount_total === "number" ? session.amount_total : null;
   const currency = session.currency || "usd";
+  const fees = creatorFeesFromMetadata(session.metadata, amount_cents ?? 0);
 
   const oneTimePaid =
     session.mode === "payment" && session.payment_status === "paid" && !subscription_id;
 
   if (!buyer_id || !product_id) {
-    console.warn("[webhook] product seed skipped (missing buyer_id/product_id)", {
-      session_id: session.id,
-      buyer_id,
-      product_id,
-    });
-    return null;
+    throw new Error(
+      `product session ${session.id} is missing buyer/product linkage`
+    );
   }
 
   // Prefer to find by subscription for subs; else by session_id
@@ -516,6 +540,11 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
         payment_intent_id,
         amount_cents,
         currency,
+        platform_fee_cents: fees.platformFeeCents,
+        processing_fee_cents: fees.processingFeeCents,
+        total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+        creator_net_cents: fees.creatorNetCents,
+        fee_schedule_version: fees.feeScheduleVersion,
         target_months,
         access_granted: oneTimePaid,
         status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
@@ -528,7 +557,12 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       .select("id")
       .maybeSingle();
     if (updErr) throw new Error(`seed update error: ${updErr.message}`);
-    return upd?.id ?? resolved.id;
+    if (!upd?.id) {
+      throw new Error(
+        `paid session ${session.id} cannot replace terminal purchase ${resolved.id}`
+      );
+    }
+    return upd.id;
   }
 
   const { data: ins, error: insErr } = await admin
@@ -546,6 +580,11 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       payment_intent_id,
       amount_cents,
       currency,
+      platform_fee_cents: fees.platformFeeCents,
+      processing_fee_cents: fees.processingFeeCents,
+      total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+      creator_net_cents: fees.creatorNetCents,
+      fee_schedule_version: fees.feeScheduleVersion,
       target_months,
       paid_count: subscription_id ? 0 : 1,
       access_granted: oneTimePaid,
@@ -574,7 +613,7 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       .eq("post_id", post_id)
       .maybeSingle();
     if (raced?.id) {
-      const { error: raceUpdErr } = await admin
+      const { data: raceUpdated, error: raceUpdErr } = await admin
         .from("purchases")
         .update({
           session_id: session.id,
@@ -583,14 +622,27 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
           order_id,
           amount_cents,
           currency,
+          platform_fee_cents: fees.platformFeeCents,
+          processing_fee_cents: fees.processingFeeCents,
+          total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+          creator_net_cents: fees.creatorNetCents,
+          fee_schedule_version: fees.feeScheduleVersion,
           access_granted: oneTimePaid,
           status: subscription_id ? "processing" : session.mode === "payment" ? "paid" : "processing",
         })
-        .eq("id", raced.id);
+        .eq("id", raced.id)
+        .not("status", "in", purchaseTerminalFilter())
+        .select("id")
+        .maybeSingle();
       if (raceUpdErr) {
         throw new Error(`seed race-update error: ${raceUpdErr.message}`);
       }
-      return raced.id;
+      if (!raceUpdated?.id) {
+        throw new Error(
+          `paid session ${session.id} cannot replace terminal raced purchase ${raced.id}`
+        );
+      }
+      return raceUpdated.id;
     }
   }
 
@@ -606,24 +658,6 @@ async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Pr
   const bookingPaymentId = (session.metadata?.booking_payment_id as string) || null;
   if (!bookingPaymentId) return false;
 
-  // Ensure purchase row exists for this session if product metadata is provided
-  let purchaseId: string | null = null;
-  if (session.metadata?.product_id) {
-    try {
-      purchaseId = await seedPurchaseFromProductSession(session);
-      if (
-        purchaseId &&
-        session.mode === "payment" &&
-        session.payment_status === "paid"
-      ) {
-        const product_id = (session.metadata?.product_id as string) || null;
-        await attachFulfillmentIfEmpty(purchaseId, product_id);
-      }
-    } catch (err: any) {
-      console.warn("[webhook] seed purchase for booking payment failed:", err?.message || err);
-    }
-  }
-
   const planType = (session.metadata?.plan_type as string) || "full";
   const bookingId = (session.metadata?.booking_id as string) || null;
 
@@ -637,13 +671,59 @@ async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Pr
 
   const amount_total_cents =
     typeof session.amount_total === "number" ? session.amount_total : null;
+  const fees = creatorFeesFromMetadata(session.metadata, amount_total_cents ?? 0);
+  const capturedOneTimePayment =
+    session.mode === "payment" && session.payment_status === "paid";
+  const stripeFee =
+    capturedOneTimePayment
+      ? await retrieveStripeFeeDetails(
+          payment_intent_id,
+          fees.processingFeeEnabled
+        )
+      : null;
+  if (capturedOneTimePayment) {
+    assertConfiguredApplicationFee(
+      `booking checkout ${session.id}`,
+      fees,
+      stripeFee
+    );
+  }
+
+  // Validate the captured Stripe split before granting access or mutating the
+  // purchase. Then ensure a purchase row exists for product-backed bookings.
+  let purchaseId: string | null = null;
+  if (session.metadata?.product_id) {
+    purchaseId = await seedPurchaseFromProductSession(session);
+    if (
+      purchaseId &&
+      session.mode === "payment" &&
+      session.payment_status === "paid"
+    ) {
+      const product_id = (session.metadata?.product_id as string) || null;
+      await attachFulfillmentIfEmpty(purchaseId, product_id);
+    }
+  }
 
   const nowIso = new Date().toISOString();
   const updates: Record<string, any> = {
     stripe_checkout_session_id: session.id,
-    stripe_payment_intent_id: payment_intent_id,
-    stripe_subscription_id: subscription_id,
+    ...(payment_intent_id ? { stripe_payment_intent_id: payment_intent_id } : {}),
+    ...(subscription_id ? { stripe_subscription_id: subscription_id } : {}),
     currency: session.currency || "usd",
+    platform_fee_cents: fees.platformFeeCents,
+    processing_fee_cents: fees.processingFeeCents,
+    total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+    creator_net_cents: fees.creatorNetCents,
+    fee_schedule_version: fees.feeScheduleVersion,
+    ...(stripeFee
+      ? {
+          stripe_charge_id: stripeFee.chargeId,
+          stripe_balance_transaction_id: stripeFee.balanceTransactionId,
+          actual_stripe_fee_cents: stripeFee.actualStripeFeeCents,
+          processing_fee_variance_cents:
+            fees.processingFeeCents - stripeFee.actualStripeFeeCents,
+        }
+      : {}),
     updated_at: nowIso,
   };
 
@@ -657,7 +737,7 @@ async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Pr
     updates.link_url = session.url;
   }
 
-  if (session.payment_status === "paid") {
+  if (capturedOneTimePayment) {
     updates.status = "completed";
     updates.completed_at = nowIso;
   }
@@ -668,10 +748,13 @@ async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Pr
     .eq("id", bookingPaymentId);
 
   if (error) {
+    if (session.payment_status === "paid") {
+      throw new Error(`paid booking payment update failed: ${error.message}`);
+    }
     console.warn("[webhook] booking payment update failed:", error.message);
   }
 
-  if (bookingId && session.payment_status === "paid") {
+  if (bookingId && capturedOneTimePayment) {
     const { error: bookingError } = await admin
       .from("bookings")
       .update({ status: "completed" })
@@ -681,25 +764,178 @@ async function handleBookingPaymentSession(session: Stripe.Checkout.Session): Pr
     }
   }
 
+  if (
+    capturedOneTimePayment &&
+    (!purchaseId || !session.metadata?.creator_id || !payment_intent_id)
+  ) {
+    throw new Error(
+      `paid booking session ${session.id} is missing purchase, creator, or PaymentIntent linkage`
+    );
+  }
+
+  if (
+    capturedOneTimePayment &&
+    purchaseId &&
+    session.metadata?.creator_id
+  ) {
+    await recordPaymentFeeLedger(admin, {
+      breakdown: fees,
+      currency: session.currency || "usd",
+      creatorId: session.metadata.creator_id,
+      purchaseId,
+      bookingPaymentId,
+      checkoutSessionId: session.id,
+      paymentIntentId: payment_intent_id,
+      stripeFee,
+      status: "paid",
+    }, true);
+    await creditPurchaseEarnings(
+      admin,
+      purchaseId,
+      amount_total_cents,
+      fees.creatorNetCents,
+      true
+    );
+    await reconcileKnownPaymentRefund(admin, payment_intent_id);
+  }
+
   return true;
+}
+
+function stripeObjectId(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (value && typeof value === "object" && "id" in value) {
+    const id = (value as { id?: unknown }).id;
+    return typeof id === "string" ? id : null;
+  }
+  return null;
+}
+
+function invoicePaymentIntentFromPayments(inv: any): string | null {
+  const payments = Array.isArray(inv?.payments?.data) ? inv.payments.data : [];
+  const preferred =
+    payments.find((entry: any) => entry?.status === "paid") ||
+    payments.find((entry: any) => entry?.is_default) ||
+    payments[0];
+  return stripeObjectId(preferred?.payment?.payment_intent);
+}
+
+/** Support both pre-Basil invoice.payment_intent and current invoice.payments. */
+async function invoicePaymentIntentId(inv: any): Promise<string | null> {
+  const embedded =
+    stripeObjectId(inv?.payment_intent) || invoicePaymentIntentFromPayments(inv);
+  if (embedded || !inv?.id) return embedded;
+
+  try {
+    const stripe = getStripe();
+    if (!stripe.invoices?.retrieve) return null;
+    const expanded = await stripe.invoices.retrieve(inv.id, {
+      expand: ["payments.data.payment.payment_intent"],
+    });
+    return invoicePaymentIntentFromPayments(expanded);
+  } catch (error: unknown) {
+    console.warn(
+      "[webhook] invoice PaymentIntent lookup failed:",
+      error instanceof Error ? error.message : error
+    );
+    return null;
+  }
+}
+
+async function invoiceFeeContext(inv: any): Promise<{
+  metadata: Record<string, string>;
+  subscriptionId: string | null;
+  destination: string | null;
+}> {
+  const subscriptionId =
+    stripeObjectId(inv?.subscription) ||
+    stripeObjectId(inv?.parent?.subscription_details?.subscription);
+  const parentMetadataSource =
+    inv?.parent?.subscription_details?.metadata || inv?.subscription_details?.metadata;
+  const parentMetadata =
+    parentMetadataSource && typeof parentMetadataSource === "object"
+      ? parentMetadataSource
+      : {};
+  let subscriptionMetadata: Record<string, string> = {};
+  let destination = stripeObjectId(inv?.transfer_data?.destination);
+
+  if (subscriptionId) {
+    try {
+      const stripe = getStripe();
+      if (!stripe.subscriptions?.retrieve) {
+        throw new Error("Stripe subscription retrieval is unavailable");
+      }
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      subscriptionMetadata = (subscription.metadata || {}) as Record<string, string>;
+      destination =
+        destination || stripeObjectId(subscription.transfer_data?.destination);
+    } catch (error: unknown) {
+      // A transient lookup failure must not turn an enabled installment into a
+      // silently acknowledged 12%-only invoice. Returning 500 lets Stripe retry
+      // invoice.created once its API is reachable again.
+      throw new Error(
+        `subscription metadata lookup failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  }
+
+  const metadata = {
+    ...subscriptionMetadata,
+    ...(parentMetadata as Record<string, string>),
+    ...((inv?.metadata || {}) as Record<string, string>),
+  };
+
+  return {
+    metadata,
+    subscriptionId,
+    destination:
+      destination || metadata.creator_stripe_account_id || null,
+  };
+}
+
+/** Set the fixed + percentage creator deduction before each installment invoice is paid. */
+async function handleInvoiceCreated(inv: any) {
+  const { metadata, destination } = await invoiceFeeContext(inv);
+  if (metadata.processing_fee_enabled !== "true") return;
+  if (!metadata.booking_payment_id || metadata.plan_type !== "installment") return;
+
+  const gross = typeof inv?.amount_due === "number" ? inv.amount_due : inv?.total;
+  if (!Number.isSafeInteger(gross) || gross < 0) {
+    throw new Error(`invoice ${inv?.id || "unknown"} has no valid amount_due`);
+  }
+
+  // Use the immutable schedule, not the first invoice's dollar split. Future
+  // invoice totals can change because of discounts, credits, or adjustments.
+  const fees = calculateCreatorFeesFromMetadataSchedule(metadata, gross);
+  if (!destination) {
+    throw new Error(`invoice ${inv.id} has no connected-account destination`);
+  }
+
+  await getStripe().invoices.update(inv.id, {
+    application_fee_amount: fees.totalCreatorDeductionCents,
+    transfer_data: { destination },
+    metadata: {
+      ...metadata,
+      ...creatorFeeMetadata(fees),
+    },
+  });
 }
 
 /** Advance subscription / record payment for invoice events. Also attach fulfillment on first success. */
 async function handleInvoicePaymentSucceeded(inv: any) {
-  const payment_intent_id =
-    typeof inv?.payment_intent === "string"
-      ? inv.payment_intent
-      : inv?.payment_intent?.id ?? null;
+  const payment_intent_id = await invoicePaymentIntentId(inv);
 
-  const subscription_id =
-    typeof inv?.subscription === "string" ? inv.subscription : null;
+  const invoiceContext = await invoiceFeeContext(inv);
+  const subscription_id = invoiceContext.subscriptionId;
 
   let purchase: any = null;
 
   if (subscription_id) {
     const { data } = await admin
       .from("purchases")
-      .select("id, product_id, paid_count, target_months, fulfillment_url")
+      .select("id, product_id, creator_id, paid_count, target_months, fulfillment_url")
       .eq("subscription_id", subscription_id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -710,7 +946,7 @@ async function handleInvoicePaymentSucceeded(inv: any) {
   if (!purchase && payment_intent_id) {
     const { data } = await admin
       .from("purchases")
-      .select("id, product_id, paid_count, target_months, fulfillment_url")
+      .select("id, product_id, creator_id, paid_count, target_months, fulfillment_url")
       .eq("payment_intent_id", payment_intent_id)
       .maybeSingle();
     purchase = data || null;
@@ -721,62 +957,103 @@ async function handleInvoicePaymentSucceeded(inv: any) {
       subscription_id,
       payment_intent_id,
     });
+    // CreatorNet installment invoices must not be acknowledged without an
+    // internal purchase to receive fulfillment and earnings. Event delivery
+    // order is not guaranteed, so ask Stripe to retry after checkout.completed
+    // has seeded the purchase.
+    if (invoiceContext.metadata.booking_payment_id) {
+      throw new Error(`invoice ${inv?.id || "unknown"} arrived before its purchase row`);
+    }
     return;
   }
 
-  const paid_count = (purchase.paid_count || 0) + 1;
-  const target = purchase.target_months || 1;
-  const planComplete = paid_count >= target;
-
-  await admin
-    .from("purchases")
-    .update({
-      paid_count,
-      status: planComplete ? "complete" : "active",
-    })
-    .eq("id", purchase.id);
-
-  // Tell Stripe to stop once the plan is paid off.
-  //
-  // An "installment plan" is created as an open-ended monthly subscription
-  // (app/api/bookings/[bookingId]/payment-link). This block used to mark the
-  // purchase 'complete' at month N and nothing more — Stripe was never told to
-  // stop, so the buyer's card kept being charged every month, forever, after
-  // the plan was fully paid.
-  //
-  // Bounding it at creation time would be better (it would hold even if this
-  // webhook never fires), but stripe@19.3.0's Checkout SessionCreateParams
-  // does not accept `cancel_at` inside subscription_data, so the only place to
-  // do it is here. Best effort and swallowed on failure: a throw here would
-  // release the idempotency claim and make Stripe retry the whole invoice,
-  // which is a worse failure than a subscription that needs cancelling by hand.
-  if (planComplete && subscription_id) {
-    try {
-      await getStripe().subscriptions.update(subscription_id, {
-        cancel_at_period_end: true,
-      });
-      console.log("[webhook] installment plan complete, subscription set to cancel:", subscription_id);
-    } catch (e: any) {
-      console.error(
-        "[webhook] FAILED to cancel completed installment subscription — it will keep billing until cancelled by hand:",
-        subscription_id,
-        e?.message || e
+  const paidGrossCents =
+    typeof inv?.amount_paid === "number" ? inv.amount_paid : 0;
+  const fees = creatorFeesFromMetadata(invoiceContext.metadata, paidGrossCents);
+  let stripeFee: StripeFeeDetails | null = null;
+  if (paidGrossCents > 0) {
+    if (!payment_intent_id) {
+      throw new Error(
+        `paid invoice ${inv?.id || "unknown"} has no PaymentIntent linkage`
+      );
+    }
+    stripeFee = await retrieveStripeFeeDetails(
+      payment_intent_id,
+      fees.processingFeeEnabled
+    );
+    // A paid invoice cannot be repaired after the fact. Do not book fictional
+    // creator-funded processing or credit overstated earnings if invoice.created
+    // was not applied. The retryable failure keeps the incident visible for
+    // reconciliation instead of silently making CreatorNet absorb the cost.
+    assertConfiguredApplicationFee(
+      `invoice ${inv?.id || "unknown"}`,
+      fees,
+      stripeFee
+    );
+  } else {
+    // A fully discounted or credit-covered invoice legitimately has no charge,
+    // PaymentIntent, balance transaction, or processing fee. It still represents
+    // a completed installment cycle, so record it by invoice id and let the
+    // ledger RPC advance paid_count exactly once.
+    const invoiceApplicationFee =
+      typeof inv?.application_fee_amount === "number"
+        ? inv.application_fee_amount
+        : 0;
+    if (fees.totalCreatorDeductionCents !== 0 || invoiceApplicationFee !== 0) {
+      throw new Error(
+        `zero-dollar invoice ${inv?.id || "unknown"} has a nonzero application fee`
       );
     }
   }
+  const creatorId =
+    (purchase.creator_id as string | null) ||
+    invoiceContext.metadata.creator_id ||
+    null;
+  const bookingPaymentId = invoiceContext.metadata.booking_payment_id || null;
 
-  const bookingPaymentId =
+  const { error: purchaseUpdateError } = await admin
+    .from("purchases")
+    .update({
+      ...(payment_intent_id ? { payment_intent_id } : {}),
+      amount_cents: paidGrossCents,
+      platform_fee_cents: fees.platformFeeCents,
+      processing_fee_cents: fees.processingFeeCents,
+      total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+      creator_net_cents: fees.creatorNetCents,
+      fee_schedule_version: fees.feeScheduleVersion,
+    })
+    .eq("id", purchase.id);
+  if (purchaseUpdateError) {
+    throw new Error(`invoice purchase update failed: ${purchaseUpdateError.message}`);
+  }
+
+  const resolvedBookingPaymentId =
+    bookingPaymentId ||
     (inv?.metadata?.booking_payment_id as string) ||
     (inv?.lines?.data?.[0]?.price?.metadata?.booking_payment_id as string) ||
     null;
 
-  if (bookingPaymentId) {
+  if (resolvedBookingPaymentId) {
     const nowIso = new Date().toISOString();
     const updates: Record<string, any> = {
-      stripe_payment_intent_id: payment_intent_id,
+      ...(payment_intent_id ? { stripe_payment_intent_id: payment_intent_id } : {}),
       updated_at: nowIso,
       status: "completed",
       completed_at: nowIso,
+      platform_fee_cents: fees.platformFeeCents,
+      processing_fee_cents: fees.processingFeeCents,
+      total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+      creator_net_cents: fees.creatorNetCents,
+      fee_schedule_version: fees.feeScheduleVersion,
+      ...(stripeFee
+        ? {
+            stripe_charge_id: stripeFee.chargeId,
+            stripe_balance_transaction_id: stripeFee.balanceTransactionId,
+            actual_stripe_fee_cents: stripeFee.actualStripeFeeCents,
+            processing_fee_variance_cents:
+              fees.processingFeeCents - stripeFee.actualStripeFeeCents,
+          }
+        : {}),
     };
     if (subscription_id) {
       updates.stripe_subscription_id = subscription_id;
@@ -788,15 +1065,12 @@ async function handleInvoicePaymentSucceeded(inv: any) {
     const { error: bpError } = await admin
       .from("booking_payments")
       .update(updates)
-      .eq("id", bookingPaymentId);
+      .eq("id", resolvedBookingPaymentId);
     if (bpError) {
-      console.warn(
-        "[webhook] booking_payment update (invoice) failed:",
-        bpError.message
-      );
+      throw new Error(`invoice booking payment update failed: ${bpError.message}`);
     }
 
-    const bookingIdMeta = (inv?.metadata?.booking_id as string) || null;
+    const bookingIdMeta = invoiceContext.metadata.booking_id || null;
     if (bookingIdMeta) {
       const { error: bookingErr } = await admin
         .from("bookings")
@@ -812,56 +1086,144 @@ async function handleInvoicePaymentSucceeded(inv: any) {
   if (!purchase.fulfillment_url) {
     await attachFulfillmentIfEmpty(purchase.id, purchase.product_id);
   }
-}
 
-async function markRefunded(payment_intent_id: string | null) {
-  if (!payment_intent_id) return;
-  const now = new Date().toISOString();
-  const { error: oErr } = await admin
-    .from("orders")
-    .update({ status: "refunded", updated_at: now })
-    .eq("stripe_payment_intent_id", payment_intent_id)
-    .in("status", ORDER_REFUNDABLE_STATUSES);
-  if (oErr && !/column|does not exist/i.test(oErr.message)) {
-    console.warn("[webhook] markRefunded orders:", oErr.message);
+  if (
+    invoiceContext.metadata.booking_payment_id &&
+    (!creatorId || (paidGrossCents > 0 && !payment_intent_id))
+  ) {
+    throw new Error(
+      `invoice ${inv?.id || "unknown"} is missing creator or PaymentIntent linkage`
+    );
   }
-  const { error } = await admin
+
+  if (creatorId && (payment_intent_id || inv?.id)) {
+    const ledgerId = await recordPaymentFeeLedger(admin, {
+      breakdown: fees,
+      currency: inv?.currency || "usd",
+      creatorId,
+      purchaseId: purchase.id,
+      bookingPaymentId: resolvedBookingPaymentId,
+      paymentIntentId: payment_intent_id,
+      invoiceId: inv?.id || null,
+      stripeFee,
+      status: "paid",
+    }, true);
+    await creditLedgerEarnings(admin, ledgerId, true);
+  }
+
+  // credit_payment_fee_ledger_earnings advances paid_count in the same atomic
+  // claim as the recurring earnings credit. Read the committed result instead
+  // of doing a retry-sensitive read+1 in this webhook.
+  const { data: progress, error: progressError } = await admin
     .from("purchases")
-    .update({ status: "refunded", access_granted: false })
-    .eq("payment_intent_id", payment_intent_id);
-  if (error) console.warn("[webhook] markRefunded error:", error.message);
-
-  // Take the creator's credit back. Without this a refunded sale left the
-  // creator permanently credited for money the buyer no longer paid — and the
-  // very first thing anyone does after a test purchase is refund it.
-  // Idempotent, so a replayed charge.refunded reverses only once.
-  const reversed = await reverseEarningsForPaymentIntent(admin, payment_intent_id);
-  if (reversed > 0) {
-    console.log("[webhook] reversed creator earnings for", reversed, "purchase(s)");
+    .select("paid_count, target_months, status")
+    .eq("id", purchase.id)
+    .maybeSingle();
+  if (progressError) {
+    throw new Error(`installment progress lookup failed: ${progressError.message}`);
   }
+  const paidCount = Number(progress?.paid_count || 0);
+  const targetMonths = Math.max(1, Number(progress?.target_months || 1));
+  const planComplete = progress?.status === "complete" || paidCount >= targetMonths;
+
+  // An installment plan is an open-ended monthly subscription. Once the
+  // atomic progress claim reaches its target, tell Stripe to stop after the
+  // paid period. Financial bookkeeping above is now idempotent, so a temporary
+  // cancellation failure can safely return 500 and let Stripe retry instead of
+  // leaving the buyer on an open-ended subscription.
+  if (planComplete && subscription_id) {
+    try {
+      await getStripe().subscriptions.update(subscription_id, {
+        cancel_at_period_end: true,
+      });
+      console.log("[webhook] installment plan complete, subscription set to cancel:", subscription_id);
+    } catch (e: any) {
+      throw new Error(
+        `failed to cancel completed installment subscription ${subscription_id}: ${
+          e?.message || String(e)
+        }`
+      );
+    }
+  }
+  await reconcileKnownPaymentRefund(admin, payment_intent_id);
 }
 
 async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
+  // Subscription invoices have their own handler, immutable invoice fee
+  // metadata, ledger credit, and installment progress. A later generic
+  // payment_intent.succeeded must not overwrite an active/complete plan back
+  // to the one-time "paid" state or replace its per-invoice fee breakdown.
+  if (pi.metadata?.plan_type === "installment") {
+    await reconcileKnownPaymentRefund(admin, pi.id);
+    return;
+  }
+  const { data: invoiceLedger, error: invoiceLedgerError } = await admin
+    .from("payment_fee_ledger")
+    .select("stripe_invoice_id")
+    .eq("stripe_payment_intent_id", pi.id)
+    .maybeSingle();
+  if (invoiceLedgerError) {
+    throw new Error(`PaymentIntent ledger classification failed: ${invoiceLedgerError.message}`);
+  }
+  const { data: subscriptionPurchase, error: subscriptionPurchaseError } = await admin
+    .from("purchases")
+    .select("subscription_id")
+    .eq("payment_intent_id", pi.id)
+    .maybeSingle();
+  if (subscriptionPurchaseError) {
+    throw new Error(
+      `PaymentIntent purchase classification failed: ${subscriptionPurchaseError.message}`
+    );
+  }
+  if (invoiceLedger?.stripe_invoice_id || subscriptionPurchase?.subscription_id) {
+    await reconcileKnownPaymentRefund(admin, pi.id);
+    return;
+  }
+
   const orderId = (pi.metadata?.order_id as string) || null;
+  const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
+  const fees = creatorFeesFromMetadata(pi.metadata, amount);
+  const stripeFee = await retrieveStripeFeeDetails(
+    pi.id,
+    fees.processingFeeEnabled
+  );
+  assertConfiguredApplicationFee(
+    `PaymentIntent ${pi.id}`,
+    fees,
+    stripeFee
+  );
   if (orderId) {
     // Guard on the UPDATE itself, not on a prior SELECT: a charge.refunded
     // landing between a read and this write must not be flipped back to paid.
-    const amount = typeof pi.amount_received === "number" ? pi.amount_received : pi.amount || 0;
-    const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
-    await admin
+    const { error: orderUpdateError } = await admin
       .from("orders")
       .update({
         status: "paid",
         stripe_payment_intent_id: pi.id,
         stripe_payment_id: pi.id,
         gross_amount: amount,
-        platform_fee: fee,
-        creator_amount: creatorAmt,
+        platform_fee: fees.platformFeeCents,
+        processing_fee: fees.processingFeeCents,
+        total_creator_deduction: fees.totalCreatorDeductionCents,
+        creator_amount: fees.creatorNetCents,
+        fee_schedule_version: fees.feeScheduleVersion,
+        ...(stripeFee
+          ? {
+              stripe_charge_id: stripeFee.chargeId,
+              stripe_balance_transaction_id: stripeFee.balanceTransactionId,
+              actual_stripe_fee: stripeFee.actualStripeFeeCents,
+              processing_fee_variance:
+                fees.processingFeeCents - stripeFee.actualStripeFeeCents,
+            }
+          : {}),
         currency: (pi.currency as string) || "usd",
         updated_at: new Date().toISOString(),
       })
       .eq("id", orderId)
       .in("status", ORDER_OPEN_STATUSES);
+    if (orderUpdateError) {
+      throw new Error(`PaymentIntent order update failed: ${orderUpdateError.message}`);
+    }
   }
   const buyer =
     (pi.metadata?.buyer_user_id as string) || (pi.metadata?.buyer_id as string) || null;
@@ -875,41 +1237,62 @@ async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
     patch.buyer_id = buyer;
   }
   // Guard on the UPDATE itself, exactly as the orders write above does. Without
-  // this, a charge.refunded that already ran markRefunded (status='refunded',
-  // access_granted=false) was undone by a later or retried
+  // this, a charge.refunded that already recorded status='refunded' and
+  // access_granted=false was undone by a later or retried
   // payment_intent.succeeded: the row went back to paid with access_granted
   // true, and the refunded buyer kept the file. lib/orderStatus.ts states the
   // invariant that every status write carries a guard; purchases was the one
   // table where that was not true.
-  const { error } = await admin
+  const { data: paidPurchase, error } = await admin
     .from("purchases")
     .update(patch)
     .eq("payment_intent_id", pi.id)
-    .not("status", "in", purchaseTerminalFilter());
+    .not("status", "in", purchaseTerminalFilter())
+    .select("id")
+    .maybeSingle();
   if (error && !/0 rows|No rows/i.test(error.message)) {
-    console.warn("[webhook] reconcilePaymentIntentSucceeded purchases:", error.message);
+    throw new Error(`PaymentIntent purchase update failed: ${error.message}`);
   }
+
+  const creatorId = (pi.metadata?.creator_id as string) || null;
+  if (creatorId) {
+    await recordPaymentFeeLedger(admin, {
+      breakdown: fees,
+      currency: pi.currency || "usd",
+      creatorId,
+      purchaseId: (paidPurchase?.id as string | undefined) || null,
+      orderId,
+      bookingPaymentId: (pi.metadata?.booking_payment_id as string) || null,
+      paymentIntentId: pi.id,
+      stripeFee,
+      status: "paid",
+    }, true);
+  }
+  if (paidPurchase?.id) {
+    await creditPurchaseEarnings(
+      admin,
+      paidPurchase.id as string,
+      amount,
+      fees.creatorNetCents,
+      true
+    );
+  }
+  await reconcileKnownPaymentRefund(admin, pi.id);
 }
 
 async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
-  const orderId = (pi.metadata?.order_id as string) || null;
-  const now = new Date().toISOString();
-  if (orderId) {
-    await admin
-      .from("orders")
-      .update({ status: "canceled", updated_at: now })
-      .eq("id", orderId)
-      .in("status", ORDER_OPEN_STATUSES);
-  }
-  await admin
-    .from("orders")
-    .update({ status: "canceled", updated_at: now })
-    .eq("stripe_payment_intent_id", pi.id)
-    .in("status", ORDER_OPEN_STATUSES);
-  await admin
+  // payment_intent.payment_failed is an unsuccessful attempt, not a terminal
+  // cancellation: the same PaymentIntent can later succeed after the customer
+  // changes payment method. Leave the order open and only mark an unfulfilled
+  // purchase failed. A stale failure can never revoke an active/paid purchase.
+  const { error } = await admin
     .from("purchases")
     .update({ status: "failed", access_granted: false })
-    .eq("payment_intent_id", pi.id);
+    .eq("payment_intent_id", pi.id)
+    .in("status", ["pending", "processing", "failed"]);
+  if (error) {
+    throw new Error(`failed PaymentIntent purchase update failed: ${error.message}`);
+  }
 }
 
 // ---------- route ----------
@@ -955,17 +1338,25 @@ export async function POST(req: NextRequest) {
   // Idempotency. Must be after signature verification (never record an event we
   // have not authenticated) and before any side effect. Stripe retries until it
   // gets a 2xx, and can deliver the same event to more than one endpoint.
-  // Namespaced per handler. Both routes verify against the SAME signing secret,
-  // so if Stripe is configured with both endpoints registered they would both
-  // legitimately accept the same event. Sharing one claim key would let whichever
-  // arrived first make the other skip its work entirely — and the two handlers do
-  // DIFFERENT work, so that would silently drop purchases, earnings and access
-  // grants. Which endpoint(s) Stripe delivers to is not visible from the code.
+  // Both supported webhook URLs delegate to this same canonical handler, so one
+  // shared namespace prevents duplicate work even if both endpoints receive the
+  // event during a migration.
   const claimKey = `stripe:${event.id}`;
   const claim = await claimStripeEvent(claimKey, event.type);
-  if (claim === "duplicate") {
+  if (claim.status === "duplicate") {
     console.log("[webhook] ⏭️ Already processed, acknowledging without re-running:", event.id);
     return NextResponse.json({ ok: true, duplicate: true });
+  }
+  if (claim.status === "unrecorded") {
+    // Financial side effects must not run without the event-id lock. Asking
+    // Stripe to retry is safer than potentially incrementing installments or
+    // earnings twice while the idempotency store is unavailable.
+    return jerr("idempotency", "Could not claim Stripe event", 500);
+  }
+  if (claim.status === "busy") {
+    // Another worker is still processing this event. Never acknowledge it as a
+    // completed duplicate: if that worker fails, Stripe must deliver it again.
+    return jerr("idempotency-busy", "Stripe event is already processing", 500);
   }
 
   try {
@@ -993,6 +1384,26 @@ export async function POST(req: NextRequest) {
 
         // Product flow (one-time or subscription start)
         if (session.metadata?.product_id) {
+          let verifiedStripeFee: StripeFeeDetails | null = null;
+          if (
+            session.mode === "payment" &&
+            session.payment_status === "paid"
+          ) {
+            const paidAmount =
+              typeof session.amount_total === "number" ? session.amount_total : 0;
+            const paidFees = creatorFeesFromMetadata(session.metadata, paidAmount);
+            const paidPaymentIntentId = stripeObjectId(session.payment_intent);
+            verifiedStripeFee = await retrieveStripeFeeDetails(
+              paidPaymentIntentId,
+              paidFees.processingFeeEnabled
+            );
+            assertConfiguredApplicationFee(
+              `checkout ${session.id}`,
+              paidFees,
+              verifiedStripeFee
+            );
+          }
+
           await finalizeOrderFromCheckoutSession(session);
           const purchaseId = await seedPurchaseFromProductSession(session);
 
@@ -1005,7 +1416,39 @@ export async function POST(req: NextRequest) {
             await attachFulfillmentIfEmpty(purchaseId, product_id);
 
             const amount = typeof session.amount_total === "number" ? session.amount_total : 0;
-            const { feeCents: fee, creatorCents: creatorAmt } = splitFee(amount);
+            const fees = creatorFeesFromMetadata(session.metadata, amount);
+            const paymentIntentId = stripeObjectId(session.payment_intent);
+            const stripeFee = verifiedStripeFee;
+            const creatorId = (session.metadata?.creator_id as string) || null;
+            if (!creatorId || !paymentIntentId) {
+              throw new Error(
+                `paid product session ${session.id} is missing creator or PaymentIntent linkage`
+              );
+            }
+
+            await recordPaymentFeeLedger(admin, {
+              breakdown: fees,
+              currency: session.currency || "usd",
+              creatorId,
+              purchaseId,
+              orderId: (session.metadata?.order_id as string) || null,
+              checkoutSessionId: session.id,
+              paymentIntentId,
+              stripeFee,
+              status: "paid",
+            }, true);
+
+            // Exactly-once in the database (migration 018), so /api/confirm-purchase
+            // having already credited this same purchase from the browser cannot
+            // pay the creator twice.
+            await creditPurchaseEarnings(
+              admin,
+              purchaseId,
+              amount,
+              fees.creatorNetCents,
+              true
+            );
+            await reconcileKnownPaymentRefund(admin, paymentIntentId);
 
             const buyerId =
               (session.metadata?.buyer_user_id as string) ||
@@ -1041,10 +1484,6 @@ export async function POST(req: NextRequest) {
               console.warn("[webhook] updatePostMetrics failed:", e)
             );
 
-            // Exactly-once in the database (migration 018), so /api/confirm-purchase
-            // having already credited this same purchase from the browser cannot
-            // pay the creator twice.
-            await creditPurchaseEarnings(admin, purchaseId, amount);
           }
 
           break;
@@ -1053,9 +1492,61 @@ export async function POST(req: NextRequest) {
         // Legacy post purchase flow
         if (session.mode === "payment" && session.payment_status === "paid") {
           const id = await upsertPurchaseFromSession(session);
+          await reconcileKnownPaymentRefund(
+            admin,
+            stripeObjectId(session.payment_intent)
+          );
           // (No product_id here; legacy flow stays unchanged)
           void id; // noop
         }
+        break;
+      }
+
+      case "checkout.session.expired": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        const orderId = (session.metadata?.order_id as string) || null;
+        const expiredAt = new Date().toISOString();
+        if (orderId) {
+          const { error } = await admin
+            .from("orders")
+            .update({ status: "canceled", updated_at: expiredAt })
+            .eq("id", orderId)
+            .in("status", ORDER_OPEN_STATUSES);
+          if (error) throw new Error(`expired order update failed: ${error.message}`);
+        }
+        const { error: sessionOrderError } = await admin
+          .from("orders")
+          .update({ status: "canceled", updated_at: expiredAt })
+          .eq("stripe_checkout_session_id", session.id)
+          .in("status", ORDER_OPEN_STATUSES);
+        if (sessionOrderError) {
+          throw new Error(`expired session order update failed: ${sessionOrderError.message}`);
+        }
+        const { error: purchaseExpiryError } = await admin
+          .from("purchases")
+          .update({ status: "failed", access_granted: false })
+          .eq("session_id", session.id)
+          .in("status", ["pending", "processing", "failed"]);
+        if (purchaseExpiryError) {
+          throw new Error(`expired purchase update failed: ${purchaseExpiryError.message}`);
+        }
+
+        const bookingPaymentId = session.metadata?.booking_payment_id || null;
+        if (bookingPaymentId) {
+          const { error } = await admin
+            .from("booking_payments")
+            .update({ status: "expired", updated_at: expiredAt })
+            .eq("id", bookingPaymentId)
+            .in("status", ["pending", "link_sent"]);
+          if (error) {
+            throw new Error(`expired booking payment update failed: ${error.message}`);
+          }
+        }
+        break;
+      }
+
+      case "invoice.created": {
+        await handleInvoiceCreated(event.data.object);
         break;
       }
 
@@ -1076,13 +1567,63 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "charge.dispute.created":
+      case "charge.dispute.updated":
+      case "charge.dispute.closed": {
+        const deliveredDispute = event.data.object as Stripe.Dispute;
+        // Fetch the current Stripe object instead of trusting the delivered
+        // snapshot. If an older event arrives after a newer one, this still
+        // records/applies Stripe's latest dispute status.
+        const dispute = await getStripe().disputes.retrieve(deliveredDispute.id);
+        const chargeId = stripeObjectId(dispute.charge);
+        let paymentIntentId = stripeObjectId(dispute.payment_intent);
+        if (!paymentIntentId && chargeId) {
+          const charge = await getStripe().charges.retrieve(chargeId);
+          paymentIntentId = stripeObjectId(charge.payment_intent);
+        }
+        if (!chargeId || !paymentIntentId) {
+          throw new Error(`dispute ${dispute.id} has no charge/PaymentIntent linkage`);
+        }
+
+        const state = {
+          disputeId: dispute.id,
+          paymentIntentId,
+          chargeId,
+          disputedAmountCents: dispute.amount,
+          currency: dispute.currency,
+          status: dispute.status,
+          eventCreated: event.created,
+        };
+        const recorded = await recordPaymentDisputeState(admin, state);
+        if (recorded) {
+          await applyPaymentDisputeState(admin, state);
+        } else {
+          // A newer event already won the database comparison. Apply that
+          // canonical row rather than regressing the ledger with this delivery.
+          await reconcileKnownPaymentDispute(admin, paymentIntentId);
+        }
+        // This is deliberately audit-only. No creator earnings, access, or plan
+        // status changes until CreatorNet approves a dispute-responsibility policy.
+        break;
+      }
+
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
         const pi =
           typeof charge.payment_intent === "string"
             ? charge.payment_intent
             : (charge.payment_intent as any)?.id || null;
-        await markRefunded(pi);
+        if (!pi) {
+          console.warn("[webhook] charge.refunded has no PaymentIntent", charge.id);
+          break;
+        }
+        const refundState = await recordPaymentRefundState(admin, {
+          paymentIntentId: pi,
+          chargeId: charge.id,
+          chargeAmountCents: charge.amount || 0,
+          refundedAmountCents: charge.amount_refunded || 0,
+        });
+        await applyPaymentRefundState(admin, refundState);
         break;
       }
 
@@ -1114,16 +1655,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    await completeStripeEvent(claimKey, claim.claimToken);
     console.log("[webhook] ✅ Event processed successfully, returning ACK");
-    // ACK
     return NextResponse.json({ ok: true });
   } catch (e: any) {
     console.error("[webhook] ❌ Handler error:", e?.message || e, "Stack:", e?.stack);
     // We are asking Stripe to retry, so the claim taken above has to go back.
     // Leaving it would make the retry look like a duplicate, and the payment
     // would never be recorded.
-    if (claim === "new") {
-      await releaseStripeEvent(claimKey);
+    if (claim.status === "new") {
+      await releaseStripeEvent(claimKey, claim.claimToken);
     }
     return NextResponse.json({ ok: false, error: "handler error" }, { status: 500 });
   }

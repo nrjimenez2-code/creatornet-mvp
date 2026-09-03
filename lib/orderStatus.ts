@@ -16,8 +16,8 @@
 /** Not yet settled. The only state that may become paid or canceled. */
 export const ORDER_OPEN_STATUSES = ["created"] as const;
 
-/** Money was taken, so it can be given back. */
-export const ORDER_REFUNDABLE_STATUSES = ["paid"] as const;
+/** A paid order, or an out-of-order charge whose success event is still late. */
+export const ORDER_REFUNDABLE_STATUSES = ["created", "paid"] as const;
 
 /** Nothing moves out of these except by an explicit human action. */
 export const ORDER_TERMINAL_STATUSES = ["refunded", "canceled"] as const;
@@ -32,13 +32,14 @@ export type OrderStatus = "created" | "paid" | "refunded" | "canceled";
  * failed), so this is an explicit list of the states a Stripe event must never
  * move a row OUT of, rather than a full state machine.
  *
- * Once money has been given back or the charge failed, no later or replayed
- * event may put the row back to paid — that is how a refunded buyer kept
- * permanent access to the file they were refunded for.
+ * A refund is terminal. `payment_intent.payment_failed` is not: the same
+ * PaymentIntent can be retried with another payment method and later succeed.
+ * Success may therefore recover a `failed` purchase, while no event may recover
+ * a refunded one.
  */
-export const PURCHASE_TERMINAL_STATUSES = ["refunded", "failed"] as const;
+export const PURCHASE_TERMINAL_STATUSES = ["refunded"] as const;
 
-/** PostgREST `not.in` list form: `("refunded","failed")`. */
+/** PostgREST `not.in` list form, currently `("refunded")`. */
 export function purchaseTerminalFilter(): string {
   return `(${PURCHASE_TERMINAL_STATUSES.map((s) => `"${s}"`).join(",")})`;
 }

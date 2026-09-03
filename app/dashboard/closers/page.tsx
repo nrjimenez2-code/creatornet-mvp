@@ -5,6 +5,7 @@ import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import { platformFeeCents as legacyPlatformFeeCents } from "@/lib/money";
 
 type Target = {
   id: string;
@@ -30,6 +31,10 @@ type BookingPayment = {
   amount_total_cents: number | null;
   installment_amount_cents: number | null;
   platform_fee_cents: number | null;
+  processing_fee_cents: number | null;
+  total_creator_deduction_cents: number | null;
+  creator_net_cents: number | null;
+  fee_schedule_version: string | null;
   currency: string | null;
   created_at: string;
   completed_at: string | null;
@@ -124,7 +129,9 @@ export default function ClosersManagerPage() {
   }, [supabase, creatorId]);
 
   useEffect(() => {
-    if (creatorId) loadTargets();
+    if (!creatorId) return;
+    const timeoutId = window.setTimeout(() => void loadTargets(), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [creatorId, loadTargets]);
 
   // helpers
@@ -242,9 +249,9 @@ export default function ClosersManagerPage() {
   }, [accessToken]);
 
   useEffect(() => {
-    if (creatorId && accessToken) {
-      fetchBookings();
-    }
+    if (!creatorId || !accessToken) return;
+    const timeoutId = window.setTimeout(() => void fetchBookings(), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [creatorId, accessToken, fetchBookings]);
 
   const handleGenerateLink = async (bookingId: string, plan: "full" | "installment") => {
@@ -294,9 +301,15 @@ export default function ClosersManagerPage() {
       }
 
       setBookings((prev) =>
-        prev.map((bundle) =>
+          prev.map((bundle) =>
           bundle.booking.id === bookingId
-            ? { ...bundle, payments: [payment, ...(bundle.payments ?? [])] }
+            ? {
+                ...bundle,
+                payments: [
+                  payment,
+                  ...(bundle.payments ?? []).filter((row) => row.id !== payment.id),
+                ],
+              }
             : bundle
         )
       );
@@ -514,6 +527,10 @@ export default function ClosersManagerPage() {
             <p className="text-sm text-white/80">
               Generate Stripe checkout links to send after your calls.
             </p>
+            <p className="mt-1 text-xs text-white/60">
+              CreatorNet charges a 12% platform fee. Standard payment-processing fees are
+              deducted separately.
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -633,63 +650,120 @@ export default function ClosersManagerPage() {
                       {bundle.payments.map((payment) => {
                         const paidLabel = payment.status.replace(/_/g, " ");
                         const paymentCreated = new Date(payment.created_at).toLocaleString();
+                        const grossPerPayment =
+                          payment.plan_type === "installment"
+                            ? payment.installment_amount_cents
+                            : payment.amount_total_cents;
+                        const historicalWithoutBreakdown =
+                          payment.creator_net_cents === null;
+                        const platformFeeCents =
+                          historicalWithoutBreakdown && grossPerPayment !== null
+                            ? legacyPlatformFeeCents(grossPerPayment)
+                            : payment.platform_fee_cents;
+                        const processingFeeCents = payment.processing_fee_cents ?? 0;
+                        const creatorNetCents =
+                          payment.creator_net_cents ??
+                          (grossPerPayment !== null && platformFeeCents !== null
+                            ? Math.max(
+                                0,
+                                grossPerPayment -
+                                  platformFeeCents -
+                                  processingFeeCents,
+                              )
+                            : null);
+                        const splitLabel =
+                          payment.status === "pending" || payment.status === "link_sent"
+                            ? "Expected per payment"
+                            : "Recorded per payment";
 
                         return (
                           <div
                             key={payment.id}
-                            className="flex flex-wrap items-center gap-3 rounded-lg border border-white/30 bg-white/10 px-3 py-2 text-sm text-white"
+                            className="rounded-lg border border-white/30 bg-white/10 px-3 py-3 text-sm text-white"
                           >
-                            <span className="font-semibold capitalize">
-                              {payment.plan_type}
-                            </span>
-                            <span className="text-white/70 capitalize">{paidLabel}</span>
-                            {payment.installment_months ? (
-                              <span className="text-white/70">
-                                {payment.installment_months} months
-                              </span>
-                            ) : null}
-                            {payment.installment_amount_cents ? (
-                              <span className="text-white/70">
-                                {formatMoney(payment.installment_amount_cents, payment.currency)} / mo
-                              </span>
-                            ) : null}
-                            {payment.amount_total_cents ? (
-                              <span className="text-white/70">
-                                {formatMoney(payment.amount_total_cents, payment.currency)} total
-                              </span>
-                            ) : null}
-                            <span className="text-white/50">{paymentCreated}</span>
-                            {payment.closer_profile?.full_name || payment.closer_profile?.username ? (
-                              <span className="text-white/70">
-                                by{" "}
-                                {payment.closer_profile.full_name ||
-                                  payment.closer_profile.username}
-                              </span>
-                            ) : null}
-                            <div className="ml-auto flex items-center gap-2">
-                              {payment.link_url ? (
-                                <>
-                                  <button
-                                    onClick={() => copyToClipboard(payment.link_url)}
-                                    className="rounded-full border border-white/40 px-3 py-1 text-xs text-white"
-                                  >
-                                    Copy
-                                  </button>
-                                  <a
-                                    href={payment.link_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-xs text-blue-200 underline"
-                                  >
-                                    Open
-                                  </a>
-                                </>
-                              ) : (
-                                <span className="text-xs text-white/50">
-                                  Link unavailable
+                            <div className="flex flex-wrap items-center gap-3">
+                              <span className="font-semibold capitalize">{payment.plan_type}</span>
+                              <span className="text-white/70 capitalize">{paidLabel}</span>
+                              {payment.installment_months !== null ? (
+                                <span className="text-white/70">
+                                  {payment.installment_months} months
                                 </span>
-                              )}
+                              ) : null}
+                              {payment.installment_amount_cents !== null ? (
+                                <span className="text-white/70">
+                                  {formatMoney(payment.installment_amount_cents, payment.currency)} / mo
+                                </span>
+                              ) : null}
+                              {payment.amount_total_cents !== null ? (
+                                <span className="text-white/70">
+                                  {formatMoney(payment.amount_total_cents, payment.currency)} total
+                                </span>
+                              ) : null}
+                              <span className="text-white/50">{paymentCreated}</span>
+                              {payment.closer_profile?.full_name || payment.closer_profile?.username ? (
+                                <span className="text-white/70">
+                                  by{" "}
+                                  {payment.closer_profile.full_name ||
+                                    payment.closer_profile.username}
+                                </span>
+                              ) : null}
+                              <div className="ml-auto flex items-center gap-2">
+                                {payment.link_url ? (
+                                  <>
+                                    <button
+                                      onClick={() => copyToClipboard(payment.link_url)}
+                                      className="rounded-full border border-white/40 px-3 py-1 text-xs text-white"
+                                    >
+                                      Copy
+                                    </button>
+                                    <a
+                                      href={payment.link_url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-xs text-blue-200 underline"
+                                    >
+                                      Open
+                                    </a>
+                                  </>
+                                ) : (
+                                  <span className="text-xs text-white/50">Link unavailable</span>
+                                )}
+                              </div>
                             </div>
+
+                            {grossPerPayment !== null ? (
+                              <div className="mt-3 border-t border-white/15 pt-3">
+                                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-white/50">
+                                  {splitLabel}
+                                </p>
+                                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4">
+                                  <div>
+                                    <dt className="text-[11px] text-white/50">Gross</dt>
+                                    <dd className="font-medium">
+                                      {formatMoney(grossPerPayment, payment.currency)}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[11px] text-white/50">CreatorNet fee (12%)</dt>
+                                    <dd className="font-medium">
+                                      {formatMoney(platformFeeCents, payment.currency)}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[11px] text-white/50">Payment processing</dt>
+                                    <dd className="font-medium">
+                                      {formatMoney(processingFeeCents, payment.currency)}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt className="text-[11px] text-white/50">Creator net</dt>
+                                    <dd className="font-semibold text-emerald-300">
+                                      {formatMoney(creatorNetCents, payment.currency)}
+                                    </dd>
+                                  </div>
+                                </dl>
+                              </div>
+                            ) : null}
                           </div>
                         );
                       })}

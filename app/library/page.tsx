@@ -203,7 +203,8 @@ export default function LibraryPage() {
             `
           )
           .eq("buyer_id", userId)
-          .eq("status", "paid")
+          .eq("access_granted", true)
+          .in("status", ["paid", "active", "complete"])
           .order("created_at", { ascending: false });
 
         if (cancelled) return;

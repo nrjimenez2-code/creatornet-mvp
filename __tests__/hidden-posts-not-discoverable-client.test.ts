@@ -153,7 +153,15 @@ describe("app/watch/[postId]", () => {
 
     const pur = db.opsFor("purchases").filter((o) => o.kind === "select");
     expect(pur).toHaveLength(1);
-    expect(pur[0].filters).toMatchObject({ buyer_id: "buyer_1", post_id: "post_1", status: "paid" });
+    expect(pur[0].filters).toMatchObject({
+      buyer_id: "buyer_1",
+      post_id: "post_1",
+      access_granted: true,
+    });
+    expect(pur[0].inFilters).toContainEqual({
+      column: "status",
+      values: ["paid", "active", "complete"],
+    });
     expect(container.textContent).toContain("Hidden thing");
     expect(container.textContent).not.toContain("Post not found.");
     expect(routerPush).not.toHaveBeenCalled();

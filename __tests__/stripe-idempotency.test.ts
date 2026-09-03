@@ -1,27 +1,19 @@
-/**
- * Webhook idempotency guard — lib/stripeEvents.ts
- *
- * Stripe retries a webhook until it gets a 2xx, and can deliver the same event
- * to more than one registered endpoint. Without a guard, a retry re-runs every
- * side effect: re-granting access, re-sending mail, re-incrementing earnings.
- *
- * These tests pin the three behaviours the money path depends on:
- *   1. a first delivery is processed
- *   2. a repeat delivery is skipped
- *   3. a ledger failure does NOT drop the payment (documented fail-open)
- */
+/** Webhook idempotency guard — processing leases and completion state. */
 
-const mockInsert = jest.fn();
-const mockEq = jest.fn();
-const mockDelete = jest.fn(() => ({ eq: mockEq }));
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
+const mockRpc = jest.fn();
 
 jest.mock("@supabase/supabase-js", () => ({
-  createClient: jest.fn(() => ({
-    from: jest.fn(() => ({ insert: mockInsert, delete: mockDelete })),
-  })),
+  createClient: jest.fn(() => ({ rpc: mockRpc })),
 }));
 
-import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
+import {
+  claimStripeEvent,
+  completeStripeEvent,
+  releaseStripeEvent,
+} from "@/lib/stripeEvents";
 
 const OLD_ENV = process.env;
 
@@ -39,201 +31,165 @@ afterAll(() => {
 });
 
 describe("claimStripeEvent", () => {
-  test("a first delivery is claimed and processed", async () => {
-    mockInsert.mockResolvedValueOnce({ error: null });
+  test("a first delivery receives the processing lease", async () => {
+    mockRpc.mockResolvedValueOnce({ data: "new", error: null });
 
-    const result = await claimStripeEvent("evt_first", "checkout.session.completed");
-
-    expect(result).toBe("new");
-    expect(mockInsert).toHaveBeenCalledWith({
-      id: "evt_first",
-      type: "checkout.session.completed",
+    await expect(
+      claimStripeEvent("evt_first", "checkout.session.completed")
+    ).resolves.toEqual({ status: "new", claimToken: expect.any(String) });
+    expect(mockRpc).toHaveBeenCalledWith("claim_stripe_event", {
+      p_event_id: "evt_first",
+      p_event_type: "checkout.session.completed",
+      p_lease_seconds: 300,
+      p_claim_token: expect.any(String),
     });
   });
 
-  test("a repeat delivery is detected by the primary-key conflict and skipped", async () => {
-    mockInsert.mockResolvedValueOnce({
-      error: { code: "23505", message: 'duplicate key value violates unique constraint "stripe_events_pkey"' },
-    });
-
-    const result = await claimStripeEvent("evt_repeat", "checkout.session.completed");
-
-    expect(result).toBe("duplicate");
+  test("a completed delivery is skipped", async () => {
+    mockRpc.mockResolvedValueOnce({ data: "duplicate", error: null });
+    await expect(
+      claimStripeEvent("evt_repeat", "checkout.session.completed")
+    ).resolves.toEqual({ status: "duplicate" });
   });
 
-  test("a conflict is still detected if the driver omits the SQLSTATE code", async () => {
-    mockInsert.mockResolvedValueOnce({
-      error: { message: "duplicate key value violates unique constraint" },
-    });
-
-    expect(await claimStripeEvent("evt_nocode", "charge.refunded")).toBe("duplicate");
+  test("a concurrent in-progress delivery is retryable, not a completed duplicate", async () => {
+    mockRpc.mockResolvedValueOnce({ data: "busy", error: null });
+    await expect(
+      claimStripeEvent("evt_busy", "invoice.payment_succeeded")
+    ).resolves.toEqual({ status: "busy" });
   });
 
-  test("an unrelated database error does NOT drop the payment (fail-open, on purpose)", async () => {
-    mockInsert.mockResolvedValueOnce({
+  test("a database error fails closed", async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: null,
       error: { code: "08006", message: "connection failure" },
     });
-
-    const result = await claimStripeEvent("evt_dberror", "checkout.session.completed");
-
-    // Deliberate: a problem writing one bookkeeping table must not become a
-    // total outage of payment recording. purchases has UNIQUE constraints on
-    // session_id and payment_intent_id, so duplicate ROWS remain impossible.
-    expect(result).toBe("unrecorded");
+    await expect(
+      claimStripeEvent("evt_dberror", "checkout.session.completed")
+    ).resolves.toEqual({ status: "unrecorded" });
   });
 
-  test("a thrown exception also fails open rather than losing the event", async () => {
-    mockInsert.mockRejectedValueOnce(new Error("socket hang up"));
-
-    expect(await claimStripeEvent("evt_throw", "payment_intent.succeeded")).toBe("unrecorded");
+  test("a thrown exception fails closed", async () => {
+    mockRpc.mockRejectedValueOnce(new Error("socket hang up"));
+    await expect(
+      claimStripeEvent("evt_throw", "payment_intent.succeeded")
+    ).resolves.toEqual({ status: "unrecorded" });
   });
 
-  test("a missing service-role key fails open and does not crash the webhook", async () => {
+  test("a missing service-role key fails closed before touching the database", async () => {
     delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    expect(await claimStripeEvent("evt_nokey", "checkout.session.completed")).toBe("unrecorded");
-    expect(mockInsert).not.toHaveBeenCalled();
+    await expect(
+      claimStripeEvent("evt_nokey", "checkout.session.completed")
+    ).resolves.toEqual({ status: "unrecorded" });
+    expect(mockRpc).not.toHaveBeenCalled();
   });
 
-  test("the event type is recorded alongside the id, not just the id", async () => {
-    mockInsert.mockResolvedValueOnce({ error: null });
-
-    await claimStripeEvent("evt_typed", "invoice.payment_succeeded");
-
-    expect(mockInsert).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "invoice.payment_succeeded" })
-    );
+  test("an invalid database result fails closed", async () => {
+    mockRpc.mockResolvedValueOnce({ data: "mystery", error: null });
+    await expect(
+      claimStripeEvent("evt_invalid", "charge.refunded")
+    ).resolves.toEqual({ status: "unrecorded" });
   });
 
-  test("two concurrent deliveries of one event: exactly one wins", async () => {
-    // The insert is the lock — both racers hit the same primary key and the
-    // database picks a winner. There is no read-then-write window to lose.
-    mockInsert
-      .mockResolvedValueOnce({ error: null })
-      .mockResolvedValueOnce({ error: { code: "23505", message: "duplicate key" } });
-
+  test("two concurrent deliveries produce one owner and one retryable waiter", async () => {
+    mockRpc
+      .mockResolvedValueOnce({ data: "new", error: null })
+      .mockResolvedValueOnce({ data: "busy", error: null });
     const [a, b] = await Promise.all([
       claimStripeEvent("evt_race", "checkout.session.completed"),
       claimStripeEvent("evt_race", "checkout.session.completed"),
     ]);
-
-    expect([a, b].filter((r) => r === "new")).toHaveLength(1);
-    expect([a, b].filter((r) => r === "duplicate")).toHaveLength(1);
+    expect([a, b].filter((value) => value.status === "new")).toHaveLength(1);
+    expect([a, b].filter((value) => value.status === "busy")).toHaveLength(1);
   });
 });
 
-/**
- * Releasing a claim.
- *
- * The claim is taken BEFORE any side effect, so a handler that throws half way
- * leaves the event id behind. Stripe's retry would then see its own claim,
- * return "duplicate", and acknowledge without doing the work — the payment is
- * captured and never recorded, and Stripe stops retrying because it got a 2xx.
- *
- * That is strictly worse than having no guard, so the failure path has to hand
- * the claim back.
- */
-describe("releaseStripeEvent", () => {
-  test("deletes the claim row for that event id", async () => {
-    mockEq.mockResolvedValueOnce({ error: null });
-
-    await releaseStripeEvent("evt_failed_midway");
-
-    expect(mockDelete).toHaveBeenCalled();
-    expect(mockEq).toHaveBeenCalledWith("id", "evt_failed_midway");
-  });
-
-  test("a released event can be claimed again, so Stripe's retry is processed", async () => {
-    mockInsert.mockResolvedValueOnce({ error: null });
-    expect(await claimStripeEvent("evt_retry", "checkout.session.completed")).toBe("new");
-
-    mockEq.mockResolvedValueOnce({ error: null });
-    await releaseStripeEvent("evt_retry");
-
-    // The row is gone, so the retry inserts cleanly rather than conflicting.
-    mockInsert.mockResolvedValueOnce({ error: null });
-    expect(await claimStripeEvent("evt_retry", "checkout.session.completed")).toBe("new");
-  });
-
-  test("a failed delete is logged and swallowed, never masking the original error", async () => {
-    mockEq.mockResolvedValueOnce({ error: { code: "XXXXX", message: "boom" } });
-
-    await expect(releaseStripeEvent("evt_delete_fails")).resolves.toBeUndefined();
-  });
-});
-
-/**
- * The two handlers must never share a claim key.
- *
- * Both routes verify against the same STRIPE_WEBHOOK_SECRET, so if Stripe is
- * configured with both endpoints registered they would both legitimately accept
- * the same event. They do DIFFERENT work: the big handler writes purchases,
- * earnings, bookings and access grants; the small one does its own thing.
- *
- * With one shared key, whichever delivery arrived first would make the other
- * return "duplicate" and skip everything — silently dropping a purchase.
- * Namespacing per handler keeps each one idempotent against its own retries
- * without either being able to silence the other.
- */
-describe("per-handler claim namespacing", () => {
-  test("the same Stripe event can be claimed once per handler", async () => {
-    mockInsert.mockResolvedValueOnce({ error: null });
-    expect(await claimStripeEvent("stripe:evt_shared", "checkout.session.completed")).toBe("new");
-
-    mockInsert.mockResolvedValueOnce({ error: null });
-    expect(await claimStripeEvent("webhook:evt_shared", "checkout.session.completed")).toBe("new");
-
-    expect(mockInsert).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: "stripe:evt_shared" }));
-    expect(mockInsert).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: "webhook:evt_shared" }));
-  });
-
-  test("a retry to the SAME handler is still caught as a duplicate", async () => {
-    mockInsert.mockResolvedValueOnce({
-      error: { code: "23505", message: "duplicate key value violates unique constraint" },
+describe("event completion and failure release", () => {
+  test("completion is durable before the webhook returns 2xx", async () => {
+    mockRpc.mockResolvedValueOnce({ data: true, error: null });
+    await expect(
+      completeStripeEvent("stripe:evt_done", "11111111-1111-4111-8111-111111111111")
+    ).resolves.toBeUndefined();
+    expect(mockRpc).toHaveBeenCalledWith("complete_stripe_event", {
+      p_event_id: "stripe:evt_done",
+      p_claim_token: "11111111-1111-4111-8111-111111111111",
     });
+  });
 
-    expect(await claimStripeEvent("stripe:evt_shared", "checkout.session.completed")).toBe("duplicate");
+  test("an unowned completion throws so Stripe retries", async () => {
+    mockRpc.mockResolvedValueOnce({ data: false, error: null });
+    await expect(
+      completeStripeEvent("stripe:evt_lost", "22222222-2222-4222-8222-222222222222")
+    ).rejects.toThrow(
+      /was not owned/
+    );
+  });
+
+  test("release only asks the database to drop an in-progress claim", async () => {
+    mockRpc.mockResolvedValueOnce({ data: true, error: null });
+    await expect(
+      releaseStripeEvent("stripe:evt_failed", "33333333-3333-4333-8333-333333333333")
+    ).resolves.toBeUndefined();
+    expect(mockRpc).toHaveBeenCalledWith("release_stripe_event", {
+      p_event_id: "stripe:evt_failed",
+      p_claim_token: "33333333-3333-4333-8333-333333333333",
+    });
+  });
+
+  test("release is best effort and never masks the original handler error", async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: false,
+      error: { code: "XXXXX", message: "boom" },
+    });
+    await expect(
+      releaseStripeEvent(
+        "stripe:evt_release_error",
+        "44444444-4444-4444-8444-444444444444"
+      )
+    ).resolves.toBeUndefined();
   });
 });
 
-/**
- * Pin the prefixes in the route files themselves.
- *
- * The tests above prove the library behaves correctly when given distinct keys,
- * but nothing stops someone editing a route to use the other one's prefix. The
- * route files cannot be imported here — they build Stripe and Supabase clients
- * at module scope, which needs real credentials — so this reads them as text,
- * the same approach used by the platform-fee tripwire.
- */
-describe("route files use distinct claim prefixes", () => {
+describe("both webhook URLs use the canonical completed-event guard", () => {
   const read = (rel: string) =>
-    require("fs").readFileSync(require("path").join(__dirname, "..", rel), "utf8");
+    readFileSync(path.join(__dirname, "..", rel), "utf8");
+  const canonical = "app/api/stripe/webhook/route.ts";
+  const legacy = "app/api/webhook/route.ts";
 
-  const BIG = "app/api/stripe/webhook/route.ts";
-  const SMALL = "app/api/webhook/route.ts";
-
-  test("the big handler claims under stripe:", () => {
-    expect(read(BIG)).toMatch(/const claimKey = `stripe:\$\{event\.id\}`/);
+  test("the canonical handler claims, completes, and releases one shared key", () => {
+    const source = read(canonical);
+    expect(source).toMatch(/const claimKey = `stripe:\$\{event\.id\}`/);
+    expect(source).toMatch(/completeStripeEvent\(claimKey, claim\.claimToken\)/);
+    expect(source).toMatch(/releaseStripeEvent\(claimKey, claim\.claimToken\)/);
   });
 
-  test("the small handler claims under webhook:", () => {
-    expect(read(SMALL)).toMatch(/const claimKey = `webhook:\$\{event\.id\}`/);
+  test("the legacy URL delegates to the canonical handler", () => {
+    const source = read(legacy);
+    expect(source).toMatch(
+      /import \{ POST as handleStripeWebhook \} from "@\/app\/api\/stripe\/webhook\/route"/
+    );
+    expect(source).toMatch(/return handleStripeWebhook\(req\)/);
+    expect(source).not.toMatch(/claimStripeEvent/);
   });
 
-  test("the two prefixes are not the same", () => {
-    const grab = (src: string) => src.match(/const claimKey = `([a-z]+):\$\{event\.id\}`/)?.[1];
-    const big = grab(read(BIG));
-    const small = grab(read(SMALL));
-
-    expect(big).toBeDefined();
-    expect(small).toBeDefined();
-    expect(big).not.toBe(small);
-  });
-
-  test("each handler releases the key it claimed, not the bare event id", () => {
-    for (const f of [BIG, SMALL]) {
-      expect(read(f)).toMatch(/releaseStripeEvent\(claimKey\)/);
-      expect(read(f)).not.toMatch(/releaseStripeEvent\(event\.id\)/);
-    }
+  test("migration 019 implements processing, completed, and lease states atomically", () => {
+    const source = read("supabase/schema/019-creator-processing-fees.sql");
+    expect(source).toContain("create or replace function public.claim_stripe_event");
+    expect(source).toContain("return 'busy';");
+    expect(source).toContain("create or replace function public.complete_stripe_event");
+    expect(source).toContain(
+      "drop function if exists public.claim_stripe_event(text, text, integer)",
+    );
+    expect(source).toContain(
+      "drop function if exists public.complete_stripe_event(text)",
+    );
+    expect(source).toContain(
+      "drop function if exists public.release_stripe_event(text)",
+    );
+    expect(source).toMatch(
+      /where id = p_event_id\s+and status = 'processing'\s+and claim_token = p_claim_token/,
+    );
+    expect(source.trimStart()).toMatch(/^--[\s\S]*\nbegin;/);
+    expect(source.trimEnd().endsWith("commit;")).toBe(true);
   });
 });

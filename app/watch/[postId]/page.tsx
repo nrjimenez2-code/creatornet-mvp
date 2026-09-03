@@ -72,7 +72,8 @@ export default function WatchPage() {
           .select("id")
           .eq("buyer_id", userId)
           .eq("post_id", postId)
-          .eq("status", "paid")
+          .eq("access_granted", true)
+          .in("status", ["paid", "active", "complete"])
           .maybeSingle();
 
         if (purErr) {

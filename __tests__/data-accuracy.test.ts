@@ -98,7 +98,7 @@ describe("order status state machine", () => {
   // The live constraint orders_status_check allows exactly these four.
   test("the model matches the database constraint", () => {
     expect([...ORDER_OPEN_STATUSES]).toEqual(["created"]);
-    expect([...ORDER_REFUNDABLE_STATUSES]).toEqual(["paid"]);
+    expect([...ORDER_REFUNDABLE_STATUSES]).toEqual(["created", "paid"]);
   });
 
   test("open orders can be paid or canceled", () => {
@@ -122,7 +122,9 @@ describe("order status state machine", () => {
 
   test("only paid orders can be refunded", () => {
     expect(canTransition("paid", "refunded")).toBe(true);
-    expect(canTransition("created", "refunded")).toBe(false);
+    // Stripe can deliver charge.refunded before the success event that would
+    // have moved CreatorNet's still-linked order from created to paid.
+    expect(canTransition("created", "refunded")).toBe(true);
     expect(canTransition("canceled", "refunded")).toBe(false);
   });
 

@@ -212,6 +212,17 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
               </Link>
 
               <Link
+                href="/dashboard/earnings"
+                className="flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                title="Earnings"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor" aria-hidden="true">
+                  <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15.87V19h-2v-1.08a4.4 4.4 0 0 1-2.64-1.22l1.23-1.52A3.7 3.7 0 0 0 12 16.1c1.04 0 1.7-.4 1.7-1.05 0-.62-.51-.93-1.87-1.29-2.02-.52-3.07-1.24-3.07-2.8 0-1.44.91-2.46 2.24-2.84V7h2v1.07a4.3 4.3 0 0 1 2.24.94l-1.08 1.57a3.45 3.45 0 0 0-2.08-.7c-.94 0-1.48.4-1.48.97 0 .66.59.9 2.02 1.28 2.04.54 2.92 1.34 2.92 2.81 0 1.48-.94 2.54-2.54 2.93Z" />
+                </svg>
+                <span className="hidden lg:inline">Earnings</span>
+              </Link>
+
+              <Link
                 href="/library"
                 className="flex items-center justify-center lg:justify-start gap-0 lg:gap-3 rounded-xl px-2 lg:px-3 py-2 text-white/70 transition hover:bg-white/10 hover:text-white"
                 title="Library"

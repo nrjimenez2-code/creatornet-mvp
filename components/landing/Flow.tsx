@@ -1,8 +1,7 @@
 import { InfoIcon } from "./icons";
 
-// Section 5: the transaction model, stated exactly. The fee (12%), Stripe
-// payouts, and "every payment corresponds to a listing" are product facts
-// Noah's brief requires verbatim; they match lib/money.ts and the Terms.
+// Section 5: the transaction model, stated exactly. CreatorNet's 12% fee and
+// payment processing are separate creator deductions; Stripe handles payouts.
 export default function Flow() {
   return (
     <section className="cn-site-marketplace-flow" id="cn-site-flow">
@@ -51,10 +50,10 @@ export default function Flow() {
           <p className="cn-site-flow-note">
             <InfoIcon />
             <span>
-              CreatorNet keeps a 12% platform fee. The remainder is paid to the creator&apos;s
-              connected Stripe account, subject to Stripe&apos;s processing. Every payment
-              corresponds to a listed product or service — CreatorNet is a marketplace, not a way
-              to send money between people.
+              CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted
+              separately. The creator&apos;s net earnings are routed to their connected Stripe
+              account. Every payment corresponds to a listed product or service — CreatorNet is a
+              marketplace, not a way to send money between people.
             </span>
           </p>
         </div>
