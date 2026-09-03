@@ -27,6 +27,16 @@ export default function CancelPage() {
             View Library
           </a>
         </div>
+        <p className="mt-6 text-xs text-gray-500">
+          Questions?{" "}
+          <a href="mailto:support@creatornet.net" className="underline hover:text-gray-700">
+            support@creatornet.net
+          </a>
+          {" · "}
+          <a href="/legal/refunds" className="underline hover:text-gray-700">
+            Refund policy
+          </a>
+        </p>
       </div>
     </main>
   );

@@ -1071,6 +1071,17 @@ export default function VideoCard(props: VideoCardProps) {
                       </button>
                     </>
                   )}
+                  <div className="h-px bg-white/30" />
+                  {/* Plain anchor, not a menuitem: Stripe requires the refund/
+                      delivery terms to be reachable from the purchase flow. */}
+                  <a
+                    href="/legal/refunds"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block px-3 py-1.5 text-[11px] text-black/70 underline underline-offset-2 hover:text-black hover:bg-white/20 transition"
+                  >
+                    Refund &amp; delivery policy
+                  </a>
                 </div>,
                 document.body
               )}
