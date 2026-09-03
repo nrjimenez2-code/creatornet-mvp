@@ -192,6 +192,37 @@ describe("policy links in the purchase flow", () => {
       expect(link!.compareDocumentPosition(items[items.length - 1]) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
     });
 
+    // The card fills the viewport on desktop and the Buy button sits near the
+    // bottom edge; opening downward there clips the lower rows (Book, this
+    // link) off-screen, and any scroll closes the menu. The menu must flip.
+    const withButtonRect = async (rect: { top: number; bottom: number; left: number }, innerHeight: number) => {
+      const original = HTMLButtonElement.prototype.getBoundingClientRect;
+      const originalHeight = window.innerHeight;
+      HTMLButtonElement.prototype.getBoundingClientRect = function () {
+        return { ...rect, right: rect.left + 120, width: 120, height: rect.bottom - rect.top, x: rect.left, y: rect.top, toJSON() {} } as DOMRect;
+      };
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: innerHeight });
+      try {
+        return await openDropdown();
+      } finally {
+        HTMLButtonElement.prototype.getBoundingClientRect = original;
+        Object.defineProperty(window, "innerHeight", { configurable: true, value: originalHeight });
+      }
+    };
+
+    it("opens upward when the Buy button sits near the bottom of the viewport", async () => {
+      const dropdown = await withButtonRect({ top: 828, bottom: 868, left: 100 }, 900);
+      expect(dropdown.style.bottom).toBe(`${900 - 828 + 8}px`);
+      expect(dropdown.style.top).toBe("");
+      expect(anchor(dropdown, "/legal/refunds")).not.toBeNull();
+    });
+
+    it("opens downward when there is room below", async () => {
+      const dropdown = await withButtonRect({ top: 100, bottom: 140, left: 100 }, 900);
+      expect(dropdown.style.top).toBe(`${140 + 8}px`);
+      expect(dropdown.style.bottom).toBe("");
+    });
+
     it("is visibly secondary to the Pay in full action", async () => {
       const dropdown = await openDropdown();
       const link = anchor(dropdown, "/legal/refunds")!;
