@@ -39,8 +39,49 @@ describe("legal pages name the registered entity and mailing address", () => {
     expect(html).toContain(`operated by ${ENTITY}`);
   });
 
-  it("terms section 8 (governing law / venue) is unchanged and still pending", async () => {
+  it.each(["privacy", "terms"] as const)("/legal/%s shows the new 'Last updated' date", async (route) => {
+    const html = await render(route);
+    expect(html).toContain("Last updated: September 3, 2026");
+  });
+
+  it("terms places the address under '10. Contact', privacy under 'Who we are'", async () => {
+    const terms = await render("terms");
+    expect(terms.indexOf(ADDRESS_BLOCK)).toBeGreaterThan(terms.indexOf("10. Contact"));
+    const privacy = await render("privacy");
+    const whoWeAre = privacy.indexOf("Who we are");
+    const nextSection = privacy.indexOf("What we collect");
+    const at = privacy.indexOf(ADDRESS_BLOCK);
+    expect(at).toBeGreaterThan(whoWeAre);
+    expect(at).toBeLessThan(nextSection);
+  });
+
+  it("terms section 8 (governing law / venue) is byte-for-byte what it was — still pending from Noah", async () => {
     const html = await render("terms");
-    expect(html).toContain("Where a governing-law and venue designation is required");
+    // Everything between the section-8 heading and the section-9 heading, as
+    // visible text. Any rewording — not just the one sentence — fails here.
+    const start = html.indexOf("8. Disputes");
+    const end = html.indexOf("9. Changes");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const text = html
+      .slice(start, end)
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&#x27;|&apos;/g, "'")
+      .replace(/\s+/g, " ")
+      .trim();
+    expect(text).toBe(
+      "8. Disputes If something goes wrong, contact support@creatornet.net first — most issues can " +
+        "be resolved informally. Where a governing-law and venue designation is required, it will be " +
+        "added to these Terms as CreatorNet's legal setup is finalized and flagged as a material change."
+    );
+    // And the support link is a real mailto, not a dead anchor.
+    expect(html.slice(start, end)).toContain('href="mailto:support@creatornet.net"');
+  });
+
+  it("terms '10. Contact' keeps a real mailto link above the address", async () => {
+    const html = await render("terms");
+    const contact = html.slice(html.indexOf("10. Contact"));
+    expect(contact).toContain('href="mailto:support@creatornet.net"');
+    expect(contact.indexOf('href="mailto:support@creatornet.net"')).toBeLessThan(contact.indexOf(ADDRESS_BLOCK));
   });
 });
