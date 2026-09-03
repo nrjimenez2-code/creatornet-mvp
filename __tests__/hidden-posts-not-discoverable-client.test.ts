@@ -4,10 +4,12 @@
 /**
  * Client half of hidden-posts-not-discoverable.test.ts.
  *
- * app/watch/[postId] (a direct link to a post) and components/ContinueWatching
- * read `posts` with the browser client. Both must exclude hidden and removed
- * posts; a hidden post reached by direct link must land in the same
- * "Post not found." branch a nonexistent id does today — no new UI state.
+ * components/ContinueWatching reads `posts` with the browser client and must
+ * exclude hidden and removed posts. app/watch/[postId] (a direct link) reads
+ * the moderation columns instead and decides in code: a paid buyer or the
+ * post's own creator still opens a hidden/removed post (a buyer never loses
+ * what they paid for); anyone else lands in the same "Post not found." branch
+ * a nonexistent id does today — no new UI state.
  *
  * Renders the REAL components with react-dom and asserts on the query each
  * one issued (and, for the watch page, on what it then showed).
@@ -31,12 +33,13 @@ jest.mock("@/lib/useUser", () => ({
   useUser: () => ({ userId: "buyer_1", session: null, loading: false }),
   useRequireUser: () => ({ userId: "buyer_1", session: null, loading: false }),
 }));
+// Mutable so a test can choose the fromProfile path (no purchase lookup) or
+// the buyer path (purchases lookup first).
+let mockSearch = "fromProfile=1";
 jest.mock("next/navigation", () => ({
   useParams: () => ({ postId: "post_1" }),
   useRouter: () => router,
-  // fromProfile=1 skips the purchase check, so the test reaches the post read
-  // without also having to satisfy a purchases lookup.
-  useSearchParams: () => new URLSearchParams("fromProfile=1"),
+  useSearchParams: () => new URLSearchParams(mockSearch),
 }));
 jest.mock("next/link", () => ({
   __esModule: true,
@@ -73,6 +76,7 @@ async function render(Component: () => unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockSearch = "fromProfile=1";
   // The watch page logs the not-found branch; expected here, keep output clean.
   jest.spyOn(console, "error").mockImplementation(() => {});
   // No resetModules(): it would hand the component a second copy of react,
@@ -94,26 +98,92 @@ afterEach(async () => {
   container.remove();
 });
 
+const HIDDEN_POST = {
+  id: "post_1",
+  creator_id: "someone_else",
+  title: "Hidden thing",
+  video_url: null,
+  poster_url: null,
+  hidden_at: "2026-09-03T00:00:00Z",
+  removed_at: null,
+};
+
 describe("app/watch/[postId]", () => {
-  it("reads the post with the moderation filter, and a filtered-out post is 'Post not found.'", async () => {
+  // The watch page is the one consumer surface that must NOT filter hidden or
+  // removed posts out of the query: a buyer never loses what they paid for.
+  // It reads the moderation columns and decides in code.
+  it("reads the moderation columns and shows 'Post not found.' for a hidden post to a non-entitled viewer", async () => {
+    db = createMockClient((op) => (op.table === "posts" ? { data: HIDDEN_POST, error: null } : undefined));
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");
     await render(WatchPage);
 
     const reads = db.opsFor("posts").filter((o) => o.kind === "select");
     expect(reads).toHaveLength(1);
     expect(reads[0].filters).toHaveProperty("id", "post_1");
-    expectModerationFilter(reads[0]);
-
-    // The mock answered `data: null` — exactly what PostgREST returns for a
-    // hidden/removed row under this filter. Same branch as a missing id.
+    expect(reads[0].columns).toMatch(/\bhidden_at\b/);
+    expect(reads[0].columns).toMatch(/\bremoved_at\b/);
+    // Same branch as a nonexistent id — no new UI state.
     expect(container.textContent).toContain("Post not found.");
+    expect(container.textContent).not.toContain("Hidden thing");
     expect(routerPush).not.toHaveBeenCalled();
   });
 
-  it("still renders a visible post (the filter does not break the happy path)", async () => {
+  it("shows 'Post not found.' for a REMOVED post to a non-entitled viewer", async () => {
     db = createMockClient((op) =>
       op.table === "posts"
-        ? { data: { id: "post_1", creator_id: null, title: "Hello", video_url: null, poster_url: null }, error: null }
+        ? { data: { ...HIDDEN_POST, hidden_at: null, removed_at: "2026-09-03T00:00:00Z" }, error: null }
+        : undefined
+    );
+    const { default: WatchPage } = await import("@/app/watch/[postId]/page");
+    await render(WatchPage);
+    expect(container.textContent).toContain("Post not found.");
+  });
+
+  it("still opens a hidden post for a buyer with a paid purchase row", async () => {
+    mockSearch = ""; // the buyer path: purchases lookup first
+    db = createMockClient((op) =>
+      op.table === "purchases"
+        ? { data: { id: "pur_1" }, error: null }
+        : op.table === "posts"
+          ? { data: HIDDEN_POST, error: null }
+          : undefined
+    );
+    const { default: WatchPage } = await import("@/app/watch/[postId]/page");
+    await render(WatchPage);
+
+    const pur = db.opsFor("purchases").filter((o) => o.kind === "select");
+    expect(pur).toHaveLength(1);
+    expect(pur[0].filters).toMatchObject({ buyer_id: "buyer_1", post_id: "post_1", status: "paid" });
+    expect(container.textContent).toContain("Hidden thing");
+    expect(container.textContent).not.toContain("Post not found.");
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  it("still opens a hidden post for its own creator (from their profile)", async () => {
+    db = createMockClient((op) =>
+      op.table === "posts" ? { data: { ...HIDDEN_POST, creator_id: "buyer_1" }, error: null } : undefined
+    );
+    const { default: WatchPage } = await import("@/app/watch/[postId]/page");
+    await render(WatchPage);
+    expect(container.textContent).toContain("Hidden thing");
+    expect(container.textContent).not.toContain("Post not found.");
+  });
+
+  it("a non-entitled viewer without a purchase is sent to the dashboard, never shown the post", async () => {
+    mockSearch = "";
+    db = createMockClient((op) =>
+      op.table === "purchases" ? { data: null, error: null } : op.table === "posts" ? { data: HIDDEN_POST, error: null } : undefined
+    );
+    const { default: WatchPage } = await import("@/app/watch/[postId]/page");
+    await render(WatchPage);
+    expect(routerPush).toHaveBeenCalledWith("/dashboard?postId=post_1");
+    expect(db.opsFor("posts")).toHaveLength(0);
+  });
+
+  it("still renders a visible post (the gate does not break the happy path)", async () => {
+    db = createMockClient((op) =>
+      op.table === "posts"
+        ? { data: { id: "post_1", creator_id: null, title: "Hello", video_url: null, poster_url: null, hidden_at: null, removed_at: null }, error: null }
         : undefined
     );
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");

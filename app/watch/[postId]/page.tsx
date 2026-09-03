@@ -7,7 +7,6 @@ import { createClient } from "@/lib/supabaseClient";
 import { useRequireUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
-import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 type Post = {
   id: string;
@@ -65,6 +64,7 @@ export default function WatchPage() {
 
       userIdForProgress.current = userId;
 
+      let entitledByPurchase = false;
       if (!fromProfile) {
         // Check purchase entitlement first
         const { data: purchase, error: purErr } = await supabase
@@ -87,20 +87,27 @@ export default function WatchPage() {
           router.push(`/dashboard?postId=${postId}`);
           return;
         }
+        entitledByPurchase = true;
       }
 
-      // Fetch the post itself. A hidden or removed post is filtered out here,
-      // so it lands in the same "Post not found." branch as a nonexistent id.
-      const { data, error: postErr } = await onlyVisiblePosts(
-        supabase.from("posts").select("id, creator_id, title, video_url, poster_url")
-      )
+      // Fetch the post itself, moderation columns included. Discovery surfaces
+      // filter hidden/removed posts out of the query (lib/visiblePosts.ts);
+      // this page must not, because a buyer never loses what they paid for: a
+      // paid purchase row, or being the post's own creator, still opens a
+      // hidden or removed post. Anyone else gets the same "Post not found." a
+      // nonexistent id gets — no new UI state.
+      const { data, error: postErr } = await supabase
+        .from("posts")
+        .select("id, creator_id, title, video_url, poster_url, hidden_at, removed_at")
         .eq("id", postId)
         .maybeSingle();
 
       if (cancelled) return;
 
-      if (postErr || !data) {
-        console.error("Post fetch error:", postErr);
+      const isModerated = Boolean(data?.hidden_at || data?.removed_at);
+      const isOwnPost = Boolean(data?.creator_id && data.creator_id === userId);
+      if (postErr || !data || (isModerated && !entitledByPurchase && !isOwnPost)) {
+        if (postErr) console.error("Post fetch error:", postErr);
         setError("Post not found.");
         setLoading(false);
         return;
