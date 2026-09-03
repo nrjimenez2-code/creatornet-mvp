@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 type TagPost = {
   id: string;
@@ -73,33 +74,23 @@ export async function GET(
       .join(" ");
 
     const [fromHashtags, fromCaption, fromInterestsRaw, fromInterestsLower, fromInterestsTitle] = await Promise.all([
-      supabaseAdmin
-        .from("posts")
-        .select(BASE_SELECT)
+      onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .ilike("hashtags", tagPattern)
         .order("created_at", { ascending: false })
         .limit(Math.max(take, limit)),
-      supabaseAdmin
-        .from("posts")
-        .select(BASE_SELECT)
+      onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .ilike("content", captionTagPattern)
         .order("created_at", { ascending: false })
         .limit(Math.max(take, limit)),
-      supabaseAdmin
-        .from("posts")
-        .select(BASE_SELECT)
+      onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .contains("interests", [rawTag])
         .order("created_at", { ascending: false })
         .limit(Math.max(take, limit)),
-      supabaseAdmin
-        .from("posts")
-        .select(BASE_SELECT)
+      onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .contains("interests", [normalizedTag])
         .order("created_at", { ascending: false })
         .limit(Math.max(take, limit)),
-      supabaseAdmin
-        .from("posts")
-        .select(BASE_SELECT)
+      onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .contains("interests", [titleCaseTag])
         .order("created_at", { ascending: false })
         .limit(Math.max(take, limit)),

@@ -20,6 +20,8 @@ export type Op = {
   notFilters: Array<{ column: string; op: string; value: string }>;
   /** .in(col, values) calls. */
   inFilters: Array<{ column: string; values: unknown[] }>;
+  /** .is(col, value) calls, in order (also mirrored into `filters`). */
+  isFilters: Array<{ column: string; value: unknown }>;
   /** Payload passed to .insert()/.update()/.rpc(). */
   payload?: unknown;
   /** Columns passed to .select(). */
@@ -49,7 +51,7 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
   const ops: Op[] = [];
 
   function builder(table: string, kind: Op["kind"], payload?: unknown) {
-    const op: Op = { table, kind, filters: {}, notFilters: [], inFilters: [], payload };
+    const op: Op = { table, kind, filters: {}, notFilters: [], inFilters: [], isFilters: [], payload };
     let settled = false;
 
     const resolve = () => {
@@ -71,6 +73,11 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
         return chain;
       },
       is(column: string, value: unknown) {
+        op.filters[column] = value;
+        op.isFilters.push({ column, value });
+        return chain;
+      },
+      contains(column: string, value: unknown) {
         op.filters[column] = value;
         return chain;
       },

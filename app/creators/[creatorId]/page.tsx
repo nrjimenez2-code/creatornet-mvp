@@ -11,6 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -150,9 +151,11 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
       : Promise.resolve({ data: null, error: null } as const);
 
   const [postsRes, followersRes, followingRes, followStatusRes] = await Promise.all([
-    admin
-      .from("posts")
-      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
+    onlyVisiblePosts(
+      admin
+        .from("posts")
+        .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
+    )
       .eq("creator_id", resolvedCreatorId)
       .order("created_at", { ascending: false }),
     admin
