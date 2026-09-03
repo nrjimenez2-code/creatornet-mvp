@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     "The terms that govern using CreatorNet — accounts, content, purchases, creator payouts, and acceptable use.",
 };
 
-const LAST_UPDATED = "August 30, 2026";
+const LAST_UPDATED = "September 3, 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -76,10 +76,11 @@ export default function TermsPage() {
       <Section title="4. Selling and payouts (creators)">
         <p>
           Creators sell through Stripe Connect and must accept Stripe&apos;s own terms,
-          including its age and identity-verification requirements. CreatorNet charges a
-          platform fee of 12% of each sale, deducted before payout. Creators are responsible
-          for delivering what they sell, for the accuracy of their listings, and for their own
-          taxes.
+          including its age and identity-verification requirements. CreatorNet charges a 12%
+          platform fee. Standard payment-processing fees are deducted separately. The
+          creator&apos;s net earnings are the sale amount minus those two separate deductions.
+          Creators are responsible for
+          delivering what they sell, for the accuracy of their listings, and for their own taxes.
         </p>
       </Section>
 

@@ -80,7 +80,8 @@ function OrdersTable({ orders }: { orders: AdminOrder[] }) {
               <th className={TH_CLASS}>Buyer</th>
               <th className={TH_CLASS}>Creator</th>
               <th className={TH_CLASS}>Gross</th>
-              <th className={TH_CLASS}>Fee (12%)</th>
+              <th className={TH_CLASS}>Platform fee (12%)</th>
+              <th className={TH_CLASS}>Payment processing</th>
               <th className={TH_CLASS}>Creator net</th>
               <th className={TH_CLASS}>Status</th>
               <th className={TH_CLASS}>Date</th>
@@ -108,6 +109,9 @@ function OrdersTable({ orders }: { orders: AdminOrder[] }) {
                 </td>
                 <td className={`${TD} text-gray-400 tabular-nums`}>
                   {formatCents(order.feeCents)}
+                </td>
+                <td className={`${TD} text-gray-400 tabular-nums`}>
+                  {formatCents(order.processingFeeCents)}
                 </td>
                 <td className={`${TD} font-semibold text-emerald-700 tabular-nums`}>
                   {formatCents(order.creatorCents)}
@@ -194,6 +198,10 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
       paidCount: paidOrders.length,
       gmvCents: paidOrders.reduce((sum, order) => sum + order.grossCents, 0),
       feeCents: paidOrders.reduce((sum, order) => sum + order.feeCents, 0),
+      processingFeeCents: paidOrders.reduce(
+        (sum, order) => sum + order.processingFeeCents,
+        0,
+      ),
       creatorCents: paidOrders.reduce((sum, order) => sum + order.creatorCents, 0),
       refundedCents: refunded.reduce((sum, order) => sum + order.grossCents, 0),
       refundCount: refunded.length,
@@ -232,7 +240,7 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
         subtitle="Every dollar moving through the platform — orders, fees, and bookings."
       />
 
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
         <StatCard
           hero
           label="GMV (paid)"
@@ -248,9 +256,16 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
           icon={<IconBolt />}
         />
         <StatCard
+          label="Processing deducted"
+          value={formatCents(revenue.processingFeeCents)}
+          hint="Separate from platform fees"
+          icon={<IconDollar />}
+          iconTint="bg-blue-50 text-blue-600"
+        />
+        <StatCard
           label="Creator payouts"
           value={formatCents(revenue.creatorCents)}
-          hint="88% to creators"
+          hint="After both deductions"
           icon={<IconUsers />}
           iconTint="bg-emerald-50 text-emerald-600"
         />
@@ -268,7 +283,7 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
           title="Where each dollar goes"
           action={
             <span className="text-[11px] font-mono text-gray-400">
-              PLATFORM_FEE_RATE = 0.12
+              12% platform rate
             </span>
           }
         >
@@ -281,6 +296,11 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
                   color: "#9370DB",
                 },
                 { label: "Platform fee", value: revenue.feeCents, color: "#34d399" },
+                {
+                  label: "Payment processing",
+                  value: revenue.processingFeeCents,
+                  color: "#60a5fa",
+                },
               ]}
               formatValue={formatCents}
             />

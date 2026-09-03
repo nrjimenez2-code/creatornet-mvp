@@ -1,147 +1,17 @@
-// app/api/webhook/route.ts
-import { NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
-import { createSupabaseServer } from "@/lib/supabaseServer";
-import { claimStripeEvent, releaseStripeEvent } from "@/lib/stripeEvents";
-import type Stripe from "stripe";
+// Backward-compatible alias for CreatorNet's canonical Stripe webhook.
+//
+// Older environments may still point Stripe at /api/webhook. Keeping a second
+// implementation here caused the same payment event to follow different
+// fulfillment, fee, refund, and idempotency rules depending on which URL was
+// configured. Both URLs now execute the single audited handler and therefore
+// share the same `stripe:${event.id}` database claim.
+import type { NextRequest } from "next/server";
+import { POST as handleStripeWebhook } from "@/app/api/stripe/webhook/route";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// This handler's Stripe usage is local signature verification (no network
-// call), but it performs several DB writes per event; 60s is the same uniform
-// safety ceiling the other Stripe-touching routes get, so a slow night can't
-// have Vercel's 10s plan default drop a signed event mid-processing.
 export const maxDuration = 60;
 
-export async function POST(req: Request) {
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    return NextResponse.json(
-      { error: "Missing STRIPE_WEBHOOK_SECRET" },
-      { status: 500 }
-    );
-  }
-
-  // Stripe requires the raw body for signature verification
-  const sig = req.headers.get("stripe-signature") ?? "";
-  const rawBody = await req.text();
-
-  let event: Stripe.Event;
-  try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
-  } catch (err: any) {
-    // Signature / parsing failure
-    return NextResponse.json(
-      { error: "Invalid signature" },
-      { status: 400 }
-    );
-  }
-
-  // Idempotency. Same guard as app/api/stripe/webhook. Both handlers are guarded
-  // because which endpoint(s) Stripe actually delivers to is not visible from the
-  // code — that needs the Stripe dashboard. Guarding both is safe; guessing is not.
-  // Namespaced per handler — see the note in app/api/stripe/webhook/route.ts.
-  // These two must never share a claim key or one can silence the other.
-  const claimKey = `webhook:${event.id}`;
-  const claim = await claimStripeEvent(claimKey, event.type);
-  if (claim === "duplicate") {
-    return NextResponse.json({ received: true, duplicate: true });
-  }
-
-  try {
-    switch (event.type) {
-      case "checkout.session.completed": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const sessionId = session.id;
-
-        // Metadata set when you created the Checkout session
-        const buyerId = (session.metadata?.buyer_id as string) || null;
-        const productId = (session.metadata?.product_id as string) || null;
-        const planMonths = Number(session.metadata?.plan_months || 1);
-
-        const supabase = await createSupabaseServer();
-
-        // Resolve deliver URL (URL fulfillment is default; fall back to /library)
-        let deliverUrl: string | null = null;
-        if (productId) {
-          const { data: product } = await supabase
-            .from("products")
-            .select("deliver_url")
-            .eq("product_id", productId)
-            .single();
-          deliverUrl = product?.deliver_url ?? null;
-        }
-        if (!deliverUrl) deliverUrl = "/library";
-
-        // Amount total from Stripe is already in cents
-        const amountCents = session.amount_total ?? null;
-
-        // Try updating an existing pending purchase (created during /api/checkout)
-        const { data: updated, error: updErr } = await supabase
-          .from("purchases")
-          .update({
-            status: "complete",
-            deliver_url: deliverUrl,
-            amount_cents: amountCents,
-            target_months: planMonths,
-          })
-          .eq("session_id", sessionId)
-          .select("id");
-
-        // If nothing to update, insert a fresh row
-        if (updErr || !updated || updated.length === 0) {
-          await supabase.from("purchases").insert([
-            {
-              buyer_id: buyerId,
-              product_id: productId,
-              session_id: sessionId,
-              status: "complete",
-              amount_cents: amountCents,
-              target_months: planMonths,
-              deliver_url: deliverUrl,
-            },
-          ]);
-        }
-        break;
-      }
-
-      case "checkout.session.async_payment_succeeded": {
-        // Optional: treat as completed for async payment methods
-        const session = event.data.object as Stripe.Checkout.Session;
-        const supabase = await createSupabaseServer();
-        await supabase
-          .from("purchases")
-          .update({ status: "complete" })
-          .eq("session_id", session.id);
-        break;
-      }
-
-      case "checkout.session.expired": {
-        const session = event.data.object as Stripe.Checkout.Session;
-        const supabase = await createSupabaseServer();
-        await supabase
-          .from("purchases")
-          .update({ status: "expired" })
-          .eq("session_id", session.id);
-        break;
-      }
-
-      default:
-        // Ignore other events for now
-        break;
-    }
-
-    return NextResponse.json({ received: true }, { status: 200 });
-  } catch (err: any) {
-    console.error("[webhook] handler error:", err);
-    // Asking Stripe to retry, so give the claim back — otherwise the retry is
-    // treated as a duplicate and the event is silently dropped for good.
-    if (claim === "new") {
-      await releaseStripeEvent(claimKey);
-    }
-    return NextResponse.json(
-      { error: "Webhook handler failed" },
-      { status: 500 }
-    );
-  }
+export async function POST(req: NextRequest) {
+  return handleStripeWebhook(req);
 }

@@ -24,6 +24,18 @@ import { PURCHASE_TERMINAL_STATUSES, purchaseTerminalFilter } from "@/lib/orderS
 let db: MockClient;
 let constructEventImpl: (body: string, sig: string, secret: string) => any;
 const subscriptionsUpdate = jest.fn().mockResolvedValue({});
+const subscriptionsRetrieve = jest.fn().mockResolvedValue({
+  metadata: { creator_id: "creator_1" },
+  transfer_data: { destination: "acct_creator" },
+});
+const paymentIntentsRetrieve = jest.fn().mockResolvedValue({
+  id: "pi_x",
+  application_fee_amount: 396,
+  latest_charge: {
+    id: "ch_x",
+    balance_transaction: { id: "txn_x", fee: 126 },
+  },
+});
 
 jest.mock("@supabase/supabase-js", () => ({
   createClient: () => db,
@@ -32,8 +44,11 @@ jest.mock("@supabase/supabase-js", () => ({
 jest.mock("@/lib/stripeClient", () => ({
   getStripe: () => ({
     webhooks: { constructEvent: (b: string, s: string, k: string) => constructEventImpl(b, s, k) },
-    subscriptions: { update: subscriptionsUpdate },
+    subscriptions: { update: subscriptionsUpdate, retrieve: subscriptionsRetrieve },
     checkout: { sessions: { create: jest.fn(), retrieve: jest.fn() } },
+    paymentIntents: { retrieve: paymentIntentsRetrieve },
+    charges: { retrieve: jest.fn() },
+    balanceTransactions: { retrieve: jest.fn() },
   }),
 }));
 
@@ -41,7 +56,11 @@ jest.mock("@/lib/posthogServer", () => ({ trackServerEvent: jest.fn().mockResolv
 jest.mock("@/lib/updateInterestScore", () => ({ updateInterestScore: jest.fn().mockResolvedValue(undefined) }));
 jest.mock("@/lib/updatePostMetrics", () => ({ updatePostMetrics: jest.fn().mockResolvedValue(undefined) }));
 jest.mock("@/lib/stripeEvents", () => ({
-  claimStripeEvent: jest.fn().mockResolvedValue("new"),
+  claimStripeEvent: jest.fn().mockResolvedValue({
+    status: "new",
+    claimToken: "11111111-1111-4111-8111-111111111111",
+  }),
+  completeStripeEvent: jest.fn().mockResolvedValue(undefined),
   releaseStripeEvent: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -78,6 +97,18 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.resetModules();
   subscriptionsUpdate.mockResolvedValue({});
+  subscriptionsRetrieve.mockResolvedValue({
+    metadata: { creator_id: "creator_1" },
+    transfer_data: { destination: "acct_creator" },
+  });
+  paymentIntentsRetrieve.mockResolvedValue({
+    id: "pi_x",
+    application_fee_amount: 396,
+    latest_charge: {
+      id: "ch_x",
+      balance_transaction: { id: "txn_x", fee: 126 },
+    },
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -108,6 +139,15 @@ describe("CN-01: a second checkout on the same post still records the purchase",
       }
       if (op.table === "profiles" && op.kind === "select") {
         return { data: { total_earnings_cents: 0 }, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "select") {
+        return { data: null, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_checkout_1" }, error: null };
+      }
+      if (op.table === "credit_purchase_earnings") {
+        return { data: true, error: null };
       }
       return undefined;
     });
@@ -150,6 +190,15 @@ describe("CN-01: a second checkout on the same post still records the purchase",
       if (op.table === "purchases" && op.kind === "update") return { data: { id: "raced_row" }, error: null };
       if (op.table === "profiles" && op.kind === "select") {
         return { data: { total_earnings_cents: 0 }, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "select") {
+        return { data: null, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_checkout_2" }, error: null };
+      }
+      if (op.table === "credit_purchase_earnings") {
+        return { data: true, error: null };
       }
       return undefined;
     });
@@ -211,9 +260,9 @@ describe("CN-05: refunded purchases are never re-granted", () => {
     });
   });
 
-  it("names refunded and failed as the terminal states", () => {
-    expect([...PURCHASE_TERMINAL_STATUSES]).toEqual(["refunded", "failed"]);
-    expect(purchaseTerminalFilter()).toBe('("refunded","failed")');
+  it("keeps only refunded purchases terminal so retriable failures can recover", () => {
+    expect([...PURCHASE_TERMINAL_STATUSES]).toEqual(["refunded"]);
+    expect(purchaseTerminalFilter()).toBe('("refunded")');
   });
 });
 
@@ -229,10 +278,25 @@ describe("CN-03: a completed installment plan stops billing", () => {
   it("cancels the subscription once paid_count reaches target_months", async () => {
     db = createMockClient((op: Op) => {
       if (op.table === "purchases" && op.kind === "select") {
+        if (op.columns === "paid_count, target_months, status") {
+          return {
+            data: { paid_count: 3, target_months: 3, status: "complete" },
+            error: null,
+          };
+        }
         return {
-          data: { id: "p1", product_id: "prod_1", paid_count: 2, target_months: 3, fulfillment_url: "x" },
+          data: { id: "p1", product_id: "prod_1", creator_id: "creator_1", paid_count: 2, target_months: 3, fulfillment_url: "x" },
           error: null,
         };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "select") {
+        return { data: null, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_1" }, error: null };
+      }
+      if (op.table === "credit_payment_fee_ledger_earnings") {
+        return { data: true, error: null };
       }
       return undefined;
     });
@@ -252,10 +316,25 @@ describe("CN-03: a completed installment plan stops billing", () => {
   it("keeps billing while the plan is still running", async () => {
     db = createMockClient((op: Op) => {
       if (op.table === "purchases" && op.kind === "select") {
+        if (op.columns === "paid_count, target_months, status") {
+          return {
+            data: { paid_count: 1, target_months: 3, status: "active" },
+            error: null,
+          };
+        }
         return {
-          data: { id: "p1", product_id: "prod_1", paid_count: 0, target_months: 3, fulfillment_url: "x" },
+          data: { id: "p1", product_id: "prod_1", creator_id: "creator_1", paid_count: 0, target_months: 3, fulfillment_url: "x" },
           error: null,
         };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "select") {
+        return { data: null, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_2" }, error: null };
+      }
+      if (op.table === "credit_payment_fee_ledger_earnings") {
+        return { data: true, error: null };
       }
       return undefined;
     });
@@ -272,14 +351,29 @@ describe("CN-03: a completed installment plan stops billing", () => {
     expect(subscriptionsUpdate).not.toHaveBeenCalled();
   });
 
-  it("a failed cancel does not fail the webhook", async () => {
+  it("asks Stripe to retry when the completed plan cannot be canceled", async () => {
     subscriptionsUpdate.mockRejectedValueOnce(new Error("stripe down"));
     db = createMockClient((op: Op) => {
       if (op.table === "purchases" && op.kind === "select") {
+        if (op.columns === "paid_count, target_months, status") {
+          return {
+            data: { paid_count: 6, target_months: 3, status: "complete" },
+            error: null,
+          };
+        }
         return {
-          data: { id: "p1", product_id: "prod_1", paid_count: 5, target_months: 3, fulfillment_url: "x" },
+          data: { id: "p1", product_id: "prod_1", creator_id: "creator_1", paid_count: 5, target_months: 3, fulfillment_url: "x" },
           error: null,
         };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "select") {
+        return { data: null, error: null };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_3" }, error: null };
+      }
+      if (op.table === "credit_payment_fee_ledger_earnings") {
+        return { data: true, error: null };
       }
       return undefined;
     });
@@ -292,8 +386,8 @@ describe("CN-03: a completed installment plan stops billing", () => {
 
     const { POST } = await import("@/app/api/stripe/webhook/route");
     const res = await POST(webhookRequest());
-    // A throw here would release the idempotency claim and make Stripe retry the
-    // whole invoice — worse than a subscription that needs cancelling by hand.
-    expect(res.status).toBe(200);
+    // Earnings and paid_count are claimed atomically now, so retrying cannot
+    // count or credit this invoice twice and is safer than ongoing billing.
+    expect(res.status).toBe(500);
   });
 });

@@ -1,26 +1,25 @@
 // lib/stripeEvents.ts — webhook idempotency guard
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 /**
  * Result of trying to claim a Stripe event id.
  *
- * - `new`        first time we have seen this event id. Process it.
- * - `duplicate`  we have processed this event before. Skip the side effects.
- * - `unrecorded` we could not reach the table. See the note on failure mode below.
+ * - `new`        this worker owns the event lease and may process it
+ * - `duplicate`  the event completed previously; acknowledge without side effects
+ * - `busy`       another worker currently owns the event; return a retryable error
+ * - `unrecorded` the idempotency store could not make a durable decision
  */
-export type EventClaim = "new" | "duplicate" | "unrecorded";
+export type EventClaim =
+  | { status: "new"; claimToken: string }
+  | { status: "duplicate" }
+  | { status: "busy" }
+  | { status: "unrecorded" };
 
+const EVENT_LEASE_SECONDS = 5 * 60;
 let _admin: SupabaseClient | null = null;
 
-/**
- * Service-role client, built lazily.
- *
- * This deliberately does NOT reuse the caller's client. `app/api/webhook/route.ts`
- * uses a request-scoped (user) client, and a Stripe webhook has no logged-in user,
- * so its writes are subject to row-level security with `auth.uid()` NULL. The event
- * ledger has to be written with the service role or it silently records nothing.
- */
 function admin(): SupabaseClient | null {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -33,49 +32,14 @@ function admin(): SupabaseClient | null {
   return _admin;
 }
 
-/** Postgres unique-violation, surfaced through PostgREST. */
-function isUniqueViolation(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  if (error.code === "23505") return true;
-  // Belt and braces: the code has been the reliable signal in practice, but the
-  // message check costs nothing and covers a driver that does not forward it.
-  return /duplicate key|already exists/i.test(error.message ?? "");
-}
-
 /**
- * Claim a Stripe event id exactly once.
+ * Atomically claim a Stripe event.
  *
- * Call this immediately after signature verification and before ANY side effect.
- * Stripe retries a webhook until it gets a 2xx, and it can also deliver the same
- * event to more than one registered endpoint. Without this, a retry re-runs
- * everything: re-granting access, re-sending mail, re-incrementing earnings.
- *
- * The insert itself is the lock. `stripe_events.id` is the primary key, so two
- * concurrent deliveries of the same event race on the same row and exactly one
- * of them wins. There is no read-then-write window to lose.
- *
- * ## Failure mode, chosen deliberately
- *
- * When the ledger write fails for any reason other than a conflict, this returns
- * `unrecorded` and the caller PROCESSES THE EVENT ANYWAY.
- *
- * The alternative — return 500 and let Stripe retry — is the more common pattern
- * and is stricter. It was rejected here because it converts any problem writing
- * one bookkeeping table into a total outage of payment recording, and because
- * this is not the only defence:
- *
- *   - `purchases` has UNIQUE constraints on `session_id` and on
- *     `payment_intent_id`, so genuinely duplicated purchase rows are already
- *     impossible at the database level.
- *   - the large handler additionally checks per-record before acting
- *     (`app/api/stripe/webhook/route.ts` L124, L323, L397, L452, L570).
- *
- * So this guard removes duplicate *side effects*; it is not the last line against
- * duplicate *rows*. Failing open degrades to today's behaviour, which has been
- * running in production. Failing closed would be a new way to lose every payment.
- *
- * If you would rather fail closed, the change is one line in each caller: treat
- * `unrecorded` the same as an error and return a 500.
+ * Migration 019 installs the database function that locks the row, distinguishes
+ * in-progress work from completed work, and reclaims an abandoned claim only
+ * after the lease expires. A concurrent delivery is therefore never mistaken
+ * for a completed duplicate and acknowledged while the first worker can still
+ * fail.
  */
 export async function claimStripeEvent(
   eventId: string,
@@ -84,77 +48,98 @@ export async function claimStripeEvent(
   const db = admin();
   if (!db) {
     console.error(
-      "[stripe-events] no service-role client (missing SUPABASE_SERVICE_ROLE_KEY or URL) — processing without an idempotency guard"
+      "[stripe-events] no service-role client (missing SUPABASE_SERVICE_ROLE_KEY or URL)"
     );
-    return "unrecorded";
+    return { status: "unrecorded" };
   }
 
+  // The token fences this worker from a later worker that reclaims an expired
+  // lease. A stale worker must never be able to complete or release the newer
+  // worker's claim using only the shared Stripe event id.
+  const claimToken = randomUUID();
   try {
-    const { error } = await db
-      .from("stripe_events")
-      .insert({ id: eventId, type: eventType });
-
-    if (!error) return "new";
-
-    if (isUniqueViolation(error)) {
-      console.log("[stripe-events] duplicate event, skipping:", eventId, eventType);
-      return "duplicate";
+    const { data, error } = await db.rpc("claim_stripe_event", {
+      p_event_id: eventId,
+      p_event_type: eventType,
+      p_lease_seconds: EVENT_LEASE_SECONDS,
+      p_claim_token: claimToken,
+    });
+    if (error) {
+      console.error(
+        "[stripe-events] could not claim event:",
+        eventId,
+        error.code,
+        error.message
+      );
+      return { status: "unrecorded" };
     }
+    if (data === "new") {
+      return { status: "new", claimToken };
+    }
+    if (data === "duplicate" || data === "busy") {
+      return { status: data };
+    }
+    console.error("[stripe-events] claim function returned an invalid result:", eventId, data);
+    return { status: "unrecorded" };
+  } catch (error: unknown) {
+    console.error(
+      "[stripe-events] unexpected error claiming event:",
+      eventId,
+      error instanceof Error ? error.message : error
+    );
+    return { status: "unrecorded" };
+  }
+}
 
-    console.error(
-      "[stripe-events] could not record event, processing anyway:",
-      eventId,
-      error.code,
-      error.message
-    );
-    return "unrecorded";
-  } catch (e) {
-    console.error(
-      "[stripe-events] unexpected error recording event, processing anyway:",
-      eventId,
-      e instanceof Error ? e.message : e
-    );
-    return "unrecorded";
+/** Mark a successfully handled event complete before returning a 2xx to Stripe. */
+export async function completeStripeEvent(
+  eventId: string,
+  claimToken: string
+): Promise<void> {
+  const db = admin();
+  if (!db) throw new Error("Stripe event completion store is unavailable.");
+
+  const { data, error } = await db.rpc("complete_stripe_event", {
+    p_event_id: eventId,
+    p_claim_token: claimToken,
+  });
+  if (error) {
+    throw new Error(`Stripe event completion failed: ${error.message}`);
+  }
+  if (data !== true) {
+    throw new Error(`Stripe event ${eventId} was not owned when completion was attempted.`);
   }
 }
 
 /**
- * Release a claim taken by `claimStripeEvent`.
- *
- * ## Why this has to exist
- *
- * `claimStripeEvent` inserts the event id BEFORE any side effect, which is what
- * makes the guard safe against two deliveries racing. But it means a handler
- * that throws half way through leaves the claim behind. Stripe would retry, the
- * retry would see its own claim, return "duplicate", and acknowledge without
- * doing the work. The payment would be captured and never recorded, and Stripe
- * would stop retrying because it got a 2xx.
- *
- * That is worse than having no idempotency guard at all, so the claim must be
- * released on any failure path that asks Stripe to retry.
- *
- * Best effort on purpose: if the delete fails we still surface the original
- * error. A stuck claim is recoverable by hand; masking the real failure is not.
+ * Release an in-progress claim after a handler failure so Stripe can retry.
+ * The database function will not delete a row that has already been completed.
  */
-export async function releaseStripeEvent(eventId: string): Promise<void> {
+export async function releaseStripeEvent(
+  eventId: string,
+  claimToken: string
+): Promise<void> {
   const db = admin();
   if (!db) return;
 
   try {
-    const { error } = await db.from("stripe_events").delete().eq("id", eventId);
+    const { error } = await db.rpc("release_stripe_event", {
+      p_event_id: eventId,
+      p_claim_token: claimToken,
+    });
     if (error) {
       console.error(
-        "[stripe-events] could not release claim, a retry of this event will be skipped as a duplicate:",
+        "[stripe-events] could not release event claim:",
         eventId,
         error.code,
         error.message
       );
     }
-  } catch (e) {
+  } catch (error: unknown) {
     console.error(
-      "[stripe-events] unexpected error releasing claim:",
+      "[stripe-events] unexpected error releasing event claim:",
       eventId,
-      e instanceof Error ? e.message : e
+      error instanceof Error ? error.message : error
     );
   }
 }

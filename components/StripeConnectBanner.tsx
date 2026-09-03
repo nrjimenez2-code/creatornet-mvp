@@ -92,7 +92,8 @@ export default function StripeConnectBanner() {
     <div className="rounded-xl border border-[#4A35C7]/40 bg-[#4A35C7]/15 px-3 py-3 text-xs">
       <p className="text-white font-semibold">Connect Stripe to sell</p>
       <p className="text-white/60 mt-1 mb-2 leading-snug">
-        CreatorNet keeps 12%; the rest goes to your bank after each sale.
+        CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted
+        separately. Your net earnings are routed to your connected Stripe account.
       </p>
       {err && <p className="text-red-400 mb-1">{err}</p>}
       <button

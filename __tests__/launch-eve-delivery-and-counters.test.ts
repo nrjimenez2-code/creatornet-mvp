@@ -95,13 +95,14 @@ describe("CN-02: confirm-purchase grants access", () => {
     retrieveImpl = () => ({ ...paidSession, mode: "subscription", subscription: "sub_1" });
 
     const { POST } = await import("@/app/api/confirm-purchase/route");
-    await POST(new Request("https://x/api/confirm-purchase", {
+    const res = await POST(new Request("https://x/api/confirm-purchase", {
       method: "POST",
       body: JSON.stringify({ session_id: "cs_test_1" }),
     }));
 
     const upd = db.opsFor("purchases").find((o) => o.kind === "update");
-    expect((upd!.payload as any).access_granted).toBe(false);
+    expect(res.status).toBe(202);
+    expect(upd).toBeUndefined();
   });
 
   it("carries the terminal-status guard so a refunded buyer cannot re-grant themselves", async () => {

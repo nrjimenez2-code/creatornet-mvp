@@ -78,6 +78,7 @@ interface OrderRow {
   status: string;
   gross_amount: number;
   platform_fee: number;
+  processing_fee: number | null;
   creator_amount: number;
   created_at: string | null;
 }
@@ -182,7 +183,7 @@ export const fetchAdminInitialData = cache(
       admin
         .from("orders")
         .select(
-          "id, buyer_id, buyer_user_id, creator_id, post_id, offering_id, booking_id, status, gross_amount, platform_fee, creator_amount, created_at",
+          "id, buyer_id, buyer_user_id, creator_id, post_id, offering_id, booking_id, status, gross_amount, platform_fee, processing_fee, creator_amount, created_at",
         )
         .returns<OrderRow[]>(),
       admin
@@ -315,6 +316,7 @@ export const fetchAdminInitialData = cache(
         kind: row.booking_id !== null ? "booking" : "product",
         grossCents: row.gross_amount,
         feeCents: row.platform_fee,
+        processingFeeCents: row.processing_fee ?? 0,
         creatorCents: row.creator_amount,
         status: ORDER_STATUS_MAP[row.status] ?? "pending",
         createdAt: row.created_at ?? EPOCH_ISO,

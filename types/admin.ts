@@ -70,8 +70,11 @@ export interface AdminOrder {
   offerTitle: string;
   kind: OrderKind;
   grossCents: number;
-  /** 12% platform fee — PLATFORM_FEE_RATE 0.12 in the real checkout/webhook */
+  /** CreatorNet's 12% platform fee. */
   feeCents: number;
+  /** Separate creator-funded payment-processing deduction; zero for legacy rows. */
+  processingFeeCents: number;
+  /** Net creator earnings after both fee categories. */
   creatorCents: number;
   status: OrderStatus;
   createdAt: string;

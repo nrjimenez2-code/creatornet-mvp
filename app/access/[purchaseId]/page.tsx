@@ -46,7 +46,7 @@ export default async function AccessPage({
   const { data: p, error } = await supabase
     .from("purchases")
     .select(
-      "id,buyer_id,creator_id,product_id,post_id,status,fulfillment,fulfillment_url,fulfillment_payload,paid_count,target_months"
+      "id,buyer_id,creator_id,product_id,post_id,status,access_granted,fulfillment,fulfillment_url,fulfillment_payload,paid_count,target_months"
     )
     .eq("id", purchaseId)
     .single();
@@ -70,6 +70,24 @@ export default async function AccessPage({
         <p className="text-gray-600">This purchase doesn’t belong to you.</p>
         <Link href="/dashboard" className="underline mt-4 inline-block">
           Back to dashboard
+        </Link>
+      </Shell>
+    );
+  }
+
+  const accessActive =
+    p.access_granted === true &&
+    ["paid", "active", "complete"].includes(p.status || "");
+  if (!accessActive) {
+    return (
+      <Shell>
+        <h1 className="text-2xl font-semibold mb-2">Access unavailable</h1>
+        <p className="text-gray-600">
+          This purchase is not currently eligible for access. If you recently paid, refresh in a
+          moment or contact support.
+        </p>
+        <Link href="/library" className="underline mt-4 inline-block">
+          Back to Library
         </Link>
       </Shell>
     );

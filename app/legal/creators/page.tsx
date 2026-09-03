@@ -1,9 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 
-// The creator-side rules, in one place. Every number here already appears in
-// the Terms (the 12% fee) or in the code (Stripe Connect Express; payouts by
-// Stripe). This page explains them; it does not introduce new ones.
+// The creator-side rules, in one place. CreatorNet's 12% platform fee and
+// standard payment-processing costs are disclosed as separate deductions.
 
 export const metadata: Metadata = {
   title: "Creator Policy",
@@ -11,7 +10,7 @@ export const metadata: Metadata = {
     "What creators agree to on CreatorNet — Stripe onboarding, the 12% platform fee, delivery, and content rules.",
 };
 
-const LAST_UPDATED = "September 2, 2026";
+const LAST_UPDATED = "September 3, 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -45,9 +44,9 @@ export default function CreatorPolicyPage() {
           account.
         </p>
         <p>
-          <strong>CreatorNet keeps a platform fee of 12% of each sale</strong>, deducted before
-          payout. Stripe&apos;s own processing fees are also deducted on your side. The remainder
-          is paid out to your bank by Stripe on Stripe&apos;s payout schedule. All prices are in
+          <strong>CreatorNet charges a 12% platform fee.</strong> Standard payment-processing fees
+          are deducted separately. Your net earnings are the sale amount minus those two separate
+          deductions, and Stripe pays that net amount to your bank on its payout schedule. All prices are in
           US dollars (USD).
         </p>
       </Section>
@@ -77,9 +76,10 @@ export default function CreatorPolicyPage() {
           <Link href="/legal/refunds" className="text-[#655BFF] underline">
             Refund Policy
           </Link>
-          , the refunded amount, including the platform fee on it, is reversed from your
-          earnings. Repeated non-delivery or chargebacks can lead to restricted selling or
-          account suspension.
+          , the portion of creator earnings associated with the refunded sale is reversed.
+          CreatorNet records the platform fee, payment-processing deduction, and creator
+          earnings separately. Repeated non-delivery or chargebacks can lead to restricted
+          selling or account suspension.
         </p>
       </Section>
 

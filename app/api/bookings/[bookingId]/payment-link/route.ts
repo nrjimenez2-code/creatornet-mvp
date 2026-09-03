@@ -15,7 +15,12 @@ export const dynamic = "force-dynamic";
 // covers the worst legitimate case and is allowed on every Vercel plan.
 export const maxDuration = 60;
 
-import { splitFee, PLATFORM_FEE_PERCENT } from "@/lib/money";
+import {
+  calculateCreatorFees,
+  creatorFeeMetadata,
+  getSubscriptionProcessingFeeSchedule,
+  PLATFORM_FEE_PERCENT,
+} from "@/lib/money";
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -94,6 +99,13 @@ export async function POST(
       return NextResponse.json({ error: "You do not own this booking" }, { status: 403 });
     }
 
+    if (booking.status === "completed") {
+      return NextResponse.json(
+        { error: "This booking has already been paid.", code: "BOOKING_ALREADY_PAID" },
+        { status: 409 }
+      );
+    }
+
     const { data: post, error: postError } = await admin
       .from("posts")
       .select("id, title, product_id")
@@ -156,9 +168,7 @@ export async function POST(
     const creatorStripeAccountId = creatorProfile.stripe_account_id;
 
     const currency = product.currency || "usd";
-    const paymentId = randomUUID();
     const nowIso = new Date().toISOString();
-    const platformFeeCents = splitFee(totalCents).feeCents;
 
     let installmentMonths: number | null = null;
     let installmentAmountCents: number | null = null;
@@ -180,25 +190,138 @@ export async function POST(
       }
     }
 
-    // Seed the booking_payments row upfront so we can reference the id in metadata
-    const { error: insertError } = await admin.from("booking_payments").insert({
-      id: paymentId,
-      booking_id: booking.id,
-      product_id: product.id,
-      closer_user_id: user.id,
-      buyer_id: booking.buyer_id,
-      plan_type: planType,
-      installment_months: installmentMonths,
-      status: "pending",
-      amount_total_cents: totalCents,
-      installment_amount_cents: installmentAmountCents,
-      platform_fee_cents: platformFeeCents,
-      currency,
-      created_at: nowIso,
-      updated_at: nowIso,
-    });
+    // A full payment has one charge for the product total. An installment
+    // subscription has one charge per invoice, so its fixed processing
+    // component must be calculated from the monthly amount each time.
+    const chargeGrossCents =
+      planType === "installment" ? installmentAmountCents! : totalCents;
+    const fees =
+      planType === "installment"
+        ? calculateCreatorFees(
+            chargeGrossCents,
+            getSubscriptionProcessingFeeSchedule()
+          )
+        : calculateCreatorFees(chargeGrossCents);
 
-    if (insertError) throw insertError;
+    type ActiveBookingPayment = {
+      id: string;
+      booking_id: string;
+      plan_type: "full" | "installment";
+      installment_months: number | null;
+      status: string;
+      link_url: string | null;
+      stripe_checkout_session_id: string | null;
+      stripe_payment_intent_id: string | null;
+      stripe_subscription_id: string | null;
+      amount_total_cents: number | null;
+      installment_amount_cents: number | null;
+      platform_fee_cents: number | null;
+      processing_fee_cents: number | null;
+      total_creator_deduction_cents: number | null;
+      creator_net_cents: number | null;
+      fee_schedule_version: string | null;
+      currency: string | null;
+      created_at: string;
+      completed_at: string | null;
+      link_sent_at: string | null;
+      closer_user_id: string | null;
+    };
+
+    const activePaymentColumns =
+      "id, booking_id, plan_type, installment_months, status, link_url, stripe_checkout_session_id, stripe_payment_intent_id, stripe_subscription_id, amount_total_cents, installment_amount_cents, platform_fee_cents, processing_fee_cents, total_creator_deduction_cents, creator_net_cents, fee_schedule_version, currency, created_at, completed_at, link_sent_at, closer_user_id";
+    const loadActivePayment = async () => {
+      const { data, error } = await admin
+        .from("booking_payments")
+        .select(activePaymentColumns)
+        .eq("booking_id", booking.id)
+        .in("status", ["pending", "link_sent", "completed"])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<ActiveBookingPayment>();
+      if (error) throw new Error(`Failed to check existing payment link: ${error.message}`);
+      return data;
+    };
+
+    const existingMatchesRequest = (payment: ActiveBookingPayment) =>
+      payment.plan_type === planType &&
+      Number(payment.installment_months ?? 0) === Number(installmentMonths ?? 0) &&
+      Number(payment.amount_total_cents) === totalCents &&
+      Number(payment.installment_amount_cents ?? 0) === Number(installmentAmountCents ?? 0) &&
+      Number(payment.platform_fee_cents) === fees.platformFeeCents &&
+      Number(payment.processing_fee_cents ?? 0) === fees.processingFeeCents &&
+      Number(payment.total_creator_deduction_cents ?? payment.platform_fee_cents) ===
+        fees.totalCreatorDeductionCents &&
+      Number(payment.creator_net_cents) === fees.creatorNetCents &&
+      payment.fee_schedule_version === fees.feeScheduleVersion &&
+      String(payment.currency || "").trim().toLowerCase() === currency.trim().toLowerCase();
+
+    const existingPaymentResponse = (payment: ActiveBookingPayment): NextResponse | null => {
+      if (payment.status === "completed") {
+        return NextResponse.json(
+          { error: "This booking has already been paid.", code: "BOOKING_ALREADY_PAID" },
+          { status: 409 }
+        );
+      }
+      if (!existingMatchesRequest(payment)) {
+        return NextResponse.json(
+          {
+            error:
+              "This booking already has an active payment link with different terms. Let it expire before creating another.",
+            code: "BOOKING_PAYMENT_LINK_EXISTS",
+          },
+          { status: 409 }
+        );
+      }
+      if (payment.link_url) {
+        return NextResponse.json({ url: payment.link_url, payment, reused: true });
+      }
+      return null;
+    };
+
+    let activePayment = await loadActivePayment();
+    if (activePayment) {
+      const response = existingPaymentResponse(activePayment);
+      if (response) return response;
+    }
+
+    let paymentId = activePayment?.id || randomUUID();
+
+    // Seed the booking_payments row upfront so we can reference the id in metadata
+    if (!activePayment) {
+      const { error: insertError } = await admin.from("booking_payments").insert({
+        id: paymentId,
+        booking_id: booking.id,
+        product_id: product.id,
+        closer_user_id: user.id,
+        buyer_id: booking.buyer_id,
+        plan_type: planType,
+        installment_months: installmentMonths,
+        status: "pending",
+        amount_total_cents: totalCents,
+        installment_amount_cents: installmentAmountCents,
+        platform_fee_cents: fees.platformFeeCents,
+        processing_fee_cents: fees.processingFeeCents,
+        total_creator_deduction_cents: fees.totalCreatorDeductionCents,
+        creator_net_cents: fees.creatorNetCents,
+        fee_schedule_version: fees.feeScheduleVersion,
+        currency,
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+
+      if (insertError) {
+        if (!/duplicate|unique|23505/i.test(`${insertError.code || ""} ${insertError.message}`)) {
+          throw insertError;
+        }
+        // A concurrent request won the one-live-link constraint. Reuse its row
+        // and the same Stripe idempotency key instead of minting a second charge path.
+        activePayment = await loadActivePayment();
+        if (!activePayment) throw insertError;
+        const response = existingPaymentResponse(activePayment);
+        if (response) return response;
+        paymentId = activePayment.id;
+      }
+    }
 
     const metadataBase = {
       booking_id: booking.id,
@@ -209,64 +332,76 @@ export async function POST(
       plan_type: planType,
       plan_months: String(installmentMonths ?? 1),
       closer_user_id: user.id,
+      creator_stripe_account_id: creatorStripeAccountId,
+      ...creatorFeeMetadata(fees),
     };
 
     let session: Stripe.Checkout.Session;
 
     if (planType === "full") {
-      session = await getStripe().checkout.sessions.create({
-        mode: "payment",
-        payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency,
-              unit_amount: totalCents,
-              product_data: {
-                name: product.title || post.title || "Purchase",
+      session = await getStripe().checkout.sessions.create(
+        {
+          mode: "payment",
+          payment_method_types: ["card"],
+          line_items: [
+            {
+              price_data: {
+                currency,
+                unit_amount: totalCents,
+                product_data: {
+                  name: product.title || post.title || "Purchase",
+                },
               },
+              quantity: 1,
             },
-            quantity: 1,
+          ],
+          payment_intent_data: {
+            application_fee_amount: fees.totalCreatorDeductionCents,
+            transfer_data: { destination: creatorStripeAccountId },
+            metadata: metadataBase,
           },
-        ],
-        payment_intent_data: {
-          application_fee_amount: platformFeeCents,
-          transfer_data: { destination: creatorStripeAccountId },
+          metadata: metadataBase,
+          success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${SITE_URL}/dashboard`,
         },
-        metadata: metadataBase,
-        success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${SITE_URL}/dashboard`,
-      });
+        { idempotencyKey: `booking-payment:${paymentId}` }
+      );
     } else {
       // installment flow using subscription
-      session = await getStripe().checkout.sessions.create({
-        mode: "subscription",
-        payment_method_types: ["card"],
-        line_items: [
-          {
-            price_data: {
-              currency,
-              unit_amount: installmentAmountCents!,
-              product_data: {
-                name: `${product.title || post.title || "Installment"} plan`,
+      session = await getStripe().checkout.sessions.create(
+        {
+          mode: "subscription",
+          payment_method_types: ["card"],
+          line_items: [
+            {
+              price_data: {
+                currency,
+                unit_amount: installmentAmountCents!,
+                product_data: {
+                  name: `${product.title || post.title || "Installment"} plan`,
+                },
+                recurring: {
+                  interval: "month",
+                  interval_count: 1,
+                },
               },
-              recurring: {
-                interval: "month",
-                interval_count: 1,
-              },
+              quantity: 1,
             },
-            quantity: 1,
+          ],
+          subscription_data: {
+            // This 12% value is a safe fallback while the feature is disabled.
+            // When creator-funded processing is enabled, invoice.created replaces
+            // it with the exact per-invoice application_fee_amount before payment.
+            application_fee_percent: PLATFORM_FEE_PERCENT,
+            transfer_data: { destination: creatorStripeAccountId },
+            metadata: metadataBase,
           },
-        ],
-        subscription_data: {
-          application_fee_percent: PLATFORM_FEE_PERCENT,
-          transfer_data: { destination: creatorStripeAccountId },
           metadata: metadataBase,
+          success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${SITE_URL}/dashboard`,
         },
-        metadata: metadataBase,
-        success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${SITE_URL}/dashboard`,
-      });
+        { idempotencyKey: `booking-payment:${paymentId}` }
+      );
     }
 
     const { data: updated, error: updateError } = await admin
@@ -282,7 +417,9 @@ export async function POST(
       .select()
       .maybeSingle();
 
-    if (updateError) throw updateError;
+    if (updateError || !updated) {
+      throw updateError || new Error("Failed to save the generated payment link");
+    }
 
     return NextResponse.json({
       url: session.url,
