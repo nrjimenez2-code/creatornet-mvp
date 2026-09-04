@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
+import { buildAuthRedirectUrl } from "@/lib/authRedirect";
 import {
   parseAuthErrorFromUrl,
   friendlyAuthError,
@@ -145,12 +146,12 @@ export default function AuthPage() {
 
     const raw = input.trim();
 
-    // Use production URL if available, otherwise use current origin
-    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL 
-      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "")}/auth`
-      : `${window.location.origin}/auth`;
-
     try {
+      // Supabase must allow this exact URL in Authentication > URL Configuration.
+      const redirectUrl = buildAuthRedirectUrl(
+        process.env.NEXT_PUBLIC_SITE_URL,
+        window.location.origin,
+      );
       const { error } = await supabase.auth.signInWithOtp({
         email: raw,
         options: { emailRedirectTo: redirectUrl },
@@ -172,17 +173,24 @@ export default function AuthPage() {
     setOauthPending(provider);
     setOauthError(null);
 
-    // Use production URL if available, otherwise use current origin
-    const redirectUrl = process.env.NEXT_PUBLIC_SITE_URL
-      ? `${process.env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, "")}/auth`
-      : `${window.location.origin}/auth`;
+    try {
+      // Apple returns to Supabase first; Supabase then sends the user here.
+      const redirectUrl = buildAuthRedirectUrl(
+        process.env.NEXT_PUBLIC_SITE_URL,
+        window.location.origin,
+      );
 
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo: redirectUrl },
-    });
-    if (error) {
-      setOauthError(error.message || "Couldn't start sign-in. Try again.");
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo: redirectUrl },
+      });
+      if (error) throw error;
+    } catch (error: unknown) {
+      setOauthError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't start sign-in. Try again.",
+      );
       setOauthPending(null);
     }
     // On success the browser navigates to the provider — keep pending so the
