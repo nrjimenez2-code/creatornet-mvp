@@ -51,9 +51,9 @@ Run these tests after any redirect or Apple credential change:
 6. Confirm none of the three methods returns a signed-in user to the public
    landing page or enters a redirect loop.
 
-## Email authentication decision
+## Email authentication model
 
-CreatorNet currently implements passwordless email links. Before adding any
-password-reset surface, the owner must decide whether the product will remain
-passwordless or add the complete password signup, verification, login, and
-reset lifecycle. A reset page by itself is not a complete password flow.
+CreatorNet uses passwordless six-digit email codes. Users do not create a
+password, so there is no password-reset surface. Apple and Google remain the
+primary social options, and email codes provide the provider-independent
+fallback.

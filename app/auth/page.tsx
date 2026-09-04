@@ -35,6 +35,8 @@ export default function AuthPage() {
         .eq("id", session.user.id)
         .maybeSingle();
 
+      if (!mounted) return;
+
       if (error) {
         // Signed in but the interests check failed — don't strand the user on
         // the auth page looking like the login did nothing. The feed is the
@@ -59,9 +61,14 @@ export default function AuthPage() {
   // -------- UI state --------
   const [input, setInput] = useState("");
   const [showForm, setShowForm] = useState(false);
+  const [emailStep, setEmailStep] = useState<"email" | "code">("email");
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [msgKind, setMsgKind] = useState<"info" | "error">("info");
   const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [resendSeconds, setResendSeconds] = useState(0);
   const [oauthPending, setOauthPending] = useState<"google" | "apple" | null>(null);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -130,12 +137,33 @@ export default function AuthPage() {
     return () => clearTimeout(t);
   }, []);
 
+  useEffect(() => {
+    if (resendSeconds <= 0) return;
+    const timer = window.setInterval(() => {
+      setResendSeconds((seconds) => Math.max(0, seconds - 1));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [resendSeconds]);
+
   // Track auth page visit
   useEffect(() => {
     trackEvent("signup_started");
   }, []);
 
   const isInputEmpty = useMemo(() => input.trim().length === 0, [input]);
+
+  async function requestEmailCode(email: string) {
+    // Supabase must allow this exact URL in Authentication > URL Configuration.
+    const redirectUrl = buildAuthRedirectUrl(
+      process.env.NEXT_PUBLIC_SITE_URL,
+      window.location.origin,
+    );
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: redirectUrl, shouldCreateUser: true },
+    });
+    if (error) throw error;
+  }
 
   async function handleSignIn(e: React.FormEvent) {
     e.preventDefault();
@@ -147,25 +175,80 @@ export default function AuthPage() {
     const raw = input.trim();
 
     try {
-      // Supabase must allow this exact URL in Authentication > URL Configuration.
-      const redirectUrl = buildAuthRedirectUrl(
-        process.env.NEXT_PUBLIC_SITE_URL,
-        window.location.origin,
-      );
-      const { error } = await supabase.auth.signInWithOtp({
-        email: raw,
-        options: { emailRedirectTo: redirectUrl },
+      await requestEmailCode(raw);
+      setPendingEmail(raw);
+      setVerificationCode("");
+      setEmailStep("code");
+      setResendSeconds(60);
+      setMsgKind("info");
+      setMsg("Enter the six-digit code we sent to your email.");
+    } catch (error: unknown) {
+      setMsgKind("error");
+      setMsg(error instanceof Error ? error.message : "Something went wrong.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handleVerifyCode(e: React.FormEvent) {
+    e.preventDefault();
+    if (verifying) return;
+
+    const token = verificationCode.trim();
+    if (!/^\d{6}$/.test(token)) {
+      setMsgKind("error");
+      setMsg("Enter the complete six-digit code.");
+      return;
+    }
+
+    setMsg(null);
+    setVerifying(true);
+
+    try {
+      const { error } = await supabase.auth.verifyOtp({
+        email: pendingEmail,
+        token,
+        type: "email",
       });
       if (error) throw error;
       trackEvent("signup_completed", { method: "email" });
       setMsgKind("info");
-      setMsg("📧 Check your inbox for the sign-in link!");
-    } catch (err: any) {
+      setMsg("You're signed in. Opening CreatorNet…");
+    } catch (error: unknown) {
       setMsgKind("error");
-      setMsg(err?.message ?? "Something went wrong.");
+      setMsg(
+        error instanceof Error
+          ? error.message
+          : "That code could not be verified. Request a new one and try again.",
+      );
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function handleResendCode() {
+    if (sending || resendSeconds > 0) return;
+    setMsg(null);
+    setSending(true);
+    try {
+      await requestEmailCode(pendingEmail);
+      setResendSeconds(60);
+      setMsgKind("info");
+      setMsg("A new six-digit code is on the way.");
+    } catch (error: unknown) {
+      setMsgKind("error");
+      setMsg(error instanceof Error ? error.message : "Unable to resend the code.");
     } finally {
       setSending(false);
     }
+  }
+
+  function changeEmail() {
+    setEmailStep("email");
+    setPendingEmail("");
+    setVerificationCode("");
+    setResendSeconds(0);
+    setMsg(null);
   }
 
   async function oauth(provider: "google" | "apple") {
@@ -321,38 +404,100 @@ export default function AuthPage() {
 
         {showForm && (
           <div className="mt-6 text-left" aria-live="polite">
-            <form onSubmit={handleSignIn} className="space-y-3">
-              <label className="block text-sm text-gray-700">
-                Email
-              </label>
-              <input
-                type="email"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="you@example.com"
-                required
-                autoFocus
-                className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
-              />
-              <button
-                type="submit"
-                disabled={sending || isInputEmpty}
-                aria-busy={sending}
-                className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
-              >
-                {sending ? "Sending…" : "Send sign-in link"}
-              </button>
-              {msg && (
-                <p
-                  role={msgKind === "error" ? "alert" : "status"}
-                  className={`text-xs text-center mt-1 ${
-                    msgKind === "error" ? "text-red-600" : "text-gray-600"
-                  }`}
+            {emailStep === "email" ? (
+              <form onSubmit={handleSignIn} className="space-y-3">
+                <label htmlFor="email" className="block text-sm text-gray-700">
+                  Email
+                </label>
+                <input
+                  id="email"
+                  type="email"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                  autoFocus
+                  className="w-full border border-gray-300 rounded-md px-3 py-2 text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+                />
+                <button
+                  type="submit"
+                  disabled={sending || isInputEmpty}
+                  aria-busy={sending}
+                  className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
                 >
-                  {msg}
+                  {sending ? "Sending code…" : "Email me a code"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyCode} className="space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <label htmlFor="email-code" className="block text-sm font-medium text-gray-800">
+                      Verification code
+                    </label>
+                    <p className="mt-0.5 truncate text-xs text-gray-500">{pendingEmail}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={changeEmail}
+                    className="text-xs font-semibold text-[#7B61C9] hover:text-[#6047AF] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+                  >
+                    Change
+                  </button>
+                </div>
+                <input
+                  id="email-code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  value={verificationCode}
+                  onChange={(e) =>
+                    setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                  }
+                  placeholder="000000"
+                  aria-describedby="email-code-help"
+                  required
+                  autoFocus
+                  className="w-full border border-gray-300 rounded-md px-3 py-3 text-center text-xl font-semibold tracking-[0.35em] text-gray-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+                />
+                <p id="email-code-help" className="text-center text-xs text-gray-500">
+                  Codes expire for your security.
                 </p>
-              )}
-            </form>
+                <button
+                  type="submit"
+                  disabled={verifying || verificationCode.length !== 6}
+                  aria-busy={verifying}
+                  className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+                >
+                  {verifying ? "Verifying…" : "Verify and continue"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleResendCode}
+                  disabled={sending || resendSeconds > 0}
+                  className="w-full text-center text-xs font-medium text-gray-500 hover:text-[#7B61C9] disabled:cursor-not-allowed disabled:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
+                >
+                  {sending
+                    ? "Sending…"
+                    : resendSeconds > 0
+                      ? `Resend code in ${resendSeconds}s`
+                      : "Resend code"}
+                </button>
+              </form>
+            )}
+            {msg && (
+              <p
+                role={msgKind === "error" ? "alert" : "status"}
+                className={`text-xs text-center mt-3 ${
+                  msgKind === "error" ? "text-red-600" : "text-gray-600"
+                }`}
+              >
+                {msg}
+              </p>
+            )}
           </div>
         )}
 
