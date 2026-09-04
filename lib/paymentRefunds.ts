@@ -158,3 +158,22 @@ export async function reconcileKnownPaymentRefund(
   await applyPaymentRefundState(admin, state);
   return true;
 }
+
+/** Mark only admin operations whose exact Stripe Refund ids appear in the event. */
+export async function confirmAdminRefundWebhookDelivery(
+  admin: SupabaseClient,
+  stripeRefundIds: ReadonlyArray<string>,
+): Promise<void> {
+  const ids = Array.from(
+    new Set(stripeRefundIds.filter((id) => typeof id === "string" && id !== "")),
+  );
+  if (ids.length === 0) return;
+  const now = new Date().toISOString();
+  const { error } = await admin
+    .from("refund_operations")
+    .update({ webhook_confirmed_at: now, updated_at: now })
+    .in("stripe_refund_id", ids);
+  if (error) {
+    throw new Error(`admin refund webhook confirmation failed: ${error.message}`);
+  }
+}

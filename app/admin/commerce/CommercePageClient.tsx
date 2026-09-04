@@ -2,16 +2,18 @@
 
 // Client half of /admin/commerce. The server container (page.tsx) fetches real
 // orders/bookings rows and seeds the page-scoped AdminDataProvider this
-// component reads from. Refunds happen in the Stripe dashboard → the
-// `charge.refunded` webhook updates the `orders` rows; no admin mutation here.
+// component reads from. The refund dialog creates durable admin operations;
+// Stripe webhooks remain authoritative for order/access/earnings state.
 
 import { Suspense, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { AdminBooking, AdminOrder, OrderKind } from "@/types/admin";
 import { formatCents } from "@/lib/admin/format";
 import { accumulate, dailyTotals } from "@/lib/admin/series";
 import { TimeAgo } from "@/components/admin/TimeAgo";
 import { useAdminData } from "@/components/admin/AdminDataContext";
+import { useToast } from "@/components/admin/Toast";
+import { RefundDialog } from "./RefundDialog";
 import { Sparkline, SplitBar } from "@/components/admin/charts";
 import {
   IconAlert,
@@ -22,6 +24,7 @@ import {
 } from "@/components/admin/icons";
 import {
   Avatar,
+  ActionButton,
   EmptyState,
   FilterPill,
   PageHeader,
@@ -69,14 +72,24 @@ function PartyCell({ id, username }: { id: string; username: string }) {
   );
 }
 
-function OrdersTable({ orders }: { orders: AdminOrder[] }) {
+function OrdersTable({
+  orders,
+  onRefund,
+  onRetry,
+  retryingId,
+}: {
+  orders: AdminOrder[];
+  onRefund: (order: AdminOrder) => void;
+  onRetry: (order: AdminOrder) => void;
+  retryingId: string | null;
+}) {
   return (
     <Panel>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-[#f0ebfb]">
-              <th className={`${TH_CLASS} pl-5`}>Order</th>
+              <th className={`${TH_CLASS} pl-5`}>Payment</th>
               <th className={TH_CLASS}>Buyer</th>
               <th className={TH_CLASS}>Creator</th>
               <th className={TH_CLASS}>Gross</th>
@@ -85,6 +98,7 @@ function OrdersTable({ orders }: { orders: AdminOrder[] }) {
               <th className={TH_CLASS}>Creator net</th>
               <th className={TH_CLASS}>Status</th>
               <th className={TH_CLASS}>Date</th>
+              <th className={`${TH_CLASS} pr-5 text-right`}>Action</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[#f0ebfb]">
@@ -117,10 +131,43 @@ function OrdersTable({ orders }: { orders: AdminOrder[] }) {
                   {formatCents(order.creatorCents)}
                 </td>
                 <td className={TD}>
-                  <StatusBadge status={order.status} />
+                  <div className="space-y-1">
+                    <StatusBadge status={order.status} />
+                    {order.latestRefund ? (
+                      <p className="max-w-32 text-[10px] font-semibold text-gray-400">
+                        Refund: {order.latestRefund.status.replaceAll("_", " ")}
+                      </p>
+                    ) : null}
+                  </div>
                 </td>
                 <td className={`${TD} whitespace-nowrap text-gray-400`}>
                   <TimeAgo iso={order.createdAt} />
+                </td>
+                <td className="px-5 py-3 text-right">
+                  {order.latestRefund?.status === "needs_reconciliation" ? (
+                    <ActionButton
+                      variant="neutral"
+                      onClick={() => onRetry(order)}
+                      title="Retry the refund from its last confirmed step"
+                      disabled={retryingId !== null}
+                    >
+                      {retryingId === order.latestRefund.id ? "Retrying…" : "Retry allocation"}
+                    </ActionButton>
+                  ) : (
+                    <ActionButton
+                      variant="danger"
+                      onClick={() => onRefund(order)}
+                      title={order.refundEligible ? "Create a full or partial refund" : order.refundBlockedReason ?? "Refund unavailable"}
+                      disabled={!order.refundEligible}
+                    >
+                      Refund
+                    </ActionButton>
+                  )}
+                  {!order.refundEligible && order.latestRefund?.status !== "needs_reconciliation" ? (
+                    <p className="mt-1 max-w-36 text-right text-[10px] leading-tight text-gray-400">
+                      {order.refundBlockedReason}
+                    </p>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -183,9 +230,13 @@ function BookingsTable({ bookings }: { bookings: AdminBooking[] }) {
 }
 
 function CommerceInner({ initialQuery }: { initialQuery: string }) {
+  const router = useRouter();
+  const { toast } = useToast();
   const { orders, bookings } = useAdminData();
   const [tab, setTab] = useState<CommerceTab>("orders");
   const [query, setQuery] = useState(initialQuery);
+  const [refundOrder, setRefundOrder] = useState<AdminOrder | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const paidOrders = useMemo(
     () => orders.filter((order) => order.status === "paid"),
@@ -193,7 +244,12 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
   );
 
   const revenue = useMemo(() => {
-    const refunded = orders.filter((order) => order.status === "refunded");
+    const refundedCents = orders.reduce(
+      (sum, order) =>
+        sum + (order.refundedCents ?? (order.status === "refunded" ? order.grossCents : 0)),
+      0,
+    );
+    const refundCount = orders.filter((order) => (order.refundedCents ?? 0) > 0).length;
     return {
       paidCount: paidOrders.length,
       gmvCents: paidOrders.reduce((sum, order) => sum + order.grossCents, 0),
@@ -203,8 +259,8 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
         0,
       ),
       creatorCents: paidOrders.reduce((sum, order) => sum + order.creatorCents, 0),
-      refundedCents: refunded.reduce((sum, order) => sum + order.grossCents, 0),
-      refundCount: refunded.length,
+      refundedCents,
+      refundCount,
     };
   }, [orders, paidOrders]);
 
@@ -231,13 +287,58 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
   );
 
   const resultCount = tab === "orders" ? filteredOrders.length : filteredBookings.length;
-  const resultNoun = tab === "orders" ? "orders" : "bookings";
+  const resultNoun = tab === "orders" ? "payments" : "bookings";
+
+  const openRefund = (order: AdminOrder) => {
+    if (!order.refundEligible) {
+      toast("danger", order.refundBlockedReason ?? "This payment cannot be refunded.");
+      return;
+    }
+    setRefundOrder(order);
+  };
+
+  const retryRefund = async (order: AdminOrder) => {
+    const refundId = order.latestRefund?.id;
+    if (!refundId || retryingId) return;
+    setRetryingId(refundId);
+    try {
+      const response = await fetch("/api/admin/refunds", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refundId }),
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok && response.status !== 202) {
+        const message =
+          body && typeof body === "object" && "error" in body &&
+          typeof (body as { error?: unknown }).error === "string"
+            ? String((body as { error: string }).error)
+            : "The refund retry failed.";
+        throw new Error(message);
+      }
+      const disposition =
+        body && typeof body === "object" && "disposition" in body
+          ? String((body as { disposition?: unknown }).disposition)
+          : "processing";
+      toast(
+        disposition === "completed" ? "success" : "info",
+        disposition === "completed"
+          ? "Refund allocation completed"
+          : "Refund is still being reconciled",
+      );
+      router.refresh();
+    } catch (error) {
+      toast("danger", error instanceof Error ? error.message : "The refund retry failed.");
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   return (
     <div className="motion-safe:animate-[pageIn_0.35s_ease-out]">
       <PageHeader
         title="Commerce"
-        subtitle="Every dollar moving through the platform — orders, fees, and bookings."
+        subtitle="Every payment moving through the platform — orders, fees, refunds, and bookings."
       />
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
@@ -327,7 +428,7 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
       <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <FilterPill
-            label="Orders"
+            label="Payments"
             count={orders.length}
             isActive={tab === "orders"}
             onClick={() => setTab("orders")}
@@ -352,13 +453,18 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
 
       {tab === "orders" ? (
         filteredOrders.length > 0 ? (
-          <OrdersTable orders={filteredOrders} />
+          <OrdersTable
+            orders={filteredOrders}
+            onRefund={openRefund}
+            onRetry={retryRefund}
+            retryingId={retryingId}
+          />
         ) : (
           <EmptyState
             message={
               query.trim() === ""
-                ? "No orders yet — checkout has not written any rows."
-                : `No orders match "${query}".`
+                ? "No payments yet — checkout has not written any rows."
+                : `No payments match "${query}".`
             }
           />
         )
@@ -373,6 +479,10 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
           }
         />
       )}
+
+      {refundOrder ? (
+        <RefundDialog order={refundOrder} onClose={() => setRefundOrder(null)} />
+      ) : null}
     </div>
   );
 }
@@ -380,8 +490,8 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
 /**
  * Deep-link support: the command palette navigates here with ?q=<term>.
  * Keying the page content on the param seeds the search state fresh on every
- * palette jump without any URL→state sync effect. (No armed confirm state
- * exists on this page — refunds live in Stripe.)
+ * palette jump without any URL→state sync effect. Refund confirmation state
+ * stays local to the dialog and never derives from query parameters.
  */
 function CommerceFromQuery() {
   const searchParams = useSearchParams();

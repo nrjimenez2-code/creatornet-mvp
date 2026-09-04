@@ -235,6 +235,7 @@ interface ActionButtonProps {
   /** Armed state for two-step destructive confirms — solid red. */
   armed?: boolean;
   title?: string;
+  disabled?: boolean;
 }
 
 /** Small table/queue action button with consistent styling across pages. */
@@ -244,13 +245,15 @@ export function ActionButton({
   children,
   armed = false,
   title,
+  disabled = false,
 }: ActionButtonProps) {
   return (
     <button
       type="button"
       title={title}
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all duration-150 focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-1 focus-visible:outline-none ${
+      disabled={disabled}
+      className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-all duration-150 focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45 ${
         armed
           ? "border-red-600 bg-red-600 text-white shadow-[0_2px_8px_rgba(220,38,38,0.35)]"
           : ACTION_STYLES[variant]

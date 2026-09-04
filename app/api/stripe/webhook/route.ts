@@ -30,6 +30,7 @@ import {
 } from "@/lib/paymentFeeLedger";
 import {
   applyPaymentRefundState,
+  confirmAdminRefundWebhookDelivery,
   reconcileKnownPaymentRefund,
   recordPaymentRefundState,
 } from "@/lib/paymentRefunds";
@@ -1624,6 +1625,10 @@ export async function POST(req: NextRequest) {
           refundedAmountCents: charge.amount_refunded || 0,
         });
         await applyPaymentRefundState(admin, refundState);
+        await confirmAdminRefundWebhookDelivery(
+          admin,
+          (charge.refunds?.data ?? []).map((refund) => refund.id),
+        );
         break;
       }
 
