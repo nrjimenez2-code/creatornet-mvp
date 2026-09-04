@@ -47,7 +47,7 @@ Run these tests after any redirect or Apple credential change:
 2. Sign out, then sign the same Apple user back in to the dashboard.
 3. Refresh the destination and confirm the session remains active.
 4. Test Google sign-in to the same destination.
-5. Request a passwordless email link from an external address and complete it.
+5. Request a passwordless email code from an external address and complete it.
 6. Confirm none of the three methods returns a signed-in user to the public
    landing page or enters a redirect loop.
 
