@@ -10,6 +10,7 @@
 
 process.env.STRIPE_SECRET_KEY = "sk_test_fake";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_fake";
+process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_fake";
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "service_role_fake";
 process.env.NEXT_PUBLIC_SITE_URL = "https://www.creatornet.net";
@@ -108,6 +109,36 @@ beforeEach(() => {
       id: "ch_x",
       balance_transaction: { id: "txn_x", fee: 126 },
     },
+  });
+});
+
+describe("Stripe webhook destination signatures", () => {
+  it("accepts the separate connected-account webhook secret", async () => {
+    db = createMockClient(() => undefined);
+    const verify = jest.fn((_body: string, _signature: string, secret: string) => {
+      if (secret === "whsec_fake") throw new Error("wrong destination secret");
+      if (secret === "whsec_connect_fake") {
+        return {
+          id: "evt_connect_signature",
+          type: "unhandled.test",
+          data: { object: {} },
+        };
+      }
+      throw new Error("unexpected secret");
+    });
+    constructEventImpl = verify;
+
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(200);
+    expect(verify).toHaveBeenNthCalledWith(1, "{}", "t=1,v1=fake", "whsec_fake");
+    expect(verify).toHaveBeenNthCalledWith(
+      2,
+      "{}",
+      "t=1,v1=fake",
+      "whsec_connect_fake",
+    );
   });
 });
 

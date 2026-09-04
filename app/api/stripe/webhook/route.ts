@@ -50,6 +50,13 @@ export const maxDuration = 60;
 // --- ENV ---
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
+// Stripe sends platform payment events and connected-account lifecycle events
+// through different event destinations. Each destination has its own signing
+// secret, so accept the optional Connect secret without changing the existing
+// single-destination setup. The Connect destination should subscribe only to
+// connected-account events such as account.updated.
+const STRIPE_CONNECT_WEBHOOK_SECRET =
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -66,6 +73,27 @@ function jerr(stage: string, msg: string, status = 400) {
   // posts to this URL; the stage is enough to debug from, the message is not
   // needed there.
   return NextResponse.json({ ok: false, stage }, { status });
+}
+
+function verifyStripeEvent(rawBody: string, signature: string): Stripe.Event {
+  let lastError: unknown = new Error("Invalid Stripe webhook signature");
+  const secrets = Array.from(
+    new Set(
+      [STRIPE_WEBHOOK_SECRET, STRIPE_CONNECT_WEBHOOK_SECRET].filter(
+        (secret): secret is string => Boolean(secret),
+      ),
+    ),
+  );
+
+  for (const secret of secrets) {
+    try {
+      return getStripe().webhooks.constructEvent(rawBody, signature, secret);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 async function fetchCreatorIdIfMissing(
@@ -1327,7 +1355,7 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event;
   try {
     const rawBody = await req.text(); // IMPORTANT: raw body for signature verification
-    event = getStripe().webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+    event = verifyStripeEvent(rawBody, sig);
     console.log("[webhook] ✅ Signature verified successfully");
   } catch (e: any) {
     console.error("[webhook] ❌ Signature verification failed:", e?.message);
