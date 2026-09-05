@@ -27,6 +27,8 @@ export type FeedV3Row = {
   product_price_cents: number | null;
   is_liked: boolean | null;
   is_following: boolean | null;
+  /** posts.purchase_count — only present once the STAGED get_feed_v3 migration is applied. */
+  purchase_count?: number | null;
 };
 
 /** What FeedList renders per card (moved here from FeedList so it stays testable). */
@@ -56,6 +58,8 @@ export type PostRow = {
   booking_url?: string | null;
   /** When false, hide buy CTA (optional; omitted = allow). */
   creator_can_sell?: boolean | null;
+  /** Lifetime paid purchases of this post's product (null = unknown / not returned). */
+  purchase_count?: number | null;
 };
 
 /** Hosts that often time out or fail; don't request video from them (show poster only to avoid console errors). */
@@ -124,6 +128,8 @@ export function mapFeedV3Row(r: FeedV3Row): PostRow {
     creator_avatar_url: r.creator_avatar_url ?? null,
     is_liked: r.is_liked ?? false,
     is_following: r.is_following ?? false,
+    // Absent until the RPC returns it; never invent a number.
+    purchase_count: typeof r.purchase_count === "number" ? r.purchase_count : null,
   };
 }
 

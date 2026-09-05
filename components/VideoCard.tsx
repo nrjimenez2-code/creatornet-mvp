@@ -8,6 +8,7 @@ import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlacement";
 import BuyButton from "./BuyButton";
+import { formatSocialProof } from "@/lib/socialProof";
 import CommentPanel from "./CommentPanel";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -50,6 +51,8 @@ type VideoCardProps = {
   allowBooking?: boolean;
   bookingRedirectUrl?: string | null;
   productType?: string | null;
+  /** posts.purchase_count; renders social proof only above SOCIAL_PROOF_MIN_COUNT. */
+  purchaseCount?: number | null;
   showFollowButton?: boolean;
   isFollowingCreator?: boolean;
   onFollowChange?: (creatorId: string, isFollowing: boolean) => void;
@@ -104,6 +107,7 @@ export default function VideoCard(props: VideoCardProps) {
     allowBooking = false,
     bookingRedirectUrl = null,
     productType = null,
+    purchaseCount = null,
     showFollowButton = false,
     isFollowingCreator = false,
     onFollowChange,
@@ -765,6 +769,8 @@ export default function VideoCard(props: VideoCardProps) {
       setCheckoutState("idle");
     }
   }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId, checkoutState]);
+
+  const socialProof = formatSocialProof(purchaseCount, productType);
   // Fire-and-forget interest score update (never blocks UI)
   const scoreInterest = useCallback((delta: number) => {
     const pid = postIdRef.current;
@@ -1032,6 +1038,11 @@ export default function VideoCard(props: VideoCardProps) {
                       : null
                 }
               />
+              {socialProof && (
+                <p className="mt-1 text-xs text-white/70" data-social-proof>
+                  {socialProof}
+                </p>
+              )}
 
               {menuOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
                 <div
