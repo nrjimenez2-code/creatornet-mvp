@@ -46,6 +46,8 @@ describe("junk input", () => {
     expect(formatSocialProofWithMin(undefined, "course", 0)).toBeNull();
     expect(formatSocialProofWithMin(Number.NaN, "course", 0)).toBeNull();
     expect(formatSocialProofWithMin(-1, "course", 0)).toBeNull();
+    // Negative must be hidden even when the threshold itself is below zero.
+    expect(formatSocialProofWithMin(-1, "course", -10)).toBeNull();
     expect(formatSocialProofWithMin("7" as unknown as number, "course", 0)).toBeNull();
   });
 });
