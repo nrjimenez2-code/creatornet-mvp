@@ -526,8 +526,16 @@ export default function VideoCard(props: VideoCardProps) {
     video.play().catch(() => {});
   }, []);
 
+  // True only while this card is muted *solely* because the browser refused
+  // unmuted autoplay: the parent (feed) or the saved preference still says
+  // "sound on". autoplayBlocked itself is sticky, so it must be qualified —
+  // once the user is actually unmuted, or the feed has turned sound off, the
+  // chip and the "honour the gesture" branch below no longer apply.
+  const isMutedByAutoplayPolicy =
+    autoplayBlocked && isMuted && soundEnabled !== false;
+
   const handleMuteToggle = useCallback(() => {
-    if (autoplayBlocked) {
+    if (isMutedByAutoplayPolicy) {
       // The parent / saved preference already say "sound on"; this card only
       // fell back to muted because autoplay was blocked. Honour the gesture.
       handleTapForSound();
@@ -538,7 +546,7 @@ export default function VideoCard(props: VideoCardProps) {
     // Uncontrolled cards own the preference; the feed writes it in FeedList.
     if (soundEnabled === undefined) writeSoundOn(!nextMuted);
     onToggleSound?.();
-  }, [autoplayBlocked, handleTapForSound, isMuted, soundEnabled, onToggleSound]);
+  }, [isMutedByAutoplayPolicy, handleTapForSound, isMuted, soundEnabled, onToggleSound]);
 
   const handleLike = useCallback(async () => {
     if (!postId) {
@@ -1015,7 +1023,7 @@ export default function VideoCard(props: VideoCardProps) {
         </button>
         </div>
 
-        {autoplayBlocked && isMuted ? (
+        {isMutedByAutoplayPolicy ? (
           <button
             type="button"
             onClick={handleTapForSound}

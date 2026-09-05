@@ -17,12 +17,19 @@ import { useSyncExternalStore } from "react";
  */
 export const SOUND_PREF_KEY = "cn-sound-on";
 
-/** Last value written; the source of truth only when storage is unreadable. */
+/** Last value written; the source of truth only when storage is unusable. */
 let inMemorySoundOn = false;
+/**
+ * Set once a write has failed (quota exceeded, old-Safari private mode where
+ * getItem works but setItem throws). From then on reads come from the mirror
+ * so the in-page choice is not silently overridden by a stale stored value.
+ */
+let isStorageWriteBroken = false;
 
 const listeners = new Set<() => void>();
 
 export function readSoundOn(): boolean {
+  if (isStorageWriteBroken) return inMemorySoundOn;
   try {
     return window.localStorage.getItem(SOUND_PREF_KEY) === "true";
   } catch {
@@ -36,8 +43,10 @@ export function writeSoundOn(soundOn: boolean): void {
   inMemorySoundOn = soundOn;
   try {
     window.localStorage.setItem(SOUND_PREF_KEY, soundOn ? "true" : "false");
+    isStorageWriteBroken = false;
   } catch {
     // Storage blocked — the choice still applies for this page via listeners.
+    isStorageWriteBroken = true;
   }
   listeners.forEach((notify) => notify());
 }

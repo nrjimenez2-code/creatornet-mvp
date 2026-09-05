@@ -170,6 +170,23 @@ describe("audio preference", () => {
     }
   });
 
+  test("setItem throws but getItem works (quota / old private mode): reads follow the in-page choice until a write succeeds", () => {
+    localStorage.setItem(SOUND_PREF_KEY, "false"); // stale stored value
+    const setSpy = jest.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    try {
+      expect(() => writeSoundOn(true)).not.toThrow();
+      expect(readSoundOn()).toBe(true); // not the stale "false" from storage
+    } finally {
+      setSpy.mockRestore();
+    }
+    writeSoundOn(false); // storage works again → back to reading storage
+    expect(localStorage.getItem(SOUND_PREF_KEY)).toBe("false");
+    localStorage.setItem(SOUND_PREF_KEY, "true");
+    expect(readSoundOn()).toBe(true);
+  });
+
   test("server render snapshot is muted even when the device prefers sound", () => {
     writeSoundOn(true);
     const Probe = () => {
@@ -274,5 +291,102 @@ describe("audio preference", () => {
     expect(playCalls.at(-1)).toBe(false);
     expect(chip()).toBeNull();
     expect(localStorage.getItem(SOUND_PREF_KEY)).toBe("true");
+  });
+
+  test("feed flips an already-playing muted card to sound on (script unmute): blocked → muted fallback + chip, preference untouched", async () => {
+    const onToggleSound = jest.fn();
+    const render = (soundEnabled: boolean) =>
+      act(async () => {
+        root.render(
+          createElement(VideoCard, { src: SRC, postId: "p1", soundEnabled, onToggleSound }),
+        );
+      });
+    await render(false);
+    await act(async () => {
+      intersect();
+    });
+    expect(playCalls).toEqual([true]); // autoplays muted like any inactive card
+
+    // The card is now playing (jsdom's stubbed play() never flips `paused`).
+    const pausedSpy = jest
+      .spyOn(HTMLMediaElement.prototype, "paused", "get")
+      .mockReturnValue(false);
+    try {
+      await render(true); // FeedList: this card became the active one
+      const video = container.querySelector("video")!;
+      expect(playCalls).toEqual([true, false, true]); // unmuted refused, back to muted
+      expect(video.muted).toBe(true);
+      expect(chip()).not.toBeNull();
+      expect(onToggleSound).not.toHaveBeenCalled();
+      expect(localStorage.getItem(SOUND_PREF_KEY)).toBeNull();
+
+      gestureSeen = true;
+      await act(async () => {
+        chip()!.click();
+      });
+      expect(video.muted).toBe(false);
+      expect(chip()).toBeNull();
+      expect(onToggleSound).not.toHaveBeenCalled(); // parent already says sound on
+    } finally {
+      pausedSpy.mockRestore();
+    }
+  });
+
+  test("after a fallback the feed turns sound off: chip hides and the mute button is a normal toggle again", async () => {
+    const onToggleSound = jest.fn();
+    const render = (soundEnabled: boolean) =>
+      act(async () => {
+        root.render(
+          createElement(VideoCard, { src: SRC, postId: "p1", soundEnabled, onToggleSound }),
+        );
+      });
+    await render(true);
+    await act(async () => {
+      intersect();
+    });
+    expect(chip()).not.toBeNull(); // fell back to muted
+
+    await render(false); // user muted elsewhere in the feed / scrolled away
+    expect(chip()).toBeNull();
+
+    await act(async () => {
+      muteButton()!.click();
+    });
+    expect(onToggleSound).toHaveBeenCalledTimes(1); // reported, not swallowed
+  });
+
+  test("after a fallback the card is later unmuted by the feed for real: the mute button mutes on the first tap", async () => {
+    const onToggleSound = jest.fn();
+    const render = (soundEnabled: boolean) =>
+      act(async () => {
+        root.render(
+          createElement(VideoCard, { src: SRC, postId: "p1", soundEnabled, onToggleSound }),
+        );
+      });
+    await render(true);
+    await act(async () => {
+      intersect();
+    });
+    expect(chip()).not.toBeNull();
+
+    await render(false); // scrolled away
+    gestureSeen = true; // user tapped something on another card
+    const pausedSpy = jest
+      .spyOn(HTMLMediaElement.prototype, "paused", "get")
+      .mockReturnValue(false);
+    try {
+      await render(true); // scrolled back: unmute now succeeds
+      const video = container.querySelector("video")!;
+      expect(video.muted).toBe(false);
+      expect(chip()).toBeNull();
+
+      await act(async () => {
+        muteButton()!.click();
+      });
+      expect(video.muted).toBe(true);
+      expect(onToggleSound).toHaveBeenCalledTimes(1);
+    } finally {
+      pausedSpy.mockRestore();
+    }
   });
 });
