@@ -2,7 +2,7 @@
 // Followers and following are buttons that open the paginated list.
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import FollowListModal, { type FollowListType } from "./FollowListModal";
 
 type FollowStatsProps = {
@@ -21,7 +21,14 @@ const TITLES: Record<FollowListType, string> = { followers: "Followers", followi
 
 export default function FollowStats({ userId, postsCount, followersCount, followingCount }: FollowStatsProps) {
   const [openList, setOpenList] = useState<FollowListType | null>(null);
+  // The button that opened the list, so closing hands focus back to it.
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const listType: FollowListType = openList ?? "followers";
+
+  const close = () => {
+    setOpenList(null);
+    triggerRef.current?.focus();
+  };
 
   return (
     <div className="mt-6 w-full max-w-2xl px-4">
@@ -30,11 +37,27 @@ export default function FollowStats({ userId, postsCount, followersCount, follow
           <span className={NUMBER}>{postsCount}</span>
           <span className={LABEL}>posts</span>
         </div>
-        <button type="button" onClick={() => setOpenList("followers")} className={CELL_BUTTON} aria-haspopup="dialog">
+        <button
+          type="button"
+          className={CELL_BUTTON}
+          aria-haspopup="dialog"
+          onClick={(e) => {
+            triggerRef.current = e.currentTarget;
+            setOpenList("followers");
+          }}
+        >
           <span className={NUMBER}>{followersCount}</span>
           <span className={LABEL}>followers</span>
         </button>
-        <button type="button" onClick={() => setOpenList("following")} className={CELL_BUTTON} aria-haspopup="dialog">
+        <button
+          type="button"
+          className={CELL_BUTTON}
+          aria-haspopup="dialog"
+          onClick={(e) => {
+            triggerRef.current = e.currentTarget;
+            setOpenList("following");
+          }}
+        >
           <span className={NUMBER}>{followingCount}</span>
           <span className={LABEL}>following</span>
         </button>
@@ -46,7 +69,7 @@ export default function FollowStats({ userId, postsCount, followersCount, follow
         userId={userId}
         type={listType}
         open={openList !== null}
-        onClose={() => setOpenList(null)}
+        onClose={close}
         title={TITLES[listType]}
       />
     </div>
