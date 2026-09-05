@@ -24,12 +24,16 @@ const EMPTY_TEXT: Record<FollowListType, string> = {
   following: "Not following anyone yet",
 };
 const LOAD_ERROR = "Could not load this list.";
+const SIGN_IN_TEXT = "Sign in to see this list.";
 
 async function fetchPage(userId: string, type: FollowListType, cursor: string | null): Promise<Page> {
   const params = new URLSearchParams({ type });
   if (cursor) params.set("cursor", cursor);
   const res = await fetch(`/api/users/${encodeURIComponent(userId)}/follows?${params.toString()}`);
   const body = await res.json().catch(() => null);
+  if (res.status === 401) {
+    throw new Error(SIGN_IN_TEXT);
+  }
   if (!res.ok) {
     throw new Error(typeof body?.error === "string" ? body.error : LOAD_ERROR);
   }
