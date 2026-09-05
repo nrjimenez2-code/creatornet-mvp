@@ -25,7 +25,7 @@ export function formatSocialProofWithMin(
   productType: string | null | undefined,
   min: number
 ): string | null {
-  if (typeof count !== "number" || Number.isNaN(count)) return null;
+  if (typeof count !== "number" || Number.isNaN(count) || count < 0) return null;
   if (count < min) return null;
   return `${count} ${nounFor(productType, count)}`;
 }
