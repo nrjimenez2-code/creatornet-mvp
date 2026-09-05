@@ -4,6 +4,11 @@ import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
+import {
+  hasQualifyingPurchase,
+  PURCHASE_REQUIRED_CODE,
+  PURCHASE_REQUIRED_MESSAGE,
+} from "@/lib/reviewEligibility";
 
 // Reviews are rare and they move a creator's public rating, so this is the
 // tightest limit here. Ten a minute is far more than anyone writes honestly.
@@ -75,6 +80,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Purchaser-only: the reviewer must hold a live purchase from this creator
+    // (lib/reviewEligibility.ts). Service role, because RLS on purchases is
+    // buyer-scoped; without it we cannot verify, so fail closed rather than
+    // let anyone through. Nothing has been written before this point.
+    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+      console.error("[reviews] SUPABASE_SERVICE_ROLE_KEY missing; cannot verify purchases");
+      return NextResponse.json(
+        { error: "Reviews are temporarily unavailable" },
+        { status: 503 }
+      );
+    }
+
+    const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
+
+    if (!(await hasQualifyingPurchase(admin, user.id, creatorId))) {
+      return NextResponse.json(
+        { code: PURCHASE_REQUIRED_CODE, error: PURCHASE_REQUIRED_MESSAGE },
+        { status: 403 }
+      );
+    }
+
     // Check if review already exists (upsert)
     const { data: existingReview } = await supabase
       .from("reviews")
@@ -115,31 +146,20 @@ export async function POST(req: NextRequest) {
       result = data;
     }
 
-    // Recalculate average rating using RPC (backend calculation)
-    // Use service role client to ensure we have permissions to update profiles
-    const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-    const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    
+    // Recalculate average rating using RPC (backend calculation), with the
+    // same service-role client that verified the purchase above.
     let ratingData: any = null;
-    
-    if (SERVICE_ROLE_KEY && SUPABASE_URL) {
-      const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-        auth: { persistSession: false, autoRefreshToken: false },
-      });
-      
-      const { data, error: rpcError } = await admin.rpc("update_profile_rating", {
-        p_profile_id: creatorId,
-      });
 
-      if (rpcError) {
-        console.error("Error updating profile rating:", rpcError);
-        // Don't fail the request, but log the error for debugging
-      } else {
-        ratingData = data;
-        console.log("Profile rating updated successfully:", ratingData);
-      }
+    const { data: rpcData, error: rpcError } = await admin.rpc("update_profile_rating", {
+      p_profile_id: creatorId,
+    });
+
+    if (rpcError) {
+      console.error("Error updating profile rating:", rpcError);
+      // Don't fail the request, but log the error for debugging
     } else {
-      console.warn("SERVICE_ROLE_KEY not available, skipping rating update");
+      ratingData = rpcData;
+      console.log("Profile rating updated successfully:", ratingData);
     }
 
     return NextResponse.json({

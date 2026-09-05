@@ -32,7 +32,7 @@ export default function ReviewForm({
       e.preventDefault();
 
       if (!userId) {
-        alert("Please sign in to leave a review.");
+        setError("Please sign in to leave a review.");
         return;
       }
 
@@ -60,9 +60,11 @@ export default function ReviewForm({
           }),
         });
 
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
 
         if (!response.ok) {
+          // 403 PURCHASE_REQUIRED (and every other refusal) is shown inline
+          // below the form via setError — never alert().
           throw new Error(data.error || "Failed to submit review");
         }
 
