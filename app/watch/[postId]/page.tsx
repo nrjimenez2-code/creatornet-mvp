@@ -8,6 +8,7 @@ import { useRequireUser } from "@/lib/useUser";
 import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 
 type Post = {
   id: string;
@@ -19,6 +20,7 @@ type Post = {
     full_name: string | null;
     username: string | null;
     avatar_url: string | null;
+    is_verified_seller: boolean;
   } | null;
 };
 
@@ -132,6 +134,7 @@ export default function WatchPage() {
                 full_name: string | null;
                 username: string | null;
                 avatar_url: string | null;
+                is_verified_seller?: boolean;
               }[];
             };
             const creatorData = profiles?.[0];
@@ -140,6 +143,7 @@ export default function WatchPage() {
                 full_name: creatorData.full_name ?? null,
                 username: creatorData.username ?? null,
                 avatar_url: creatorData.avatar_url ?? null,
+                is_verified_seller: creatorData.is_verified_seller === true,
               };
             }
           }
@@ -426,12 +430,16 @@ export default function WatchPage() {
               {creatorProfileHref ? (
                 <Link
                   href={creatorProfileHref}
-                  className="text-lg sm:text-xl font-semibold text-white hover:text-[#4A35C7] underline-offset-4 transition"
+                  className="inline-flex items-center gap-1.5 text-lg sm:text-xl font-semibold text-white hover:text-[#4A35C7] underline-offset-4 transition"
                 >
                   {displayCreator}
+                  <VerifiedCreatorBadge verified={post.creator?.is_verified_seller === true} size="sm" />
                 </Link>
               ) : (
-                <span className="text-lg sm:text-xl font-semibold text-white">{displayCreator}</span>
+                <span className="inline-flex items-center gap-1.5 text-lg sm:text-xl font-semibold text-white">
+                  {displayCreator}
+                  <VerifiedCreatorBadge verified={post.creator?.is_verified_seller === true} size="sm" />
+                </span>
               )}
             </div>
           </div>
