@@ -12,7 +12,8 @@
 // COVERAGE, and what is deliberately left alone.
 // Limited: post-metrics, interest-score, share, comments (create, edit and
 // delete), likes, follow, reviews, search/perform, upload/presign, post
-// creation, product creation, booking create and cancel, and posts/creators.
+// creation, product creation, booking create and cancel, posts/creators, and
+// users/[userId]/follows (the follower / following list).
 //
 // posts/creators is the one that mattered most: it is unauthenticated, runs on
 // the service-role client, and used to accept an unbounded array of ids, so a
