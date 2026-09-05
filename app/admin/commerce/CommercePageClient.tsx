@@ -237,7 +237,7 @@ function BookingsTable({ bookings }: { bookings: AdminBooking[] }) {
 function CommerceInner({ initialQuery }: { initialQuery: string }) {
   const router = useRouter();
   const { toast } = useToast();
-  const { orders, bookings } = useAdminData();
+  const { orders, bookings, asOf } = useAdminData();
   const [tab, setTab] = useState<CommerceTab>("orders");
   const [query, setQuery] = useState(initialQuery);
   const [refundOrder, setRefundOrder] = useState<AdminOrder | null>(null);
@@ -278,9 +278,10 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
           (order) => order.createdAt,
           (order) => order.grossCents,
           SPARK_DAYS,
+          asOf,
         ),
       ),
-    [paidOrders],
+    [paidOrders, asOf],
   );
 
   const filteredOrders = useMemo(

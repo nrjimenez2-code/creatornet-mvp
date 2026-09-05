@@ -412,5 +412,5 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
     createdAt: row.created_at,
   }));
 
-  return { users: [], videos: [], orders, bookings };
+  return { asOf: new Date().toISOString(), users: [], videos: [], orders, bookings };
 }

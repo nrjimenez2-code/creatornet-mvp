@@ -14,6 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminUsersPage() {
   const users = await fetchAdminUsers();
   const initialData: AdminInitialData = {
+    asOf: new Date().toISOString(),
     users,
     videos: [],
     orders: [],

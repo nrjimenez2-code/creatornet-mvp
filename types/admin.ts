@@ -148,6 +148,8 @@ export interface ActivityEvent {
  * the bundled mock data and skips /api/admin/* calls (pure demo mode).
  */
 export interface AdminInitialData {
+  /** Server snapshot time. Shared by counts and charts, including hydration. */
+  asOf: string;
   users: AdminUser[];
   videos: AdminVideo[];
   orders: AdminOrder[];

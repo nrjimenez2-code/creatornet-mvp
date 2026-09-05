@@ -16,7 +16,12 @@ jest.mock("next/link", () => ({
   default: ({ href, children, ...props }: { href: string; children: never }) => createElement("a", { href, ...props }, children),
 }));
 jest.mock("@/components/admin/AdminDataContext", () => ({
-  useAdminData: () => ({ stats: { flaggedCount: 0 }, orders, bookings: [] }),
+  useAdminData: () => ({
+    asOf: "2026-09-04T12:00:00Z", users: [], videos: [], orders, bookings: [],
+    stats: { flaggedCount: 0, totalCreators: 0, totalUsers: 0, totalVideos: 0,
+      gmvCents: 0, platformFeeCents: 0, purchaseCount: 0, bookingCount: 0,
+      newUsersToday: 0, uploadsToday: 0 },
+  }),
 }));
 jest.mock("@/components/admin/Toast", () => ({ useToast: () => ({ toast: jest.fn() }) }));
 jest.mock("@/components/admin/CommandPalette", () => ({ OPEN_PALETTE_EVENT: "test-palette" }));
@@ -45,6 +50,20 @@ test.each([
 test("operator initials have no hardcoded identity", () => {
   expect(operatorInitials("Noah Jimenez")).toBe("NJ");
   expect(operatorInitials(" ")).toBe("A");
+});
+
+test.each(["test", "live", "unknown"] as const)("Overview shows %s configuration, not invented launch readiness", async (paymentMode) => {
+  const { OverviewPage } = await import("@/components/admin/OverviewPage");
+  await act(async () => root.render(createElement(OverviewPage, { activity: [], paymentMode })));
+  expect(container.textContent).toContain("Operational snapshot");
+  expect(container.textContent).toContain("as of 2026-09-04 (UTC)");
+  expect(container.textContent).toContain("Sep 4");
+  expect(container.textContent).not.toContain("Aug 1");
+  expect(container.textContent).toContain(paymentMode === "unknown" ? "Payment mode unverified" : `Stripe ${paymentMode} mode configured`);
+  expect(container.textContent).toContain("not a payment or payout verification");
+  expect(container.textContent).not.toContain("50 launch target");
+  expect(container.textContent).not.toContain("patch written");
+  expect(container.textContent).not.toContain("% ready");
 });
 
 test.each(["test", "live", "unknown"] as const)("sidebar honestly displays %s payment mode and authenticated operator", async (paymentMode) => {
