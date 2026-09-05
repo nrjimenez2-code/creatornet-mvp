@@ -104,6 +104,8 @@ describe("BuyButton", () => {
     const open = await render({ priceCents: 500, expanded: true });
     expect(open.getAttribute("aria-expanded")).toBe("true");
     expect(chevronOf(open)?.classList.contains("rotate-90")).toBe(true);
+    // The rotation animates, so it must be disabled for prefers-reduced-motion.
+    expect(chevronOf(open)?.classList.contains("motion-reduce:transition-none")).toBe(true);
   });
 
   test("cart icon is a hollow stroke icon, not a filled glyph", async () => {

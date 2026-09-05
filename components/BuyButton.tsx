@@ -49,7 +49,7 @@ const BuyButton = forwardRef<HTMLButtonElement, Props>(function BuyButton(
         </span>
       )}
       <ChevronRight
-        className={`${ICON_CLASS} transition-transform ${expanded ? "rotate-90" : ""}`}
+        className={`${ICON_CLASS} transition-transform motion-reduce:transition-none ${expanded ? "rotate-90" : ""}`}
         strokeWidth={2}
         aria-hidden="true"
       />
