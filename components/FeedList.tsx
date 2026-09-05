@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import VideoCard from "./VideoCard";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
+import { useSoundPreference } from "@/lib/audioPreference";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import {
   mapFeedV3Rows,
@@ -57,7 +58,8 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   useEffect(() => {
     trackEvent("feed_viewed");
   }, []);
-  const [globalSoundOn, setGlobalSoundOn] = useState(false);
+  // Per-device, persisted across reloads (lib/audioPreference.ts).
+  const [globalSoundOn, setGlobalSoundOn] = useSoundPreference();
   const [activePostId, setActivePostId] = useState<string | null>(null);
   // Mirror of items for event callbacks (the realtime handler) that need the
   // current list without a stale closure.
@@ -617,7 +619,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                     allowBooking={allowBooking}
                     bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                     soundEnabled={isSoundOn}
-                    onToggleSound={() => setGlobalSoundOn((prev) => !prev)}
+                    onToggleSound={() => setGlobalSoundOn(!globalSoundOn)}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback
                     isLiked={p.is_liked ?? false}
