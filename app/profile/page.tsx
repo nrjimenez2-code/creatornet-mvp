@@ -7,6 +7,8 @@ import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
 import ProfileMobileHeader from "@/components/ProfileMobileHeader";
+import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
+import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -24,7 +26,7 @@ export default async function ProfilePage() {
   const [{ data: profile }, postsRes, followersRes, followingRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select("id, username, full_name, tagline, avatar_url, bio")
+      .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
       .eq("id", user.id)
       .maybeSingle(),
     supabase
@@ -52,6 +54,8 @@ export default async function ProfilePage() {
   const tagline = profile?.tagline || null;
   const bio = profile?.bio || "Tell people about yourself.";
   const avatarUrl = profile?.avatar_url || null;
+  // authenticated can SELECT both Stripe columns on its own row (RLS); browsers cannot write them.
+  const isVerifiedSeller = isSellReadyProfile(profile);
 
   return (
     <section className="px-4 pb-16 pt-4 md:pt-10 text-white relative">
@@ -93,7 +97,10 @@ export default async function ProfilePage() {
             />
           </div>
 
-          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold">{displayName}</h1>
+          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold inline-flex items-center gap-2">
+            {displayName}
+            <VerifiedCreatorBadge verified={isVerifiedSeller} />
+          </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
