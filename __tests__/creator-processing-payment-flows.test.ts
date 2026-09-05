@@ -1378,6 +1378,87 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
     expect(purchaseUpdate?.payload).not.toHaveProperty("status");
   });
 
+  it("retries an invoice that arrives before its purchase, then handles completion and a duplicate", async () => {
+    // Handler-level sequence only: Stripe and persistence remain test doubles.
+    let purchaseReady = false;
+    let credits = 0;
+    const metadata = {
+      booking_payment_id: "bp_early_invoice",
+      creator_id: "creator_1",
+      plan_type: "installment",
+      plan_months: "3",
+      processing_fee_enabled: "true",
+      processing_fee_bps: "290",
+      processing_fee_fixed_cents: "30",
+      fee_schedule_version: "test-us-card-v1",
+      fee_gross_cents: "5000",
+      platform_fee_cents: "600",
+      processing_fee_cents: "175",
+      total_creator_deduction_cents: "775",
+      creator_net_cents: "4225",
+    };
+    subscriptionRetrieve.mockResolvedValue({
+      metadata, transfer_data: { destination: "acct_creator" },
+    });
+    db = createMockClient((op: Op) => {
+      if (op.table === "purchases" && op.kind === "select") {
+        return {
+          data: purchaseReady ? {
+            id: "purchase_late_invoice", product_id: "product_1",
+            creator_id: "creator_1", paid_count: credits, target_months: 3,
+            fulfillment_url: "https://example.test/access",
+          } : null,
+          error: null,
+        };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_late_invoice" }, error: null };
+      }
+      if (op.table === "credit_payment_fee_ledger_earnings") {
+        credits += 1;
+        return { data: true, error: null };
+      }
+      return undefined;
+    });
+    stripeEvent = {
+      id: "evt_invoice_before_checkout", type: "invoice.payment_succeeded",
+      data: { object: {
+        id: "in_before_checkout", amount_paid: 5_000, currency: "usd", metadata,
+        parent: { subscription_details: { subscription: "sub_early_invoice", metadata } },
+        payments: { data: [{ status: "paid", is_default: true,
+          payment: { type: "payment_intent", payment_intent: "pi_recurring_1" },
+        }] },
+      } },
+    };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const { completeStripeEvent, releaseStripeEvent } = await import("@/lib/stripeEvents");
+
+    expect((await POST(webhookRequest())).status).toBe(500);
+    expect(releaseStripeEvent).toHaveBeenCalledWith(
+      "stripe:evt_invoice_before_checkout", "11111111-1111-4111-8111-111111111111",
+    );
+    expect(completeStripeEvent).not.toHaveBeenCalled();
+    expect(db.ops.filter((op) => op.kind !== "select")).toHaveLength(0);
+    expect(paymentIntentRetrieve).not.toHaveBeenCalled();
+
+    // Model checkout fulfillment creating the linkage before Stripe retries.
+    purchaseReady = true;
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(credits).toBe(1);
+    expect(completeStripeEvent).toHaveBeenCalledTimes(1);
+    expect(db.opsFor("payment_fee_ledger").filter((op) => op.kind === "insert")).toHaveLength(1);
+
+    const operationsAfterCompletion = db.ops.length;
+    claimed = "duplicate";
+    const duplicate = await POST(webhookRequest());
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toEqual({ ok: true, duplicate: true });
+    expect(db.ops).toHaveLength(operationsAfterCompletion);
+    expect(credits).toBe(1);
+    expect(completeStripeEvent).toHaveBeenCalledTimes(1);
+    expect(releaseStripeEvent).toHaveBeenCalledTimes(1);
+  });
+
   it("advances a zero-dollar installment without inventing a Stripe charge or fee", async () => {
     const subscriptionSchedule = {
       booking_payment_id: "bp_zero",
@@ -1803,6 +1884,67 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
     });
     expect(db.opsFor("booking_payments")[0]?.payload).toMatchObject({ status: "expired" });
     expect(db.opsFor("credit_purchase_earnings")).toHaveLength(0);
+  });
+
+  it.each(["paid", "active", "complete", "refunded"])(
+    "a late expiration preserves a %s purchase and the replacement checkout",
+    async (status) => {
+      const purchase = { id: "purchase_terminal", session_id: "cs_expired", status,
+        access_granted: status !== "refunded" };
+      const replacement = { id: "purchase_replacement", session_id: "cs_replacement",
+        status: "pending", access_granted: false };
+      const paidOrder = { id: "order_paid", stripe_checkout_session_id: "cs_expired", status: "paid" };
+      const replacementOrder = { id: "order_replacement", stripe_checkout_session_id: "cs_replacement", status: "created" };
+      const completedBookingPayment = { id: "bp_paid", status: "completed" };
+      const rows: Record<string, Array<Record<string, unknown>>> = {
+        purchases: [purchase, replacement], orders: [paidOrder, replacementOrder],
+        booking_payments: [completedBookingPayment],
+      };
+      const before = JSON.stringify(rows);
+      db = createMockClient((op: Op) => {
+        if (op.kind !== "update") return undefined;
+        for (const row of rows[op.table] || []) {
+          const matches = Object.entries(op.filters).every(([key, value]) => row[key] === value) &&
+            op.inFilters.every(({ column, values }) => values.includes(row[column]));
+          if (matches) Object.assign(row, op.payload);
+        }
+        return { data: null, error: null };
+      });
+      stripeEvent = {
+        id: "evt_late_expiration", type: "checkout.session.expired",
+        data: { object: { id: "cs_expired",
+          metadata: { order_id: "order_paid", booking_payment_id: "bp_paid" },
+        } },
+      };
+      const { POST } = await import("@/app/api/stripe/webhook/route");
+      expect((await POST(webhookRequest())).status).toBe(200);
+      expect(JSON.stringify(rows)).toBe(before);
+      expect(db.opsFor("credit_payment_fee_ledger_earnings")).toHaveLength(0);
+      expect(db.opsFor("credit_purchase_earnings")).toHaveLength(0);
+    },
+  );
+
+  it.each([1, 2, 3, 4])("retries expiration if persistence step %i fails", async (failAt) => {
+    let writes = 0;
+    db = createMockClient((op: Op) => {
+      if (op.kind !== "update") return undefined;
+      writes += 1;
+      return { data: null, error: writes === failAt ? { message: "test persistence failure" } : null };
+    });
+    stripeEvent = {
+      id: "evt_expiry_write_failure", type: "checkout.session.expired",
+      data: { object: { id: "cs_expired",
+        metadata: { order_id: "order_expired", booking_payment_id: "bp_expired" },
+      } },
+    };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const { completeStripeEvent, releaseStripeEvent } = await import("@/lib/stripeEvents");
+    expect((await POST(webhookRequest())).status).toBe(500);
+    expect(writes).toBe(failAt);
+    expect(completeStripeEvent).not.toHaveBeenCalled();
+    expect(releaseStripeEvent).toHaveBeenCalledWith(
+      "stripe:evt_expiry_write_failure", "11111111-1111-4111-8111-111111111111",
+    );
   });
 
   it.each([
