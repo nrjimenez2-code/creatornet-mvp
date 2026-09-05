@@ -60,7 +60,9 @@ describe("the composer still enforces the real selling rule", () => {
   });
 
   test("it clears every selling field when Connect is not ready", () => {
-    const guard = composer.slice(composer.indexOf("if (stripeSellReady === false)"));
+    // Reset now runs in the asynchronous status response, not a prop-sync
+    // effect. creator-ui-state.test.ts also exercises this in the rendered UI.
+    const guard = composer.slice(composer.indexOf("if (!ready)"));
     const block = guard.slice(0, guard.indexOf("}") + 1);
     expect(block).toContain("setAttachBuy(false)");
     expect(block).toContain("setProductId(null)");

@@ -31,6 +31,12 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [loadContext, setLoadContext] = useState({ activeTab, authLoading });
+  if (loadContext.activeTab !== activeTab || loadContext.authLoading !== authLoading) {
+    setLoadContext({ activeTab, authLoading });
+    setLoading(true);
+    setFeedError(null);
+  }
   const [loadingMore, setLoadingMore] = useState(false);
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(false);
@@ -85,10 +91,6 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
     fetchGenRef.current += 1;
     offsetRef.current = 0;
     hasMoreRef.current = false;
-
-    // Always set loading when fetching (including tab switches)
-    setLoading(true);
-    setFeedError(null);
 
     // Wait for the auth context to settle; the effect re-runs when it does.
     if (authLoading) return;

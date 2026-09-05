@@ -1,12 +1,13 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
 // import { createBrowserClient } from "@/lib/supabaseBrowser"; // not used here
 import { debounce, DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent } from "@/lib/posthog";
+import { readRecentSearches, subscribeRecentSearches, recentSearchesServerSnapshot, parseRecentSearches, saveRecentSearches } from "@/lib/recentSearches";
 
 type Creator = {
   id: string;
@@ -53,7 +54,8 @@ function SearchPage() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   // sections
-  const [recent, setRecent] = useState<string[]>([]);
+  const recentSnapshot = useSyncExternalStore(subscribeRecentSearches, readRecentSearches, recentSearchesServerSnapshot);
+  const recent = useMemo(() => parseRecentSearches(recentSnapshot), [recentSnapshot]);
   const [suggested, setSuggested] = useState<string[]>(SUGGESTED_DEFAULT);
   const [trending, setTrending] = useState<string[]>(TRENDING_DEFAULT);
 
@@ -67,14 +69,6 @@ function SearchPage() {
   const [tab, setTab] = useState<"for-you" | "creators" | "videos" | "tags">(
     "for-you"
   );
-
-  // hydration
-  useEffect(() => {
-    try {
-      const r = JSON.parse(localStorage.getItem("recent-searches") || "[]");
-      if (Array.isArray(r)) setRecent(r.slice(0, 10));
-    } catch {}
-  }, []);
 
   // push to URL without full reload
   useEffect(() => {
@@ -97,8 +91,7 @@ function SearchPage() {
           (t) => t.toLowerCase() !== term.trim().toLowerCase()
         ),
       ].slice(0, 10);
-      setRecent(next);
-      localStorage.setItem("recent-searches", JSON.stringify(next));
+      saveRecentSearches(next);
     },
     [recent]
   );
