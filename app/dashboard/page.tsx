@@ -111,7 +111,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
 
       <div className="mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-2 lg:gap-6 px-0 pr-0 lg:pr-10">
         {/* SIDEBAR - Always visible, icon-only on smaller screens, full on large screens (TikTok style) */}
-        <aside className="hidden lg:block sticky top-6 self-start max-h-[calc(100dvh-3rem)] overflow-y-auto overscroll-contain">
+        <aside className="hidden lg:block sticky top-6 self-start max-h-[calc(100dvh-3rem)] overflow-x-hidden overflow-y-auto overscroll-contain [scrollbar-width:thin] [scrollbar-color:#3f3f46_transparent]">
 
           {/*
           <div className="w-[240px] ml-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -120,7 +120,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             </nav>
           </div>
           */}
-          <div className="w-[240px] rounded-3xl border border-white/10 bg-black/70 px-6 pt-4 pb-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur transition-all duration-300">
+          <div className="w-full min-w-0 rounded-3xl border border-white/10 bg-black/70 px-6 pt-4 pb-6 text-white shadow-[0_20px_50px_rgba(0,0,0,0.35)] backdrop-blur transition-all duration-300">
             <div className="flex items-center justify-center pb-3 lg:pb-4 border-b border-white/10">
               {/* Icon-only mode: show small logo */}
               <img

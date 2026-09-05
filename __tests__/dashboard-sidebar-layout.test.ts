@@ -33,6 +33,9 @@ test("desktop create action is in the scrollable sidebar flow, before sign out",
   expect(create!.className).not.toContain("fixed");
   expect(create!.compareDocumentPosition(signOut) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(aside.className).toContain("overflow-y-auto");
+  expect(aside.className).toContain("overflow-x-hidden");
+  expect(aside.className).toContain("[scrollbar-width:thin]");
+  expect(aside.firstElementChild?.className).toContain("w-full");
   expect(aside.className).toContain("max-h-[calc(100dvh-3rem)]");
   await act(async () => create!.click());
   expect(container.querySelector('[role="dialog"]')?.textContent).toBe("New post");
