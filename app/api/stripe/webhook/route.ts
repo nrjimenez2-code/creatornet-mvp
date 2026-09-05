@@ -923,13 +923,44 @@ async function invoiceFeeContext(inv: any): Promise<{
   };
 }
 
-/** Set the fixed + percentage creator deduction before each installment invoice is paid. */
+/**
+ * A finalized invoice is not editable. Checkout's first invoice may already be
+ * paid when invoice.created arrives. Verify its real PaymentIntent instead of
+ * attempting a retroactive repair (or acknowledging an under-collected fee).
+ */
+async function verifyFinalizedInstallmentFee(
+  inv: any,
+  metadata: Record<string, string>,
+  destination: string
+) {
+  const gross = inv?.amount_due;
+  if (!Number.isSafeInteger(gross) || gross < 0 ||
+      (inv.status !== "open" && inv.status !== "paid")) {
+    throw new Error(`invoice ${inv?.id || "unknown"} cannot verify its finalized fee`);
+  }
+  const fees = calculateCreatorFeesFromMetadataSchedule(metadata, gross);
+  if (gross === 0 && (inv.application_fee_amount ?? 0) === 0) return;
+  const paymentIntentId = await invoicePaymentIntentId(inv);
+  if (!paymentIntentId) {
+    throw new Error(`finalized invoice ${inv.id} has no PaymentIntent linkage`);
+  }
+  const pi = await getStripe().paymentIntents.retrieve(paymentIntentId);
+  if (pi.application_fee_amount !== fees.totalCreatorDeductionCents ||
+      stripeObjectId(pi.transfer_data?.destination) !== destination) {
+    throw new Error(`finalized invoice ${inv.id} creator deduction or destination mismatch; reconciliation required`);
+  }
+}
+
+/** Set exact cents on renewal drafts; verify already-finalized first invoices. */
 async function handleInvoiceCreated(inv: any) {
   const { metadata, destination } = await invoiceFeeContext(inv);
   if (metadata.processing_fee_enabled !== "true") return;
   if (!metadata.booking_payment_id || metadata.plan_type !== "installment") return;
 
-  const gross = typeof inv?.amount_due === "number" ? inv.amount_due : inv?.total;
+  // Event payloads are snapshots. An invoice can have finalized between the
+  // event's creation and delivery, or while a failed delivery was retrying.
+  const current = await getStripe().invoices.retrieve(inv.id);
+  const gross = current.amount_due;
   if (!Number.isSafeInteger(gross) || gross < 0) {
     throw new Error(`invoice ${inv?.id || "unknown"} has no valid amount_due`);
   }
@@ -941,14 +972,25 @@ async function handleInvoiceCreated(inv: any) {
     throw new Error(`invoice ${inv.id} has no connected-account destination`);
   }
 
-  await getStripe().invoices.update(inv.id, {
-    application_fee_amount: fees.totalCreatorDeductionCents,
-    transfer_data: { destination },
-    metadata: {
-      ...metadata,
-      ...creatorFeeMetadata(fees),
-    },
-  });
+  if (current.status !== "draft") {
+    await verifyFinalizedInstallmentFee(current, metadata, destination);
+    return;
+  }
+
+  try {
+    await getStripe().invoices.update(inv.id, {
+      application_fee_amount: fees.totalCreatorDeductionCents,
+      transfer_data: { destination },
+      metadata: { ...metadata, ...creatorFeeMetadata(fees) },
+    });
+  } catch (error) {
+    // Finalization can also race the update itself. Never swallow an API
+    // failure: only acknowledge if a fresh finalized invoice has the exact
+    // intended fee AND connected account. No financial database writes here.
+    const latest = await getStripe().invoices.retrieve(inv.id);
+    if (latest.status === "draft") throw error;
+    await verifyFinalizedInstallmentFee(latest, metadata, destination);
+  }
 }
 
 /** Advance subscription / record payment for invoice events. Also attach fulfillment on first success. */
