@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
+import { isWithinRenderWindow } from "@/lib/feedV3";
 import { normalizeCategory } from "@/lib/posthog";
 
 type Post = {
@@ -64,7 +65,9 @@ export default function ProfilePostsGallery({
     const child = itemRefs.current[activeIndex];
     if (child) {
       requestAnimationFrame(() => {
-        child.scrollIntoView({ block: "center" });
+        // "instant" overrides the container's scroll-smooth for this one
+        // jump; otherwise opening post N animates through posts 0..N-1.
+        child.scrollIntoView({ block: "center", behavior: "instant" });
         alignedRef.current = true;
       });
     }
@@ -183,7 +186,16 @@ export default function ProfilePostsGallery({
             ref={scrollRef}
             className="h-full overflow-y-auto px-4 py-8 space-y-10 snap-y snap-mandatory scroll-smooth"
           >
-            {posts.map((post, index) => (
+            {posts.map((post, index) => {
+              // Virtualization (same window as the feed, lib/feedV3): only
+              // mount the heavy VideoCard (and its <video preload=metadata>
+              // + observers) near the active post. Distant posts keep a
+              // placeholder with VideoCard's root height classes so the
+              // snap points, this gallery's IntersectionObserver and the
+              // close-to-tile scroll all keep the same geometry.
+              const isMounted = isWithinRenderWindow(index, activeIndex);
+
+              return (
               <div
                 key={`modal-${post.id}`}
                 className="max-w-4xl mx-auto text-white snap-center"
@@ -193,6 +205,7 @@ export default function ProfilePostsGallery({
                 }}
               >
                 <div className="mx-auto w-full max-w-[420px]">
+                  {isMounted ? (
                   <VideoCard
                     src={post.video_url || undefined}
                     poster={post.poster_url ?? null}
@@ -222,10 +235,17 @@ export default function ProfilePostsGallery({
                     allowBooking={!!post.allow_booking}
                     bookingRedirectUrl={post.allow_booking ? (post.booking_url ?? null) : null}
                   />
+                  ) : (
+                    <div
+                      aria-hidden="true"
+                      className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] bg-black"
+                    />
+                  )}
                 </div>
 
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
