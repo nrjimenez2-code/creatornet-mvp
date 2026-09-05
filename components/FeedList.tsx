@@ -229,6 +229,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                 booking_url: row.booking_url ?? next[i].booking_url,
                 interests: stringArrayOrNull(row.interests) ?? next[i].interests,
                 hashtags: stringArrayOrNull(row.hashtags) ?? next[i].hashtags,
+                purchase_count:
+                  typeof row.purchase_count === "number"
+                    ? row.purchase_count
+                    : next[i].purchase_count ?? null,
                 is_following: next[i].is_following,
               };
               return next;
@@ -249,6 +253,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               likes_count: 0,
               comments_count: 0,
               shares_count: 0,
+              purchase_count: 0,
               product_type: (row.product_type as string | null) ?? null,
               allow_booking: row.allow_booking ?? false,
               booking_url: row.booking_url ?? null,
@@ -617,6 +622,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     priceCents={price}
                     titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
                     productType={p.product_type ?? null}
+                    purchaseCount={p.purchase_count ?? null}
                     showFollowButton={activeTab === "discover"}
                     isFollowingCreator={p.is_following ?? false}
                     onFollowChange={handleFollowChange}

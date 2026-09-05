@@ -159,6 +159,18 @@ describe("mapFeedV3Row", () => {
     expect(post.is_following).toBe(false);
     expect(post.interests).toEqual([]);
   });
+
+  test("passes purchase_count through and nulls it when the RPC omits it", () => {
+    // Pre-migration rows have no purchase_count at all; the mapper must not
+    // invent 0 (0 vs unknown matters once the social-proof threshold is on).
+    expect(mapFeedV3Row(makeRow({ purchase_count: 38 })).purchase_count).toBe(38);
+    expect(mapFeedV3Row(makeRow({ purchase_count: 0 })).purchase_count).toBe(0);
+    expect(mapFeedV3Row(makeRow({ purchase_count: null })).purchase_count).toBeNull();
+    expect(mapFeedV3Row(makeRow()).purchase_count).toBeNull();
+    expect(
+      mapFeedV3Row(makeRow({ purchase_count: "12" as unknown as number })).purchase_count
+    ).toBeNull();
+  });
 });
 
 describe("mapFeedV3Rows", () => {
