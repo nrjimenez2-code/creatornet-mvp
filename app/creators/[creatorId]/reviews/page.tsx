@@ -301,7 +301,6 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
                         <p className="text-base font-semibold">{reviewerName}</p>
                         {review.is_verified_purchase ? (
                           <span
-                            aria-label="Verified purchase"
                             title="This reviewer bought from this creator"
                             className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300"
                           >

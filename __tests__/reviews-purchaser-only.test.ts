@@ -33,6 +33,8 @@ let sessionDb: MockClient;   // the request-scoped client (auth + profiles + rev
 let authUser: { id: string } | null = { id: "buyer_1" };
 let bannedAt: string | null = null;
 let purchases: PurchaseRow[] = [];
+/** When set, the session client reports this review already exists (update path). */
+let existingReviewId: string | null = null;
 
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
 jest.mock("@/lib/supabaseServer", () => ({
@@ -79,8 +81,14 @@ function makeSessionDb() {
     if (op.table === "profiles" && op.kind === "select") {
       return { data: { banned_at: bannedAt }, error: null };
     }
+    if (op.table === "reviews" && op.kind === "select") {
+      return { data: existingReviewId ? { id: existingReviewId } : null, error: null };
+    }
     if (op.table === "reviews" && op.kind === "insert") {
       return { data: { id: "review_1", ...(op.payload as object) }, error: null };
+    }
+    if (op.table === "reviews" && op.kind === "update") {
+      return { data: { id: existingReviewId, ...(op.payload as object) }, error: null };
     }
     return undefined;
   }) as any;
@@ -117,6 +125,7 @@ beforeEach(() => {
   authUser = { id: "buyer_1" };
   bannedAt = null;
   purchases = [];
+  existingReviewId = null;
   db = makeAdminDb();
   sessionDb = makeSessionDb();
 });
@@ -202,6 +211,50 @@ describe("POST /api/reviews is purchaser-only", () => {
 
     expect(res.status).toBe(400);
     expect(db.opsFor("purchases")).toHaveLength(0);
+  });
+
+  it("refuses to EDIT an existing review once the purchase is refunded (no update written)", async () => {
+    existingReviewId = "review_old";
+    purchases = [paid({ status: "refunded" })];
+    const res = await post({ ...VALID_REVIEW, rating: 1, comment: "Changed my mind after the refund." });
+
+    expect(res.status).toBe(403);
+    expect((await res.json()).code).toBe("PURCHASE_REQUIRED");
+    // The gate runs before the existing-review lookup, so nothing touched reviews.
+    expect(sessionDb.opsFor("reviews")).toHaveLength(0);
+    expect(writesAcross(db, sessionDb)).toHaveLength(0);
+  });
+
+  it("still lets a live buyer UPDATE their existing review", async () => {
+    existingReviewId = "review_old";
+    purchases = [paid()];
+    const res = await post({ ...VALID_REVIEW, rating: 4 });
+
+    expect(res.status).toBe(200);
+    const updates = sessionDb.opsFor("reviews").filter((o) => o.kind === "update");
+    expect(updates).toHaveLength(1);
+    expect(updates[0].filters).toMatchObject({ id: "review_old" });
+    expect(updates[0].payload).toMatchObject({ reviewer_id: "buyer_1", creator_id: "creator_1", rating: 4 });
+    expect(sessionDb.opsFor("reviews").filter((o) => o.kind === "insert")).toHaveLength(0);
+  });
+
+  it("fails CLOSED with 503 when the service-role key is missing: no purchase query, no write", async () => {
+    purchases = [paid()];
+    const saved = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const res = await post();
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({ error: "Reviews are temporarily unavailable" });
+      expect(db.opsFor("purchases")).toHaveLength(0);
+      expect(sessionDb.opsFor("reviews")).toHaveLength(0);
+      expect(writesAcross(db, sessionDb)).toHaveLength(0);
+    } finally {
+      process.env.SUPABASE_SERVICE_ROLE_KEY = saved;
+      errSpy.mockRestore();
+    }
   });
 
   it("does not consult purchases for a self-review (400 first)", async () => {

@@ -99,10 +99,16 @@ export async function getViewerReviewEligibility(
   admin: PurchaseReader,
   creatorId: string
 ): Promise<ViewerReviewEligibility> {
-  const supabase = await createSupabaseServer();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  let user: { id: string } | null = null;
+  try {
+    const supabase = await createSupabaseServer();
+    user = (await supabase.auth.getUser()).data.user;
+  } catch (err) {
+    // Treat an auth-lookup failure as signed-out: the form still renders and
+    // the route stays the real gate. A cosmetic check must never 500 the page.
+    console.error("[reviewEligibility] auth lookup failed:", err);
+    return { viewerId: null, canReview: false };
+  }
 
   if (!user) return { viewerId: null, canReview: false };
   if (user.id === creatorId) return { viewerId: user.id, canReview: false };
