@@ -50,6 +50,8 @@ describe("admin refund system structure", () => {
     expect(page).toMatch(/<RefundDialog/);
     expect(dialog).toMatch(/Confirm customer refund/);
     expect(dialog).toMatch(/cannot simply be undone/);
+    expect(dialog).toMatch(/in the current payment mode/);
+    expect(dialog).not.toMatch(/creates a real refund/);
     expect(dialog).toMatch(/Customer receives/);
     expect(dialog).toMatch(/Expected creator balance impact/);
     expect(dialog).toMatch(/from-\[#9370DB\] to-\[#7c5cbf\]/);
@@ -62,7 +64,9 @@ describe("admin refund system structure", () => {
     expect(webhook).toMatch(/case "charge\.refunded"/);
     expect(webhook).toMatch(/applyPaymentRefundState\(admin, refundState\)/);
     expect(webhook).toMatch(/confirmAdminRefundWebhookDelivery/);
-    expect(refundState).toMatch(/\.in\("stripe_refund_id", ids\)/);
+    expect(refundState).toMatch(/stripe\.refunds\.list/);
+    expect(refundState).toMatch(/\.eq\("stripe_payment_intent_id", state.paymentIntentId\)/);
+    expect(refundState).not.toMatch(/stripe\.refunds\.create/);
   });
 
   test("legal pages disclose the refund cost policy without changing their layout", () => {

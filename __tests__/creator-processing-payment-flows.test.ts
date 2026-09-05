@@ -29,6 +29,7 @@ const subscriptionRetrieve = jest.fn();
 const subscriptionUpdate = jest.fn();
 const paymentIntentRetrieve = jest.fn();
 const disputeRetrieve = jest.fn();
+const refundsList = jest.fn();
 
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
 jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }));
@@ -53,6 +54,7 @@ jest.mock("@/lib/stripeClient", () => ({
     paymentIntents: { retrieve: paymentIntentRetrieve },
     charges: { retrieve: jest.fn() },
     disputes: { retrieve: disputeRetrieve },
+    refunds: { list: refundsList },
     balanceTransactions: { retrieve: jest.fn() },
     webhooks: { constructEvent: () => stripeEvent },
   }),
@@ -242,6 +244,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.resetModules();
   claimed = "new";
+  refundsList.mockReset().mockResolvedValue({ data: [], has_more: false });
   checkoutCreate.mockResolvedValue({
     id: "cs_test_1",
     url: "https://checkout.stripe.test/1",
@@ -1655,6 +1658,70 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
       p_ledger_id: "ledger_1",
       p_refunded_gross_cents: refunded,
     });
+  });
+
+  it.each(["new", "duplicate"] as const)("confirms an unexpanded %s refund event without creating another refund", async (claimStatus) => {
+    claimed = claimStatus;
+    db = createMockClient((op: Op) => {
+      if (op.table === "payment_refund_state") {
+        return { data: { stripe_payment_intent_id: "pi_1", stripe_charge_id: "ch_1",
+          charge_amount_cents: 10000, refunded_amount_cents: 3333 }, error: null };
+      }
+      if (op.table === "refund_operations" && op.kind === "select") {
+        return { data: [{ id: "operation_1", stripe_refund_id: null,
+          customer_refund_amount_cents: 3333, cumulative_customer_refund_target_cents: 3333 }], error: null };
+      }
+      if (op.table === "record_payment_refund_state") return { data: 3333, error: null };
+      return undefined;
+    });
+    refundsList.mockResolvedValue({ data: [{ id: "re_exact", amount: 3333,
+      payment_intent: "pi_1", charge: "ch_1", status: "succeeded",
+      metadata: { creatornet_refund_operation_id: "operation_1" } }], has_more: false });
+    stripeEvent = { id: "evt_confirm", type: "charge.refunded", data: { object: {
+      id: "ch_1", payment_intent: "pi_1", amount: 10000, amount_refunded: 3333,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const response = await POST(webhookRequest());
+    expect(response.status).toBe(200);
+    expect(refundsList).toHaveBeenCalledWith({ charge: "ch_1", limit: 100 });
+    const markers = db.opsFor("refund_operations").filter(op => op.kind === "update");
+    expect(markers).toHaveLength(1);
+    expect(markers[0].payload).toMatchObject({ webhook_confirmed_at: expect.any(String) });
+    if (claimStatus === "duplicate") {
+      expect(await response.json()).toMatchObject({ duplicate: true });
+      expect(db.ops.filter(op => op.kind === "rpc")).toHaveLength(0);
+      expect(db.opsFor("purchases")).toHaveLength(0);
+      expect(db.opsFor("orders")).toHaveLength(0);
+      const { completeStripeEvent, releaseStripeEvent } = await import("@/lib/stripeEvents");
+      expect(completeStripeEvent).not.toHaveBeenCalled();
+      expect(releaseStripeEvent).not.toHaveBeenCalled();
+    }
+  });
+
+  it("asks Stripe to retry a duplicate confirmation lookup failure without releasing its completed claim", async () => {
+    claimed = "duplicate";
+    db = createMockClient(() => ({ data: null, error: { message: "temporary database error" } }));
+    stripeEvent = { id: "evt_confirm", type: "charge.refunded", data: { object: {
+      id: "ch_1", payment_intent: "pi_1", amount: 10000, amount_refunded: 3333,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(500);
+    const { releaseStripeEvent } = await import("@/lib/stripeEvents");
+    expect(releaseStripeEvent).not.toHaveBeenCalled();
+    expect(db.ops.filter(op => op.kind === "update" || op.kind === "rpc")).toHaveLength(0);
+  });
+
+  it("does not confirm a duplicate against a different charge's persisted state", async () => {
+    claimed = "duplicate";
+    db = createMockClient(() => ({ data: { stripe_payment_intent_id: "pi_1", stripe_charge_id: "ch_other",
+      charge_amount_cents: 10000, refunded_amount_cents: 3333 }, error: null }));
+    stripeEvent = { id: "evt_confirm", type: "charge.refunded", data: { object: {
+      id: "ch_1", payment_intent: "pi_1", amount: 10000, amount_refunded: 3333,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(refundsList).not.toHaveBeenCalled();
+    expect(db.opsFor("refund_operations")).toHaveLength(0);
   });
 
   it("reverses a refunded installment only through its invoice ledger", async () => {

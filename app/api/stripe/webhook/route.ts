@@ -31,6 +31,7 @@ import {
 import {
   applyPaymentRefundState,
   confirmAdminRefundWebhookDelivery,
+  getPaymentRefundState,
   reconcileKnownPaymentRefund,
   recordPaymentRefundState,
 } from "@/lib/paymentRefunds";
@@ -1370,6 +1371,20 @@ export async function POST(req: NextRequest) {
   const claimKey = `stripe:${event.id}`;
   const claim = await claimStripeEvent(claimKey, event.type);
   if (claim.status === "duplicate") {
+    // Repair a legacy missing confirmation on an authenticated resend without
+    // rerunning payment, earnings, access, or Stripe refund mutations.
+    if (event.type === "charge.refunded") {
+      const charge = event.data.object as Stripe.Charge;
+      try {
+        const state = await getPaymentRefundState(admin, stripeObjectId(charge.payment_intent));
+        if (state?.chargeId === charge.id) {
+          await confirmAdminRefundWebhookDelivery(admin, getStripe(), state);
+        }
+      } catch (error) {
+        console.error("[webhook] refund confirmation retry failed:", error);
+        return jerr("refund-confirmation", "Confirmation retry failed", 500);
+      }
+    }
     console.log("[webhook] ⏭️ Already processed, acknowledging without re-running:", event.id);
     return NextResponse.json({ ok: true, duplicate: true });
   }
@@ -1652,7 +1667,8 @@ export async function POST(req: NextRequest) {
         await applyPaymentRefundState(admin, refundState);
         await confirmAdminRefundWebhookDelivery(
           admin,
-          (charge.refunds?.data ?? []).map((refund) => refund.id),
+          getStripe(),
+          refundState,
         );
         break;
       }

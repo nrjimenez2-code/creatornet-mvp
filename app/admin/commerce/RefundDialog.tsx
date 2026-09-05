@@ -276,7 +276,7 @@ export function RefundDialog({
                 <SummaryRow label="Remaining refundable" value={formatCents(preview.remainingRefundableCents)} />
               </div>
               <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm leading-relaxed text-amber-900">
-                This creates a real refund to the customer&apos;s original payment method. It cannot simply be undone.
+                This submits a refund through Stripe to the customer&apos;s original payment method in the current payment mode. It cannot simply be undone.
               </div>
             </>
           ) : (
