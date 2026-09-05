@@ -5,7 +5,7 @@
 // component reads from. The refund dialog creates durable admin operations;
 // Stripe webhooks remain authoritative for order/access/earnings state.
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useMemo, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AdminBooking, AdminOrder, OrderKind } from "@/types/admin";
 import { formatCents } from "@/lib/admin/format";
@@ -138,6 +138,11 @@ function OrdersTable({
                         Refund: {order.latestRefund.status.replaceAll("_", " ")}
                       </p>
                     ) : null}
+                    {order.latestRefund?.status === "completed" && !order.latestRefund.webhookConfirmed ? (
+                      <p className="max-w-40 text-[10px] font-semibold text-amber-700">
+                        Awaiting payment update. Totals and access may not yet reflect this refund.
+                      </p>
+                    ) : null}
                   </div>
                 </td>
                 <td className={`${TD} whitespace-nowrap text-gray-400`}>
@@ -237,6 +242,7 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
   const [query, setQuery] = useState(initialQuery);
   const [refundOrder, setRefundOrder] = useState<AdminOrder | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [refreshing, startRefresh] = useTransition();
 
   const paidOrders = useMemo(
     () => orders.filter((order) => order.status === "paid"),
@@ -339,6 +345,11 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
       <PageHeader
         title="Commerce"
         subtitle="Every payment moving through the platform — orders, fees, refunds, and bookings."
+        actions={
+          <ActionButton variant="neutral" onClick={() => startRefresh(() => router.refresh())} disabled={refreshing}>
+            {refreshing ? "Refreshing…" : "Refresh records"}
+          </ActionButton>
+        }
       />
 
       <div className="grid grid-cols-2 gap-4 xl:grid-cols-5">
@@ -417,10 +428,8 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
           />
           <IconAlert size={16} className="shrink-0 text-amber-500" />
           <p className="text-xs text-amber-800">
-            $0 paid GMV is expected right now: the Stripe checkout webhook has
-            never fired in production, so orders stay stuck in
-            &ldquo;created&rdquo; and never flip to paid. These totals are live
-            database rows — they will populate once the webhook is fixed.
+            No payments are currently marked paid in the loaded records.
+            Pending, failed, and fully refunded payments are not included in paid GMV.
           </p>
         </div>
       ) : null}
@@ -463,7 +472,7 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
           <EmptyState
             message={
               query.trim() === ""
-                ? "No payments yet — checkout has not written any rows."
+                ? "No payment records to display."
                 : `No payments match "${query}".`
             }
           />

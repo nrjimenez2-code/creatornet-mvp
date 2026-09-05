@@ -5,6 +5,7 @@ import { AdminShell } from "@/components/admin/AdminShell";
 import { fetchAdminInitialData } from "@/lib/admin/data";
 import { adminClient } from "@/lib/admin/server";
 import { createServerClient } from "@/lib/supabaseServer";
+import { paymentModeFromKey } from "@/lib/admin/display-context";
 
 export const metadata: Metadata = {
   title: "CreatorNet Admin",
@@ -34,9 +35,9 @@ export default async function AdminLayout({
 
   const { data: profile } = await adminClient()
     .from("profiles")
-    .select("role")
+    .select("role, username, full_name")
     .eq("id", user.id)
-    .maybeSingle<{ role: string }>();
+    .maybeSingle<{ role: string; username: string | null; full_name: string | null }>();
   if (profile?.role !== "admin") {
     redirect("/");
   }
@@ -46,5 +47,13 @@ export default async function AdminLayout({
   // mode: actions now hit the real /api/admin/* routes.
   const initialData = await fetchAdminInitialData();
 
-  return <AdminShell initialData={initialData}>{children}</AdminShell>;
+  return (
+    <AdminShell
+      initialData={initialData}
+      operatorName={profile.full_name?.trim() || profile.username?.trim() || "Administrator"}
+      paymentMode={paymentModeFromKey(process.env.STRIPE_SECRET_KEY)}
+    >
+      {children}
+    </AdminShell>
+  );
 }

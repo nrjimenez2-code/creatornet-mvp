@@ -9,7 +9,7 @@ const admin = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
-async function requireUser(req: NextRequest): Promise<{ userId: string } | null> {
+async function requireUser(): Promise<{ userId: string } | null> {
   try {
     const supabase = await createServerSupabase();
     const { data } = await supabase.auth.getUser();
@@ -28,14 +28,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "post_id is required" }, { status: 400 });
     }
 
-    const session = await requireUser(req);
+    const session = await requireUser();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
     const { data, error } = await admin
       .from("watch_progress")
-      .select("seconds, duration, completed, updated_at")
+      .select("seconds, updated_at")
       .eq("user_id", session.userId)
       .eq("post_id", post_id)
       .maybeSingle();
@@ -54,26 +54,28 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { post_id, seconds, duration, completed } = await req.json();
+    const { post_id, seconds, duration } = await req.json();
 
-    if (!post_id || typeof seconds !== "number" || typeof duration !== "number") {
+    if (
+      typeof post_id !== "string" || !post_id.trim() ||
+      typeof seconds !== "number" || !Number.isFinite(seconds) ||
+      typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0
+    ) {
       return NextResponse.json(
         { error: "post_id, seconds, and duration are required" },
         { status: 400 }
       );
     }
 
-    const session = await requireUser(req);
+    const session = await requireUser();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
     const clampedSeconds = Math.max(0, Math.min(seconds, duration));
-    const isCompleted =
-      typeof completed === "boolean"
-        ? completed
-        : duration > 0 && clampedSeconds / duration >= 0.95;
-
+    // The existing table stores only the resume position. Duration belongs to
+    // posts.duration_seconds; it is not a watch_progress column. Use the
+    // player's duration only to bound this request, never to mutate the post.
     const { error } = await admin
       .from("watch_progress")
       .upsert(
@@ -81,8 +83,6 @@ export async function POST(req: NextRequest) {
           user_id: session.userId,
           post_id,
           seconds: clampedSeconds,
-          duration,
-          completed: isCompleted,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id,post_id" }

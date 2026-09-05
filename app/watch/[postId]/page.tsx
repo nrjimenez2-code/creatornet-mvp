@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { useRequireUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { bindWatchProgress } from "@/lib/watchProgress";
 
 type Post = {
   id: string;
@@ -45,7 +46,6 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const lastSaveRef = useRef<number>(0);
   const userIdForProgress = useRef<string | null>(null);
 
   useEffect(() => {
@@ -169,38 +169,7 @@ export default function WatchPage() {
     const video = videoRef.current;
     if (!video) return;
 
-    // Load saved progress
-    fetch(`/api/watch/progress?post_id=${post.id}`, { credentials: "include" })
-      .then((r) => r.json())
-      .then((json) => {
-        const seconds = json?.progress?.seconds;
-        if (Number.isFinite(seconds) && seconds > 5) {
-          video.currentTime = seconds;
-        }
-      })
-      .catch(() => {});
-
-    // Save progress every 5s while watching
-    const saveProgress = () => {
-      if (!userIdForProgress.current || !video.duration) return;
-      const now = Date.now();
-      if (now - lastSaveRef.current < 5000) return;
-      lastSaveRef.current = now;
-      fetch("/api/watch/progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        keepalive: true,
-        body: JSON.stringify({
-          post_id: post.id,
-          seconds: Math.floor(video.currentTime),
-          duration: Math.floor(video.duration),
-        }),
-      }).catch(() => {});
-    };
-
-    video.addEventListener("timeupdate", saveProgress);
-    return () => video.removeEventListener("timeupdate", saveProgress);
+    return bindWatchProgress(video, post.id);
   }, [post]);
 
 

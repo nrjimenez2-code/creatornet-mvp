@@ -74,6 +74,7 @@ function LibraryCard({
 }) {
   const pct = clampPct(item.position_seconds, item.duration_seconds);
   const showProgress = pct > 0 && pct < 100;
+  const canResume = (item.position_seconds ?? 0) > 0 && pct < 95;
 
   return (
     <div
@@ -108,13 +109,18 @@ function LibraryCard({
       {showProgress && (
         <div className="px-4 pt-3">
           <div className="h-2 w-full bg-gray-700 rounded">
-            <div className="h-2 bg-black rounded" style={{ width: `${pct}%` }} />
+            <div className="h-2 bg-[#9370DB] rounded" style={{ width: `${pct}%` }} />
           </div>
           <div className="mt-1 text-[11px] text-gray-400">
             {fmt(item.position_seconds)} / {fmt(item.duration_seconds)}
           </div>
         </div>
       )}
+      {!item.duration_seconds && canResume ? (
+        <p className="px-4 pt-3 text-[11px] text-gray-400">
+          Resume at {fmt(item.position_seconds)}
+        </p>
+      ) : null}
 
       <div className="p-3">
         <h2 className="font-medium text-xs mb-2 line-clamp-2 text-white">{item.title}</h2>
@@ -138,7 +144,7 @@ function LibraryCard({
           prefetch
           className="inline-block bg-gray-800 text-white text-xs px-3 py-1.5 rounded-md hover:opacity-90"
         >
-          {pct > 0 && pct < 95 ? "Resume" : "Watch"}
+          {canResume ? "Resume" : "Watch"}
         </Link>
       </div>
     </div>
@@ -198,6 +204,7 @@ export default function LibraryPage() {
                 title,
                 poster_url,
                 video_url,
+                duration_seconds,
                 creator_id
               )
             `
@@ -216,7 +223,7 @@ export default function LibraryPage() {
         }
 
         const baseRaw: Array<
-          Omit<LibraryItem, "position_seconds" | "duration_seconds">
+          Omit<LibraryItem, "position_seconds">
         > = (purchases || []).map((row: any) => ({
           id: row.id,
           post_id: row.post_id,
@@ -224,6 +231,7 @@ export default function LibraryPage() {
           title: row.posts?.title ?? "Untitled",
           poster_url: row.posts?.poster_url ?? null,
           video_url: row.posts?.video_url ?? null,
+          duration_seconds: row.posts?.duration_seconds ?? null,
           creator_id: row.posts?.creator_id ?? null,
           creator_username: null,
           creator_full_name: null,
@@ -275,7 +283,6 @@ export default function LibraryPage() {
             creator_username: pr?.username ?? null,
             creator_full_name: pr?.full_name ?? null,
             position_seconds: null,
-            duration_seconds: null,
           };
         });
 
@@ -283,22 +290,21 @@ export default function LibraryPage() {
         const postIds = base.map((b) => b.post_id);
         const progressByPost = new Map<
           string,
-          { position_seconds: number | null; duration_seconds: number | null }
+          { position_seconds: number | null }
         >();
 
         if (postIds.length > 0) {
           const { data: prog, error: wErr } = await supabase
             .from("watch_progress")
-            .select("post_id, position_seconds, duration_seconds")
+            .select("post_id, seconds")
             .eq("user_id", userId)
             .in("post_id", postIds);
 
-          // if table/policy not present yet, silently skip
+          // Progress is optional; a failed read must not hide purchased content.
           if (!wErr && prog) {
             for (const r of prog) {
               progressByPost.set(r.post_id, {
-                position_seconds: r.position_seconds ?? null,
-                duration_seconds: r.duration_seconds ?? null,
+                position_seconds: r.seconds ?? null,
               });
             }
           }
@@ -309,7 +315,6 @@ export default function LibraryPage() {
           return {
             ...b,
             position_seconds: pr?.position_seconds ?? null,
-            duration_seconds: pr?.duration_seconds ?? null,
           };
         });
 
@@ -334,7 +339,7 @@ export default function LibraryPage() {
     () =>
       items.filter((i) => {
         const p = clampPct(i.position_seconds, i.duration_seconds);
-        return p > 0 && p < 95;
+        return (i.position_seconds ?? 0) > 0 && p < 95;
       }),
     [items]
   );
