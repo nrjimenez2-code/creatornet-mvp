@@ -34,10 +34,22 @@ The UI returns an explicit explanation and suggests another plan length or full 
 
 ## Still required before release
 
-1. Verify the exact new Preview commit and run a **fresh** sandbox fixture through buyer Checkout, successful webhooks, purchase/access grant, fee ledger and creator earnings. Local mocks are not Stripe end-to-end evidence.
-2. Verify later installments, exactly-once progress and stop-after-three with real sandbox events. Keep the broader release acceptance checklist open.
+1. **First-payment retest passed on c22060f**, September 5: a fresh $120/three-$40 plan collected the expected 654-cent application fee, granted buyer access, opened and played the private synthetic file, and recorded one paid ledger row with 3346-cent creator net and a credited timestamp. Read-only staging SQL confirmed `paid_count=1`, `target_months=3`. Both `invoice.created` and `invoice.payment_succeeded` returned 200 to the staging webhook. Stripe's observed card fee was 146 cents; the configured deduction was 174 cents, with 28-cent variance. Separate Billing charges were not independently verified. This is first-payment evidence only, not completion of the whole plan.
+2. **Second installment passed on c22060f** using Stripe's approved sandbox simulation to October 6. Stripe shows invoice 2 Paid/$40 and application fee 654 cents. Staging SQL confirms `paid_count=2`, `target_months=3`, active access, and two distinct credited invoice ledger rows. Totals in cents: gross 8000, platform 960, processing 348, creator 6692. Verify the third installment, exactly-once replay behavior and stop-after-three before release. Keep the broader release acceptance checklist open.
 3. Reconcile/close the earlier failed sandbox subscription separately, preserving evidence. Do not rewrite its 480-cent captured fee as 654 or re-charge that failed fixture implicitly.
 4. Review the conservative amount limitations and inventory/resolve pre-fix links before any production rollout.
+
+## Follow-up: link creation must not wait for clipboard permission
+
+The retest saved the new link but left the creation/loading controls busy until reload. Source inspection identified an awaited clipboard write in the success path. New component tests reproduced the stuck state for both full and installment links when the clipboard promise stays pending; this establishes a failure mechanism, not a captured browser-level diagnosis of the original pending request.
+
+Link creation now completes immediately after the successful API response. Existing **Copy latest link**, **Copy**, and **Open** controls remain; copying is an explicit action. The existing status component announces the generated link without falsely claiming it was copied. No payment request, fee calculation, booking workflow, public policy, credentials, or styling changed.
+
+- Both new pending-clipboard regressions failed before the fix and pass after it.
+- Explicit copy success, rejection, and unavailable clipboard cases pass; the saved link remains available.
+- Full local suite: **691 tests / 59 suites pass**. TypeScript and changed-file ESLint checks pass.
+- Optimized build passes with process-scoped fake CI values only, with the same existing dynamic-cookie prerender and example.invalid sitemap fallback messages. No environment files changed.
+- New Preview deployment and visual acceptance of this follow-up are pending; do not describe the local correction as already deployed.
 
 ## Primary references
 

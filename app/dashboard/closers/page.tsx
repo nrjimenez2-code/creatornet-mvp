@@ -320,7 +320,9 @@ export default function ClosersManagerPage() {
 
       if (data?.url) {
         setLatestLink({ bookingId, url: data.url });
-        await copyToClipboard(data.url);
+        // Clipboard permission may remain pending after the API succeeds.
+        // Finish creation now; copying is a separate, explicit user action.
+        setLinkMessage("Link generated. Use Copy latest link or Open below.");
       } else {
         setLinkMessage("Link generated. Copy it from the list below.");
       }

@@ -189,3 +189,59 @@ test("page displays server failure and keeps the plan available without claiming
   expect(container.querySelector("form")).not.toBeNull();
   expect(container.textContent).not.toContain("Link generated");
 });
+
+const generatedLinkResponse = (plan: "full" | "installment" = "installment") => response({
+  url: "https://checkout.stripe.com/test-only-link",
+  payment: {
+    id: "test-payment", plan_type: plan, status: "link_sent",
+    installment_months: plan === "installment" ? 3 : null,
+    installment_amount_cents: plan === "installment" ? 4000 : null, amount_total_cents: 12000,
+    creator_net_cents: null, created_at: "2026-09-05T12:00:00Z",
+    link_url: "https://checkout.stripe.com/test-only-link",
+  },
+});
+
+test.each(["installment", "full"])("successful %s link creation never waits on clipboard permission", async (plan) => {
+  const fetchMock = await renderPage();
+  const pendingCopy = jest.fn(() => new Promise<void>(() => undefined));
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: pendingCopy } });
+  fetchMock.mockResolvedValueOnce(generatedLinkResponse(plan === "full" ? "full" : "installment"));
+  await click(button(plan === "installment" ? "Generate installment link" : "Generate full payment link"));
+  if (plan === "installment") await submit();
+
+  expect(container.querySelector("form")).toBeNull();
+  expect(button("Refresh").disabled).toBe(false);
+  expect(button("Generate full payment link").disabled).toBe(false);
+  expect(button("Generate installment link").disabled).toBe(false);
+  expect(container.querySelector('[role="status"]')!.textContent).toBe("Link generated. Use Copy latest link or Open below.");
+  expect(button("Copy latest link")).toBeDefined();
+  expect(container.querySelector<HTMLAnchorElement>('a[href="https://checkout.stripe.com/test-only-link"]')!.textContent).toBe("Open");
+  expect(pendingCopy).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.filter(([url]) => url.includes("/payment-link"))).toHaveLength(1);
+
+  // A pending explicit copy must not lock creation or refresh either.
+  await click(button("Copy latest link"));
+  expect(pendingCopy).toHaveBeenCalledTimes(1);
+  expect(button("Refresh").disabled).toBe(false);
+  expect(container.textContent).not.toContain("Link copied to clipboard.");
+});
+
+test.each(["success", "rejected", "unavailable"])("explicit copy handles %s without losing the saved link", async (mode) => {
+  const fetchMock = await renderPage();
+  const writeText = jest.fn(async () => {
+    if (mode === "rejected") throw new Error("Clipboard permission denied");
+  });
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: mode === "unavailable" ? undefined : { writeText } });
+  fetchMock.mockResolvedValueOnce(generatedLinkResponse());
+  await click(button("Generate installment link"));
+  await submit();
+  await click(button("Copy latest link"));
+
+  expect(container.querySelector('[role="status"]')!.textContent).toBe(mode === "success"
+    ? "Link copied to clipboard."
+    : "Unable to copy automatically. Please copy the link manually.");
+  expect(button("Refresh").disabled).toBe(false);
+  expect(container.querySelector('a[href="https://checkout.stripe.com/test-only-link"]')).not.toBeNull();
+  if (mode !== "unavailable") expect(writeText).toHaveBeenCalledWith("https://checkout.stripe.com/test-only-link");
+  expect(fetchMock.mock.calls.filter(([url]) => url.includes("/payment-link"))).toHaveLength(1);
+});
