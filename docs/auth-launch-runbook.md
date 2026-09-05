@@ -57,3 +57,25 @@ CreatorNet uses passwordless six-digit email codes. Users do not create a
 password, so there is no password-reset surface. Apple and Google remain the
 primary social options, and email codes provide the provider-independent
 fallback.
+
+### Per-environment email configuration
+
+The app validates exactly six digits. In the intended Supabase project, verify
+**Authentication > Sign In / Providers > Email > Email OTP length** is **6**.
+Do not assume a new staging project's default matches production. An eight-digit
+provider code cannot pass the current six-digit form. Preserve the approved
+expiration, email confirmation, and rate-limit settings when correcting a
+configuration mismatch; obtain approval before changing authentication settings.
+
+Both **Confirm sign up** and **Magic link or OTP** must include `{{ .Token }}`.
+Reuse `docs/email-templates/login-code.html` and inspect the rendered preview to
+ensure replacing a template did not append it to the old content. Use a clearly
+identified staging sender and subject for staging emails. Keep staging SMTP
+credentials separate from production and out of Git, logs, and handoff records.
+
+A successful code request only confirms acceptance of the request. Record the
+provider's delivery result, actual inbox or spam placement, code verification,
+onboarding/dashboard destination, and refresh persistence for both new and
+returning users. If the provider reports a bounce, preserve the exact diagnostic
+without guessing its cause or repeatedly resending. Never use a code or link from
+the sender dashboard as a substitute for recipient-mailbox acceptance evidence.

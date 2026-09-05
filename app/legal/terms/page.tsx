@@ -82,6 +82,15 @@ export default function TermsPage() {
           Creators are responsible for
           delivering what they sell, for the accuracy of their listings, and for their own taxes.
         </p>
+        <p>
+          When a payment is refunded, CreatorNet does not keep its 12% fee on the refunded
+          portion. Creators bear payment-processing costs that Stripe does not return when a
+          refund results from creator non-delivery, a missed session, material listing
+          misrepresentation, or a discretionary refund the creator approved. CreatorNet bears
+          those costs for duplicate billing and CreatorNet technical or billing errors. We may
+          offset creator-responsible refund balances against future creator earnings, subject to
+          applicable law.
+        </p>
       </Section>
 
       <Section title="5. Acceptable use">

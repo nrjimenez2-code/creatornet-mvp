@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import BackButton from "@/components/BackButton";
+import StripeConnectBanner from "@/components/StripeConnectBanner";
 import {
   fetchCurrentCreatorEarningsView,
   type CreatorEarningsRow,
@@ -90,10 +91,11 @@ export default async function EarningsPage() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/65">
-          CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted
-          separately.
-        </div>
+        {/* The dashboard sidebar is hidden below lg. Keep the existing Stripe
+            setup flow reachable from Profile > Earnings at every screen size. */}
+        <section className="mt-6" aria-label="Stripe account setup">
+          <StripeConnectBanner />
+        </section>
 
         {!view.ledgerAvailable ? (
           <div className="mt-6 rounded-2xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm text-amber-100">

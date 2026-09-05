@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -124,11 +124,9 @@ export default function VideoCard(props: VideoCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isMuted, setIsMuted] = useState(defaultMuted);
+  const [isMuted, setIsMuted] = useState(soundEnabled === undefined ? defaultMuted : !soundEnabled);
   const [isPaused, setIsPaused] = useState(true);
   const [progress, setProgress] = useState(0);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [videoSrc, setVideoSrc] = useState<string | undefined>(undefined);
   const [lk, setLk] = useState(() => toNum(likeCount ?? likes ?? 0));
   const [cm, setCm] = useState(() => toNum(commentCount ?? comments ?? 0));
   const [sh, setSh] = useState(() => toNum(shareCount ?? shares ?? 0));
@@ -155,6 +153,27 @@ export default function VideoCard(props: VideoCardProps) {
   const hasTrackedViewRef = useRef(false);
   const hasTrackedCompleteRef = useRef(false);
   const hasTracked50Ref = useRef(false);
+
+  // Declare stable analytics callbacks before the effects/handlers that use them.
+  const scoreInterest = useCallback((delta: number) => {
+    const pid = postIdRef.current;
+    if (!pid) return;
+    fetch("/api/interest-score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: pid, delta }),
+    }).catch(() => {});
+  }, []);
+
+  const trackMetric = useCallback((field: string, watchSeconds?: number) => {
+    const pid = postIdRef.current;
+    if (!pid) return;
+    fetch("/api/post-metrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: pid, field, watch_seconds: watchSeconds }),
+    }).catch(() => {});
+  }, []);
   useEffect(() => { postIdRef.current = postId; }, [postId]);
   useEffect(() => { creatorIdRef.current = creatorId; }, [creatorId]);
   useEffect(() => { categoryRef.current = postCategory ? normalizeCategory(postCategory) : null; }, [postCategory]);
@@ -223,25 +242,37 @@ export default function VideoCard(props: VideoCardProps) {
     return String(n);
   };
 
-  useEffect(() => {
-    setLk(toNum(likeCount ?? likes ?? 0));
-  }, [likeCount, likes]);
-
-  useEffect(() => {
-    setLiked(isLiked);
-  }, [isLiked]);
-
-  useEffect(() => {
-    setCm(toNum(commentCount ?? comments ?? 0));
-  }, [commentCount, comments]);
-
-  useEffect(() => {
-    setSh(toNum(shareCount ?? shares ?? 0));
-  }, [shareCount, shares]);
-
-  useEffect(() => {
-    setIsFollowing(Boolean(isFollowingCreator));
-  }, [isFollowingCreator]);
+  // Reconcile changed server props before children paint, while preserving
+  // optimistic interactions when those props have not changed.
+  const [syncedProps, setSyncedProps] = useState({
+    postId, likeCount, likes, isLiked, commentCount, comments,
+    shareCount, shares, creatorId, isFollowingCreator, soundEnabled,
+  });
+  if (
+    syncedProps.postId !== postId || syncedProps.likeCount !== likeCount ||
+    syncedProps.likes !== likes || syncedProps.isLiked !== isLiked ||
+    syncedProps.commentCount !== commentCount || syncedProps.comments !== comments ||
+    syncedProps.shareCount !== shareCount || syncedProps.shares !== shares ||
+    syncedProps.creatorId !== creatorId || syncedProps.isFollowingCreator !== isFollowingCreator ||
+    syncedProps.soundEnabled !== soundEnabled
+  ) {
+    setSyncedProps({ postId, likeCount, likes, isLiked, commentCount, comments,
+      shareCount, shares, creatorId, isFollowingCreator, soundEnabled });
+    if (syncedProps.postId !== postId || syncedProps.likeCount !== likeCount || syncedProps.likes !== likes) {
+      setLk(toNum(likeCount ?? likes ?? 0));
+    }
+    if (syncedProps.postId !== postId || syncedProps.isLiked !== isLiked) setLiked(isLiked);
+    if (syncedProps.postId !== postId || syncedProps.commentCount !== commentCount || syncedProps.comments !== comments) {
+      setCm(toNum(commentCount ?? comments ?? 0));
+    }
+    if (syncedProps.postId !== postId || syncedProps.shareCount !== shareCount || syncedProps.shares !== shares) {
+      setSh(toNum(shareCount ?? shares ?? 0));
+    }
+    if (syncedProps.creatorId !== creatorId || syncedProps.isFollowingCreator !== isFollowingCreator) {
+      setIsFollowing(Boolean(isFollowingCreator));
+    }
+    if (syncedProps.soundEnabled !== soundEnabled && soundEnabled !== undefined) setIsMuted(!soundEnabled);
+  }
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -263,11 +294,8 @@ export default function VideoCard(props: VideoCardProps) {
     };
   }, [menuOpen]);
 
-  useEffect(() => {
-    if (!menuOpen || !buyButtonRef.current) {
-      setDropdownPosition(null);
-      return;
-    }
+  useLayoutEffect(() => {
+    if (!menuOpen || !buyButtonRef.current) return;
     const rect = buyButtonRef.current.getBoundingClientRect();
     const viewport = {
       width: typeof window !== "undefined" ? window.innerWidth : 400,
@@ -345,20 +373,17 @@ export default function VideoCard(props: VideoCardProps) {
       }
     };
     const handlePause = () => setIsPaused(true);
-    const handleCanPlay = () => setHasLoaded(true);
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
-    video.addEventListener("canplay", handleCanPlay);
 
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
-      video.removeEventListener("canplay", handleCanPlay);
     };
-  }, []);
+  }, [scoreInterest, trackMetric]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -366,13 +391,6 @@ export default function VideoCard(props: VideoCardProps) {
 
     video.muted = isMuted;
   }, [isMuted]);
-
-  // Sync mute state with soundEnabled prop
-  useEffect(() => {
-    if (soundEnabled !== undefined) {
-      setIsMuted(!soundEnabled);
-    }
-  }, [soundEnabled]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -426,30 +444,7 @@ export default function VideoCard(props: VideoCardProps) {
     } else {
       video.pause();
     }
-  }, [isActive]);
-
-  useEffect(() => {
-    if (src && !hasLoaded) {
-      if (isActive === true) {
-        setVideoSrc(src);
-      } else if (isActive === undefined && containerRef.current) {
-        const observer = new IntersectionObserver(
-          (entries) => {
-            entries.forEach((entry) => {
-              if (entry.isIntersecting && !hasLoaded) {
-                setVideoSrc(src);
-              }
-            });
-          },
-          { threshold: 0.1 }
-        );
-
-        observer.observe(containerRef.current);
-
-        return () => observer.disconnect();
-      }
-    }
-  }, [src, hasLoaded, isActive]);
+  }, [isActive, trackMetric]);
 
   const handleVideoClick = useCallback(() => {
     const video = videoRef.current;
@@ -764,28 +759,8 @@ export default function VideoCard(props: VideoCardProps) {
       setCheckoutError((e as Error).message || "Failed to start checkout.");
       setCheckoutState("idle");
     }
-  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId, checkoutState]);
-  // Fire-and-forget interest score update (never blocks UI)
-  const scoreInterest = useCallback((delta: number) => {
-    const pid = postIdRef.current;
-    if (!pid) return;
-    fetch("/api/interest-score", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post_id: pid, delta }),
-    }).catch(() => {});
-  }, []);
-
-  // Fire-and-forget post metrics update
-  const trackMetric = useCallback((field: string, watchSeconds?: number) => {
-    const pid = postIdRef.current;
-    if (!pid) return;
-    fetch("/api/post-metrics", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post_id: pid, field, watch_seconds: watchSeconds }),
-    }).catch(() => {});
-  }, []);
+  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId, checkoutState,
+    priceCents, productType, postCategory, scoreInterest, trackMetric]);
 
   const handleBook = useCallback(async () => {
     if (checkoutState !== "idle") return;
@@ -909,10 +884,10 @@ export default function VideoCard(props: VideoCardProps) {
 
 
 
-        {videoSrc || src ? (
+        {src ? (
           <video
             ref={videoRef}
-            src={videoSrc || src}
+            src={src}
             poster={poster || undefined}
             playsInline
             muted={isMuted}

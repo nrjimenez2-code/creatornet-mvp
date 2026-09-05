@@ -81,6 +81,18 @@ export default function CreatorPolicyPage() {
           earnings separately. Repeated non-delivery or chargebacks can lead to restricted
           selling or account suspension.
         </p>
+        <p>
+          CreatorNet does not keep its 12% platform fee on the refunded portion. A creator bears
+          payment-processing costs that Stripe does not return when the refund results from the
+          creator&apos;s non-delivery, a missed session, a listing that materially misrepresented
+          the offer, or a discretionary refund the creator approved. CreatorNet bears those costs
+          for duplicate billing and CreatorNet technical or billing errors.
+        </p>
+        <p>
+          Creator-responsible refund balances may be offset against future creator earnings. We
+          do not use CreatorNet code to debit a creator&apos;s bank account for a refund. Nothing in
+          this policy limits rights required by applicable law.
+        </p>
       </Section>
 
       <Section title="Content rules">

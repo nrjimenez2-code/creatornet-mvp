@@ -59,6 +59,29 @@ export interface AdminVideo {
 export type OrderKind = "product" | "installments" | "booking";
 export type OrderStatus = "paid" | "pending" | "refunded" | "failed";
 
+export type AdminRefundStatus =
+  | "pending"
+  | "stripe_refund_created"
+  | "application_fee_adjusted"
+  | "completed"
+  | "needs_reconciliation"
+  | "failed";
+
+export interface AdminRefundSummary {
+  id: string;
+  status: AdminRefundStatus;
+  reasonCode: string;
+  responsibility: "creator" | "platform";
+  customerRefundCents: number;
+  creatorBalanceImpactCents: number;
+  platformFeeRefundCents: number;
+  processingFeeAllocationCents: number;
+  remainingRefundableCents: number;
+  connectedBalanceNegative: boolean | null;
+  webhookConfirmed: boolean;
+  createdAt: string;
+}
+
 /** Mirrors `orders` (gross/fee/creator amounts, status). */
 export interface AdminOrder {
   id: string;
@@ -78,6 +101,13 @@ export interface AdminOrder {
   creatorCents: number;
   status: OrderStatus;
   createdAt: string;
+  /** Private ledger UUID used only by the admin refund API. */
+  paymentLedgerId?: string | null;
+  refundedCents?: number;
+  remainingRefundableCents?: number;
+  refundEligible?: boolean;
+  refundBlockedReason?: string | null;
+  latestRefund?: AdminRefundSummary | null;
 }
 
 export type BookingStatus = "pending" | "confirmed" | "completed" | "canceled";
@@ -118,6 +148,8 @@ export interface ActivityEvent {
  * the bundled mock data and skips /api/admin/* calls (pure demo mode).
  */
 export interface AdminInitialData {
+  /** Server snapshot time. Shared by counts and charts, including hydration. */
+  asOf: string;
   users: AdminUser[];
   videos: AdminVideo[];
   orders: AdminOrder[];

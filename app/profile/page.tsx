@@ -56,16 +56,16 @@ export default async function ProfilePage() {
   return (
     <section className="px-4 pb-16 pt-4 md:pt-10 text-white relative">
       <div className="max-w-6xl mx-auto">
-        {/* Mobile: Back button + settings gear + review */}
-        <div className="md:hidden mb-6">
+        {/* Keep the profile menu available until the dashboard sidebar appears. */}
+        <div className="lg:hidden mb-6">
           <ProfileMobileHeader userId={user.id} />
         </div>
 
         {/* Desktop: Absolute positioned (original) */}
-        <div className="hidden md:block absolute top-4 left-4 z-10">
+        <div className="hidden lg:block absolute top-4 left-4 z-10">
           <BackButton hrefOverride="/dashboard" />
         </div>
-        <div className="hidden md:flex absolute top-4 right-16 sm:right-32 z-10 items-center gap-2">
+        <div className="hidden lg:flex absolute top-4 right-16 sm:right-32 z-10 items-center gap-2">
           <Link
             href={`/creators/${user.id}/reviews`}
             className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold leading-none text-white hover:bg-white/10 transition"
@@ -74,7 +74,7 @@ export default async function ProfilePage() {
           </Link>
           <ProfileShareButton />
         </div>
-        <div className="hidden md:block absolute top-4 right-4 z-10">
+        <div className="hidden lg:block absolute top-4 right-4 z-10">
           <Link
             href="/profile/edit"
             className="rounded-md bg-[#4A35C7] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"

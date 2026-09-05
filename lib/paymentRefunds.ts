@@ -1,6 +1,7 @@
 import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type Stripe from "stripe";
 import { applyRefundEarningsForPaymentIntent } from "@/lib/creatorEarnings";
 import { ORDER_REFUNDABLE_STATUSES } from "@/lib/orderStatus";
 
@@ -157,4 +158,82 @@ export async function reconcileKnownPaymentRefund(
   if (!state) return false;
   await applyPaymentRefundState(admin, state);
   return true;
+}
+
+/**
+ * Confirm exact successful refunds only after their cumulative business state
+ * has been applied. Modern charge.refunded events do not embed a refunds list.
+ * Fetch the charge's Refund objects, including older pages, instead of assuming
+ * that optional expansion is present. This changes markers, never money.
+ */
+export async function confirmAdminRefundWebhookDelivery(
+  admin: SupabaseClient,
+  stripe: Stripe,
+  state: PaymentRefundState,
+): Promise<void> {
+  const { data, error: lookupError } = await admin
+    .from("refund_operations")
+    .select("id, stripe_refund_id, customer_refund_amount_cents, cumulative_customer_refund_target_cents")
+    .eq("stripe_payment_intent_id", state.paymentIntentId)
+    .is("webhook_confirmed_at", null);
+  if (lookupError) {
+    throw new Error(`admin refund confirmation lookup failed: ${lookupError.message}`);
+  }
+  const operations = ((data ?? []) as Record<string, unknown>[]).filter((row) => {
+    const target = safeCents(row.cumulative_customer_refund_target_cents);
+    return typeof row.id === "string" && target !== null &&
+      target > 0 && target <= state.refundedAmountCents;
+  });
+  if (operations.length === 0) return;
+
+  const refunds: Stripe.Refund[] = [];
+  let cursor: string | undefined;
+  const seenCursors = new Set<string>();
+  do {
+    const page: Stripe.ApiList<Stripe.Refund> = await stripe.refunds.list({
+      charge: state.chargeId,
+      limit: 100,
+      ...(cursor ? { starting_after: cursor } : {}),
+    });
+    refunds.push(...page.data);
+    if (!page.has_more) break;
+    cursor = page.data.at(-1)?.id;
+    if (!cursor || seenCursors.has(cursor)) {
+      throw new Error("Stripe refund pagination did not advance");
+    }
+    seenCursors.add(cursor);
+  } while (cursor);
+
+  const objectId = (value: string | { id: string } | null) =>
+    typeof value === "string" ? value : value?.id;
+  const now = new Date().toISOString();
+  for (const operation of operations) {
+    const refund = refunds.find((candidate) =>
+      /^re_[a-zA-Z0-9]+$/.test(candidate.id) &&
+      candidate.status === "succeeded" &&
+      objectId(candidate.charge) === state.chargeId &&
+      objectId(candidate.payment_intent) === state.paymentIntentId &&
+      candidate.amount === safeCents(operation.customer_refund_amount_cents) &&
+      (operation.stripe_refund_id
+        ? candidate.id === operation.stripe_refund_id
+        : candidate.metadata?.creatornet_refund_operation_id === operation.id),
+    );
+    if (!refund) continue;
+
+    // Stripe may deliver before the request worker persists stripe_refund_id.
+    // Exact operation metadata + payment + amount identify that early refund.
+    // The guarded update tolerates the worker saving the SAME ID concurrently,
+    // but never overwrites a different refund or an existing confirmation.
+    const { error } = await admin
+      .from("refund_operations")
+      .update({ webhook_confirmed_at: now, updated_at: now })
+      .eq("id", operation.id)
+      .eq("stripe_payment_intent_id", state.paymentIntentId)
+      .eq("customer_refund_amount_cents", refund.amount)
+      .is("webhook_confirmed_at", null)
+      .or(`stripe_refund_id.is.null,stripe_refund_id.eq.${refund.id}`);
+    if (error) {
+      throw new Error(`admin refund webhook confirmation failed: ${error.message}`);
+    }
+  }
 }

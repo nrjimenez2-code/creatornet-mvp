@@ -342,7 +342,8 @@ export default function PostComposer({ onPosted }: Props) {
   const [postError, setPostError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState<string>("");
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [productsLoadedFor, setProductsLoadedFor] = useState<string | null>(null);
+  const loadingProducts = !!userId && productsLoadedFor !== userId;
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
 
@@ -369,7 +370,6 @@ export default function PostComposer({ onPosted }: Props) {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    setLoadingProducts(true);
     (async () => {
       try {
         const items = await fetchMyProducts();
@@ -377,7 +377,7 @@ export default function PostComposer({ onPosted }: Props) {
       } catch (e) {
         if (!cancelled) console.debug("products GET:", (e as { message?: string })?.message);
       } finally {
-        if (!cancelled) setLoadingProducts(false);
+        if (!cancelled) setProductsLoadedFor(userId);
       }
     })();
     return () => { cancelled = true; };
@@ -390,24 +390,30 @@ export default function PostComposer({ onPosted }: Props) {
       try {
         const res = await fetch("/api/stripe/connect/status");
         const data = await res.json().catch(() => ({}));
-        if (!cancelled) setStripeSellReady(!!data?.onboarding_complete);
+        if (!cancelled) {
+          const ready = !!data?.onboarding_complete;
+          setStripeSellReady(ready);
+          if (!ready) {
+            setAttachBuy(false);
+            setProductId(null);
+            setNewProdOpen(false);
+            setPriceDollars("");
+          }
+        }
       } catch {
-        if (!cancelled) setStripeSellReady(false);
+        if (!cancelled) {
+          setStripeSellReady(false);
+          setAttachBuy(false);
+          setProductId(null);
+          setNewProdOpen(false);
+          setPriceDollars("");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [userId]);
-
-  useEffect(() => {
-    if (stripeSellReady === false) {
-      setAttachBuy(false);
-      setProductId(null);
-      setNewProdOpen(false);
-      setPriceDollars("");
-    }
-  }, [stripeSellReady]);
 
   const chars = caption.trim().length;
 

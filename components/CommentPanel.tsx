@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
@@ -27,16 +27,28 @@ type CommentPanelProps = {
   onCommentAdded?: (newCount?: number) => void;
 };
 
-export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }: CommentPanelProps) {
+export default function CommentPanel(props: CommentPanelProps) {
+  // A different post must never inherit another post's comments or draft.
+  return <CommentPanelContent key={props.postId} {...props} />;
+}
+
+function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: CommentPanelProps) {
   const supabase = createClient();
   const { userId, session } = useUser();
   const userEmail = session?.user?.email;
   const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(!!postId && isOpen);
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (wasOpen !== isOpen) {
+    setWasOpen(isOpen);
+    setLoading(!!postId && isOpen);
+  }
   const [loadError, setLoadError] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [commentText, setCommentText] = useState("");
-  const [currentUser, setCurrentUser] = useState<{ id: string; username: string; avatar_url: string | null } | null>(null);
+  const [loadedUser, setLoadedUser] = useState<{ id: string; username: string; avatar_url: string | null } | null>(null);
+  const currentUser = loadedUser?.id === userId ? loadedUser : null;
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
@@ -46,10 +58,8 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
 
   // Fetch current user's profile (identity comes from the auth context)
   useEffect(() => {
-    if (!userId) {
-      setCurrentUser(null);
-      return;
-    }
+    if (!userId) return;
+    let cancelled = false;
     (async () => {
       const { data: profile } = await supabase
         .from("profiles")
@@ -57,49 +67,55 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
         .eq("id", userId)
         .maybeSingle();
 
-      setCurrentUser({
+      if (cancelled) return;
+      setLoadedUser({
         id: userId,
         username: profile?.username || userEmail?.split("@")[0] || "user",
         avatar_url: profile?.avatar_url || null,
       });
     })();
+    return () => { cancelled = true; };
   }, [userId, userEmail, supabase]);
 
   // Fetch comments
-  const fetchComments = useCallback(async () => {
-    if (!postId || !isOpen) return;
-    
-    setLoading(true);
-    try {
-      const apiUrl = typeof window !== "undefined" 
-        ? `${window.location.origin}/api/posts/${postId}/comments`
-        : `/api/posts/${postId}/comments`;
-      
-      const res = await fetch(apiUrl, {
-        method: "GET",
-        credentials: "include",
-      });
-
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setComments(data.comments || []);
-        setLoadError(false);
-      } else {
-        // A failed load must not render as "No comments yet".
-        console.error("Failed to fetch comments:", data.error);
-        setLoadError(true);
-      }
-    } catch (err) {
-      console.error("Error fetching comments:", err);
-      setLoadError(true);
-    } finally {
-      setLoading(false);
-    }
-  }, [postId, isOpen]);
-
   useEffect(() => {
-    fetchComments();
-  }, [fetchComments]);
+    if (!postId || !isOpen) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const fetchComments = async () => {
+      try {
+        const apiUrl = typeof window !== "undefined"
+          ? `${window.location.origin}/api/posts/${postId}/comments`
+          : `/api/posts/${postId}/comments`;
+
+        const res = await fetch(apiUrl, {
+          method: "GET",
+          credentials: "include",
+          signal,
+        });
+
+        const data = await res.json();
+        if (signal.aborted) return;
+        if (res.ok && data.success) {
+          setComments(data.comments || []);
+          setLoadError(false);
+        } else {
+          // A failed load must not render as "No comments yet".
+          console.error("Failed to fetch comments:", data.error);
+          setLoadError(true);
+        }
+      } catch (err) {
+        if (!signal.aborted) {
+          console.error("Error fetching comments:", err);
+          setLoadError(true);
+        }
+      } finally {
+        if (!signal.aborted) setLoading(false);
+      }
+    };
+    void fetchComments();
+    return () => controller.abort();
+  }, [postId, isOpen, loadAttempt]);
 
   // Scroll to bottom when comments update
   useEffect(() => {
@@ -324,7 +340,7 @@ export default function CommentPanel({ postId, isOpen, onClose, onCommentAdded }
               </p>
               <button
                 type="button"
-                onClick={() => fetchComments()}
+                onClick={() => { setLoading(true); setLoadAttempt((attempt) => attempt + 1); }}
                 className="rounded-full border border-white/20 px-4 py-1.5 text-xs font-medium text-white/80 hover:bg-white/10 transition-colors"
               >
                 Try again

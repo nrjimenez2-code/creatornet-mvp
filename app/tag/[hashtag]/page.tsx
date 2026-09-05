@@ -36,12 +36,16 @@ const PAGE_SIZE = 12;
 export default function TagFeedPage() {
   const params = useParams<{ hashtag: string }>();
   const hashtag = decodeURIComponent(params?.hashtag ?? "").trim().toLowerCase();
+  return <TagFeed key={hashtag} hashtag={hashtag} />;
+}
 
+function TagFeed({ hashtag }: { hashtag: string }) {
   const [items, setItems] = useState<ApiTagPost[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [pageRequest, setPageRequest] = useState({ offset: 0, append: false });
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -71,18 +75,20 @@ export default function TagFeedPage() {
     videoEl.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
   }, []);
 
-  const loadPage = useCallback(
-    async (nextOffset: number, append: boolean) => {
-      if (!hashtag) return;
-      if (append) setLoadingMore(true);
-      else setLoading(true);
+  useEffect(() => {
+    if (!hashtag) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    const { offset: nextOffset, append } = pageRequest;
+    const loadPage = async () => {
 
       try {
         const res = await fetch(
           `/api/tag/${encodeURIComponent(hashtag)}?offset=${nextOffset}&limit=${PAGE_SIZE}`,
-          { credentials: "include" }
+          { credentials: "include", signal }
         );
         const data = await res.json().catch(() => ({}));
+        if (signal?.aborted) return;
         if (!res.ok) {
           throw new Error(data?.error || `HTTP ${res.status}`);
         }
@@ -93,24 +99,17 @@ export default function TagFeedPage() {
         setHasMore(Boolean(data?.hasMore));
         setError(null);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed to load tag feed.");
+        if (!signal?.aborted) setError(e instanceof Error ? e.message : "Failed to load tag feed.");
       } finally {
-        if (append) setLoadingMore(false);
-        else setLoading(false);
+        if (!signal?.aborted) {
+          if (append) setLoadingMore(false);
+          else setLoading(false);
+        }
       }
-    },
-    [hashtag]
-  );
-
-  useEffect(() => {
-    setItems([]);
-    setOffset(0);
-    setHasMore(true);
-    setError(null);
-    setIsOpen(false);
-    setActiveIndex(0);
-    loadPage(0, false);
-  }, [hashtag, loadPage]);
+    };
+    void loadPage();
+    return () => controller.abort();
+  }, [hashtag, pageRequest]);
 
   useEffect(() => {
     if (!hasMore || loading || loadingMore) return;
@@ -121,14 +120,16 @@ export default function TagFeedPage() {
       (entries) => {
         const first = entries[0];
         if (first?.isIntersecting) {
-          loadPage(offset, true);
+          observer.disconnect();
+          setLoadingMore(true);
+          setPageRequest({ offset, append: true });
         }
       },
       { rootMargin: "320px 0px" }
     );
     observer.observe(node);
     return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore, offset, loadPage]);
+  }, [hasMore, loading, loadingMore, offset]);
 
   useEffect(() => {
     if (!isOpen) return;

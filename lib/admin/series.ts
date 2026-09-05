@@ -3,8 +3,8 @@
  *
  * All series are DERIVED from the row data (orders, users, videos) so a chart
  * can never disagree with the tables or stat cards next to it. Everything is
- * anchored to the demo "today" instead of Date.now() so server and client
- * render identical SVG (no hydration mismatch).
+ * anchored to an explicit snapshot date so server and client render identical
+ * SVG (no hydration mismatch). Only the mock provider uses the demo date.
  *
  * INTEGRATION: in the real app these become small SQL aggregates
  * (e.g. `select date_trunc('day', created_at), sum(gross_cents) ...`) — the
@@ -31,7 +31,7 @@ export function dailyTotals<T>(
   getIso: (item: T) => string,
   getValue: (item: T) => number,
   days: number,
-  endIso: string = DEMO_TODAY_ISO,
+  endIso: string,
 ): number[] {
   const buckets = new Array<number>(days).fill(0);
   for (const item of items) {
@@ -54,7 +54,7 @@ export function accumulate(series: number[], base = 0): number[] {
 }
 
 /** Short axis labels ("Jul 26") for the trailing `days` window. */
-export function dayLabels(days: number, endIso: string = DEMO_TODAY_ISO): string[] {
+export function dayLabels(days: number, endIso: string): string[] {
   const end = new Date(endIso);
   return Array.from({ length: days }, (_, index) => {
     const date = new Date(end.getTime() - (days - 1 - index) * MS_PER_DAY);

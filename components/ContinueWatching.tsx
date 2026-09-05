@@ -17,6 +17,7 @@ type Post = {
   title: string | null;
   poster_url: string | null;
   video_url: string | null;
+  duration_seconds: number | null;
 };
 
 type Item = {
@@ -68,7 +69,7 @@ export default function ContinueWatching() {
 
       // 2) fetch posts in one shot
       const { data: posts, error: pErr } = await onlyVisiblePosts(
-        supabase.from("posts").select("id,title,poster_url,video_url")
+        supabase.from("posts").select("id,title,poster_url,video_url,duration_seconds")
       ).in("id", ids);
 
       if (pErr) {
@@ -160,11 +161,14 @@ export default function ContinueWatching() {
                 <div className="text-sm font-medium text-white/90 truncate">
                   {post?.title || "Untitled"}
                 </div>
-                <div className="mt-2 h-1.5 rounded-full bg-white/15 overflow-hidden">
-                  {/* We don’t know total duration here; the Watch page saves true progress.
-                      This bar is decorative (we’ll fill a small portion so it reads as “in-progress”). */}
-                  <div className="h-full w-[28%] bg-white/80" />
-                </div>
+                {post?.duration_seconds && post.duration_seconds > 0 ? (
+                  <div className="mt-2 h-1.5 rounded-full bg-white/15 overflow-hidden">
+                    <div
+                      className="h-full bg-white/80"
+                      style={{ width: `${Math.max(0, Math.min(100, progress.seconds / post.duration_seconds * 100))}%` }}
+                    />
+                  </div>
+                ) : null}
                 <div className="mt-2 text-[11px] text-white/60">
                   Resumes at {fmt(progress.seconds)}
                 </div>

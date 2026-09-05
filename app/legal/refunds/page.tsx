@@ -81,6 +81,11 @@ export default function RefundPolicyPage() {
           Approved refunds go back to the original payment method through Stripe. Stripe
           usually posts them within 5–10 business days, depending on your bank.
         </p>
+        <p>
+          You receive the complete amount CreatorNet approves for refund. We do not deduct
+          payment-processing costs from your approved refund, and CreatorNet does not keep its
+          12% platform fee on the refunded portion.
+        </p>
       </Section>
 
       <Section title="Installment plans">

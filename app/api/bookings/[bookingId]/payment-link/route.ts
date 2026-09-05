@@ -18,8 +18,8 @@ export const maxDuration = 60;
 import {
   calculateCreatorFees,
   creatorFeeMetadata,
+  exactSubscriptionApplicationFeePercent,
   getSubscriptionProcessingFeeSchedule,
-  PLATFORM_FEE_PERCENT,
 } from "@/lib/money";
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
@@ -143,7 +143,7 @@ export async function POST(
     const productIdForPayload = product.id ?? product.product_id ?? post.product_id;
 
     const totalCents = Number(product.amount_cents ?? 0);
-    if (!Number.isFinite(totalCents) || totalCents < 50) {
+    if (!Number.isSafeInteger(totalCents) || totalCents < 50) {
       return NextResponse.json({ error: "Product amount must be at least 50 cents" }, { status: 400 });
     }
 
@@ -181,7 +181,16 @@ export async function POST(
           { status: 400 }
         );
       }
-      installmentAmountCents = Math.round(totalCents / installmentMonths);
+      if (totalCents % installmentMonths !== 0) {
+        return NextResponse.json(
+          {
+            error: "This total cannot be split into that many equal payments without rounding. Choose another number of months or use full payment.",
+            code: "INSTALLMENT_TOTAL_NOT_DIVISIBLE",
+          },
+          { status: 400 }
+        );
+      }
+      installmentAmountCents = totalCents / installmentMonths;
       if (installmentAmountCents < 50) {
         return NextResponse.json(
           { error: "Each installment must be at least 50 cents. Reduce the number of months." },
@@ -202,6 +211,21 @@ export async function POST(
             getSubscriptionProcessingFeeSchedule()
           )
         : calculateCreatorFees(chargeGrossCents);
+
+    let subscriptionApplicationFeePercent: number | undefined;
+    if (planType === "installment") {
+      try {
+        subscriptionApplicationFeePercent = exactSubscriptionApplicationFeePercent(fees);
+      } catch {
+        return NextResponse.json(
+          {
+            error: "This installment amount cannot preserve the exact creator fee split. Choose another number of months or use full payment.",
+            code: "INSTALLMENT_FEE_PRECISION_UNSUPPORTED",
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     type ActiveBookingPayment = {
       id: string;
@@ -255,7 +279,7 @@ export async function POST(
       payment.fee_schedule_version === fees.feeScheduleVersion &&
       String(payment.currency || "").trim().toLowerCase() === currency.trim().toLowerCase();
 
-    const existingPaymentResponse = (payment: ActiveBookingPayment): NextResponse | null => {
+    const existingPaymentResponse = async (payment: ActiveBookingPayment): Promise<NextResponse | null> => {
       if (payment.status === "completed") {
         return NextResponse.json(
           { error: "This booking has already been paid.", code: "BOOKING_ALREADY_PAID" },
@@ -273,6 +297,25 @@ export async function POST(
         );
       }
       if (payment.link_url) {
+        if (planType === "installment") {
+          // Database fee estimates alone cannot prove that an older Checkout
+          // link was configured correctly. Never resurface a pre-fix link.
+          const existingSession = payment.stripe_checkout_session_id
+            ? await getStripe().checkout.sessions.retrieve(payment.stripe_checkout_session_id)
+            : null;
+          if (existingSession?.status !== "open" ||
+              existingSession.metadata?.installment_fee_setup !== "exact-percent-v1" ||
+              existingSession.metadata?.post_id !== post.id ||
+              existingSession.metadata?.booking_payment_id !== payment.id) {
+            return NextResponse.json(
+              {
+                error: "This booking's existing installment link needs review before it can be reused. No new link or charge was created.",
+                code: "BOOKING_PAYMENT_LINK_REVIEW_REQUIRED",
+              },
+              { status: 409 }
+            );
+          }
+        }
         return NextResponse.json({ url: payment.link_url, payment, reused: true });
       }
       return null;
@@ -280,7 +323,7 @@ export async function POST(
 
     let activePayment = await loadActivePayment();
     if (activePayment) {
-      const response = existingPaymentResponse(activePayment);
+      const response = await existingPaymentResponse(activePayment);
       if (response) return response;
     }
 
@@ -317,7 +360,7 @@ export async function POST(
         // and the same Stripe idempotency key instead of minting a second charge path.
         activePayment = await loadActivePayment();
         if (!activePayment) throw insertError;
-        const response = existingPaymentResponse(activePayment);
+        const response = await existingPaymentResponse(activePayment);
         if (response) return response;
         paymentId = activePayment.id;
       }
@@ -327,12 +370,17 @@ export async function POST(
       booking_id: booking.id,
       booking_payment_id: paymentId,
       product_id: productIdForPayload,
+      // Use the post actually loaded through this creator-owned booking. The
+      // product table supports both row and public ids; inferring the post
+      // from product_id alone failed staging's purchase-linkage trigger.
+      post_id: post.id,
       creator_id: booking.creator_id,
       buyer_id: booking.buyer_id,
       plan_type: planType,
       plan_months: String(installmentMonths ?? 1),
       closer_user_id: user.id,
       creator_stripe_account_id: creatorStripeAccountId,
+      ...(planType === "installment" ? { installment_fee_setup: "exact-percent-v1" } : {}),
       ...creatorFeeMetadata(fees),
     };
 
@@ -379,6 +427,7 @@ export async function POST(
                 unit_amount: installmentAmountCents!,
                 product_data: {
                   name: `${product.title || post.title || "Installment"} plan`,
+                  description: `${installmentMonths} monthly payments of ${currency.toUpperCase()} ${(installmentAmountCents! / 100).toFixed(2)}. Total: ${currency.toUpperCase()} ${(totalCents / 100).toFixed(2)}.`,
                 },
                 recurring: {
                   interval: "month",
@@ -389,10 +438,9 @@ export async function POST(
             },
           ],
           subscription_data: {
-            // This 12% value is a safe fallback while the feature is disabled.
-            // When creator-funded processing is enabled, invoice.created replaces
-            // it with the exact per-invoice application_fee_amount before payment.
-            application_fee_percent: PLATFORM_FEE_PERCENT,
+            // Checkout can pay invoice #1 before invoice.created is delivered.
+            // Include the full exact deduction before that charge exists.
+            application_fee_percent: subscriptionApplicationFeePercent,
             transfer_data: { destination: creatorStripeAccountId },
             metadata: metadataBase,
           },

@@ -16,10 +16,11 @@ export default function FollowButton({ creatorId, initialFollowing }: FollowButt
   const supabase = createBrowserClient();
   const { userId } = useUser();
 
-  // Sync with initialFollowing prop changes - this ensures the button reflects the actual database state
-  useEffect(() => {
+  const [syncedTarget, setSyncedTarget] = useState({ creatorId, initialFollowing });
+  if (syncedTarget.creatorId !== creatorId || syncedTarget.initialFollowing !== initialFollowing) {
+    setSyncedTarget({ creatorId, initialFollowing });
     setFollowing(initialFollowing);
-  }, [initialFollowing]);
+  }
   
   // Also verify the follow status on mount to ensure accuracy
   // Retry multiple times to handle database replication lag
