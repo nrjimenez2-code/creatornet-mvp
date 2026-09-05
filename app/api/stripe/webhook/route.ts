@@ -559,7 +559,6 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       .update({
         buyer_id,
         buyer_user_id: buyer_id,
-        user_id: buyer_id,
         product_id,
         post_id,
         creator_id,
@@ -599,7 +598,6 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
     .insert({
       buyer_id,
       buyer_user_id: buyer_id,
-      user_id: buyer_id,
       product_id,
       post_id,
       creator_id,
@@ -1262,7 +1260,6 @@ async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
   };
   if (buyer) {
     patch.buyer_user_id = buyer;
-    patch.user_id = buyer;
     patch.buyer_id = buyer;
   }
   // Guard on the UPDATE itself, exactly as the orders write above does. Without

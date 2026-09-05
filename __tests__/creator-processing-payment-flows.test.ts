@@ -853,6 +853,98 @@ describe("browser purchase confirmation", () => {
   });
 });
 
+describe("webhook purchase identity schema", () => {
+  it.each(["checkout insert", "checkout update", "PaymentIntent update"])(
+    "%s uses the real buyer columns without the nonexistent user_id alias",
+    async (path) => {
+      // The schema snapshot and the Sep 4 staging PostgREST error both confirm
+      // purchases has buyer_id + buyer_user_id, but no user_id column. Reject
+      // that payload as PostgREST does rather than accepting arbitrary fields.
+      db = createMockClient((op: Op) => {
+        if (op.table === "purchases" && op.kind === "select") {
+          if (op.columns === "subscription_id") {
+            return { data: { subscription_id: null }, error: null };
+          }
+          if (op.columns === "id" && path === "checkout update") {
+            return { data: { id: "purchase_schema" }, error: null };
+          }
+          return { data: null, error: null };
+        }
+        if (op.table === "purchases" && ["insert", "update"].includes(op.kind)) {
+          if (Object.prototype.hasOwnProperty.call(op.payload, "user_id")) {
+            return {
+              data: null,
+              error: {
+                code: "PGRST204",
+                message: "Could not find the 'user_id' column of 'purchases' in the schema cache",
+              },
+            };
+          }
+          return { data: { id: "purchase_schema" }, error: null };
+        }
+        if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+          return { data: { id: "ledger_schema" }, error: null };
+        }
+        if (op.table === "credit_purchase_earnings") {
+          return { data: true, error: null };
+        }
+        return undefined;
+      });
+      const metadata = {
+        buyer_id: "buyer_1",
+        buyer_user_id: "buyer_1",
+        creator_id: "creator_1",
+        product_id: "product_1",
+        post_id: "post_1",
+        order_id: "order_1",
+        processing_fee_enabled: "true",
+        processing_fee_bps: "290",
+        processing_fee_fixed_cents: "30",
+        fee_schedule_version: "test-us-card-v1",
+        fee_gross_cents: "10000",
+        platform_fee_cents: "1200",
+        processing_fee_cents: "320",
+        total_creator_deduction_cents: "1520",
+        creator_net_cents: "8480",
+      };
+      paymentIntentRetrieve.mockResolvedValue({
+        id: "pi_schema",
+        application_fee_amount: 1_520,
+        latest_charge: {
+          id: "ch_schema",
+          balance_transaction: { id: "txn_schema", fee: 320 },
+        },
+      });
+      stripeEvent = {
+        id: "evt_schema",
+        type: path === "PaymentIntent update" ? "payment_intent.succeeded" : "checkout.session.completed",
+        data: {
+          object: path === "PaymentIntent update"
+            ? { id: "pi_schema", amount: 10_000, amount_received: 10_000, currency: "usd", metadata }
+            : {
+                id: "cs_schema", mode: "payment", payment_status: "paid",
+                amount_total: 10_000, currency: "usd", payment_intent: "pi_schema",
+                subscription: null, metadata,
+              },
+        },
+      };
+
+      const { POST } = await import("@/app/api/stripe/webhook/route");
+      const response = await POST(webhookRequest());
+
+      expect(response.status).toBe(200);
+      const write = db.opsFor("purchases").find((op) =>
+        op.kind === (path === "checkout insert" ? "insert" : "update"));
+      expect(write?.payload).toMatchObject({ buyer_id: "buyer_1", buyer_user_id: "buyer_1" });
+      expect(write?.payload).not.toHaveProperty("user_id");
+      expect(db.opsFor("payment_fee_ledger").find((op) => op.kind === "insert")?.payload)
+        .toMatchObject({ purchase_id: "purchase_schema", stripe_payment_intent_id: "pi_schema" });
+      expect(db.opsFor("credit_purchase_earnings")[0]?.payload)
+        .toEqual({ p_purchase_id: "purchase_schema", p_creator_amount_cents: 8_480 });
+    },
+  );
+});
+
 describe("installment, failure, refund, and duplicate webhooks", () => {
   it("acknowledges an installment checkout without treating its missing PaymentIntent fee as a mismatch", async () => {
     db = createMockClient((op: Op) => {
