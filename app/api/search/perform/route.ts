@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
+import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 
 type CreatorHit = {
   id: string;
@@ -11,6 +12,8 @@ type CreatorHit = {
   full_name: string | null;
   avatar_url: string | null;
   tagline: string | null;
+  /** Derived server-side (lib/sellReady.ts); the raw stripe_* columns never leave this route. */
+  is_verified_seller: boolean;
 };
 
 type PostHit = {
@@ -149,12 +152,12 @@ export async function POST(req: Request) {
     const [byUsername, byFullName] = await Promise.all([
       admin
         .from("profiles")
-        .select("id, username, full_name, avatar_url, tagline")
+        .select(`id, username, full_name, avatar_url, tagline, ${SELL_READY_COLUMNS}`)
         .ilike("username", pattern)
         .limit(20),
       admin
         .from("profiles")
-        .select("id, username, full_name, avatar_url, tagline")
+        .select(`id, username, full_name, avatar_url, tagline, ${SELL_READY_COLUMNS}`)
         .ilike("full_name", pattern)
         .limit(20),
     ]);
@@ -171,6 +174,7 @@ export async function POST(req: Request) {
         full_name: row.full_name ?? null,
         avatar_url: row.avatar_url ?? null,
         tagline: row.tagline ?? null,
+        is_verified_seller: isSellReadyProfile(row),
       });
     }
     creators.splice(20); // keep at most 20
@@ -213,7 +217,7 @@ export async function POST(req: Request) {
       noUserFound = true;
       const { data: suggestedProfiles } = await admin
         .from("profiles")
-        .select("id, username, full_name, avatar_url, tagline")
+        .select(`id, username, full_name, avatar_url, tagline, ${SELL_READY_COLUMNS}`)
         .limit(6);
 
       suggested_creators = (suggestedProfiles ?? []).map((p: any) => ({
@@ -222,6 +226,7 @@ export async function POST(req: Request) {
         full_name: p.full_name ?? null,
         avatar_url: p.avatar_url ?? null,
         tagline: p.tagline ?? null,
+        is_verified_seller: isSellReadyProfile(p),
       }));
 
       const suggestedIds = suggested_creators.map((c) => c.id);
