@@ -167,13 +167,19 @@ export default function ReviewForm({
       </div>
 
       {error && (
-        <div className="mb-4 rounded-lg bg-red-500/20 border border-red-500/50 px-4 py-2 text-sm text-red-200">
+        <div
+          role="alert"
+          className="mb-4 rounded-lg bg-red-500/20 border border-red-500/50 px-4 py-2 text-sm text-red-200"
+        >
           {error}
         </div>
       )}
 
       {success && (
-        <div className="mb-4 rounded-lg bg-green-500/20 border border-green-500/50 px-4 py-2 text-sm text-green-200">
+        <div
+          role="status"
+          className="mb-4 rounded-lg bg-green-500/20 border border-green-500/50 px-4 py-2 text-sm text-green-200"
+        >
           Review submitted successfully! Refreshing...
         </div>
       )}
