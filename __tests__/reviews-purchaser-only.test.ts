@@ -1,16 +1,20 @@
 /**
- * Purchaser-only reviews (Noah #5).
+ * Purchaser-only reviews (Noah #5, step 1 — the v1 cases, kept green on v2).
  *
  * Before this, /api/reviews let any signed-in account review any creator it
  * had never paid, and the page had no way to tell a buyer's review from a
  * stranger's. Both now derive from public.purchases (lib/reviewEligibility.ts):
  * a live row is access_granted=true AND status NOT IN ('refunded','failed').
  *
+ * v2 made reviews per OFFER: every body names post_id, and the gate checks a
+ * live purchase of THAT post (the per-offer cases live in
+ * reviews-per-offer.test.ts). The fixture here holds post_1 for creator_1.
+ *
  * These import and invoke the REAL handler. The purchases responder below
  * applies the handler's own filters to a fixture, so dropping any one filter
- * (buyer, creator, access_granted, or the status exclusion) fails a test here.
+ * (buyer, post, access_granted, or the status exclusion) fails a test here.
  * Mutation-checked: removing the `.not("status", ...)` filter from
- * hasQualifyingPurchase fails "refuses when the only purchase was refunded".
+ * hasQualifyingPurchaseForPost fails "refuses when the only purchase was refunded".
  */
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
@@ -24,8 +28,15 @@ type PurchaseRow = {
   id: string;
   buyer_id: string;
   creator_id: string;
+  post_id: string;
   access_granted: boolean;
   status: string;
+};
+
+/** posts the handler may look up for ownership: post -> creator. */
+const POSTS: Record<string, { creator_id: string; title: string }> = {
+  post_1: { creator_id: "creator_1", title: "Coaching call" },
+  post_other: { creator_id: "creator_other", title: "Someone else's offer" },
 };
 
 let db: MockClient;          // the service-role client
@@ -56,6 +67,7 @@ function matchingPurchases(op: Op): PurchaseRow[] {
   return purchases.filter((row) => {
     if ("buyer_id" in op.filters && row.buyer_id !== op.filters.buyer_id) return false;
     if ("creator_id" in op.filters && row.creator_id !== op.filters.creator_id) return false;
+    if ("post_id" in op.filters && row.post_id !== op.filters.post_id) return false;
     if ("access_granted" in op.filters && row.access_granted !== op.filters.access_granted) return false;
     if (inBuyers && !inBuyers.values.includes(row.buyer_id)) return false;
     if (excluded.includes(row.status)) return false;
@@ -67,9 +79,15 @@ function makeAdminDb() {
   return createMockClient((op: Op) => {
     if (op.table === "purchases" && op.kind === "select") {
       const rows = matchingPurchases(op);
-      // .maybeSingle() (gate) wants one row or null; the list query wants rows.
-      const wantsList = op.columns === "buyer_id";
+      // .maybeSingle() (gate) selects "id" and wants one row or null; the
+      // label / offer-list queries want rows.
+      const wantsList = op.columns !== "id";
       return { data: wantsList ? rows : rows[0] ?? null, error: null };
+    }
+    if (op.table === "posts" && op.kind === "select") {
+      const id = op.filters.id as string;
+      const post = POSTS[id];
+      return { data: post ? { id, ...post } : null, error: null };
     }
     if (op.kind === "rpc") return { data: [{ avg_rating: 5, review_count: 1 }], error: null };
     return undefined;
@@ -104,12 +122,18 @@ function reviewReq(body: unknown, ip = "4.4.4.4") {
   }) as any;
 }
 
-const VALID_REVIEW = { creator_id: "creator_1", rating: 5, comment: "Great coaching, worth every cent." };
+const VALID_REVIEW = {
+  creator_id: "creator_1",
+  post_id: "post_1",
+  rating: 5,
+  comment: "Great coaching, worth every cent.",
+};
 
 const paid = (over: Partial<PurchaseRow> = {}): PurchaseRow => ({
   id: "p1",
   buyer_id: "buyer_1",
   creator_id: "creator_1",
+  post_id: "post_1",
   access_granted: true,
   status: "paid",
   ...over,
@@ -143,12 +167,12 @@ describe("POST /api/reviews is purchaser-only", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({
       code: "PURCHASE_REQUIRED",
-      error: "Only customers who bought from this creator can leave a review.",
+      error: "Only customers who bought this offer can leave a review.",
     });
     expect(writesAcross(db, sessionDb)).toHaveLength(0);
-    // and it asked the service-role client, scoped to this buyer + creator
+    // and it asked the service-role client, scoped to this buyer + offer
     const [gate] = db.opsFor("purchases");
-    expect(gate.filters).toMatchObject({ buyer_id: "buyer_1", creator_id: "creator_1", access_granted: true });
+    expect(gate.filters).toMatchObject({ buyer_id: "buyer_1", post_id: "post_1", access_granted: true });
   });
 
   it("refuses when the only purchase was refunded (status flipped, access still true)", async () => {
@@ -169,18 +193,18 @@ describe("POST /api/reviews is purchaser-only", () => {
   });
 
   it("refuses when the buyer's only purchase is from a different creator", async () => {
-    purchases = [paid({ creator_id: "creator_other" })];
+    purchases = [paid({ creator_id: "creator_other", post_id: "post_other" })];
     const res = await post();
 
     expect(res.status).toBe(403);
     expect(writesAcross(db, sessionDb)).toHaveLength(0);
   });
 
-  it("lets a buyer with a live purchase through and inserts exactly one review", async () => {
+  it("lets a buyer with a live purchase through and inserts exactly one review (201)", async () => {
     purchases = [paid()];
     const res = await post();
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.success).toBe(true);
 
@@ -189,6 +213,7 @@ describe("POST /api/reviews is purchaser-only", () => {
     expect(inserts[0].payload).toMatchObject({
       reviewer_id: "buyer_1",
       creator_id: "creator_1",
+      post_id: "post_1",
       rating: 5,
       comment: VALID_REVIEW.comment,
     });
@@ -234,7 +259,12 @@ describe("POST /api/reviews is purchaser-only", () => {
     const updates = sessionDb.opsFor("reviews").filter((o) => o.kind === "update");
     expect(updates).toHaveLength(1);
     expect(updates[0].filters).toMatchObject({ id: "review_old" });
-    expect(updates[0].payload).toMatchObject({ reviewer_id: "buyer_1", creator_id: "creator_1", rating: 4 });
+    expect(updates[0].payload).toMatchObject({
+      reviewer_id: "buyer_1",
+      creator_id: "creator_1",
+      post_id: "post_1",
+      rating: 4,
+    });
     expect(sessionDb.opsFor("reviews").filter((o) => o.kind === "insert")).toHaveLength(0);
   });
 
@@ -273,7 +303,7 @@ describe("verifiedReviewerIds (read-time 'Verified Purchase' label)", () => {
       paid({ id: "a", buyer_id: "buyer_live" }),
       paid({ id: "b", buyer_id: "buyer_refunded", status: "refunded" }),
       paid({ id: "c", buyer_id: "buyer_revoked", access_granted: false }),
-      paid({ id: "d", buyer_id: "buyer_elsewhere", creator_id: "creator_other" }),
+      paid({ id: "d", buyer_id: "buyer_elsewhere", creator_id: "creator_other", post_id: "post_other" }),
     ];
 
     const ids = await verifiedReviewerIds(

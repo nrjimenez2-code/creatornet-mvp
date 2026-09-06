@@ -8,8 +8,10 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { BadgeCheck } from "lucide-react";
 import {
   getViewerReviewEligibility,
-  PURCHASE_REQUIRED_MESSAGE,
-  verifiedReviewerIds,
+  isVerifiedPurchase,
+  livePurchasesByReviewers,
+  NO_PURCHASE_FROM_CREATOR_MESSAGE,
+  UNTITLED_OFFER_LABEL,
 } from "@/lib/reviewEligibility";
 
 export const revalidate = 0;
@@ -53,6 +55,10 @@ type ReviewRecord = {
   comment?: string | null;
   rating?: number | null;
   created_at?: string | null;
+  /** The offer this review is about; null for rows written before 024. */
+  post_id?: string | null;
+  /** Title of that offer, when post_id is set. */
+  offer_title?: string | null;
   /** Derived at read time from purchases; never stored on the review. */
   is_verified_purchase?: boolean;
 };
@@ -157,7 +163,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
     admin
       .from("reviews")
-      .select("id, reviewer_id, rating, comment, created_at")
+      .select("id, reviewer_id, post_id, rating, comment, created_at")
       .eq("creator_id", resolvedCreatorId)
       .order("created_at", { ascending: false }),
   ]);
@@ -171,21 +177,39 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
     new Set((reviewsRes?.data ?? []).map((r: any) => r.reviewer_id).filter(Boolean))
   );
   
+  const reviewedPostIds = Array.from(
+    new Set(
+      ((reviewsRes?.data ?? []) as Array<{ post_id?: string | null }>)
+        .map((r) => r.post_id)
+        .filter((id): id is string => Boolean(id))
+    )
+  );
+
   const reviewerMap = new Map<string, { full_name: string | null; username: string | null }>();
+  const offerTitleMap = new Map<string, string | null>();
   // "Verified Purchase" is derived from purchases at read time (a refund drops
-  // it automatically). Legacy reviews written before the purchaser gate stay
-  // visible, just without the label. The label is cosmetic, so a lookup error
-  // must not take the page down.
-  const [reviewerProfilesRes, verifiedIds, viewer] = await Promise.all([
+  // it automatically): per offer for reviews that name one, per creator for
+  // legacy rows (post_id null). The label and the offer title are cosmetic,
+  // so a lookup error must not take the page down.
+  const [reviewerProfilesRes, offerPostsRes, livePurchases, viewer] = await Promise.all([
     reviewerIds.length > 0
       ? admin.from("profiles").select("id, username, full_name").in("id", reviewerIds)
       : Promise.resolve({ data: null }),
-    verifiedReviewerIds(admin, resolvedCreatorId, reviewerIds as string[]).catch((err) => {
+    reviewedPostIds.length > 0
+      ? admin.from("posts").select("id, title").in("id", reviewedPostIds)
+      : Promise.resolve({ data: null }),
+    livePurchasesByReviewers(admin, resolvedCreatorId, reviewerIds as string[]).catch((err) => {
       console.error("[creator-reviews] verified-purchase lookup error:", err);
-      return new Set<string>();
+      return [];
     }),
     getViewerReviewEligibility(admin, resolvedCreatorId),
   ]);
+
+  if (offerPostsRes.data) {
+    (offerPostsRes.data as Array<{ id: string; title: string | null }>).forEach((p) => {
+      offerTitleMap.set(p.id, p.title ?? null);
+    });
+  }
 
   if (reviewerProfilesRes.data) {
     reviewerProfilesRes.data.forEach((p: any) => {
@@ -206,7 +230,9 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
       comment: r.comment,
       rating: r.rating,
       created_at: r.created_at,
-      is_verified_purchase: verifiedIds.has(r.reviewer_id),
+      post_id: r.post_id ?? null,
+      offer_title: r.post_id ? offerTitleMap.get(r.post_id) ?? UNTITLED_OFFER_LABEL : null,
+      is_verified_purchase: isVerifiedPurchase(livePurchases, r.reviewer_id, r.post_id ?? null),
     };
   });
 
@@ -258,10 +284,10 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
               reviews.creator_id (a uuid column) failed the cast, so the review
               could never be submitted from a username URL. */}
           {showReviewForm ? (
-            <ReviewForm creatorId={resolvedCreatorId} />
+            <ReviewForm creatorId={resolvedCreatorId} offers={viewer.purchasedPosts} />
           ) : isViewerTheCreator ? null : (
             <p className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/70">
-              {PURCHASE_REQUIRED_MESSAGE}
+              {NO_PURCHASE_FROM_CREATOR_MESSAGE}
             </p>
           )}
         </div>
@@ -301,7 +327,11 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
                         <p className="text-base font-semibold">{reviewerName}</p>
                         {review.is_verified_purchase ? (
                           <span
-                            title="This reviewer bought from this creator"
+                            title={
+                              review.post_id
+                                ? "This reviewer bought this offer"
+                                : "This reviewer bought from this creator"
+                            }
                             className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300"
                           >
                             <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
@@ -309,6 +339,11 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
                           </span>
                         ) : null}
                       </div>
+                      {review.offer_title ? (
+                        <p className="text-xs text-white/60" data-testid="review-offer">
+                          Reviewed: {review.offer_title}
+                        </p>
+                      ) : null}
                       {createdAt ? (
                         <p className="text-xs uppercase tracking-wide text-white/50">
                           {createdAt}

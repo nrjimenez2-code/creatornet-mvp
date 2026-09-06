@@ -55,14 +55,15 @@ beforeEach(() => {
   authUser = { id: "user_1" };
   bannedAt = null;
   profileLookupError = null;
-  // /api/reviews is purchaser-only now (lib/reviewEligibility.ts): the
-  // "normal account" cases need a live purchase from creator c1 so the ban
-  // check — not the purchase gate — is what these tests exercise.
-  db = createMockClient((op: Op) =>
-    op.table === "purchases" && op.kind === "select"
-      ? { data: { id: "purchase_1" }, error: null }
-      : undefined
-  );
+  // /api/reviews is purchaser-only per offer now (lib/reviewEligibility.ts):
+  // the "normal account" cases need post p1 to belong to creator c1 and a
+  // live purchase of it, so the ban check — not the purchase gate — is what
+  // these tests exercise.
+  db = createMockClient((op: Op) => {
+    if (op.table === "purchases" && op.kind === "select") return { data: { id: "purchase_1" }, error: null };
+    if (op.table === "posts" && op.kind === "select") return { data: { id: "p1", creator_id: "c1" }, error: null };
+    return undefined;
+  });
   sessionDb = makeSessionDb();
 });
 
@@ -98,7 +99,8 @@ describe("a banned user cannot create content", () => {
       load: () => import("@/app/api/reviews/route"),
       // A valid body, so the normal-account case runs past validation and
       // through the purchase gate instead of stopping at 400.
-      call: (h) => h.POST(jsonReq({ creator_id: "c1", rating: 5, comment: "a real review comment" })),
+      call: (h) =>
+        h.POST(jsonReq({ creator_id: "c1", post_id: "p1", rating: 5, comment: "a real review comment" })),
     },
     {
       name: "/api/follow",

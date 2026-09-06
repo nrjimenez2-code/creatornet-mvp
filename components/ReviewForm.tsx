@@ -4,9 +4,12 @@ import { useState, useCallback } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { Star } from "lucide-react";
+import { PURCHASE_REQUIRED_MESSAGE, type PurchasedPost } from "@/lib/reviewMessages";
 
 type ReviewFormProps = {
   creatorId: string;
+  /** The offers this viewer bought from the creator; a review names one of them. */
+  offers: PurchasedPost[];
   onReviewSubmitted?: () => void;
   existingRating?: number | null;
   existingComment?: string | null;
@@ -14,12 +17,14 @@ type ReviewFormProps = {
 
 export default function ReviewForm({
   creatorId,
+  offers,
   onReviewSubmitted,
   existingRating = null,
   existingComment = null,
 }: ReviewFormProps) {
   const supabase = createClient();
   const { userId } = useUser();
+  const [postId, setPostId] = useState<string>(offers[0]?.post_id ?? "");
   const [rating, setRating] = useState<number>(existingRating ?? 0);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [comment, setComment] = useState<string>(existingComment ?? "");
@@ -33,6 +38,11 @@ export default function ReviewForm({
 
       if (!userId) {
         setError("Please sign in to leave a review.");
+        return;
+      }
+
+      if (!postId) {
+        setError("Please choose the offer you bought.");
         return;
       }
 
@@ -55,6 +65,7 @@ export default function ReviewForm({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             creator_id: creatorId,
+            post_id: postId,
             rating,
             comment: comment.trim(),
           }),
@@ -91,7 +102,7 @@ export default function ReviewForm({
         setSubmitting(false);
       }
     },
-    [userId, creatorId, rating, comment, onReviewSubmitted]
+    [userId, creatorId, postId, rating, comment, onReviewSubmitted]
   );
 
   if (!userId) {
@@ -102,9 +113,42 @@ export default function ReviewForm({
     );
   }
 
+  // The page only renders this form for a buyer; if it is ever mounted with
+  // nothing to review, say so instead of offering an empty select.
+  if (offers.length === 0) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/70">
+        {PURCHASE_REQUIRED_MESSAGE}
+      </div>
+    );
+  }
+
   return (
     <form onSubmit={handleSubmit} className="rounded-2xl border border-white/10 bg-white/5 p-6">
       <h3 className="mb-4 text-lg font-semibold text-white">Write a Review</h3>
+
+      {/* Which offer — one review per offer you bought */}
+      <div className="mb-4">
+        <label
+          htmlFor="review-offer"
+          className="mb-2 block text-sm font-medium text-white/80"
+        >
+          Offer <span className="text-red-400">*</span>
+        </label>
+        <select
+          id="review-offer"
+          value={postId}
+          onChange={(e) => setPostId(e.target.value)}
+          className="w-full rounded-lg border border-white/20 bg-black/40 px-4 py-3 text-white focus:border-[#4A35C7] focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/50"
+          required
+        >
+          {offers.map((offer) => (
+            <option key={offer.post_id} value={offer.post_id}>
+              {offer.title}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {/* Star Rating */}
       <div className="mb-4">
@@ -187,7 +231,7 @@ export default function ReviewForm({
       {/* Submit Button */}
       <button
         type="submit"
-        disabled={submitting || rating === 0 || !comment.trim()}
+        disabled={submitting || !postId || rating === 0 || !comment.trim()}
         className="w-full rounded-lg bg-[#4A35C7] px-6 py-3 font-semibold text-white transition hover:bg-[#3D2BA3] disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/50"
       >
         {submitting ? "Submitting..." : "Submit Review"}
