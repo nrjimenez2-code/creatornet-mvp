@@ -154,6 +154,13 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
       .order("created_at", { ascending: false }),
   ]);
 
+  // A failed rating/reviews read must not render as "0.0 · Based on 0 reviews ·
+  // No written reviews yet" — that reads as a real (bad) verdict on the creator.
+  const reviewsFailed = Boolean(ratingRes?.error || reviewsRes?.error);
+  if (reviewsFailed) {
+    console.error("[creator-reviews] reviews lookup error:", ratingRes?.error ?? reviewsRes?.error);
+  }
+
   const ratingData = (ratingRes?.data?.[0] ?? null) as RatingPayload | null;
   const avgRating = ratingData ? Number(ratingData.avg_rating ?? 0) : 0;
   const reviewCount = ratingData ? Number(ratingData.review_count ?? 0) : 0;
@@ -222,9 +229,13 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
           <p className="text-sm uppercase tracking-widest text-white/60">
             Overall rating
           </p>
-          <p className="mt-3 text-5xl font-semibold">{avgRating.toFixed(1)}</p>
+          <p className="mt-3 text-5xl font-semibold">
+            {reviewsFailed ? "—" : avgRating.toFixed(1)}
+          </p>
           <p className="text-white/60">
-            Based on {reviewCount} review{reviewCount === 1 ? "" : "s"}
+            {reviewsFailed
+              ? "Rating unavailable right now"
+              : `Based on ${reviewCount} review${reviewCount === 1 ? "" : "s"}`}
           </p>
         </div>
 
@@ -238,7 +249,14 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
         </div>
 
         <div className="mt-10 space-y-4">
-          {reviews.length === 0 ? (
+          {reviewsFailed ? (
+            <div
+              role="alert"
+              className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-sm text-white/70"
+            >
+              Couldn&apos;t load reviews. Refresh the page to try again.
+            </div>
+          ) : reviews.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-sm text-white/70">
               No written reviews yet.
             </div>

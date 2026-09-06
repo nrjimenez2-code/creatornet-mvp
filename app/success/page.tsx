@@ -341,7 +341,16 @@ function SuccessPage() {
   return (
     <main className="min-h-svh bg-white text-gray-900 flex items-center justify-center p-6">
       <div className="text-center max-w-md">
-        <div className="mb-4 animate-pulse text-4xl">✨</div>
+        {/* Pulse only while a request is in flight; a pulsing icon next to
+            "Heads up" / "Success" reads as "still loading". */}
+        <div
+          className={`mb-4 text-4xl ${
+            status === "checking" || status === "pending" ? "animate-pulse" : ""
+          }`}
+          aria-hidden="true"
+        >
+          ✨
+        </div>
         <h1 className="text-xl font-semibold mb-2">
           {status === "checking"
             ? "Almost there..."

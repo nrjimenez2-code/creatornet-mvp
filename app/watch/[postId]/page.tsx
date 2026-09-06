@@ -250,13 +250,28 @@ export default function WatchPage() {
         <div className="fixed top-4 left-4 z-10">
           <BackButton hrefOverride="/dashboard" />
         </div>
-        <p className="text-red-500 mb-4">{error}</p>
-        <button
-          onClick={() => router.push("/library")}
-          className="underline text-sm text-gray-600"
-        >
-          Back to Library
-        </button>
+        <p className="text-red-500 mb-4" role="alert">{error}</p>
+        <div className="flex items-center gap-4">
+          {/* "Unable to verify access." is the one transient failure on this
+              page (the purchases lookup errored) and a reload re-runs it.
+              "Invalid post." / "Post not found." are final — no retry. */}
+          {error === "Unable to verify access." && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="rounded-full border border-gray-700 px-4 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-900 transition-colors"
+            >
+              Try again
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => router.push("/library")}
+            className="underline text-sm text-gray-400"
+          >
+            Back to Library
+          </button>
+        </div>
       </main>
     );
   }
