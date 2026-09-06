@@ -9,6 +9,7 @@ import {
   IconGrid,
   IconPlaySquare,
   IconSearch,
+  IconShieldCheck,
   IconStar,
   IconUsers,
 } from "@/components/admin/icons";
@@ -34,6 +35,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   { href: "/admin/commerce", label: "Commerce", exact: false, icon: <IconCard size={17} /> },
   { href: "/admin/reviews", label: "Reviews", exact: false, icon: <IconStar size={17} /> },
+  { href: "/admin/verification", label: "Verification", exact: false, icon: <IconShieldCheck size={17} /> },
 ];
 
 function openPalette() {

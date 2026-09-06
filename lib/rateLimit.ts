@@ -13,6 +13,8 @@
 // Limited: post-metrics, interest-score, share, comments (create, edit and
 // delete), likes, follow, reviews, search/perform, upload/presign, post
 // creation, product creation, booking create and cancel, and posts/creators.
+// Also: verification (the blue-check code request, 5/hour — the admin queue
+// is human-reviewed, so a script filling it is the abuse to stop).
 //
 // posts/creators is the one that mattered most: it is unauthenticated, runs on
 // the service-role client, and used to accept an unbounded array of ids, so a

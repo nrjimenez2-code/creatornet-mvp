@@ -6,6 +6,7 @@ import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useRequireUser, useUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import AuthenticityVerificationCard from "@/components/AuthenticityVerificationCard";
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -267,6 +268,10 @@ export default function EditProfilePage() {
         {err ? <p className="text-sm text-red-600">{err}</p> : null}
         {msg ? <p className="text-sm text-green-600">{msg}</p> : null}
       </form>
+
+      <div className="mt-10">
+        <AuthenticityVerificationCard />
+      </div>
     </section>
   );
 }
