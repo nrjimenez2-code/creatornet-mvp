@@ -29,7 +29,8 @@ const rpcSpy = jest.fn((...args: unknown[]) => {
   return rpcImpl();
 });
 const removeChannel = jest.fn();
-const channel = { on: jest.fn(() => channel), subscribe: jest.fn(() => channel) };
+type Channel = { on: jest.Mock; subscribe: jest.Mock };
+const channel: Channel = { on: jest.fn(() => channel), subscribe: jest.fn(() => channel) };
 
 let mockUser: { userId: string | null; loading: boolean } = { userId: null, loading: false };
 
