@@ -53,7 +53,6 @@ async function render() {
   });
 }
 
-const text = () => container.textContent ?? "";
 const buttonNamed = (label: string) =>
   Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.trim() === label) ?? null;
 
