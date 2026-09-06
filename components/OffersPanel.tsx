@@ -17,8 +17,6 @@ import {
 // ---------------------------------------------------------------------------
 // Defaults the founder has not decided yet — each is the ONE place to change.
 // ---------------------------------------------------------------------------
-/** Render the Offers trigger even when the creator has no offers. */
-export const SHOW_OFFERS_BUTTON_WHEN_EMPTY = false;
 /** Buy CTA text while the creator has not finished Stripe Connect. */
 export const NOT_SELL_READY_LABEL = "Not accepting payments yet";
 /** Where a signed-out click on a CTA goes. */
@@ -27,7 +25,6 @@ export const SIGNED_OUT_REDIRECT = "/auth";
 export const OFFERS_COPY = {
   title: "Offers",
   description: (name: string) => `Exclusive products and services from ${name}.`,
-  empty: "No offers yet.",
   footer: "Secure payments powered by CreatorNet",
   busy: "Starting…",
 } as const;
@@ -70,7 +67,8 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
   const router = useRouter();
   const { userId, loading: authLoading } = useUser();
 
-  if (offers.length === 0 && !SHOW_OFFERS_BUTTON_WHEN_EMPTY) return null;
+  // No offers, no button (the page also hides the Follow/Offers row then).
+  if (offers.length === 0) return null;
 
   const isPurchase = (card: OfferCard) => card.productId !== null;
   const isDisabled = (card: OfferCard) =>
@@ -149,61 +147,57 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
           </Link>
         ) : null}
 
-        {offers.length === 0 ? (
-          <p className="text-sm text-white/60">{OFFERS_COPY.empty}</p>
-        ) : (
-          <ul className="flex flex-col gap-4">
-            {offers.map((card) => {
-              const disabled = isDisabled(card);
-              const notSellReady = isPurchase(card) && !sellReady;
-              const error = errors[card.key];
-              return (
-                <li
-                  key={card.key}
-                  className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
-                  data-offer-kind={card.kind}
-                >
-                  <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#1B1530] sm:h-28 sm:w-28">
-                    <OfferImage card={card} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-semibold tracking-wide text-[#8B7CF7]">{card.label}</p>
-                    <h3 className="mt-1 text-base font-semibold text-white">{card.title}</h3>
-                    {card.description ? (
-                      <p className="mt-1 text-sm text-white/60">{card.description}</p>
-                    ) : null}
-                    <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
-                      {card.priceCents !== null ? (
-                        <p className="text-2xl font-semibold">
-                          {formatOfferPrice(card.priceCents, card.currency)}
-                        </p>
-                      ) : (
-                        <span />
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleCta(card)}
-                        disabled={disabled}
-                        className="rounded-md bg-[#4A35C7] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#3D2BA3] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {notSellReady
-                          ? NOT_SELL_READY_LABEL
-                          : busyKey === card.key
-                            ? OFFERS_COPY.busy
-                            : card.cta}
-                      </button>
-                    </div>
-                    {error ? (
-                      <p role="alert" className="mt-2 text-sm text-red-300">
-                        {error}
+        <ul className="flex flex-col gap-4">
+          {offers.map((card) => {
+            const disabled = isDisabled(card);
+            const notSellReady = isPurchase(card) && !sellReady;
+            const error = errors[card.key];
+            return (
+              <li
+                key={card.key}
+                className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+                data-offer-kind={card.kind}
+              >
+                <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#1B1530] sm:h-28 sm:w-28">
+                  <OfferImage card={card} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold tracking-wide text-[#8B7CF7]">{card.label}</p>
+                  <h3 className="mt-1 text-base font-semibold text-white">{card.title}</h3>
+                  {card.description ? (
+                    <p className="mt-1 text-sm text-white/60">{card.description}</p>
+                  ) : null}
+                  <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
+                    {card.priceCents !== null ? (
+                      <p className="text-2xl font-semibold">
+                        {formatOfferPrice(card.priceCents, card.currency)}
                       </p>
-                    ) : null}
+                    ) : (
+                      <span />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => handleCta(card)}
+                      disabled={disabled}
+                      className="rounded-md bg-[#4A35C7] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#3D2BA3] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {notSellReady
+                        ? NOT_SELL_READY_LABEL
+                        : busyKey === card.key
+                          ? OFFERS_COPY.busy
+                          : card.cta}
+                    </button>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                  {error ? (
+                    <p role="alert" className="mt-2 text-sm text-red-300">
+                      {error}
+                    </p>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
       </SidePanel>
     </>
   );
