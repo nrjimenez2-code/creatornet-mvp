@@ -76,6 +76,6 @@ describe("SuccessPage sparkle", () => {
     expect(container.textContent).toContain("Heads up");
     expect(container.textContent).toContain("Missing session id.");
     expect(sparkle()?.classList.contains("animate-pulse")).toBe(false);
-    expect((globalThis as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
+    expect((globalThis as unknown as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
   });
 });
