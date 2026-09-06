@@ -977,14 +977,16 @@ export default function VideoCard(props: VideoCardProps) {
                     className="text-white font-semibold text-base truncate hover:underline"
                   >
                     {displayCreator}
-                    <VerifiedCreatorBadge verified={!!creatorVerified} size="sm" className="ml-1.5" />
                   </Link>
                 ) : (
                   <span className="text-white font-semibold text-base truncate">
                     {displayCreator}
-                    <VerifiedCreatorBadge verified={!!creatorVerified} size="sm" className="ml-1.5" />
                   </span>
                 )}
+                {/* Sibling of the name (not inside it): the name `truncate`s, so a
+                    badge inside it is clipped away for long names. The row's gap-2
+                    spaces it; shrink-0 on the badge keeps it visible. */}
+                <VerifiedCreatorBadge verified={creatorVerified} size="sm" />
               </div>
               <p className="text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0">
                 {displayTitle}

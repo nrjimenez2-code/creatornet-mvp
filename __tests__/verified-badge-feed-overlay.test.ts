@@ -7,9 +7,12 @@
  *
  * 1. Renders the REAL components/VideoCard.tsx (createRoot + act, no JSX —
  *    same mocks as policy-links-purchase-flow.test.ts) and asserts the badge
- *    appears immediately after the creator's name in BOTH name branches
+ *    is the element right AFTER the creator's name in BOTH name branches
  *    (Link when a profile href exists, plain span when it does not), and
- *    only when `creatorVerified` is true.
+ *    only when `creatorVerified` is true. It is a sibling, not a child, of
+ *    the name: the name element `truncate`s (overflow hidden), so a badge
+ *    inside it is clipped away for long names — measured in a browser
+ *    fixture during review: badge right edge 439px vs link right edge 370px.
  * 2. Source tripwires, because FeedList's realtime/virtualised render is too
  *    heavy to mount here and the SQL cannot run in jest:
  *    - FeedList passes `creatorVerified={p.creator_verified` to VideoCard.
@@ -17,8 +20,8 @@
  *      `creator_verified boolean` in RETURNS TABLE and selects the ONE
  *      sell-ready expression in both branches (following + discover).
  *
- * Mutation-checked: removing the badge from the Link branch makes exactly
- * the Link-branch assertion fail (see PR body).
+ * Mutation-checked: deleting the <VerifiedCreatorBadge> line makes the two
+ * placement tests fail; loosening the mapper makes the mapping test fail.
  */
 
 import { readFileSync } from "fs";
@@ -122,34 +125,36 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     return node;
   }
 
-  test("Link branch: badge sits inside the profile link, right after the name", async () => {
+  test("Link branch: badge is the element right after the profile link, not inside it", async () => {
     await render({ creatorUsername: "jane", creatorVerified: true });
 
     const link = nameNode();
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("href")).toBe("/profile/jane");
+    // The link's accessible name stays just the creator's name.
+    expect(link.textContent).toBe(CREATOR);
+    expect(link.querySelector(BADGE)).toBeNull();
 
-    const badge = link.querySelector<HTMLElement>(BADGE);
+    const badge = link.nextElementSibling as HTMLElement | null;
     expect(badge).not.toBeNull();
-    // Immediately after the name: name text node, then the badge.
-    expect(link.childNodes[0].textContent).toBe(CREATOR);
-    expect(link.childNodes[1]).toBe(badge);
+    expect(badge!.matches(BADGE)).toBe(true);
     // Small size on the overlay.
     expect(badge!.style.width).toBe("14px");
     // Exactly one badge on the card.
     expect(container.querySelectorAll(BADGE)).toHaveLength(1);
   });
 
-  test("span branch (no profile href): badge sits inside the span, right after the name", async () => {
+  test("span branch (no profile href): badge is the element right after the span", async () => {
     await render({ creatorUsername: null, creatorId: null, creatorVerified: true });
 
     const span = nameNode();
     expect(span.tagName).toBe("SPAN");
+    expect(span.textContent).toBe(CREATOR);
+    expect(span.querySelector(BADGE)).toBeNull();
 
-    const badge = span.querySelector<HTMLElement>(BADGE);
+    const badge = span.nextElementSibling as HTMLElement | null;
     expect(badge).not.toBeNull();
-    expect(span.childNodes[0].textContent).toBe(CREATOR);
-    expect(span.childNodes[1]).toBe(badge);
+    expect(badge!.matches(BADGE)).toBe(true);
     expect(container.querySelectorAll(BADGE)).toHaveLength(1);
   });
 
