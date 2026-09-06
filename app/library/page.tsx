@@ -360,21 +360,55 @@ export default function LibraryPage() {
   }
 
   if (error) {
+    // The only signed-out path sets `error` while userId is null; every other
+    // `error` is a failed purchases read for a real user. The first wants a
+    // sign-in link, the second a retry — not the same red line for both.
+    const isSignedOut = !userId;
     return (
-      <main className="p-6 text-center text-red-500 relative">
+      <main className="p-6 text-center relative">
         <div className="max-w-6xl mx-auto">
           <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
             <BackButton hrefOverride="/dashboard" />
           </div>
-          {/* `error` was set but never rendered, so a buyer whose purchases
-              failed to load saw a blank page with a back link — indistinguish-
-              able from "you own nothing". */}
-          <p className="mt-12">{error}</p>
-          <div className="mt-4">
-            <Link href="/dashboard" className="underline text-sm">
-              Back to dashboard
-            </Link>
-          </div>
+          {isSignedOut ? (
+            <>
+              <p className="mt-12 text-white font-medium">Sign in to see your library</p>
+              <p className="mt-1 text-sm text-gray-400">Everything you buy shows up here.</p>
+              <div className="mt-4">
+                <Link
+                  href="/auth"
+                  className="inline-block rounded-md bg-[#4A35C7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3D2BA3] transition-colors"
+                >
+                  Sign in
+                </Link>
+              </div>
+            </>
+          ) : (
+            <>
+              {/* `error` was set but never rendered, so a buyer whose purchases
+                  failed to load saw a blank page with a back link — indistinguish-
+                  able from "you own nothing". */}
+              <p className="mt-12 text-red-400 font-medium" role="alert">
+                Couldn&apos;t load your library
+              </p>
+              <p className="mt-1 text-sm text-gray-400">
+                Something went wrong on our end. Give it another try.
+              </p>
+              <p className="mt-1 text-xs text-gray-600">{error}</p>
+              <div className="mt-4 flex items-center justify-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="rounded-full border border-gray-700 px-4 py-1.5 text-xs font-medium text-gray-300 hover:bg-gray-900 transition-colors"
+                >
+                  Try again
+                </button>
+                <Link href="/dashboard" className="underline text-sm text-gray-400">
+                  Back to dashboard
+                </Link>
+              </div>
+            </>
+          )}
         </div>
       </main>
     );
@@ -387,10 +421,16 @@ export default function LibraryPage() {
           <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
             <BackButton hrefOverride="/dashboard" />
           </div>
+          {/* The empty state used to be a lone button with no words — nothing
+              said this page was the library or that it was empty on purpose. */}
+          <h1 className="mt-12 text-lg font-semibold text-white">Your library is empty</h1>
+          <p className="mt-1 text-sm text-gray-400">
+            Videos and offers you buy will show up here.
+          </p>
           <div className="mt-4">
             <Link
               href="/dashboard"
-              className="inline-block px-4 py-2 bg-black text-white rounded-md hover:opacity-90"
+              className="inline-block rounded-md bg-[#4A35C7] px-4 py-2 text-sm font-semibold text-white hover:bg-[#3D2BA3] transition-colors"
             >
               Explore the feed
             </Link>
