@@ -182,6 +182,10 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
   ]);
   const posts = postsRes?.data ?? [];
+  if (productsRes?.error) {
+    // Non-fatal: the page still renders, just without the Offers button.
+    console.error("[creator-profile] products query failed:", productsRes.error.message);
+  }
   const offers = buildOffers((productsRes?.data ?? []) as OfferProduct[], posts);
   const ratingRow = (ratingRes?.data?.[0] ?? null) as
     | { avg_rating?: number | null; review_count?: number | null }

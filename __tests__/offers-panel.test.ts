@@ -8,6 +8,8 @@
  * Renders the REAL components (createRoot + act, no JSX — same pattern as
  * single-auth-flow.test.ts / buy-button.test.ts) and locks:
  *   - trigger opens a role="dialog" with aria-modal + aria-labelledby
+ *   - the dialog is portalled to document.body (a transformed ancestor on the
+ *     profile page would otherwise clip the fixed overlay)
  *   - Esc closes and focus returns to the trigger
  *   - Tab / Shift+Tab wrap inside the panel
  *   - not-sell-ready creators get a disabled Buy CTA (booking stays live)
@@ -205,6 +207,14 @@ describe("OffersPanel", () => {
     expect(d.textContent).toContain("Exclusive products and services from Noah Jimenez.");
   });
 
+  test("dialog is portalled to document.body, not rendered inside the trigger's subtree", async () => {
+    await render();
+    const d = await open();
+
+    expect(container.contains(d)).toBe(false);
+    expect(d.parentElement?.parentElement).toBe(document.body);
+  });
+
   test("moves focus into the dialog on open and locks body scroll", async () => {
     await render();
     const d = await open();
@@ -231,7 +241,7 @@ describe("OffersPanel", () => {
     await render();
     await open();
     await act(async () => {
-      (document.querySelector('[data-testid="side-panel-backdrop"]') as HTMLElement).click();
+      (dialog()!.previousElementSibling as HTMLElement).click();
     });
     expect(dialog()).toBeNull();
 

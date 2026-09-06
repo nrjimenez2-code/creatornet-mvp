@@ -8,6 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 /**
@@ -22,6 +23,10 @@ import { X } from "lucide-react";
  *  - focus moves INTO the panel on open and RETURNS to `returnFocusRef`
  *    (or whatever was focused before) on close
  *  - Tab / Shift+Tab wrap inside the panel
+ *  - rendered through a portal on document.body: an ancestor with a
+ *    transform/translate (the profile header uses md:translate-y-8) would
+ *    otherwise become the containing block for `position: fixed` and clip
+ *    the panel to that box instead of the viewport
  */
 type Props = {
   open: boolean;
@@ -120,14 +125,9 @@ export default function SidePanel({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[120]">
-      <div
-        className="absolute inset-0 bg-black/60"
-        onClick={onClose}
-        aria-hidden="true"
-        data-testid="side-panel-backdrop"
-      />
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
         role="dialog"
@@ -165,6 +165,7 @@ export default function SidePanel({
           <footer className="border-t border-white/10 px-5 py-3">{footer}</footer>
         ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
