@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import VideoCard from "./VideoCard";
+import FeedEmptyState from "./FeedEmptyState";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
@@ -18,13 +19,13 @@ export type { PostRow } from "@/lib/feedV3";
 
 type FeedListProps = {
   activeTab: Tab;
-  onChangeTab: (t: Tab) => void; // kept for API stability
+  onChangeTab: (t: Tab) => void; // used by the empty state's "Browse Discover"
   highlightPostId?: string | null;
 };
 
 const PAGE_SIZE = 20;
 
-export default function FeedList({ activeTab, highlightPostId }: FeedListProps) {
+export default function FeedList({ activeTab, onChangeTab, highlightPostId }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId, loading: authLoading } = useUser();
 
@@ -517,7 +518,11 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
             </button>
           </>
         ) : (
-          <p className="text-sm text-gray-500">No posts yet.</p>
+          <FeedEmptyState
+            tab={activeTab}
+            signedIn={!!viewerId}
+            onBrowseDiscover={() => onChangeTab("discover")}
+          />
         )}
       </div>
     );
