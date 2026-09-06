@@ -20,6 +20,7 @@ type TagPost = {
   likes_count?: number | null;
   comments_count?: number | null;
   shares_count?: number | null;
+  purchase_count?: number | null;
   product_type?: string | null;
   creator?: {
     username: string | null;
@@ -44,7 +45,8 @@ const BASE_SELECT = `
   created_at,
   likes_count,
   comments_count,
-  shares_count
+  shares_count,
+  purchase_count
 `;
 
 export async function GET(
