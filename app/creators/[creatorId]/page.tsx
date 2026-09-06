@@ -169,6 +169,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     followStatusPromise,
   ]);
   const posts = postsRes?.data ?? [];
+  // A failed posts read must not render as "hasn't posted yet".
+  const postsFailed = Boolean(postsRes?.error);
   const followersCount = followersRes?.count ?? 0;
   const followingCount = followingRes?.count ?? 0;
 
@@ -260,10 +262,20 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           )}
         </div>
 
-        {posts.length === 0 ? (
-          <p className="col-span-full text-center text-white/60 mt-6">
-            This creator hasn&apos;t posted yet.
+        {postsFailed ? (
+          <p className="text-center text-white/60 mt-6" role="alert">
+            Couldn&apos;t load this creator&apos;s posts. Refresh the page to try again.
           </p>
+        ) : posts.length === 0 ? (
+          <div className="text-center mt-6">
+            <p className="text-white/60">This creator hasn&apos;t posted yet.</p>
+            <Link
+              href="/dashboard"
+              className="mt-3 inline-block text-sm font-medium text-[#4A35C7] hover:underline"
+            >
+              Browse the feed
+            </Link>
+          </div>
         ) : (
           <div className="mt-6 md:mt-8">
             <ProfilePostsGallery

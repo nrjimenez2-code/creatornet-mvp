@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { Star } from "lucide-react";
@@ -19,7 +20,7 @@ export default function ReviewForm({
   existingComment = null,
 }: ReviewFormProps) {
   const supabase = createClient();
-  const { userId } = useUser();
+  const { userId, loading: authLoading } = useUser();
   const [rating, setRating] = useState<number>(existingRating ?? 0);
   const [hoverRating, setHoverRating] = useState<number | null>(null);
   const [comment, setComment] = useState<string>(existingComment ?? "");
@@ -92,10 +93,27 @@ export default function ReviewForm({
     [userId, creatorId, rating, comment, onReviewSubmitted]
   );
 
+  // The session is seeded async: while it settles, hold the slot with a quiet
+  // placeholder so a signed-in reviewer never sees "Please sign in" flash first.
+  if (authLoading) {
+    return (
+      <div
+        aria-hidden="true"
+        className="h-24 rounded-2xl border border-white/10 bg-white/5 animate-pulse"
+      />
+    );
+  }
+
   if (!userId) {
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/70">
-        Please sign in to leave a review.
+        <p>Please sign in to leave a review.</p>
+        <Link
+          href="/auth"
+          className="mt-3 inline-block rounded-full bg-[#4A35C7] px-4 py-1.5 text-xs font-semibold text-white hover:bg-[#3D2BA3] transition-colors"
+        >
+          Sign in
+        </Link>
       </div>
     );
   }
