@@ -7,8 +7,8 @@
  * Renders the REAL page against the recording supabase stub. Locks:
  *  - auth still settling → skeleton, no sign-in prompt, no query
  *  - signed out → "Sign in to see your library" with a link to /auth
- *  - purchases read fails → "Couldn't load your library" + Try again, and the
- *    raw detail is still on the page (small, muted) for support
+ *  - purchases read fails → "Couldn't load your library" + Try again; the raw
+ *    database message goes to console.error, never onto the page
  *  - no purchases → "Your library is empty" + Explore the feed link
  *  - one purchase → the card renders (no false empty state)
  */
@@ -58,6 +58,7 @@ const buttonNamed = (label: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.spyOn(console, "error").mockImplementation(() => {});
   mockUser = { userId: null, loading: false };
   db = createMockClient(() => undefined);
   container = document.createElement("div");
@@ -71,6 +72,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  (console.error as jest.Mock).mockRestore?.();
   await act(async () => {
     root.unmount();
   });
@@ -101,7 +103,7 @@ describe("LibraryPage states", () => {
     expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 
-  test("purchases read fails: error text, Try again control, raw detail kept muted", async () => {
+  test("purchases read fails: error text, Try again control, raw detail logged not shown", async () => {
     mockUser = { userId: "buyer_1", loading: false };
     db = createMockClient((op) =>
       op.table === "purchases" ? { data: null, error: { message: "relation is on fire" } } : undefined
@@ -110,7 +112,11 @@ describe("LibraryPage states", () => {
     await render();
 
     expect(container.querySelector('[role="alert"]')?.textContent).toContain("Couldn't load your library");
-    expect(text()).toContain("relation is on fire");
+    expect(text()).not.toContain("relation is on fire");
+    expect(console.error).toHaveBeenCalledWith(
+      "[library] purchases read error:",
+      expect.objectContaining({ message: "relation is on fire" })
+    );
     const retry = buttonNamed("Try again");
     expect(retry).not.toBeNull();
     expect(retry?.getAttribute("type")).toBe("button");

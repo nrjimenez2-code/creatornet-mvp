@@ -210,6 +210,7 @@ export default function LibraryPage() {
         if (cancelled) return;
 
         if (pErr) {
+          console.error("[library] purchases read error:", pErr);
           setError(pErr.message);
           setLoading(false);
           return;
@@ -318,6 +319,7 @@ export default function LibraryPage() {
           setLoading(false);
         }
       } catch (e: any) {
+        console.error("[library] load error:", e);
         if (!cancelled) {
           setError(e?.message || "Failed to load your library.");
           setLoading(false);
@@ -394,7 +396,6 @@ export default function LibraryPage() {
               <p className="mt-1 text-sm text-gray-400">
                 Something went wrong on our end. Give it another try.
               </p>
-              <p className="mt-1 text-xs text-gray-600">{error}</p>
               <div className="mt-4 flex items-center justify-center gap-4">
                 <button
                   type="button"
