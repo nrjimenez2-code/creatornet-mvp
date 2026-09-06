@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useUser } from "@/lib/useUser";
 
 /**
@@ -50,6 +50,10 @@ function platformLabel(platform: Platform): string {
   return PLATFORM_OPTIONS.find((p) => p.value === platform)?.label ?? platform;
 }
 
+function authHeaders(accessToken: string | null): Record<string, string> {
+  return accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
+}
+
 export default function AuthenticityVerificationCard() {
   const { session, loading: sessionLoading } = useUser();
   const accessToken = session?.access_token ?? null;
@@ -64,11 +68,6 @@ export default function AuthenticityVerificationCard() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const authHeaders = useCallback(
-    (): Record<string, string> => (accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-    [accessToken]
-  );
-
   // Load the current status once the session is known. State is only touched
   // after the network round trip, never synchronously in the effect body.
   useEffect(() => {
@@ -76,7 +75,7 @@ export default function AuthenticityVerificationCard() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/verification", { headers: authHeaders() });
+        const res = await fetch("/api/verification", { headers: authHeaders(accessToken) });
         if (!res.ok) throw new Error(`Request failed (${res.status})`);
         const payload = (await res.json()) as StatusPayload;
         if (cancelled) return;
@@ -92,7 +91,7 @@ export default function AuthenticityVerificationCard() {
     return () => {
       cancelled = true;
     };
-  }, [sessionLoading, accessToken, authHeaders]);
+  }, [sessionLoading, accessToken]);
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -102,7 +101,7 @@ export default function AuthenticityVerificationCard() {
     try {
       const res = await fetch("/api/verification", {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        headers: { "Content-Type": "application/json", ...authHeaders(accessToken) },
         body: JSON.stringify({ platform, handle }),
       });
       const body = (await res.json().catch(() => ({}))) as Partial<StatusPayload> & { error?: string };

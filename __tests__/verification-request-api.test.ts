@@ -3,9 +3,10 @@
  *
  * 1. lib/verification.ts: code shape/alphabet, handle + platform validators,
  *    the status machine.
- * 2. /api/verification (REAL handler, recording client): rate limit first,
- *    then 401 / 403 banned / 400 / 409 one-open-request / 201 with a code,
- *    and GET hides the code once the request is decided.
+ * 2. /api/verification (REAL handler, recording client): 401 / 403 banned /
+ *    400 / 409 one-open-request / 201 with a code, and GET hides the code
+ *    once the request is decided. (The 5/hour limiter is proven in
+ *    rate-limit-coverage.test.ts with every other limited route.)
  *
  * Mutation-checked (see PR): with the 409 guard removed the "one open
  * request" test fails.
@@ -157,19 +158,6 @@ describe("status machine", () => {
 // ---------------------------------------------------------------------------
 
 describe("POST /api/verification", () => {
-  it("is rate limited to 5 an hour per address, before auth or database work", async () => {
-    const { POST } = await import("@/app/api/verification/route");
-    authUser = null; // so a non-limited call would 401, never 429
-    for (let i = 0; i < 5; i++) {
-      expect((await POST(post({ platform: "instagram", handle: "a" }, "5.5.5.5"))).status).toBe(401);
-    }
-    const opsBefore = db.ops.length;
-    const blocked = await POST(post({ platform: "instagram", handle: "a" }, "5.5.5.5"));
-    expect(blocked.status).toBe(429);
-    expect(blocked.headers.get("Retry-After")).toBe("3600");
-    expect(db.ops.length).toBe(opsBefore);
-  });
-
   it("answers 401 when signed out, without touching the database", async () => {
     const { POST } = await import("@/app/api/verification/route");
     authUser = null;

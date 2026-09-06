@@ -1,10 +1,11 @@
 -- 022 — blue "Authenticity" verification: request table + profile timestamp
 --
--- ⚠️  STAGED — NOT APPLIED. Run in the Supabase SQL editor right after the
---     app half (PR feat/blue-authenticity-verification) is merged. Take a
---     backup first. Until this runs, /api/verification and
---     /api/admin/verification answer 500 because the table does not exist;
---     everything else on the site is unaffected.
+-- ⚠️  STAGED — NOT APPLIED. Run in the Supabase SQL editor BEFORE merging
+--     the app half (PR feat/blue-authenticity-verification). Take a backup
+--     first. It is purely additive, so the live code does not notice it.
+--     Order matters: the merged app selects profiles.authenticity_verified_at
+--     on every public creator page, so merging first makes every
+--     /creators/<id> page 404 until this file has run.
 --
 -- What this adds:
 --   * public.verification_requests — one row per "prove this is your account"
@@ -54,6 +55,13 @@ CREATE INDEX IF NOT EXISTS verification_requests_status_created_idx
 CREATE INDEX IF NOT EXISTS verification_requests_creator_created_idx
   ON public.verification_requests (creator_id, created_at DESC);
 
+-- One live request per creator (a waiting code or an approval). The route
+-- answers 409 before inserting; this makes a double-submit race impossible
+-- at the database too, so a creator can never hold two approved rows.
+CREATE UNIQUE INDEX IF NOT EXISTS verification_requests_one_open_per_creator_idx
+  ON public.verification_requests (creator_id)
+  WHERE status IN ('code_issued', 'approved');
+
 ALTER TABLE public.verification_requests ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.verification_requests FROM PUBLIC;
 REVOKE ALL ON public.verification_requests FROM anon, authenticated;
@@ -86,6 +94,9 @@ COMMIT;
 --       AS server_writes_requests,
 --     has_column_privilege('authenticated','public.profiles','authenticity_verified_at','UPDATE')
 --       AS client_can_self_verify,                                                     -- false
+--     (SELECT count(*) FROM pg_indexes WHERE schemaname='public'
+--        AND indexname='verification_requests_one_open_per_creator_idx')                 -- 1
+--       AS one_open_index,
 --     (SELECT count(*) FROM public.verification_requests) AS request_count;            -- 0 on first run
 
 -- ---------------------------------------------------------------------------
