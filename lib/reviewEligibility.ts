@@ -10,7 +10,7 @@
 // a live purchase of THAT post, and the read-time "Verified Purchase" label
 // is per post too. Rows written before 024 have post_id NULL; they stay
 // visible and keep v1's creator-level label (any live purchase from the
-// creator), which is what the creator-level helpers below still serve.
+// creator) — see isVerifiedPurchase.
 //
 // Both the write gate (app/api/reviews) and the labels
 // (app/creators/[creatorId]/reviews) derive from the same query shape, so a
@@ -44,33 +44,9 @@ const notInList = () => `(${NON_QUALIFYING_PURCHASE_STATUSES.join(",")})`;
 /** One live purchase row, as much of it as the labels need. */
 export type LivePurchase = { buyer_id: string; post_id: string | null };
 
-const offerLabel = (title: unknown): string =>
+/** How an offer is named wherever it is shown (posts.title is nullable and may be blank). */
+export const offerLabel = (title: unknown): string =>
   typeof title === "string" && title.trim() ? title.trim() : UNTITLED_OFFER_LABEL;
-
-/**
- * Does `buyerId` hold at least one live purchase from `creatorId` (any offer)?
- * v1's creator-level gate. Kept for the legacy label path and for callers
- * that only care about "has this person ever paid this creator".
- * Throws on a query error; the caller decides how to fail.
- */
-export async function hasQualifyingPurchase(
-  admin: PurchaseReader,
-  buyerId: string,
-  creatorId: string
-): Promise<boolean> {
-  const { data, error } = await admin
-    .from("purchases")
-    .select("id")
-    .eq("buyer_id", buyerId)
-    .eq("creator_id", creatorId)
-    .eq("access_granted", true)
-    .not("status", "in", notInList())
-    .limit(1)
-    .maybeSingle();
-
-  if (error) throw error;
-  return Boolean(data);
-}
 
 /**
  * Does `buyerId` hold a live purchase of exactly `postId`? The write gate.
@@ -189,19 +165,6 @@ export async function livePurchasesByReviewers(
 }
 
 /**
- * Which of `reviewerIds` hold a live purchase from `creatorId` (any offer).
- * v1's creator-level label, now derived from livePurchasesByReviewers.
- */
-export async function verifiedReviewerIds(
-  admin: PurchaseReader,
-  creatorId: string,
-  reviewerIds: string[]
-): Promise<Set<string>> {
-  const rows = await livePurchasesByReviewers(admin, creatorId, reviewerIds);
-  return new Set(rows.map((row) => row.buyer_id));
-}
-
-/**
  * Should this review wear the "Verified Purchase" label?
  * - A per-offer review (post_id set): only if the reviewer holds a live
  *   purchase of THAT post.
@@ -228,7 +191,7 @@ export type ViewerReviewEligibility = {
   purchasedPosts: PurchasedPost[];
 };
 
-const NOT_ELIGIBLE = (viewerId: string | null): ViewerReviewEligibility => ({
+const notEligible = (viewerId: string | null): ViewerReviewEligibility => ({
   viewerId,
   canReview: false,
   purchasedPosts: [],
@@ -252,17 +215,17 @@ export async function getViewerReviewEligibility(
     // Treat an auth-lookup failure as signed-out: the form still renders and
     // the route stays the real gate. A cosmetic check must never 500 the page.
     console.error("[reviewEligibility] auth lookup failed:", err);
-    return NOT_ELIGIBLE(null);
+    return notEligible(null);
   }
 
-  if (!user) return NOT_ELIGIBLE(null);
-  if (user.id === creatorId) return NOT_ELIGIBLE(user.id);
+  if (!user) return notEligible(null);
+  if (user.id === creatorId) return notEligible(user.id);
 
   try {
     const purchasedPosts = await viewerPurchasedPosts(admin, user.id, creatorId);
     return { viewerId: user.id, canReview: purchasedPosts.length > 0, purchasedPosts };
   } catch (err) {
     console.error("[reviewEligibility] purchase lookup failed:", err);
-    return NOT_ELIGIBLE(user.id);
+    return notEligible(user.id);
   }
 }

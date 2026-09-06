@@ -5,7 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { Star } from "lucide-react";
-import { PURCHASE_REQUIRED_MESSAGE, type PurchasedPost } from "@/lib/reviewMessages";
+import { NO_PURCHASE_FROM_CREATOR_MESSAGE, type PurchasedPost } from "@/lib/reviewMessages";
 
 type ReviewFormProps = {
   creatorId: string;
@@ -136,7 +136,7 @@ export default function ReviewForm({
   if (offers.length === 0) {
     return (
       <div className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/70">
-        {PURCHASE_REQUIRED_MESSAGE}
+        {NO_PURCHASE_FROM_CREATOR_MESSAGE}
       </div>
     );
   }

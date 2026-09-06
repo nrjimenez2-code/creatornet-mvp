@@ -22,7 +22,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY = "service_role_fake";
 
 import { createMockClient, type MockClient, type Op } from "./__mocks__/supabaseQueryMock";
 import { _resetRateLimits } from "@/lib/rateLimit";
-import { verifiedReviewerIds } from "@/lib/reviewEligibility";
+import { isVerifiedPurchase, livePurchasesByReviewers } from "@/lib/reviewEligibility";
 
 type PurchaseRow = {
   id: string;
@@ -297,7 +297,7 @@ describe("POST /api/reviews is purchaser-only", () => {
   });
 });
 
-describe("verifiedReviewerIds (read-time 'Verified Purchase' label)", () => {
+describe("legacy (post_id null) 'Verified Purchase' label: any live purchase from this creator", () => {
   it("labels only reviewers with a live purchase from this creator", async () => {
     purchases = [
       paid({ id: "a", buyer_id: "buyer_live" }),
@@ -306,18 +306,16 @@ describe("verifiedReviewerIds (read-time 'Verified Purchase' label)", () => {
       paid({ id: "d", buyer_id: "buyer_elsewhere", creator_id: "creator_other", post_id: "post_other" }),
     ];
 
-    const ids = await verifiedReviewerIds(
-      db as any,
-      "creator_1",
-      ["buyer_live", "buyer_refunded", "buyer_revoked", "buyer_elsewhere", "buyer_never"]
-    );
+    const reviewers = ["buyer_live", "buyer_refunded", "buyer_revoked", "buyer_elsewhere", "buyer_never"];
+    const live = await livePurchasesByReviewers(db as any, "creator_1", reviewers);
 
-    expect([...ids]).toEqual(["buyer_live"]);
+    const labelled = reviewers.filter((id) => isVerifiedPurchase(live, id, null));
+    expect(labelled).toEqual(["buyer_live"]);
   });
 
   it("does not query at all when there are no reviewers", async () => {
-    const ids = await verifiedReviewerIds(db as any, "creator_1", []);
-    expect(ids.size).toBe(0);
+    const live = await livePurchasesByReviewers(db as any, "creator_1", []);
+    expect(live).toEqual([]);
     expect(db.opsFor("purchases")).toHaveLength(0);
   });
 });
