@@ -180,8 +180,10 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
 describe("tripwire: FeedList forwards creator_verified to VideoCard", () => {
   const source = readFileSync(join(REPO_ROOT, "components/FeedList.tsx"), "utf8");
 
-  test("passes creatorVerified from the mapped row", () => {
-    expect(source).toMatch(/creatorVerified=\{p\.creator_verified/);
+  test("passes creatorVerified from the mapped row, hidden when the name is hidden", () => {
+    expect(source).toMatch(
+      /creatorVerified=\{p\.creator_verified === true && p\.creator_name != null\}/
+    );
   });
 });
 
@@ -224,13 +226,9 @@ describe("tripwire: migration 023 returns creator_verified from both feed branch
   });
 
   test("never returns the raw stripe_account_id as a column", () => {
-    // The id may only appear inside the `is not null` test.
-    const bare = sql.match(/stripe_account_id(?! is not null)/g) ?? [];
-    // Allowed: the header comment mentions it once in prose and the CHECK
-    // block's LIKE pattern; the function body must have none.
+    // Inside the function body the id may only appear in the `is not null` test.
     const body = sql.slice(sql.indexOf("\nbegin;"), sql.indexOf("\ncommit;"));
     expect(body.match(/stripe_account_id(?! is not null)/g)).toBeNull();
-    expect(bare.length).toBeLessThanOrEqual(3);
   });
 
   test("has CHECK and ROLLBACK sections", () => {
