@@ -4,8 +4,10 @@ import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
+import { isSafeId } from "@/lib/ids";
 import {
-  hasQualifyingPurchase,
+  hasQualifyingPurchaseForPost,
+  isPostOwnedByCreator,
   PURCHASE_REQUIRED_CODE,
   PURCHASE_REQUIRED_MESSAGE,
 } from "@/lib/reviewEligibility";
@@ -40,6 +42,7 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const creatorId = body.creator_id as string;
+    const postId = body.post_id;
     const rating = Number(body.rating);
     const comment = String(body.comment || "").trim();
 
@@ -47,6 +50,15 @@ export async function POST(req: NextRequest) {
     if (!creatorId) {
       return NextResponse.json(
         { error: "creator_id is required" },
+        { status: 400 }
+      );
+    }
+
+    // Reviews are per offer: the post the buyer paid for. Same id guard as
+    // checkout, since the id goes straight into PostgREST filters.
+    if (!isSafeId(postId)) {
+      return NextResponse.json(
+        { error: "post_id is required" },
         { status: 400 }
       );
     }
@@ -80,7 +92,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Purchaser-only: the reviewer must hold a live purchase from this creator
+    // Purchaser-only: the reviewer must hold a live purchase of THIS offer
     // (lib/reviewEligibility.ts). Service role, because RLS on purchases is
     // buyer-scoped; without it we cannot verify, so fail closed rather than
     // let anyone through. Nothing has been written before this point.
@@ -99,30 +111,42 @@ export async function POST(req: NextRequest) {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    if (!(await hasQualifyingPurchase(admin, user.id, creatorId))) {
+    // The offer must be this creator's. A post from someone else is a
+    // malformed request (400), not a missing purchase (403).
+    if (!(await isPostOwnedByCreator(admin, postId, creatorId))) {
+      return NextResponse.json(
+        { error: "post_id does not belong to this creator" },
+        { status: 400 }
+      );
+    }
+
+    if (!(await hasQualifyingPurchaseForPost(admin, user.id, postId))) {
       return NextResponse.json(
         { code: PURCHASE_REQUIRED_CODE, error: PURCHASE_REQUIRED_MESSAGE },
         { status: 403 }
       );
     }
 
-    // Check if review already exists (upsert)
+    // One review per buyer per offer: a second submit for the same post
+    // edits it. (Rows from before 024 have post_id NULL and are left alone.)
     const { data: existingReview } = await supabase
       .from("reviews")
       .select("id")
       .eq("reviewer_id", user.id)
-      .eq("creator_id", creatorId)
+      .eq("post_id", postId)
       .maybeSingle();
 
     const reviewData = {
       reviewer_id: user.id,
       creator_id: creatorId,
+      post_id: postId,
       rating,
       comment,
       updated_at: new Date().toISOString(),
     };
 
     let result;
+    let status = 200;
     if (existingReview) {
       // Update existing review
       const { data, error } = await supabase
@@ -144,6 +168,7 @@ export async function POST(req: NextRequest) {
 
       if (error) throw error;
       result = data;
+      status = 201;
     }
 
     // Recalculate average rating using RPC (backend calculation), with the
@@ -162,11 +187,14 @@ export async function POST(req: NextRequest) {
       console.log("Profile rating updated successfully:", ratingData);
     }
 
-    return NextResponse.json({
-      success: true,
-      review: result,
-      rating: ratingData?.[0] || null, // Return the updated rating for immediate UI update
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        review: result,
+        rating: ratingData?.[0] || null, // Return the updated rating for immediate UI update
+      },
+      { status }
+    );
   } catch (err: any) {
     console.error("Review submission error:", err);
     return NextResponse.json(

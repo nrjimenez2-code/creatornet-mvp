@@ -16,10 +16,9 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon_fake";
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { PURCHASE_REQUIRED_CODE, PURCHASE_REQUIRED_MESSAGE } from "@/lib/reviewEligibility";
+import { PURCHASE_REQUIRED_CODE, PURCHASE_REQUIRED_MESSAGE } from "@/lib/reviewMessages";
 
 jest.mock("@/lib/supabaseClient", () => ({ createClient: () => ({}) }));
-jest.mock("@/lib/supabaseServer", () => ({ createSupabaseServer: async () => ({}) }));
 jest.mock("@/lib/useUser", () => ({
   useUser: () => ({ userId: "buyer_1", session: null, loading: false }),
 }));
@@ -83,7 +82,12 @@ beforeEach(async () => {
   document.body.appendChild(container);
   root = createRoot(container);
   await act(async () => {
-    root.render(createElement(ReviewForm, { creatorId: "creator_1" }));
+    root.render(
+      createElement(ReviewForm, {
+        creatorId: "creator_1",
+        offers: [{ post_id: "post_1", title: "Coaching call" }],
+      })
+    );
   });
 });
 
@@ -107,7 +111,12 @@ describe("ReviewForm shows the purchaser-only refusal inline", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/reviews");
-    expect(JSON.parse(init.body)).toEqual({ creator_id: "creator_1", rating: 5, comment: COMMENT });
+    expect(JSON.parse(init.body)).toEqual({
+      creator_id: "creator_1",
+      post_id: "post_1",
+      rating: 5,
+      comment: COMMENT,
+    });
 
     // Refusal shown inline, announced, never via alert().
     const alertRegion = container.querySelector('[role="alert"]');
