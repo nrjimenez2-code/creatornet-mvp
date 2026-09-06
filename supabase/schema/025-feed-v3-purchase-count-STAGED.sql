@@ -1,4 +1,4 @@
--- 021-feed-v3-purchase-count-STAGED.sql
+-- 025-feed-v3-purchase-count-STAGED.sql
 -- ⚠️ STAGED — NOT APPLIED. Apply only with Landon's explicit OK and a fresh
 -- backup (Supabase free plan = no PITR). Merging this PR does NOT run it.
 --
