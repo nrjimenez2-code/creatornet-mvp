@@ -3,15 +3,15 @@
 -- backup (Supabase free plan = no PITR). Merging this PR does NOT run it.
 --
 -- ⚠️ ORDER: apply 025-feed-v3-purchase-count-STAGED.sql (PR #128) FIRST.
--- This file is 021's get_feed_v3 (purchase_count included) plus ONE more
--- output column, so running it without 021 would still work but would then
--- make 021 fail (021 DROP+CREATEs a 23-column function; running it after
--- this would silently remove creator_verified). 021 → 023, never the reverse.
+-- This file is 025's get_feed_v3 (purchase_count included) plus ONE more
+-- output column, so running it without 025 would still work but would then
+-- make 025 fail (025 DROP+CREATEs a 23-column function; running it after
+-- this would silently remove creator_verified). 025 → 023, never the reverse.
 --
 -- Adds creator_verified to get_feed_v3 so the main feed overlay can show the
 -- purple "Verified creator" badge next to the creator's name (Noah #3,
 -- phase 2; phase 1 = PR #130, lib/sellReady.ts). The function body is
--- IDENTICAL to 021 except:
+-- IDENTICAL to 025 except:
 --   1. `creator_verified boolean` appended to RETURNS TABLE
 --   2. `(prof.stripe_account_id is not null
 --        and coalesce(prof.stripe_onboarding_complete, false))`
@@ -27,7 +27,7 @@
 -- badge, so deploy order does not matter: client-first shows no badges,
 -- migration-first is ignored until the client ships. Either order is safe.
 --
--- Security: unchanged from 014/021. The function is SECURITY DEFINER and
+-- Security: unchanged from 014/025. The function is SECURITY DEFINER and
 -- exposes only a boolean derived from two profile columns that browsers
 -- cannot write (migration 009: only the Stripe account.updated webhook and
 -- the Connect return route set them). The raw stripe_account_id is NOT
@@ -263,13 +263,13 @@ commit;
 --    where (pr.stripe_account_id is not null
 --           and coalesce(pr.stripe_onboarding_complete, false)) <> f.creator_verified;
 --    (expect: 0)
--- 4. purchase_count from 021 survived (not silently dropped):
+-- 4. purchase_count from 025 survived (not silently dropped):
 --    select count(*) as mismatches
 --    from get_feed_v3('discover', 50, 0) f
 --    join posts p on p.id = f.post_id
 --    where coalesce(p.purchase_count, 0) <> f.purchase_count;
 --    (expect: 0)
--- 5. Ordering unchanged vs. the 021 definition (compare post_id order of
+-- 5. Ordering unchanged vs. the 025 definition (compare post_id order of
 --    get_feed_v3('discover', 20, 0) before and after — must be identical).
 -- 6. Grants survived the DROP:
 --    select grantee, privilege_type from information_schema.routine_privileges
@@ -283,6 +283,6 @@ commit;
 -- ── ROLLBACK ────────────────────────────────────────────────────────────────
 -- Re-run supabase/schema/025-feed-v3-purchase-count-STAGED.sql as-is (it
 -- begins with the required `drop function if exists`, so the return-type
--- change is handled). To roll back 021 as well, follow 021's own ROLLBACK
+-- change is handled). To roll back 025 as well, follow 025's own ROLLBACK
 -- (drop, then re-run 014). The client tolerates the column disappearing
 -- (a missing creator_verified maps to false — no badge, nothing else changes).
