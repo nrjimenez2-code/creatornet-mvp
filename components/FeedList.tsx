@@ -607,6 +607,7 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                     productId={p.product_id ?? null}
                     creatorId={p.creator_id ?? null}
                     creatorUsername={p.creator_username ?? null}
+                    creatorVerified={p.creator_verified === true}
                     priceCents={price}
                     titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
                     productType={p.product_type ?? null}
