@@ -607,6 +607,9 @@ export default function FeedList({ activeTab, highlightPostId }: FeedListProps) 
                     productId={p.product_id ?? null}
                     creatorId={p.creator_id ?? null}
                     creatorUsername={p.creator_username ?? null}
+                    // Signed-out viewers get a placeholder name ("Creator") from the
+                    // discover RPC; never pin a Verified badge to a placeholder.
+                    creatorVerified={p.creator_verified === true && p.creator_name != null}
                     priceCents={price}
                     titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
                     productType={p.product_type ?? null}
