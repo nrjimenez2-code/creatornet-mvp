@@ -29,6 +29,12 @@ export type FeedV3Row = {
   is_following: boolean | null;
   /** posts.purchase_count — only present once the STAGED get_feed_v3 migration is applied. */
   purchase_count?: number | null;
+  /**
+   * Creator has completed Stripe Connect onboarding (the one "cleared to
+   * sell" rule, lib/sellReady.ts). Only present once migration
+   * 023-feed-v3-verified-seller-STAGED.sql is applied; absent before that.
+   */
+  creator_verified?: boolean | null;
 };
 
 /** What FeedList renders per card (moved here from FeedList so it stays testable). */
@@ -60,6 +66,8 @@ export type PostRow = {
   creator_can_sell?: boolean | null;
   /** Lifetime paid purchases of this post's product (null = unknown / not returned). */
   purchase_count?: number | null;
+  /** Show the purple "Verified creator" badge (omitted/null = no badge). */
+  creator_verified?: boolean;
 };
 
 /** Hosts that often time out or fail; don't request video from them (show poster only to avoid console errors). */
@@ -130,6 +138,9 @@ export function mapFeedV3Row(r: FeedV3Row): PostRow {
     is_following: r.is_following ?? false,
     // Absent until the RPC returns it; never invent a number.
     purchase_count: typeof r.purchase_count === "number" ? r.purchase_count : null,
+    // Strict boolean check: the column does not exist until migration 023
+    // runs, and nothing but a literal `true` may light the badge.
+    creator_verified: r.creator_verified === true,
   };
 }
 
