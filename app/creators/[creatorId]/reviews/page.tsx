@@ -11,7 +11,7 @@ import {
   isVerifiedPurchase,
   livePurchasesByReviewers,
   NO_PURCHASE_FROM_CREATOR_MESSAGE,
-  UNTITLED_OFFER_LABEL,
+  offerLabel,
 } from "@/lib/reviewEligibility";
 
 export const revalidate = 0;
@@ -186,7 +186,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
   );
 
   const reviewerMap = new Map<string, { full_name: string | null; username: string | null }>();
-  const offerTitleMap = new Map<string, string | null>();
+  const offerTitleMap = new Map<string, string>();
   // "Verified Purchase" is derived from purchases at read time (a refund drops
   // it automatically): per offer for reviews that name one, per creator for
   // legacy rows (post_id null). The label and the offer title are cosmetic,
@@ -207,7 +207,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
 
   if (offerPostsRes.data) {
     (offerPostsRes.data as Array<{ id: string; title: string | null }>).forEach((p) => {
-      offerTitleMap.set(p.id, p.title ?? null);
+      offerTitleMap.set(p.id, offerLabel(p.title));
     });
   }
 
@@ -231,7 +231,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
       rating: r.rating,
       created_at: r.created_at,
       post_id: r.post_id ?? null,
-      offer_title: r.post_id ? offerTitleMap.get(r.post_id) ?? UNTITLED_OFFER_LABEL : null,
+      offer_title: r.post_id ? offerTitleMap.get(r.post_id) ?? offerLabel(null) : null,
       is_verified_purchase: isVerifiedPurchase(livePurchases, r.reviewer_id, r.post_id ?? null),
     };
   });
@@ -340,7 +340,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
                         ) : null}
                       </div>
                       {review.offer_title ? (
-                        <p className="text-xs text-white/60" data-testid="review-offer">
+                        <p className="text-xs text-white/60">
                           Reviewed: {review.offer_title}
                         </p>
                       ) : null}

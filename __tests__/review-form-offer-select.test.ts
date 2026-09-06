@@ -14,7 +14,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon_fake";
 
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { PURCHASE_REQUIRED_MESSAGE, type PurchasedPost } from "@/lib/reviewMessages";
+import { NO_PURCHASE_FROM_CREATOR_MESSAGE, type PurchasedPost } from "@/lib/reviewMessages";
 
 jest.mock("@/lib/supabaseClient", () => ({ createClient: () => ({}) }));
 jest.mock("@/lib/useUser", () => ({
@@ -151,7 +151,7 @@ describe("ReviewForm names the offer", () => {
 
     expect(container.querySelector("form")).toBeNull();
     expect(container.querySelector("#review-offer")).toBeNull();
-    expect(container.textContent).toBe(PURCHASE_REQUIRED_MESSAGE);
+    expect(container.textContent).toBe(NO_PURCHASE_FROM_CREATOR_MESSAGE);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
