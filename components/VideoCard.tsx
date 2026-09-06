@@ -10,6 +10,7 @@ import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlace
 import BuyButton from "./BuyButton";
 import { formatSocialProof } from "@/lib/socialProof";
 import CommentPanel from "./CommentPanel";
+import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
 import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -45,6 +46,8 @@ type VideoCardProps = {
   creatorId?: string | null;
   /** Stable handle for /profile/[username] links; optional when only creatorId is known */
   creatorUsername?: string | null;
+  /** Creator finished Stripe Connect onboarding → purple "Verified creator" badge after the name. */
+  creatorVerified?: boolean;
   priceCents?: number | null;
   titleForCheckout?: string | null;
   planMonths?: number | null;
@@ -110,6 +113,7 @@ export default function VideoCard(props: VideoCardProps) {
     productId = null,
     creatorId = null,
     creatorUsername = null,
+    creatorVerified = false,
     priceCents = null,
     titleForCheckout = null,
     planMonths = null,
@@ -1069,10 +1073,12 @@ export default function VideoCard(props: VideoCardProps) {
                     className="text-white font-semibold text-base truncate hover:underline"
                   >
                     {displayCreator}
+                    <VerifiedCreatorBadge verified={!!creatorVerified} size="sm" className="ml-1.5" />
                   </Link>
                 ) : (
                   <span className="text-white font-semibold text-base truncate">
                     {displayCreator}
+                    <VerifiedCreatorBadge verified={!!creatorVerified} size="sm" className="ml-1.5" />
                   </span>
                 )}
               </div>
