@@ -2,7 +2,7 @@
 -- ⚠️ STAGED — NOT APPLIED. Apply only with Landon's explicit OK and a fresh
 -- backup (Supabase free plan = no PITR). Merging this PR does NOT run it.
 --
--- ⚠️ ORDER: apply 021-feed-v3-purchase-count-STAGED.sql (PR #128) FIRST.
+-- ⚠️ ORDER: apply 025-feed-v3-purchase-count-STAGED.sql (PR #128) FIRST.
 -- This file is 021's get_feed_v3 (purchase_count included) plus ONE more
 -- output column, so running it without 021 would still work but would then
 -- make 021 fail (021 DROP+CREATEs a 23-column function; running it after
@@ -281,7 +281,7 @@ commit;
 --    (expect: true — the column only appears inside the "is not null" test)
 
 -- ── ROLLBACK ────────────────────────────────────────────────────────────────
--- Re-run supabase/schema/021-feed-v3-purchase-count-STAGED.sql as-is (it
+-- Re-run supabase/schema/025-feed-v3-purchase-count-STAGED.sql as-is (it
 -- begins with the required `drop function if exists`, so the return-type
 -- change is handled). To roll back 021 as well, follow 021's own ROLLBACK
 -- (drop, then re-run 014). The client tolerates the column disappearing

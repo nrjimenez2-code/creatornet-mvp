@@ -193,9 +193,9 @@ describe("tripwire: migration 023 returns creator_verified from both feed branch
   const SELL_READY_SQL =
     "(prof.stripe_account_id is not null and coalesce(prof.stripe_onboarding_complete, false))";
 
-  test("is marked STAGED and ordered after 021", () => {
+  test("is marked STAGED and ordered after 025", () => {
     expect(sql).toMatch(/STAGED — NOT APPLIED/);
-    expect(sql).toMatch(/021-feed-v3-purchase-count-STAGED\.sql[^\n]*FIRST/);
+    expect(sql).toMatch(/025-feed-v3-purchase-count-STAGED\.sql[^\n]*FIRST/);
   });
 
   test("declares creator_verified boolean as the LAST column of RETURNS TABLE", () => {
@@ -206,7 +206,7 @@ describe("tripwire: migration 023 returns creator_verified from both feed branch
       .map((c) => c.trim())
       .filter(Boolean);
     expect(columns[columns.length - 1]).toBe("creator_verified boolean");
-    // 021's purchase_count must survive (023 is 021 + one column).
+    // 025's purchase_count must survive (023 is 025 + one column).
     expect(columns).toContain("purchase_count integer");
     expect(columns).toHaveLength(24);
   });
