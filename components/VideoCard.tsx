@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, useCallback, useMemo } from "react"
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Heart, Volume2, VolumeX, ShoppingCart, Plus } from "lucide-react";
+import { Heart, Volume2, VolumeX, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlacement";
 import BuyButton from "./BuyButton";
