@@ -10,6 +10,7 @@ import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlace
 import BuyButton from "./BuyButton";
 import CommentPanel from "./CommentPanel";
 import { useUser } from "@/lib/useUser";
+import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 
@@ -67,6 +68,15 @@ type VideoCardProps = {
   mobileMuteButtonSide?: "left" | "right";
 };
 
+/** play() rejects with NotAllowedError when autoplay policy blocks it (unmuted, no gesture yet). */
+function isAutoplayBlockedError(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { name?: unknown }).name === "NotAllowedError"
+  );
+}
+
 export default function VideoCard(props: VideoCardProps) {
   const {
     src,
@@ -107,7 +117,7 @@ export default function VideoCard(props: VideoCardProps) {
     showFollowButton = false,
     isFollowingCreator = false,
     onFollowChange,
-    soundEnabled = false,
+    soundEnabled,
     onToggleSound,
     tapToTogglePlayback = true,
     onLike,
@@ -124,7 +134,14 @@ export default function VideoCard(props: VideoCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [isMuted, setIsMuted] = useState(defaultMuted);
+  // Controlled by the parent when soundEnabled is given (the feed); otherwise
+  // seeded once from the saved per-device preference (profile/tag modals).
+  const [isMuted, setIsMuted] = useState(() =>
+    soundEnabled === undefined ? defaultMuted && !readSoundOn() : !soundEnabled
+  );
+  // True while this card plays muted only because the browser refused
+  // unmuted autoplay; shows the "Tap for sound" chip.
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [isPaused, setIsPaused] = useState(true);
   const [progress, setProgress] = useState(0);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -360,12 +377,35 @@ export default function VideoCard(props: VideoCardProps) {
     };
   }, []);
 
+  // Browser refused unmuted playback (no gesture yet on this page): keep the
+  // video moving muted and offer a one-tap unmute. The saved preference is
+  // deliberately NOT touched — the user asked for sound, the browser said no.
+  const fallBackToMuted = useCallback((video: HTMLVideoElement) => {
+    video.muted = true;
+    setIsMuted(true);
+    setAutoplayBlocked(true);
+    video.play().catch(() => {});
+  }, []);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
 
+    const wasPlaying = !video.paused;
     video.muted = isMuted;
-  }, [isMuted]);
+    if (isMuted || !wasPlaying) return;
+
+    // Unmuting a playing video by script (the feed flips soundEnabled once a
+    // card becomes active). Without user activation Chrome/WebKit pause it;
+    // re-requesting play() surfaces that as NotAllowedError so the same muted
+    // fallback + chip applies as in tryPlay below.
+    const playPromise = video.play();
+    if (playPromise && typeof playPromise.catch === "function") {
+      playPromise.catch((err: unknown) => {
+        if (isAutoplayBlockedError(err)) fallBackToMuted(video);
+      });
+    }
+  }, [isMuted, fallBackToMuted]);
 
   // Sync mute state with soundEnabled prop
   useEffect(() => {
@@ -384,7 +424,11 @@ export default function VideoCard(props: VideoCardProps) {
     const tryPlay = () => {
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
-        playPromise.catch(() => {
+        playPromise.catch((err: unknown) => {
+          if (isAutoplayBlockedError(err) && !video.muted) {
+            fallBackToMuted(video);
+            return;
+          }
           const onCanPlay = () => {
             video.play().catch(() => {});
           };
@@ -426,7 +470,7 @@ export default function VideoCard(props: VideoCardProps) {
     } else {
       video.pause();
     }
-  }, [isActive]);
+  }, [isActive, fallBackToMuted]);
 
   useEffect(() => {
     if (src && !hasLoaded) {
@@ -472,10 +516,37 @@ export default function VideoCard(props: VideoCardProps) {
     [handleVideoClick]
   );
 
+  // A real click/tap: the one place unmuted playback is always allowed.
+  const handleTapForSound = useCallback(() => {
+    setAutoplayBlocked(false);
+    setIsMuted(false);
+    const video = videoRef.current;
+    if (!video) return;
+    video.muted = false;
+    video.play().catch(() => {});
+  }, []);
+
+  // True only while this card is muted *solely* because the browser refused
+  // unmuted autoplay: the parent (feed) or the saved preference still says
+  // "sound on". autoplayBlocked itself is sticky, so it must be qualified —
+  // once the user is actually unmuted, or the feed has turned sound off, the
+  // chip and the "honour the gesture" branch below no longer apply.
+  const isMutedByAutoplayPolicy =
+    autoplayBlocked && isMuted && soundEnabled !== false;
+
   const handleMuteToggle = useCallback(() => {
-    setIsMuted((prev) => !prev);
+    if (isMutedByAutoplayPolicy) {
+      // The parent / saved preference already say "sound on"; this card only
+      // fell back to muted because autoplay was blocked. Honour the gesture.
+      handleTapForSound();
+      return;
+    }
+    const nextMuted = !isMuted;
+    setIsMuted(nextMuted);
+    // Uncontrolled cards own the preference; the feed writes it in FeedList.
+    if (soundEnabled === undefined) writeSoundOn(!nextMuted);
     onToggleSound?.();
-  }, [onToggleSound]);
+  }, [isMutedByAutoplayPolicy, handleTapForSound, isMuted, soundEnabled, onToggleSound]);
 
   const handleLike = useCallback(async () => {
     if (!postId) {
@@ -951,6 +1022,17 @@ export default function VideoCard(props: VideoCardProps) {
             )}
         </button>
         </div>
+
+        {isMutedByAutoplayPolicy ? (
+          <button
+            type="button"
+            onClick={handleTapForSound}
+            className="absolute top-14 sm:top-16 left-1/2 -translate-x-1/2 z-30 flex items-center gap-1.5 rounded-full bg-black/60 backdrop-blur-md border border-white/15 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black/75 transition focus:outline-none focus:ring-2 focus:ring-white/60"
+          >
+            <VolumeX className="h-3.5 w-3.5" aria-hidden="true" />
+            Tap for sound
+          </button>
+        ) : null}
       </div>
 
       <div

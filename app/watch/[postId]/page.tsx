@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useRequireUser } from "@/lib/useUser";
+import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 
@@ -201,6 +202,17 @@ export default function WatchPage() {
 
     video.addEventListener("timeupdate", saveProgress);
     return () => video.removeEventListener("timeupdate", saveProgress);
+  }, [post]);
+
+  // Per-device sound preference (Noah #6): start the way the user left it and
+  // remember what they do with the native controls.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!post || !video) return;
+    video.muted = !readSoundOn();
+    const onVolumeChange = () => writeSoundOn(!video.muted);
+    video.addEventListener("volumechange", onVolumeChange);
+    return () => video.removeEventListener("volumechange", onVolumeChange);
   }, [post]);
 
 
