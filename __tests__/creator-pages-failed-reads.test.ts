@@ -11,6 +11,9 @@
  *  - reviews page: rating/reviews query error → "Couldn't load reviews" and
  *    a "—" rating, never "0.0 · No written reviews yet"; genuinely none →
  *    the existing empty line
+ *  - reviews page: a /creators/<username>/reviews URL resolves via the
+ *    username fallback and must NOT render the "Unable to load reviews right
+ *    now" card just because the uuid lookup rejected the username (22P02)
  */
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
@@ -161,5 +164,63 @@ describe("creator reviews page: rating/reviews read", () => {
     expect(html).toContain(">0.0<");
     expect(html).toContain("Based on 0 reviews");
     expect(html).not.toContain("Couldn&#x27;t load reviews");
+  });
+});
+
+describe("creator reviews page: /creators/<username>/reviews", () => {
+  // The page explicitly supports a username in the URL (it falls back to a
+  // username lookup when the id lookup finds nothing). Postgres rejects
+  // comparing a uuid column to "coach" with SQLSTATE 22P02, and that error
+  // used to survive the successful fallback, so a real creator's public
+  // reviews page rendered the error card. Verified live on 2026-09-07:
+  // /creators/luis/reviews showed the card while /creators/<uuid>/reviews
+  // rendered correctly.
+  // Mutation check: delete `profileError = null` from the fallback branch in
+  // app/creators/[creatorId]/reviews/page.tsx and this test fails.
+  const usernameParams = Promise.resolve({ creatorId: "coach" });
+
+  const uuidRejectsUsername: Responder = (op) => {
+    if (op.table !== "profiles") return undefined;
+    if (op.filters.id === "coach") {
+      return {
+        data: null,
+        error: { code: "22P02", message: 'invalid input syntax for type uuid: "coach"' },
+      };
+    }
+    if (op.filters.username === "coach") return { data: PROFILE, error: null };
+    return undefined;
+  };
+
+  test("resolves the creator by username instead of rendering the error card", async () => {
+    db = createMockClient((op) => {
+      if (op.table === "reviews") return { data: [], error: null };
+      if (op.kind === "rpc") return { data: [{ avg_rating: 0, review_count: 0 }], error: null };
+      return uuidRejectsUsername(op);
+    });
+
+    const element = (await CreatorReviewsPage({ params: usernameParams })) as ReactElement;
+    const html = renderToStaticMarkup(element);
+
+    expect(html).not.toContain("Unable to load reviews right now");
+    expect(html).toContain("No written reviews yet.");
+  });
+
+  test("still shows the error card when the username fallback also fails", async () => {
+    db = createMockClient((op) => {
+      if (op.table === "reviews") return { data: [], error: null };
+      if (op.kind === "rpc") return { data: [{ avg_rating: 0, review_count: 0 }], error: null };
+      if (op.table === "profiles") {
+        return {
+          data: null,
+          error: { code: "22P02", message: 'invalid input syntax for type uuid: "coach"' },
+        };
+      }
+      return undefined;
+    });
+
+    const element = (await CreatorReviewsPage({ params: usernameParams })) as ReactElement;
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain("Unable to load reviews right now");
   });
 });
