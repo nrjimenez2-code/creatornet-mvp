@@ -126,12 +126,6 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
       .maybeSingle();
     if (byUsernameRes.data) {
       profile = byUsernameRes.data as ProfileRecord;
-      // The id lookup only failed because the URL segment is a username, not a
-      // uuid — Postgres rejects that comparison with 22P02. Once the username
-      // resolves the creator, that error is not a failure, and leaving it set
-      // rendered the "Unable to load reviews right now" card over a creator we
-      // had actually found.
-      profileError = null;
     }
   }
 
