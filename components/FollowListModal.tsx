@@ -4,6 +4,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import UserRow, { type UserRowUser } from "./UserRow";
 
 export type FollowListType = "followers" | "following";
@@ -122,10 +123,12 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
 
   useEffect(() => {
     if (!open) return;
-    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.body.style.overflow = prev;
+      // Restore the page default rather than the value captured on open. Only
+      // modals set this, and capturing "hidden" from a modal underneath used to
+      // leave the page permanently unscrollable once both closed.
+      document.body.style.overflow = "";
     };
   }, [open]);
 
@@ -140,7 +143,11 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
   const showInitialError = status === "error" && !hasItems;
   const showEmpty = status === "loaded" && !hasItems;
 
-  return (
+  // Portalled to <body> for the same reason SidePanel is: rendered in place, the
+  // `fixed inset-0` overlay is trapped by an ancestor on the creator profile and
+  // lays out as a small box inside the header instead of covering the viewport,
+  // leaving the page behind bright and clickable under an aria-modal dialog.
+  return createPortal(
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
       role="dialog"
@@ -226,6 +233,7 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
