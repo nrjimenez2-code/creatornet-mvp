@@ -198,7 +198,8 @@ export default function LibraryPage() {
                 title,
                 poster_url,
                 video_url,
-                creator_id
+                creator_id,
+                duration_seconds
               )
             `
           )
@@ -217,7 +218,7 @@ export default function LibraryPage() {
         }
 
         const baseRaw: Array<
-          Omit<LibraryItem, "position_seconds" | "duration_seconds">
+          Omit<LibraryItem, "position_seconds">
         > = (purchases || []).map((row: any) => ({
           id: row.id,
           post_id: row.post_id,
@@ -226,6 +227,7 @@ export default function LibraryPage() {
           poster_url: row.posts?.poster_url ?? null,
           video_url: row.posts?.video_url ?? null,
           creator_id: row.posts?.creator_id ?? null,
+          duration_seconds: row.posts?.duration_seconds ?? null,
           creator_username: null,
           creator_full_name: null,
         }));
@@ -276,43 +278,40 @@ export default function LibraryPage() {
             creator_username: pr?.username ?? null,
             creator_full_name: pr?.full_name ?? null,
             position_seconds: null,
-            duration_seconds: null,
           };
         });
 
         // 2) Optional progress
         const postIds = base.map((b) => b.post_id);
-        const progressByPost = new Map<
-          string,
-          { position_seconds: number | null; duration_seconds: number | null }
-        >();
+        // public.watch_progress stores the position in `seconds`; there is no
+        // position_seconds/duration_seconds column and never was, so the old
+        // select errored on every request and the swallowed failure left
+        // "Continue watching" and every progress bar permanently dead.
+        // Duration comes from posts.duration_seconds, selected above.
+        const positionByPost = new Map<string, number | null>();
 
         if (postIds.length > 0) {
           const { data: prog, error: wErr } = await supabase
             .from("watch_progress")
-            .select("post_id, position_seconds, duration_seconds")
+            .select("post_id, seconds")
             .eq("user_id", userId)
             .in("post_id", postIds);
 
-          // if table/policy not present yet, silently skip
-          if (!wErr && prog) {
+          if (wErr) {
+            // Progress is decoration, like creator names: a failure must not
+            // blank the library. But it must not be silent either.
+            console.error("[library] watch_progress read error:", wErr);
+          } else if (prog) {
             for (const r of prog) {
-              progressByPost.set(r.post_id, {
-                position_seconds: r.position_seconds ?? null,
-                duration_seconds: r.duration_seconds ?? null,
-              });
+              positionByPost.set(r.post_id, r.seconds ?? null);
             }
           }
         }
 
-        const merged = base.map((b) => {
-          const pr = progressByPost.get(b.post_id);
-          return {
-            ...b,
-            position_seconds: pr?.position_seconds ?? null,
-            duration_seconds: pr?.duration_seconds ?? null,
-          };
-        });
+        const merged = base.map((b) => ({
+          ...b,
+          position_seconds: positionByPost.get(b.post_id) ?? null,
+        }));
 
         if (!cancelled) {
           setItems(merged);

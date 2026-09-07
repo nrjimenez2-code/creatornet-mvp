@@ -11,6 +11,8 @@
  *    database message goes to console.error, never onto the page
  *  - no purchases → "Your library is empty" + Explore the feed link
  *  - one purchase → the card renders (no false empty state)
+ *  - watch progress reads the column public.watch_progress actually has
+ *    (`seconds`), so "Continue watching" and the progress bar work at all
  */
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
@@ -161,5 +163,53 @@ describe("LibraryPage states", () => {
     expect(text()).toContain("Kettlebell basics");
     expect(text()).not.toContain("library is empty");
     expect(container.querySelector('a[href="/watch/post_1"]')).not.toBeNull();
+  });
+
+  // public.watch_progress is (user_id, post_id, seconds, updated_at). The page
+  // used to select position_seconds/duration_seconds — columns that have never
+  // existed — and swallowed the resulting error, so "Continue watching" and the
+  // progress bar were dead for every buyer with no sign of failure anywhere.
+  // Duration is not on that table at all; it comes from posts.duration_seconds.
+  // Mutation check: restore either wrong column name and this test fails.
+  test("watch progress selects the real column and drives Continue watching", async () => {
+    mockUser = { userId: "buyer_1", loading: false };
+    let progressCols = "";
+    let purchaseCols = "";
+    db = createMockClient((op) => {
+      if (op.table === "purchases") {
+        purchaseCols = op.columns ?? "";
+        return {
+          data: [
+            {
+              id: "pur_1",
+              post_id: "post_1",
+              created_at: "2026-09-01T00:00:00Z",
+              posts: {
+                id: "post_1",
+                title: "Kettlebell basics",
+                poster_url: null,
+                video_url: null,
+                creator_id: "c1",
+                duration_seconds: 200,
+              },
+            },
+          ],
+          error: null,
+        };
+      }
+      if (op.table === "watch_progress") {
+        progressCols = op.columns ?? "";
+        return { data: [{ post_id: "post_1", seconds: 50 }], error: null };
+      }
+      return undefined;
+    });
+
+    await render();
+
+    expect(progressCols.split(",").map((c) => c.trim())).toEqual(["post_id", "seconds"]);
+    // duration has to come from the posts join, not watch_progress
+    expect(purchaseCols).toContain("duration_seconds");
+    // 50 of 200 seconds = 25%, so the purchase is resumable
+    expect(text()).toContain("Continue watching");
   });
 });

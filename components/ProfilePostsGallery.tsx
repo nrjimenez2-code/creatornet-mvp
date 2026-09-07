@@ -52,11 +52,11 @@ export default function ProfilePostsGallery({
       if (e.key === "Escape") setIsOpen(false);
     };
     document.addEventListener("keydown", handler);
-    const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handler);
-      document.body.style.overflow = prevOverflow;
+      // Page default, not the captured value — see FollowListModal.
+      document.body.style.overflow = "";
     };
   }, [isOpen]);
 
