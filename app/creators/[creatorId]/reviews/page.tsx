@@ -5,6 +5,12 @@ import ReviewForm from "@/components/ReviewForm";
 import { createClient } from "@supabase/supabase-js";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { BadgeCheck } from "lucide-react";
+import {
+  getViewerReviewEligibility,
+  PURCHASE_REQUIRED_MESSAGE,
+  verifiedReviewerIds,
+} from "@/lib/reviewEligibility";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -47,6 +53,8 @@ type ReviewRecord = {
   comment?: string | null;
   rating?: number | null;
   created_at?: string | null;
+  /** Derived at read time from purchases; never stored on the review. */
+  is_verified_purchase?: boolean;
 };
 
 type RatingPayload = {
@@ -164,20 +172,28 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
   );
   
   const reviewerMap = new Map<string, { full_name: string | null; username: string | null }>();
-  if (reviewerIds.length > 0) {
-    const { data: reviewerProfiles } = await admin
-      .from("profiles")
-      .select("id, username, full_name")
-      .in("id", reviewerIds);
-    
-    if (reviewerProfiles) {
-      reviewerProfiles.forEach((p: any) => {
-        reviewerMap.set(p.id, {
-          full_name: p.full_name,
-          username: p.username,
-        });
+  // "Verified Purchase" is derived from purchases at read time (a refund drops
+  // it automatically). Legacy reviews written before the purchaser gate stay
+  // visible, just without the label. The label is cosmetic, so a lookup error
+  // must not take the page down.
+  const [reviewerProfilesRes, verifiedIds, viewer] = await Promise.all([
+    reviewerIds.length > 0
+      ? admin.from("profiles").select("id, username, full_name").in("id", reviewerIds)
+      : Promise.resolve({ data: null }),
+    verifiedReviewerIds(admin, resolvedCreatorId, reviewerIds as string[]).catch((err) => {
+      console.error("[creator-reviews] verified-purchase lookup error:", err);
+      return new Set<string>();
+    }),
+    getViewerReviewEligibility(admin, resolvedCreatorId),
+  ]);
+
+  if (reviewerProfilesRes.data) {
+    reviewerProfilesRes.data.forEach((p: any) => {
+      reviewerMap.set(p.id, {
+        full_name: p.full_name,
+        username: p.username,
       });
-    }
+    });
   }
   
   // Map reviews from database with reviewer info
@@ -190,8 +206,15 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
       comment: r.comment,
       rating: r.rating,
       created_at: r.created_at,
+      is_verified_purchase: verifiedIds.has(r.reviewer_id),
     };
   });
+
+  // Signed-out viewers keep the form (it renders its own sign-in note); the
+  // creator sees nothing; a signed-in non-buyer gets the same one-line note
+  // the route answers with. The route is the real gate — this only drives UI.
+  const isViewerTheCreator = viewer.viewerId === resolvedCreatorId;
+  const showReviewForm = viewer.viewerId === null || viewer.canReview;
 
   return (
     <section className="px-4 pb-16 pt-10 text-white relative">
@@ -234,7 +257,13 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
               as /creators/<username>/reviews too, and posting a username into
               reviews.creator_id (a uuid column) failed the cast, so the review
               could never be submitted from a username URL. */}
-          <ReviewForm creatorId={resolvedCreatorId} />
+          {showReviewForm ? (
+            <ReviewForm creatorId={resolvedCreatorId} />
+          ) : isViewerTheCreator ? null : (
+            <p className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/70">
+              {PURCHASE_REQUIRED_MESSAGE}
+            </p>
+          )}
         </div>
 
         <div className="mt-10 space-y-4">
@@ -268,7 +297,18 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                     <div>
-                      <p className="text-base font-semibold">{reviewerName}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-base font-semibold">{reviewerName}</p>
+                        {review.is_verified_purchase ? (
+                          <span
+                            title="This reviewer bought from this creator"
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-300"
+                          >
+                            <BadgeCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                            Verified Purchase
+                          </span>
+                        ) : null}
+                      </div>
                       {createdAt ? (
                         <p className="text-xs uppercase tracking-wide text-white/50">
                           {createdAt}
