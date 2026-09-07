@@ -7,6 +7,7 @@ import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
 import ProfileMobileHeader from "@/components/ProfileMobileHeader";
+import FollowStats from "@/components/FollowStats";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -97,23 +98,13 @@ export default async function ProfilePage() {
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
 
-          {/* Stats row - responsive layout */}
-          <div className="mt-6 w-full max-w-2xl px-4">
-            <div className="flex flex-wrap items-center justify-center gap-4 sm:gap-6 md:gap-10 text-sm text-white/80">
-              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
-                <span className="text-lg font-semibold text-white">{postsCount}</span>
-                <span className="text-xs sm:text-sm">posts</span>
-              </div>
-              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
-                <span className="text-lg font-semibold text-white">{followersCount}</span>
-                <span className="text-xs sm:text-sm">followers</span>
-              </div>
-              <div className="flex flex-col items-center gap-1 text-center min-w-[70px]">
-                <span className="text-lg font-semibold text-white">{followingCount}</span>
-                <span className="text-xs sm:text-sm">following</span>
-              </div>
-            </div>
-          </div>
+          {/* Stats row - followers / following open the paginated list */}
+          <FollowStats
+            userId={user.id}
+            postsCount={postsCount}
+            followersCount={followersCount}
+            followingCount={followingCount}
+          />
 
         </div>
 

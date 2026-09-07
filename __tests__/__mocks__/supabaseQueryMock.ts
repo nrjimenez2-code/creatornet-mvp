@@ -22,6 +22,8 @@ export type Op = {
   inFilters: Array<{ column: string; values: unknown[] }>;
   /** .is(col, value) calls, in order (also mirrored into `filters`). */
   isFilters: Array<{ column: string; value: unknown }>;
+  /** .or(filterString) calls, in order. */
+  orFilters: string[];
   /** Payload passed to .insert()/.update()/.rpc(). */
   payload?: unknown;
   /** Columns passed to .select(). */
@@ -51,7 +53,7 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
   const ops: Op[] = [];
 
   function builder(table: string, kind: Op["kind"], payload?: unknown) {
-    const op: Op = { table, kind, filters: {}, notFilters: [], inFilters: [], isFilters: [], payload };
+    const op: Op = { table, kind, filters: {}, notFilters: [], inFilters: [], isFilters: [], orFilters: [], payload };
     let settled = false;
 
     const resolve = () => {
@@ -85,7 +87,8 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
         Object.assign(op.filters, obj);
         return chain;
       },
-      or() {
+      or(filters?: string) {
+        if (typeof filters === "string") op.orFilters.push(filters);
         return chain;
       },
       ilike(column: string, value: unknown) {
