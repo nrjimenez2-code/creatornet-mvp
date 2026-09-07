@@ -12,6 +12,7 @@ import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
+import AuthenticityBadge from "@/components/AuthenticityBadge";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -99,7 +100,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   let profileRes = await admin
     .from("profiles")
-    .select("id, username, full_name, tagline, avatar_url, bio")
+    .select("id, username, full_name, tagline, avatar_url, bio, authenticity_verified_at")
     .eq("id", creatorId)
     .maybeSingle();
 
@@ -107,7 +108,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   if (!profileRes.data) {
     const usernameRes = await admin
       .from("profiles")
-      .select("id, username, full_name, tagline, avatar_url, bio")
+      .select("id, username, full_name, tagline, avatar_url, bio, authenticity_verified_at")
       .eq("username", creatorId)
       .maybeSingle();
     if (usernameRes.data) {
@@ -223,7 +224,10 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             />
           </div>
 
-          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold">{displayName}</h1>
+          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold inline-flex items-center gap-2">
+            {displayName}
+            <AuthenticityBadge verifiedAt={profile.authenticity_verified_at ?? null} />
+          </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
           <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>

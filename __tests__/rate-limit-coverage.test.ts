@@ -106,3 +106,27 @@ describe("/api/reviews is rate limited", () => {
     expect(db.ops.length).toBe(opsBefore);
   });
 });
+
+describe("/api/verification is rate limited", () => {
+  // Matches REQUEST_RATE in the route: five blue-check codes an hour is
+  // plenty for a mistyped handle and useless for filling the admin queue.
+  const LIMIT = 5;
+
+  it("answers 429 with an hour-long Retry-After past the limit, before auth or database work", async () => {
+    const { POST } = await import("@/app/api/verification/route");
+    authUser = null; // an un-limited call 401s, so any 429 is the limiter
+
+    for (let i = 0; i < LIMIT; i++) {
+      const res = await POST(reqFrom("6.6.6.1", "https://x/api/verification", { platform: "instagram", handle: "a" }) as never);
+      expect(res.status).toBe(401);
+    }
+
+    const opsBefore = db.ops.length;
+    const blocked = await POST(
+      reqFrom("6.6.6.1", "https://x/api/verification", { platform: "instagram", handle: "a" }) as never
+    );
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("3600");
+    expect(db.ops.length).toBe(opsBefore);
+  });
+});
