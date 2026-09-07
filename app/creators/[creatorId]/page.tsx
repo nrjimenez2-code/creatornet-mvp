@@ -6,6 +6,7 @@ import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfilePostsGallery from "@/components/ProfilePostsGallery";
 import FollowButton from "@/components/FollowButton";
 import FollowStats from "@/components/FollowStats";
+import OffersPanel, { type OffersRating } from "@/components/OffersPanel";
 import { createServerClient } from "@/lib/supabaseServer";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createClient } from "@supabase/supabase-js";
@@ -15,6 +16,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
+import { buildOffers, type OfferProduct } from "@/lib/offers";
+import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -153,7 +156,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           .maybeSingle()
       : Promise.resolve({ data: null, error: null } as const);
 
-  const [postsRes, followersRes, followingRes, followStatusRes] = await Promise.all([
+  const [postsRes, followersRes, followingRes, followStatusRes, productsRes, sellReady, ratingRes] =
+    await Promise.all([
     onlyVisiblePosts(
       admin
         .from("posts")
@@ -170,8 +174,28 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
       .select("following_id", { count: "exact", head: true })
       .eq("follower_id", resolvedCreatorId),
     followStatusPromise,
+    // Offers panel: the creator's products (joined to visible posts below).
+    admin
+      .from("products")
+      .select(
+        "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active"
+      )
+      .eq("creator_id", resolvedCreatorId),
+    isCreatorSellReady(resolvedCreatorId).catch(() => false),
+    admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
   ]);
   const posts = postsRes?.data ?? [];
+  if (productsRes?.error) {
+    // Non-fatal: the page still renders, just without the Offers button.
+    console.error("[creator-profile] products query failed:", productsRes.error.message);
+  }
+  const offers = buildOffers((productsRes?.data ?? []) as OfferProduct[], posts);
+  const ratingRow = (ratingRes?.data?.[0] ?? null) as
+    | { avg_rating?: number | null; review_count?: number | null }
+    | null;
+  const rating: OffersRating | null = ratingRow
+    ? { avgRating: Number(ratingRow.avg_rating ?? 0), reviewCount: Number(ratingRow.review_count ?? 0) }
+    : null;
   const followersCount = followersRes?.count ?? 0;
   const followingCount = followingRes?.count ?? 0;
 
@@ -243,10 +267,19 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             followingCount={followingCount}
           />
 
-          {/* Follow button centered on all screen sizes */}
-          {canFollow && (
-            <div className="mt-4 mb-3 flex justify-center">
-              <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
+          {/* Follow + Offers buttons centered on all screen sizes */}
+          {(canFollow || offers.length > 0) && (
+            <div className="mt-4 mb-3 flex flex-wrap items-center justify-center gap-2">
+              {canFollow && (
+                <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
+              )}
+              <OffersPanel
+                creatorId={resolvedCreatorId}
+                creatorName={displayName}
+                offers={offers}
+                sellReady={sellReady}
+                rating={rating}
+              />
             </div>
           )}
         </div>
