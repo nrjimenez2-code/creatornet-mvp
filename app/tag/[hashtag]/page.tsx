@@ -24,6 +24,7 @@ type ApiTagPost = {
   likes_count?: number | null;
   comments_count?: number | null;
   shares_count?: number | null;
+  purchase_count?: number | null;
   creator?: {
     username: string | null;
     full_name: string | null;
@@ -376,6 +377,7 @@ export default function TagFeedPage() {
                       priceCents={p.price_cents ?? null}
                       titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
                       productType={p.product_type ?? null}
+                      purchaseCount={p.purchase_count ?? null}
                       allowBooking={allowBooking}
                       bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                     />
