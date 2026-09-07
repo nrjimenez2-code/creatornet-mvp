@@ -9,6 +9,11 @@
  * reviewer saw "Please sign in to leave a review." flash before the session
  * seeded. It now holds the slot with a placeholder while `loading` is true,
  * and the signed-out prompt links to /auth.
+ *
+ * `offers` is required since reviews became per-offer: the component returns
+ * the auth placeholder and the sign-in prompt BEFORE it looks at offers, so
+ * those two cases pass an empty list; the signed-in case needs one offer to
+ * get past the "nothing to review" branch and render the form.
  */
 
 import { act, createElement } from "react";
@@ -33,9 +38,11 @@ import ReviewForm from "@/components/ReviewForm";
 let container: HTMLDivElement;
 let root: Root;
 
-async function render() {
+const ONE_OFFER = [{ post_id: "post_1", title: "Kettlebell basics" }];
+
+async function render(offers: { post_id: string; title: string }[] = []) {
   await act(async () => {
-    root.render(createElement(ReviewForm, { creatorId: "creator_1" }));
+    root.render(createElement(ReviewForm, { creatorId: "creator_1", offers }));
   });
 }
 
@@ -80,7 +87,7 @@ describe("ReviewForm auth states", () => {
   test("signed in: the form renders", async () => {
     mockUser = { userId: "buyer_1", loading: false };
 
-    await render();
+    await render(ONE_OFFER);
 
     expect(container.querySelector("form")).not.toBeNull();
     expect(text()).toContain("Write a Review");
