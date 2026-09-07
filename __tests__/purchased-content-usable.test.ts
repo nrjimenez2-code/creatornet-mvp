@@ -46,8 +46,13 @@ describe("creator attribution does not depend on a cross-user profiles read", ()
 
   test("that route still returns display columns only", () => {
     // If someone widens this select, profile data leaks to any signed-in user.
+    // The two Stripe Connect columns are read ONLY to derive the boolean
+    // `is_verified_seller` (lib/sellReady.ts) and must never be echoed back;
+    // __tests__/verified-creator-badge-api.test.ts drives the real handler
+    // and asserts the response shape.
     const route = read("app/api/profiles/route.ts");
-    expect(route).toContain('.select("id, full_name, username, avatar_url")');
+    expect(route).toContain(".select(`id, full_name, username, avatar_url, ${SELL_READY_COLUMNS}`)");
+    expect(route).not.toMatch(/^\s*stripe_\w+\s*:/m); // no stripe_* key in the response mapping
     expect(route).toMatch(/authError\s*\|\|\s*!user/); // stays auth-gated
   });
 });
