@@ -139,6 +139,30 @@ describe("mapFeedV3Row", () => {
     expect(post.interests).toEqual(["fitness"]);
   });
 
+  test("maps creator_verified true through when the RPC returns it", () => {
+    const post = mapFeedV3Row(makeRow({ creator_verified: true }));
+    expect(post.creator_verified).toBe(true);
+  });
+
+  test("maps creator_verified to false when the column is missing or null", () => {
+    // Before migration 023 is applied the RPC has no such column at all.
+    const missing = mapFeedV3Row(makeRow());
+    expect(missing.creator_verified).toBe(false);
+
+    const nulled = mapFeedV3Row(makeRow({ creator_verified: null }));
+    expect(nulled.creator_verified).toBe(false);
+
+    const explicitFalse = mapFeedV3Row(makeRow({ creator_verified: false }));
+    expect(explicitFalse.creator_verified).toBe(false);
+  });
+
+  test("never lets a truthy non-boolean become a verified badge", () => {
+    // Defensive: only boolean true counts (a stray "true" string or 1 from a
+    // mis-typed column must not light the badge).
+    const post = mapFeedV3Row(makeRow({ creator_verified: "true" as unknown as boolean }));
+    expect(post.creator_verified).toBe(false);
+  });
+
   test("defaults counts and flags for null RPC values", () => {
     const post = mapFeedV3Row(
       makeRow({

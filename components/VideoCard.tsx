@@ -10,6 +10,7 @@ import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlace
 import BuyButton from "./BuyButton";
 import { formatSocialProof } from "@/lib/socialProof";
 import CommentPanel from "./CommentPanel";
+import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
 import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -45,6 +46,8 @@ type VideoCardProps = {
   creatorId?: string | null;
   /** Stable handle for /profile/[username] links; optional when only creatorId is known */
   creatorUsername?: string | null;
+  /** Creator finished Stripe Connect onboarding → purple "Verified creator" badge after the name. */
+  creatorVerified?: boolean;
   priceCents?: number | null;
   titleForCheckout?: string | null;
   planMonths?: number | null;
@@ -110,6 +113,7 @@ export default function VideoCard(props: VideoCardProps) {
     productId = null,
     creatorId = null,
     creatorUsername = null,
+    creatorVerified = false,
     priceCents = null,
     titleForCheckout = null,
     planMonths = null,
@@ -1075,6 +1079,10 @@ export default function VideoCard(props: VideoCardProps) {
                     {displayCreator}
                   </span>
                 )}
+                {/* Sibling of the name (not inside it): the name `truncate`s, so a
+                    badge inside it is clipped away for long names. The row's gap-2
+                    spaces it; shrink-0 on the badge keeps it visible. */}
+                <VerifiedCreatorBadge verified={creatorVerified} size="sm" />
               </div>
               <p className="text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0">
                 {displayTitle}

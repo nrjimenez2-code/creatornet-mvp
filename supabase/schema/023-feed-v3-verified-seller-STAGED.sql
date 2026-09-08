@@ -1,27 +1,47 @@
--- 025-feed-v3-purchase-count-STAGED.sql
--- ✅ APPLIED TO PRODUCTION 2026-09-07 (migration 025_feed_v3_purchase_count),
---    with Landon's explicit go and a backup at ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
---    023 was applied immediately AFTER it — that order matters, see below.
---    Checks all asserted on values: 23 output columns · purchase_count matches
---    posts on every row · SECURITY DEFINER and search_path retained ·
---    anon/authenticated/service_role keep EXECUTE · feed still returns its rows.
---    The filename still ends in -STAGED; treat THIS header as the truth.
+-- 023-feed-v3-verified-seller-STAGED.sql
+-- ✅ APPLIED TO PRODUCTION 2026-09-07 (migration 023_feed_v3_creator_verified),
+--    with Landon's explicit go and a fresh backup at
+--    ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
+--    025 was applied immediately before it, in that order. The filename still
+--    says STAGED only because renaming it would break nothing but churn the
+--    schema-tag CI; treat THIS header as the source of truth.
+--    Post-apply checks (all asserted on values): 24 output columns · purchase_count
+--    survived · creator_verified agrees with the sell-ready rule on every row ·
+--    SECURITY DEFINER and search_path retained · anon/authenticated/service_role
+--    keep EXECUTE · feed still returns its rows · stripe_account_id not exposed.
 --
--- Adds posts.purchase_count to get_feed_v3 so the feed can render social
--- proof ("126 students" / "38 purchases"). The function body is IDENTICAL to
--- 014-feed-v3-rpc.sql except:
---   1. `purchase_count integer` appended to RETURNS TABLE
---   2. `coalesce(p.purchase_count, 0)` appended to both select branches
+-- ⚠️ ORDER: apply 025-feed-v3-purchase-count-STAGED.sql (PR #128) FIRST.
+-- This file is 025's get_feed_v3 (purchase_count included) plus ONE more
+-- output column, so running it without 025 would still work but would then
+-- make 025 fail (025 DROP+CREATEs a 23-column function; running it after
+-- this would silently remove creator_verified). 025 → 023, never the reverse.
+--
+-- Adds creator_verified to get_feed_v3 so the main feed overlay can show the
+-- purple "Verified creator" badge next to the creator's name (Noah #3,
+-- phase 2; phase 1 = PR #130, lib/sellReady.ts). The function body is
+-- IDENTICAL to 025 except:
+--   1. `creator_verified boolean` appended to RETURNS TABLE
+--   2. `(prof.stripe_account_id is not null
+--        and coalesce(prof.stripe_onboarding_complete, false))`
+--      appended to both select branches, from the creator's profiles row
+--      (alias `prof`, the same join 014 already uses for name/avatar).
+-- That expression is the ONE "cleared to sell" predicate — byte-for-byte the
+-- same rule as lib/sellReady.ts#isSellReadyProfile and
+-- lib/creatorStripeConnect.ts#isCreatorSellReady. Change all three or none.
 -- Changing RETURNS TABLE requires DROP + CREATE (create or replace cannot
 -- change a function's return type), so the grants are re-issued below.
 --
--- The client (lib/feedV3.ts) treats a missing column as null and renders
--- nothing, so deploy order does not matter: client-first shows no proof,
+-- The client (lib/feedV3.ts) maps a missing column to false and renders no
+-- badge, so deploy order does not matter: client-first shows no badges,
 -- migration-first is ignored until the client ships. Either order is safe.
--- The UI threshold (lib/socialProof.ts SOCIAL_PROOF_MIN_COUNT) ships OFF.
 --
--- Security: unchanged from 014. purchase_count is already readable through
--- the posts table's public SELECT policy; browsers cannot UPDATE it (010).
+-- Security: unchanged from 014/025. The function is SECURITY DEFINER and
+-- exposes only a boolean derived from two profile columns that browsers
+-- cannot write (migration 009: only the Stripe account.updated webhook and
+-- the Connect return route set them). The raw stripe_account_id is NOT
+-- returned. Not gated on the viewer being signed in (creator_name is) — a
+-- verified flag is not PII; to gate it, wrap the discover-branch
+-- `x.r_creator_verified` in `case when v_uid is not null then ... end`.
 
 begin;
 
@@ -55,7 +75,8 @@ returns table (
   product_price_cents integer,
   is_liked boolean,
   is_following boolean,
-  purchase_count integer
+  purchase_count integer,
+  creator_verified boolean
 )
 language plpgsql
 stable
@@ -100,7 +121,8 @@ begin
         where l.user_id = v_uid and l.post_id = p.id
       ),
       true,
-      coalesce(p.purchase_count, 0)
+      coalesce(p.purchase_count, 0),
+      (prof.stripe_account_id is not null and coalesce(prof.stripe_onboarding_complete, false))
     from posts p
     join follows f
       on f.following_id = p.creator_id
@@ -158,7 +180,8 @@ begin
         select 1 from follows f
         where f.follower_id = v_uid and f.following_id = x.r_creator_id
       )),
-      x.r_purchase_count
+      x.r_purchase_count,
+      x.r_creator_verified
     from (
       select
         p.id as r_post_id,
@@ -186,7 +209,8 @@ begin
         prof.avatar_url as r_creator_avatar_url,
         prod.p_type as r_product_type,
         prod.p_price as r_product_price_cents,
-        coalesce(p.purchase_count, 0) as r_purchase_count
+        coalesce(p.purchase_count, 0) as r_purchase_count,
+        (prof.stripe_account_id is not null and coalesce(prof.stripe_onboarding_complete, false)) as r_creator_verified
       from posts p
       left join post_metrics pm on pm.post_id = p.id
       left join profiles prof on prof.id = p.creator_id
@@ -230,30 +254,43 @@ grant execute on function public.get_feed_v3(text, integer, integer)
 commit;
 
 -- ── CHECK BLOCK (run after applying; paste output) ──────────────────────────
--- 1. Function exists, SECURITY DEFINER, search_path pinned, 23 output columns:
+-- 1. Function exists, SECURITY DEFINER, search_path pinned, 24 output columns:
 --    select proname, prosecdef, proconfig, pronargs,
 --           array_length(proallargtypes, 1) as all_args
 --    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
 --    where n.nspname = 'public' and proname = 'get_feed_v3';
---    (expect prosecdef = true, proconfig = {search_path=public}, all_args = 26 = 3 in + 23 out)
--- 2. purchase_count is present and never null:
---    select post_id, purchase_count from get_feed_v3('discover', 5, 0);
---    (expect: integer >= 0 on every row, no NULLs)
--- 3. It matches the table (same rows, same values):
+--    (expect prosecdef = true, proconfig = {search_path=public}, all_args = 27 = 3 in + 24 out)
+-- 2. creator_verified is present, boolean, never null, on both tabs:
+--    select post_id, creator_verified from get_feed_v3('discover', 5, 0);
+--    select post_id, creator_verified from get_feed_v3('following', 5, 0);
+--    (expect: true/false on every row, no NULLs; following is empty when anon)
+-- 3. It matches the profiles rule exactly (same rows, same verdict):
+--    select count(*) as mismatches
+--    from get_feed_v3('discover', 50, 0) f
+--    left join profiles pr on pr.id = f.creator_id
+--    where (pr.stripe_account_id is not null
+--           and coalesce(pr.stripe_onboarding_complete, false)) <> f.creator_verified;
+--    (expect: 0)
+-- 4. purchase_count from 025 survived (not silently dropped):
 --    select count(*) as mismatches
 --    from get_feed_v3('discover', 50, 0) f
 --    join posts p on p.id = f.post_id
 --    where coalesce(p.purchase_count, 0) <> f.purchase_count;
 --    (expect: 0)
--- 4. Ordering unchanged vs. the 014 definition (compare post_id order of
+-- 5. Ordering unchanged vs. the 025 definition (compare post_id order of
 --    get_feed_v3('discover', 20, 0) before and after — must be identical).
--- 5. Grants survived the DROP:
+-- 6. Grants survived the DROP:
 --    select grantee, privilege_type from information_schema.routine_privileges
 --    where routine_name = 'get_feed_v3';
 --    (expect anon, authenticated, service_role EXECUTE)
+-- 7. No raw Stripe id leaks through the function:
+--    select pg_get_functiondef('public.get_feed_v3(text,integer,integer)'::regprocedure)
+--      not like '%stripe_account_id,%' as no_raw_id_column;
+--    (expect: true — the column only appears inside the "is not null" test)
 
 -- ── ROLLBACK ────────────────────────────────────────────────────────────────
--- Re-run supabase/schema/014-feed-v3-rpc.sql after:
---    drop function if exists public.get_feed_v3(text, integer, integer);
--- (014 uses create or replace; the DROP first is required because the return
--- type differs.) The client tolerates the column disappearing (maps to null).
+-- Re-run supabase/schema/025-feed-v3-purchase-count-STAGED.sql as-is (it
+-- begins with the required `drop function if exists`, so the return-type
+-- change is handled). To roll back 025 as well, follow 025's own ROLLBACK
+-- (drop, then re-run 014). The client tolerates the column disappearing
+-- (a missing creator_verified maps to false — no badge, nothing else changes).
