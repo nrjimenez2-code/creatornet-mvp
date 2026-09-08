@@ -42,11 +42,16 @@ export default function FeedEmptyState({ tab, signedIn, onBrowseDiscover }: Prop
   if (tab === "following") {
     return (
       <>
+        {/* Zero rows does NOT mean zero follows: the Following branch of
+            get_feed_v3 joins follows and then filters out hidden, removed and
+            media-less posts, so someone who follows five creators with nothing
+            visible lands here too. Verified on production: 7 of 8 accounts that
+            follow somebody get zero rows. Say only what is true in both cases. */}
         <p className="text-sm text-gray-300 font-medium mb-1">
-          You&apos;re not following anyone yet
+          Nothing new from creators you follow
         </p>
         <p className="text-xs text-gray-500 max-w-md mb-3">
-          Follow a creator from Discover and their posts will show up here.
+          Follow more creators from Discover and their posts will show up here.
         </p>
         <button
           type="button"

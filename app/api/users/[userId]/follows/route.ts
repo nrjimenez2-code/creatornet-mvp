@@ -154,6 +154,10 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
         username: profile?.username ?? null,
         full_name: profile?.full_name ?? null,
         avatar_url: profile?.avatar_url ?? null,
+        // 34 of 47 accounts never finished onboarding and have no profiles row.
+        // The row still belongs in the list (the stat counts it), but without
+        // this the client linked it to /creators/<id>, which 404s.
+        has_profile: Boolean(profile),
       };
     });
 

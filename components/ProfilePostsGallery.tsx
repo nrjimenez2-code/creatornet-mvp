@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { isWithinRenderWindow } from "@/lib/feedV3";
@@ -30,6 +30,10 @@ type Props = {
   creatorName: string;
   creatorUsername?: string | null;
   creatorAvatarUrl?: string | null;
+  /** Ids of these posts the signed-in viewer has already liked. Without it every
+   *  heart renders empty, so a viewer who already liked a post taps a hollow
+   *  heart and the toggle DELETES their like instead of adding one. */
+  likedPostIds?: string[];
 };
 
 export default function ProfilePostsGallery({
@@ -38,7 +42,9 @@ export default function ProfilePostsGallery({
   creatorName,
   creatorUsername = null,
   creatorAvatarUrl = null,
+  likedPostIds,
 }: Props) {
+  const likedIds = useMemo(() => new Set(likedPostIds ?? []), [likedPostIds]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -223,6 +229,7 @@ export default function ProfilePostsGallery({
                           ? post.interests.map((t) => `#${t}`).join(" ")
                           : ""
                     }
+                    isLiked={likedIds.has(post.id)}
                     likes={post.likes_count ?? 0}
                     comments={post.comments_count ?? 0}
                     shares={post.shares_count ?? 0}

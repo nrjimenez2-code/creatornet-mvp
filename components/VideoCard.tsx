@@ -1046,7 +1046,15 @@ export default function VideoCard(props: VideoCardProps) {
         style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
       >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
-          <div className="relative p-3 sm:p-4 max-lg:translate-y-[7px] lg:translate-y-0">
+          {/* max-lg:pb — on mobile there is ALWAYS a fixed 52px bar at the bottom
+              of the feed (the signed-out "Join CreatorNet" CTA, or the nav once
+              signed in), and it sits at z-40 over this z-20 overlay. Without the
+              extra bottom padding the caption and hashtag row render underneath
+              it: measured on production at 375x812 the hashtags occupied
+              y=738-782 while the bar started at y=751, so the lower two thirds
+              of a hashtag link was unclickable — elementFromPoint returned the
+              bar, not the link. */}
+          <div className="relative p-3 sm:p-4 max-lg:pb-[56px] max-lg:translate-y-[7px] lg:translate-y-0">
           <div className="flex items-start gap-3 mb-3 translate-y-[44px] lg:translate-y-[45px]">
 
             <div className="flex-1 min-w-0">

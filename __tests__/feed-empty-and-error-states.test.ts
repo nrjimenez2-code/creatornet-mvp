@@ -12,10 +12,13 @@
  *  - initial load shows "Loading…" and never flashes an empty state first
  *  - Following + signed out: a sign-in prompt with a link to /auth, and the
  *    RPC is NOT called (this used to render a flat "No posts yet.")
- *  - Following + signed in + no rows: "not following anyone" + a Browse
- *    Discover control that calls onChangeTab("discover")
+ *  - Following + signed in + no rows: a message that is true whether or not the
+ *    viewer follows anybody, plus a Browse Discover control
  *  - Discover + no rows: "No posts yet"
  *  - RPC error: "Couldn't load the feed" + a Try again control
+ *  - RPC error AFTER a tab switch, with rows still in state: the error still
+ *    wins. Switching tabs does not clear `items`, so this used to render the
+ *    previous tab's videos as if the new tab had loaded.
  */
 
 import { act, createElement } from "react";
@@ -60,6 +63,19 @@ jest.mock("next/link", () => ({
 import FeedList from "@/components/FeedList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+// jsdom has no IntersectionObserver. FeedList only builds one once it has rows,
+// so the empty/error tests never needed it — the tab-switch test below does.
+class StubIntersectionObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+  takeRecords(): unknown[] {
+    return [];
+  }
+}
+(globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
+  (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver ?? StubIntersectionObserver;
 
 let container: HTMLDivElement;
 let root: Root;
@@ -136,14 +152,19 @@ describe("FeedList states", () => {
     expect(text()).not.toContain("No posts yet");
   });
 
-  test("Following + signed in + no rows: not-following message with a Browse Discover control", async () => {
+  // Zero rows does not mean zero follows — the RPC joins follows and then
+  // filters out hidden/removed/media-less posts. On production 7 of 8 accounts
+  // that follow somebody get zero rows here, so the copy must not claim they
+  // follow nobody.
+  test("Following + signed in + no rows: a message true in both cases, with a Browse Discover control", async () => {
     mockUser = { userId: "u1", loading: false };
     const onChangeTab = jest.fn();
 
     await render({ activeTab: "following", onChangeTab });
 
     expect(rpcSpy).toHaveBeenCalledWith("get_feed_v3", expect.objectContaining({ p_tab: "following" }));
-    expect(text()).toContain("not following anyone yet");
+    expect(text()).toContain("Nothing new from creators you follow");
+    expect(text()).not.toContain("not following anyone yet");
     const browse = buttonNamed("Browse Discover");
     expect(browse).not.toBeNull();
     expect(browse?.getAttribute("type")).toBe("button");
@@ -176,3 +197,37 @@ describe("FeedList states", () => {
     expect(text()).not.toContain("No posts yet");
   });
 });
+
+  // Switching tabs does not clear `items`. Before the fix the empty/error block
+  // was gated on `items.length === 0`, so a failed load on the new tab left the
+  // PREVIOUS tab's videos on screen with no error and no retry — a failed read
+  // presented as a successful one.
+  // Mutation check: revert the `feedError ||` in FeedList's guard and this fails.
+  test("RPC error after a tab switch still shows the error, not the previous tab's rows", async () => {
+    mockUser = { userId: "u1", loading: false };
+
+    // 1. Discover loads one real row, so `items` is non-empty.
+    rpcImpl = async () => ({
+      data: [
+        {
+          post_id: "p1",
+          creator_id: "c1",
+          video_url: "https://example.invalid/v.mp4",
+          poster_url: null,
+          title: "A video",
+        },
+      ],
+      error: null,
+    });
+    await render({ activeTab: "discover" });
+    expect(text()).not.toContain("Couldn't load the feed");
+
+    // 2. Switch to Following and have that load fail, with the row still in state.
+    rpcImpl = async () => ({ data: null, error: { message: "boom" } });
+    await render({ activeTab: "following" });
+
+    expect(text()).toContain("Couldn't load the feed");
+    expect(buttonNamed("Try again")).not.toBeNull();
+    // and it must not silently fall through to the "nothing new" empty state
+    expect(text()).not.toContain("Nothing new from creators you follow");
+  });

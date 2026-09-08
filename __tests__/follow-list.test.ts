@@ -120,7 +120,7 @@ describe("pagination", () => {
     const body = await res.json();
 
     expect(body.items).toHaveLength(25);
-    expect(body.items[0]).toEqual({ id: "u01", username: "name_u01", full_name: null, avatar_url: null });
+    expect(body.items[0]).toEqual({ id: "u01", username: "name_u01", full_name: null, avatar_url: null, has_profile: true });
     expect(body.items[24].id).toBe("u25");
     // cursor = created_at|otherId of the LAST row on the page, not the 26th
     expect(body.nextCursor).toBe(`${followRows[24].created_at}|u25`);
@@ -177,20 +177,24 @@ describe("following (the mirror image)", () => {
     expect(db.opsFor("follows")[0].filters).toEqual({ follower_id: "target_1" });
     expect(db.opsFor("follows")[0].columns).toContain("following_id");
     expect(body.items).toEqual([
-      { id: "c9", username: "creator9", full_name: "Creator Nine", avatar_url: "https://a/x.png" },
+      { id: "c9", username: "creator9", full_name: "Creator Nine", avatar_url: "https://a/x.png", has_profile: true },
     ]);
   });
 });
 
 describe("hydration", () => {
-  it("keeps a follower whose profile row is missing, with null fields", async () => {
+  // 34 of 47 production accounts never finished onboarding and have no profiles
+  // row. Such a follow still belongs in the list (the follower stat counts it),
+  // but the client must not link it to /creators/<uuid>, which 404s — hence
+  // has_profile. Mutation check: drop has_profile from the route and this fails.
+  it("keeps a follower whose profile row is missing, and flags it has_profile: false", async () => {
     followRows = followers(2);
     profileRows = profilesFor([followRows[1]]); // only u02 has a profile
 
     const body = await (await get("target_1", "?type=followers")).json();
     expect(body.items).toEqual([
-      { id: "u01", username: null, full_name: null, avatar_url: null },
-      { id: "u02", username: "name_u02", full_name: null, avatar_url: null },
+      { id: "u01", username: null, full_name: null, avatar_url: null, has_profile: false },
+      { id: "u02", username: "name_u02", full_name: null, avatar_url: null, has_profile: true },
     ]);
   });
 
