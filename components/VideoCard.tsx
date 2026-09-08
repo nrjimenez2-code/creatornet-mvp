@@ -169,6 +169,55 @@ export default function VideoCard(props: VideoCardProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const buyButtonRef = useRef<HTMLButtonElement>(null);
   const [dropdownPosition, setDropdownPosition] = useState<DropdownPlacement | null>(null);
+  const buyMenuRef = useRef<HTMLDivElement>(null);
+  const buyMenuId = `buy-menu-${postId ?? "card"}`;
+
+  /** Everything focusable in the menu, in DOM order. The refund/delivery link is
+   *  included on purpose: Stripe requires it to be reachable from the purchase
+   *  flow, so it must be reachable by keyboard too. */
+  const buyMenuItems = useCallback(
+    () =>
+      Array.from(
+        buyMenuRef.current?.querySelectorAll<HTMLElement>(
+          '[role="menuitem"]:not([disabled]), a[href]'
+        ) ?? []
+      ),
+    []
+  );
+
+  const onBuyMenuKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        // The profile gallery, search and tag pages all close their enclosing
+        // modal on Escape. Without stopPropagation one press would close this
+        // menu AND the post behind it.
+        e.stopPropagation();
+        setMenuOpen(false);
+        buyButtonRef.current?.focus();
+        return;
+      }
+      const items = buyMenuItems();
+      if (items.length === 0) return;
+      const i = items.indexOf(document.activeElement as HTMLElement);
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        items[(i + 1) % items.length]?.focus();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        items[(i - 1 + items.length) % items.length]?.focus();
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        items[0]?.focus();
+      } else if (e.key === "End") {
+        e.preventDefault();
+        items[items.length - 1]?.focus();
+      }
+      // Tab is deliberately left alone: closing on Tab would make the
+      // Stripe-required refund/delivery link unreachable by keyboard.
+    },
+    [buyMenuItems]
+  );
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
   const { userId: cachedUserId } = useUser();
@@ -276,6 +325,12 @@ export default function VideoCard(props: VideoCardProps) {
       setMenuOpen(false);
     }
     function onScroll() {
+      // Do NOT tear the menu down while the user is inside it. Moving focus to a
+      // menu item can itself scroll the page, which fires this capture-phase
+      // listener and would close the menu the instant it opened — making the
+      // menu unusable by keyboard. Only close on scrolling that happens outside.
+      const active = document.activeElement as HTMLElement | null;
+      if (active?.closest?.("[data-buy-dropdown]")) return;
       setMenuOpen(false);
     }
     if (menuOpen) {
@@ -300,6 +355,16 @@ export default function VideoCard(props: VideoCardProps) {
     };
     setDropdownPosition(placeBuyDropdown(rect, viewport));
   }, [menuOpen]);
+
+  // Move focus into the menu once it exists. Runs after dropdownPosition is set,
+  // which is the same commit that renders the portal. Safe only because the
+  // scroll handler above now ignores scrolling caused from inside the menu.
+  useEffect(() => {
+    if (!menuOpen || !dropdownPosition) return;
+    buyMenuRef.current
+      ?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')
+      ?.focus();
+  }, [menuOpen, dropdownPosition]);
 
   useEffect(() => {
     if (productId && (!priceCents || priceCents === 0)) {
@@ -1128,6 +1193,7 @@ export default function VideoCard(props: VideoCardProps) {
                 ref={buyButtonRef}
                 onClick={() => setMenuOpen((prev) => !prev)}
                 expanded={menuOpen}
+                menuId={buyMenuId}
                 priceCents={
                   priceCents && priceCents > 0
                     ? priceCents
@@ -1146,7 +1212,16 @@ export default function VideoCard(props: VideoCardProps) {
                 <div
                   data-buy-dropdown
                   role="menu"
-                  className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-gradient-to-b from-[#B5BAC2]/45 to-[#B5BAC2]/30 backdrop-blur-sm border border-white/25 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.25)] overflow-hidden"
+                  id={buyMenuId}
+                  aria-label="Purchase options"
+                  ref={buyMenuRef}
+                  onKeyDown={onBuyMenuKeyDown}
+                  // Opaque, not translucent: this panel floats over arbitrary
+                  // video frames, and the old 45%/30% wash left black text at
+                  // roughly 3.2:1 against a bright frame (and the policy link
+                  // near 1.9:1), under the 4.5:1 WCAG AA minimum. A solid
+                  // surface makes contrast independent of the video behind it.
+                  className="fixed z-[9999] min-w-[140px] max-w-[min(200px,85vw)] rounded-lg bg-[#EDEFF2] border border-black/10 shadow-[inset_0_1px_1px_rgba(255,255,255,0.45),0_8px_24px_rgba(0,0,0,0.25)] overflow-hidden"
                   style={{
                     left: dropdownPosition.left,
                     ...("top" in dropdownPosition
@@ -1161,13 +1236,13 @@ export default function VideoCard(props: VideoCardProps) {
                       setMenuOpen(false);
                       handleBuy();
                     }}
-                    className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition disabled:opacity-60"
+                    className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-black/5 focus:bg-black/10 focus:outline-none transition disabled:opacity-60"
                   >
                     Pay in full {((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}` : ""}
                   </button>
                   {(productType === "course" || productType === "mentorship" || allowBooking) && (
                     <>
-                      <div className="h-px bg-white/30" />
+                      <div className="h-px bg-black/10" />
                       <button
                         role="menuitem"
                         disabled={checkoutState === "starting"}
@@ -1175,20 +1250,20 @@ export default function VideoCard(props: VideoCardProps) {
                           setMenuOpen(false);
                           handleBook();
                         }}
-                        className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-white/20 transition disabled:opacity-60"
+                        className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-black/5 focus:bg-black/10 focus:outline-none transition disabled:opacity-60"
                       >
                         Book
                       </button>
                     </>
                   )}
-                  <div className="h-px bg-white/30" />
+                  <div className="h-px bg-black/10" />
                   {/* Plain anchor, not a menuitem: Stripe requires the refund/
                       delivery terms to be reachable from the purchase flow. */}
                   <a
                     href="/legal/refunds"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block px-3 py-1.5 text-[11px] text-black/70 underline underline-offset-2 hover:text-black hover:bg-white/20 transition"
+                    className="block px-3 py-1.5 text-[11px] text-black underline underline-offset-2 hover:bg-black/5 focus:bg-black/10 focus:outline-none transition"
                   >
                     Refund &amp; delivery policy
                   </a>

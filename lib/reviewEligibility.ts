@@ -189,12 +189,21 @@ export type ViewerReviewEligibility = {
   canReview: boolean;
   /** The offers the viewer may review; empty unless canReview. */
   purchasedPosts: PurchasedPost[];
+  /**
+   * True when we could not READ the viewer's purchases, as opposed to reading
+   * them and finding none. Without this the page collapses both into
+   * canReview=false and tells a real paying customer they never bought
+   * anything — a failed read rendered as a verdict about the user, which is
+   * exactly what #138 exists to prevent.
+   */
+  lookupFailed: boolean;
 };
 
 const notEligible = (viewerId: string | null): ViewerReviewEligibility => ({
   viewerId,
   canReview: false,
   purchasedPosts: [],
+  lookupFailed: false,
 });
 
 /**
@@ -223,9 +232,15 @@ export async function getViewerReviewEligibility(
 
   try {
     const purchasedPosts = await viewerPurchasedPosts(admin, user.id, creatorId);
-    return { viewerId: user.id, canReview: purchasedPosts.length > 0, purchasedPosts };
+    return {
+      viewerId: user.id,
+      canReview: purchasedPosts.length > 0,
+      purchasedPosts,
+      lookupFailed: false,
+    };
   } catch (err) {
     console.error("[reviewEligibility] purchase lookup failed:", err);
-    return notEligible(user.id);
+    // Not "you never bought this" — we could not tell. The page says so.
+    return { ...notEligible(user.id), lookupFailed: true };
   }
 }

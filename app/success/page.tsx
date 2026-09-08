@@ -398,7 +398,16 @@ function SuccessPage() {
           </div>
         )}
 
-        {bookingState !== "idle" && (
+        {/* `status !== "error"` matters: bookingState is set to "processing" up
+            front and no error path resets it, so without this guard every
+            booking failure rendered a disabled "Processing…" button directly
+            under the error headline — a stuck loading indicator on top of an
+            error. Guarding here fixes all of the error exits at once instead of
+            adding a reset to each, which a future branch would forget.
+            The label is "Confirming your booking", not "Processing your
+            payment": booking checkout is `mode: "setup"`
+            (app/api/checkout/route.ts:908) and never charges the card. */}
+        {bookingState !== "idle" && status !== "error" && (
           <div className="mt-6 flex items-center justify-center">
             <button
               onClick={() => {
@@ -407,7 +416,7 @@ function SuccessPage() {
               className="px-4 py-2 text-sm rounded-lg bg-black text-white disabled:opacity-60"
               disabled={bookingState !== "ready" || !bookingUrl}
             >
-              {bookingState === "ready" ? "Book" : "Processing your payment..."}
+              {bookingState === "ready" ? "Book" : "Confirming your booking..."}
             </button>
           </div>
         )}

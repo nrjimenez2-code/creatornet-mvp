@@ -17,7 +17,6 @@ import { onlyVisiblePosts } from "@/lib/visiblePosts";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 import { buildOffers, type OfferProduct } from "@/lib/offers";
-import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -127,6 +126,14 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   const profile = profileRes.data;
   const resolvedCreatorId = profile.id;
+  // ONE derivation of "cleared to sell", from the row this page already loaded.
+  // It used to be derived twice — here for the badge, and again inside the
+  // Promise.all via isCreatorSellReady(), whose .catch(() => false) meant a
+  // momentary read failure showed the purple Verified badge next to a creator
+  // whose Buy buttons were all greyed out on the same page. One read cannot
+  // disagree with itself, and this one's failure is already fatal (notFound()
+  // above), which is what #138 asks for. Also one fewer DB round trip per view.
+  const isVerifiedSeller = isSellReadyProfile(profile);
 
   // Track creator profile view server-side
   trackServerEvent("creator_profile_viewed", viewer?.id ?? null, {
@@ -156,7 +163,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           .maybeSingle()
       : Promise.resolve({ data: null, error: null } as const);
 
-  const [postsRes, followersRes, followingRes, followStatusRes, productsRes, sellReady, ratingRes] =
+  const [postsRes, followersRes, followingRes, followStatusRes, productsRes, ratingRes] =
     await Promise.all([
     onlyVisiblePosts(
       admin
@@ -181,7 +188,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active"
       )
       .eq("creator_id", resolvedCreatorId),
-    isCreatorSellReady(resolvedCreatorId).catch(() => false),
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
   ]);
   const posts = postsRes?.data ?? [];
@@ -232,7 +238,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const tagline = profile.tagline || null;
   const bio = profile.bio || "No bio yet.";
   const avatarUrl = profile.avatar_url || null;
-  const isVerifiedSeller = isSellReadyProfile(profile);
 
   const isFollowing = !!followStatusRes?.data;
   const canFollow = viewer?.id && viewer.id !== creatorId;
@@ -304,7 +309,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
                 creatorId={resolvedCreatorId}
                 creatorName={displayName}
                 offers={offers}
-                sellReady={sellReady}
+                sellReady={isVerifiedSeller}
                 rating={rating}
               />
             </div>
