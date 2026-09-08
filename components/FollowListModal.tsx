@@ -5,6 +5,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import UserRow, { type UserRowUser } from "./UserRow";
 
 export type FollowListType = "followers" | "following";
@@ -27,13 +28,16 @@ const EMPTY_TEXT: Record<FollowListType, string> = {
 const LOAD_ERROR = "Could not load this list.";
 const SIGN_IN_TEXT = "Sign in to see this list.";
 
+/** A 401, as opposed to a transient failure. Retrying a 401 can never succeed. */
+class SignedOutError extends Error {}
+
 async function fetchPage(userId: string, type: FollowListType, cursor: string | null): Promise<Page> {
   const params = new URLSearchParams({ type });
   if (cursor) params.set("cursor", cursor);
   const res = await fetch(`/api/users/${encodeURIComponent(userId)}/follows?${params.toString()}`);
   const body = await res.json().catch(() => null);
   if (res.status === 401) {
-    throw new Error(SIGN_IN_TEXT);
+    throw new SignedOutError(SIGN_IN_TEXT);
   }
   if (!res.ok) {
     throw new Error(typeof body?.error === "string" ? body.error : LOAD_ERROR);
@@ -63,6 +67,9 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
   const [status, setStatus] = useState<Status>("loading");
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A 401 is not a transient failure: offering "Retry" to a signed-out visitor
+  // gives them a button that can never work and no way to sign in.
+  const [signedOut, setSignedOut] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
   // Bumped on every request and on close, so a late response is ignored.
   const requestSeq = useRef(0);
@@ -83,6 +90,7 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
         (err: unknown) => {
           if (seq !== requestSeq.current) return;
           setError(err instanceof Error ? err.message : LOAD_ERROR);
+          setSignedOut(err instanceof SignedOutError);
           setStatus("error");
           setIsLoadingMore(false);
         }
@@ -179,14 +187,24 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
 
           {showInitialError && (
             <div className="py-6 text-center">
-              <p className="text-sm text-red-300">{error}</p>
-              <button
-                type="button"
-                onClick={retryInitial}
-                className="mt-3 px-3 py-1.5 rounded-full border border-white/20 text-sm bg-black text-white hover:bg-black/70"
-              >
-                Retry
-              </button>
+              <p className={signedOut ? "text-sm text-white/70" : "text-sm text-red-300"}>{error}</p>
+              {signedOut ? (
+                <Link
+                  href="/auth"
+                  onClick={onClose}
+                  className="mt-3 inline-block px-3 py-1.5 rounded-full border border-white/20 text-sm bg-black text-white hover:bg-black/70"
+                >
+                  Sign in
+                </Link>
+              ) : (
+                <button
+                  type="button"
+                  onClick={retryInitial}
+                  className="mt-3 px-3 py-1.5 rounded-full border border-white/20 text-sm bg-black text-white hover:bg-black/70"
+                >
+                  Retry
+                </button>
+              )}
             </div>
           )}
 

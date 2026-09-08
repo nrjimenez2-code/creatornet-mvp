@@ -10,6 +10,9 @@ export type UserRowUser = {
   username: string | null;
   full_name: string | null;
   avatar_url: string | null;
+  /** False when no public.profiles row exists — the account never finished
+   *  onboarding. Absent on older callers, which are all real profiles. */
+  has_profile?: boolean;
 };
 
 /** /creators/<username> when there is one, else /creators/<id>; the page resolves both. */
@@ -25,6 +28,24 @@ type UserRowProps = {
 };
 
 export default function UserRow({ user, onNavigate }: UserRowProps) {
+  // A follow whose account never finished onboarding has no profile page. It
+  // still belongs in the list (the follower count includes it), but linking it
+  // sends the visitor to a 404, so it renders as plain, non-interactive text.
+  if (user.has_profile === false) {
+    return (
+      <div className="rounded-xl border border-white/10 p-3 flex items-center gap-3 opacity-60">
+        <div className="h-10 w-10 shrink-0 rounded-full bg-white/10 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={DEFAULT_AVATAR_URL} alt="" className="h-full w-full object-cover" />
+        </div>
+        <div className="min-w-0">
+          <div className="font-medium truncate text-white/70">Account not set up</div>
+          <div className="text-xs text-white/40 truncate">This person has not finished their profile</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <Link
       href={userProfileHref(user)}

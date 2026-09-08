@@ -507,7 +507,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     );
   }
 
-  if (!loading && items.length === 0) {
+  // An error must win over stale rows. Switching tabs does not clear `items`,
+  // so without `feedError` here a failed Following load renders the Discover
+  // videos still in state as if they were the Following feed — a failed read
+  // shown as a successful one, which is the thing #138 exists to prevent.
+  if (!loading && (feedError || items.length === 0)) {
     return (
       <div className="w-full flex flex-col items-center justify-center py-10 px-4 text-center">
         {feedError ? (

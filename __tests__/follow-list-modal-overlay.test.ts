@@ -30,6 +30,11 @@ jest.mock("@/components/UserRow", () => ({
   __esModule: true,
   default: () => null,
 }));
+jest.mock("next/link", () => ({
+  __esModule: true,
+  default: ({ href, children, className, onClick }: { href: string; children?: unknown; className?: string; onClick?: () => void }) =>
+    createElement("a", { href, className, onClick }, children as never),
+}));
 
 import FollowListModal from "@/components/FollowListModal";
 
@@ -101,4 +106,54 @@ test("closing restores the page default even if another modal locked it first", 
   // Must be scrollable again: restoring the captured "hidden" is what left the
   // real profile page frozen with nothing open.
   expect(document.body.style.overflow).toBe("");
+});
+
+// A 401 is not a transient failure. Offering "Retry" to a signed-out visitor
+// gives them a button that can never succeed and no way to sign in — confirmed
+// live on production: the followers dialog showed "Sign in to see this list."
+// directly above a Retry button.
+// Mutation check: make fetchPage throw a plain Error for 401 and this fails.
+describe("FollowListModal signed-out state", () => {
+  test("a 401 offers a Sign in link, not a Retry button", async () => {
+    (globalThis as { fetch?: unknown }).fetch = jest.fn(async () => ({
+      status: 401,
+      ok: false,
+      json: async () => ({ error: "unauthorized" }),
+    }));
+
+    await renderModal(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    const dialog = document.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Sign in to see this list.");
+    const signIn = dialog.querySelector('a[href="/auth"]');
+    expect(signIn).not.toBeNull();
+    expect(signIn?.textContent).toBe("Sign in");
+    const retry = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Retry"
+    );
+    expect(retry).toBeUndefined();
+  });
+
+  test("a real failure still offers Retry, not a sign-in link", async () => {
+    (globalThis as { fetch?: unknown }).fetch = jest.fn(async () => ({
+      status: 500,
+      ok: false,
+      json: async () => ({ error: "boom" }),
+    }));
+
+    await renderModal(true);
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const retry = Array.from(dialog.querySelectorAll("button")).find(
+      (b) => b.textContent?.trim() === "Retry"
+    );
+    expect(retry).not.toBeUndefined();
+    expect(dialog.querySelector('a[href="/auth"]')).toBeNull();
+  });
 });

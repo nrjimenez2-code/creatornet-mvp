@@ -185,6 +185,31 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
   ]);
   const posts = postsRes?.data ?? [];
+
+  // Which of these posts has the viewer already liked? Without this the gallery
+  // renders every heart empty, and a viewer who already liked a post taps a
+  // hollow heart and silently REMOVES their like (the API toggles server-side).
+  // public.likes is world-readable (policy "like select" USING (true)).
+  // A failed read degrades to "none liked" — the pre-existing behaviour — and is
+  // logged rather than swallowed; it must never block the page.
+  let likedPostIds: string[] = [];
+  if (viewer?.id && posts.length > 0) {
+    const { data: likedRows, error: likedError } = await admin
+      .from("likes")
+      .select("post_id")
+      .eq("user_id", viewer.id)
+      .in(
+        "post_id",
+        posts.map((p: { id: string }) => p.id)
+      );
+    if (likedError) {
+      console.error("[creator-profile] likes read failed:", likedError.message);
+    } else {
+      likedPostIds = (likedRows ?? [])
+        .map((r: { post_id: string | null }) => r.post_id)
+        .filter((id): id is string => typeof id === "string");
+    }
+  }
   if (productsRes?.error) {
     // Non-fatal: the page still renders, just without the Offers button.
     console.error("[creator-profile] products query failed:", productsRes.error.message);
@@ -308,6 +333,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
               creatorName={displayName}
               creatorUsername={profile.username ?? null}
               creatorAvatarUrl={avatarUrl}
+              likedPostIds={likedPostIds}
             />
           </div>
         )}

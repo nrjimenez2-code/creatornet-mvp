@@ -47,6 +47,28 @@ export default async function ProfilePage() {
 
   const posts = postsRes?.data ?? [];
   const postsCount = posts.length;
+
+  // Same reason as the public creator page: without this the gallery renders
+  // every heart empty, so tapping one on a post you already liked REMOVES the
+  // like instead of adding it. Degrades to "none liked" on failure, logged.
+  let likedPostIds: string[] = [];
+  if (posts.length > 0) {
+    const { data: likedRows, error: likedError } = await supabase
+      .from("likes")
+      .select("post_id")
+      .eq("user_id", user.id)
+      .in(
+        "post_id",
+        posts.map((p: { id: string }) => p.id)
+      );
+    if (likedError) {
+      console.error("[profile] likes read failed:", likedError.message);
+    } else {
+      likedPostIds = (likedRows ?? [])
+        .map((r: { post_id: string | null }) => r.post_id)
+        .filter((id): id is string => typeof id === "string");
+    }
+  }
   const followersCount = followersRes?.count ?? 0;
   const followingCount = followingRes?.count ?? 0;
 
@@ -127,6 +149,7 @@ export default async function ProfilePage() {
               creatorName={displayName}
               creatorUsername={profile?.username ?? null}
               creatorAvatarUrl={avatarUrl}
+              likedPostIds={likedPostIds}
             />
           </div>
         )}
