@@ -1,6 +1,25 @@
 -- 026-reviews-require-purchase-STAGED.sql
--- ⚠️ STAGED — NOT APPLIED. Apply only with Landon's explicit OK and a fresh
--- backup (Supabase free plan = no PITR). Merging this PR does NOT run it.
+-- ✅ APPLIED TO PRODUCTION 2026-09-08 (migration 026_reviews_require_purchase),
+--    with Landon's explicit go and a backup at
+--    ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
+--    The filename still ends in -STAGED; treat THIS header as the truth.
+--
+--    Two corrections were made to this file BEFORE it was applied:
+--      1. `coalesce(status,'') not in (...)` -> `status not in (...)`. PostgREST's
+--         .not("status","in",...) drops a NULL status, so the coalesce would have
+--         made this policy MORE PERMISSIVE than the route it mirrors.
+--      2. The helper now also takes p_creator and joins posts, mirroring the
+--         route's isPostOwnedByCreator gate. Without it a buyer with one real
+--         purchase could POST to PostgREST and attach the review to a DIFFERENT
+--         creator, because the reviews page lists by creator_id.
+--
+--    Verified after applying: anon forging a review through PostgREST now gets
+--    42501 permission denied (it held an INSERT grant before); anon can still
+--    READ reviews (200); admin moderation is unaffected because
+--    app/api/admin/remove-review uses the service role and bypasses RLS.
+--    Policy logic proved on synthesized rows: allows only a real buyer of that
+--    post from that creator; denies wrong-creator, refunded, not-granted,
+--    NULL-status and no-purchase.
 --
 -- WHY. PR #132 established "only people who bought from this creator may
 -- review them", and PR #136 narrowed it to the exact offer. Both gates live
@@ -49,7 +68,11 @@
 
 begin;
 
-create or replace function public.has_live_purchase_of_post(p_buyer uuid, p_post uuid)
+create or replace function public.has_live_purchase_of_post(
+  p_buyer uuid,
+  p_post uuid,
+  p_creator uuid
+)
 returns boolean
 language sql
 stable
@@ -59,19 +82,29 @@ as $fn$
   select exists (
     select 1
     from public.purchases pu
+    join public.posts po on po.id = pu.post_id
     where pu.buyer_id = p_buyer
       and pu.post_id = p_post
       and pu.access_granted
-      and coalesce(pu.status, '') not in ('refunded', 'failed')
+      -- NOT coalesce(status,''): PostgREST's .not("status","in",...) drops a
+      -- NULL status (NULL NOT IN (..) is NULL, which fails a WHERE), so
+      -- coalescing would make this policy MORE permissive than the route it is
+      -- meant to mirror. `status` is nullable, so keep the semantics identical.
+      and pu.status not in ('refunded', 'failed')
+      -- The offer must actually be this creator's, mirroring the route's second
+      -- gate (isPostOwnedByCreator). Without it a buyer with one real purchase
+      -- could POST straight to PostgREST and attach the review to a DIFFERENT
+      -- creator, since the reviews page lists by creator_id.
+      and po.creator_id = p_creator
   );
 $fn$;
 
-comment on function public.has_live_purchase_of_post(uuid, uuid) is
-  'True when the buyer holds a live (non-refunded, non-failed, access_granted) purchase of that post. Mirrors lib/reviewEligibility.ts. SECURITY DEFINER because authenticated cannot select public.purchases.';
+comment on function public.has_live_purchase_of_post(uuid, uuid, uuid) is
+  'True when the buyer holds a live (access_granted, status not refunded/failed) purchase of that post AND the post belongs to that creator. Mirrors lib/reviewEligibility.ts hasQualifyingPurchaseForPost + isPostOwnedByCreator exactly — change all of them or none.';
 
-revoke all on function public.has_live_purchase_of_post(uuid, uuid) from public;
-revoke all on function public.has_live_purchase_of_post(uuid, uuid) from anon;
-grant execute on function public.has_live_purchase_of_post(uuid, uuid) to authenticated;
+revoke all on function public.has_live_purchase_of_post(uuid, uuid, uuid) from public;
+revoke all on function public.has_live_purchase_of_post(uuid, uuid, uuid) from anon;
+grant execute on function public.has_live_purchase_of_post(uuid, uuid, uuid) to authenticated;
 
 drop policy if exists "Users can insert their own reviews" on public.reviews;
 create policy "Users can insert their own reviews"
@@ -80,7 +113,7 @@ create policy "Users can insert their own reviews"
   with check (
     auth.uid() = reviewer_id
     and post_id is not null
-    and public.has_live_purchase_of_post(auth.uid(), post_id)
+    and public.has_live_purchase_of_post(auth.uid(), post_id, creator_id)
   );
 
 drop policy if exists "Users can update their own reviews" on public.reviews;
@@ -91,7 +124,7 @@ create policy "Users can update their own reviews"
   with check (
     auth.uid() = reviewer_id
     and post_id is not null
-    and public.has_live_purchase_of_post(auth.uid(), post_id)
+    and public.has_live_purchase_of_post(auth.uid(), post_id, creator_id)
   );
 
 revoke insert, update, delete, truncate on public.reviews from anon;
@@ -112,11 +145,11 @@ commit;
 --             then 'ok' else 'NOT DEFINER' end
 -- union all
 -- select 'anon cannot execute helper',
---        case when not has_function_privilege('anon','public.has_live_purchase_of_post(uuid,uuid)','execute')
+--        case when not has_function_privilege('anon','public.has_live_purchase_of_post(uuid,uuid,uuid)','execute')
 --             then 'ok' else 'ANON CAN EXECUTE' end
 -- union all
 -- select 'authenticated can execute helper',
---        case when has_function_privilege('authenticated','public.has_live_purchase_of_post(uuid,uuid)','execute')
+--        case when has_function_privilege('authenticated','public.has_live_purchase_of_post(uuid,uuid,uuid)','execute')
 --             then 'ok' else 'MISSING' end
 -- union all
 -- select 'insert policy now requires a purchase',
@@ -152,5 +185,5 @@ commit;
 -- create policy "Users can update their own reviews" on public.reviews
 --   for update using (auth.uid() = reviewer_id) with check (auth.uid() = reviewer_id);
 -- grant insert, update, delete on public.reviews to anon;   -- only if you truly want this back
--- drop function if exists public.has_live_purchase_of_post(uuid, uuid);
+-- drop function if exists public.has_live_purchase_of_post(uuid, uuid, uuid);
 -- commit;
