@@ -1,6 +1,11 @@
 -- 024-reviews-per-post-STAGED.sql
--- ⚠️ STAGED — NOT APPLIED. Apply only with Landon's explicit OK and a fresh
--- backup (Supabase free plan = no PITR). Merging the PR does NOT run it.
+-- ✅ APPLIED TO PRODUCTION 2026-09-07 (migration 024_reviews_per_post), with
+--    Landon's explicit go and a backup at ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
+--    Checks all asserted on values: reviews.post_id added · the old
+--    UNIQUE (reviewer_id, creator_id) dropped · partial unique on
+--    (reviewer_id, post_id) created · FK index created · all 3 existing review
+--    rows preserved with post_id NULL · get_feed_v3 left untouched at 22 cols.
+--    The filename still ends in -STAGED; treat THIS header as the truth.
 --
 -- Reviews become per OFFER (Noah #5, step 2). An offer is a post, and a
 -- buyer's purchases are keyed by purchases.post_id, so a review now names the

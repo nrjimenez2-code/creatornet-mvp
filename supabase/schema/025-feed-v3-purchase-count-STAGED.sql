@@ -1,6 +1,11 @@
 -- 025-feed-v3-purchase-count-STAGED.sql
--- ⚠️ STAGED — NOT APPLIED. Apply only with Landon's explicit OK and a fresh
--- backup (Supabase free plan = no PITR). Merging this PR does NOT run it.
+-- ✅ APPLIED TO PRODUCTION 2026-09-07 (migration 025_feed_v3_purchase_count),
+--    with Landon's explicit go and a backup at ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
+--    023 was applied immediately AFTER it — that order matters, see below.
+--    Checks all asserted on values: 23 output columns · purchase_count matches
+--    posts on every row · SECURITY DEFINER and search_path retained ·
+--    anon/authenticated/service_role keep EXECUTE · feed still returns its rows.
+--    The filename still ends in -STAGED; treat THIS header as the truth.
 --
 -- Adds posts.purchase_count to get_feed_v3 so the feed can render social
 -- proof ("126 students" / "38 purchases"). The function body is IDENTICAL to

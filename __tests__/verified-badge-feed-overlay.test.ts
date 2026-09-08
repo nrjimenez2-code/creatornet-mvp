@@ -195,8 +195,18 @@ describe("tripwire: migration 023 returns creator_verified from both feed branch
   const SELL_READY_SQL =
     "(prof.stripe_account_id is not null and coalesce(prof.stripe_onboarding_complete, false))";
 
-  test("is marked STAGED and ordered after 025", () => {
-    expect(sql).toMatch(/STAGED — NOT APPLIED/);
+  // This used to assert the file said "STAGED — NOT APPLIED". It was applied to
+  // production on 2026-09-07, so that assertion is now inverted and would keep a
+  // stale claim true. What actually matters is unchanged: the file must state its
+  // status unambiguously (a filename ending in -STAGED is not enough — this one
+  // still does) and must keep recording that 025 runs FIRST, because running 025
+  // after 023 silently drops creator_verified.
+  test("states its applied status explicitly and still records the 025 → 023 order", () => {
+    const declaresStaged = /STAGED — NOT APPLIED/.test(sql);
+    const declaresApplied = /APPLIED TO PRODUCTION \d{4}-\d{2}-\d{2}/.test(sql);
+    expect(declaresStaged || declaresApplied).toBe(true);
+    // never both — that would be a file contradicting itself
+    expect(declaresStaged && declaresApplied).toBe(false);
     expect(sql).toMatch(/025-feed-v3-purchase-count-STAGED\.sql[^\n]*FIRST/);
   });
 

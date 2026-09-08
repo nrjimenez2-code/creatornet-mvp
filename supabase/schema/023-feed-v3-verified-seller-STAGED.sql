@@ -1,6 +1,14 @@
 -- 023-feed-v3-verified-seller-STAGED.sql
--- ⚠️ STAGED — NOT APPLIED. Apply only with Landon's explicit OK and a fresh
--- backup (Supabase free plan = no PITR). Merging this PR does NOT run it.
+-- ✅ APPLIED TO PRODUCTION 2026-09-07 (migration 023_feed_v3_creator_verified),
+--    with Landon's explicit go and a fresh backup at
+--    ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
+--    025 was applied immediately before it, in that order. The filename still
+--    says STAGED only because renaming it would break nothing but churn the
+--    schema-tag CI; treat THIS header as the source of truth.
+--    Post-apply checks (all asserted on values): 24 output columns · purchase_count
+--    survived · creator_verified agrees with the sell-ready rule on every row ·
+--    SECURITY DEFINER and search_path retained · anon/authenticated/service_role
+--    keep EXECUTE · feed still returns its rows · stripe_account_id not exposed.
 --
 -- ⚠️ ORDER: apply 025-feed-v3-purchase-count-STAGED.sql (PR #128) FIRST.
 -- This file is 025's get_feed_v3 (purchase_count included) plus ONE more
