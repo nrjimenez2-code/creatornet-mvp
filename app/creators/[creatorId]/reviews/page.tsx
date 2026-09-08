@@ -302,7 +302,17 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
               could never be submitted from a username URL. */}
           {showReviewForm ? (
             <ReviewForm creatorId={resolvedCreatorId} offers={viewer.purchasedPosts} />
-          ) : isViewerTheCreator ? null : (
+          ) : isViewerTheCreator ? null : viewer.lookupFailed ? (
+            // We could not READ their purchases. Saying "you never bought this"
+            // here would accuse a real paying customer, so say what is true.
+            // Same treatment #138 gave the reviews read twenty lines below.
+            <p
+              role="alert"
+              className="rounded-2xl border border-dashed border-white/20 bg-white/5 p-6 text-center text-sm text-white/70"
+            >
+              Couldn&apos;t check your purchases. Refresh the page to try again.
+            </p>
+          ) : (
             <p className="rounded-2xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/70">
               {NO_PURCHASE_FROM_CREATOR_MESSAGE}
             </p>

@@ -231,9 +231,107 @@ describe("policy links in the purchase flow", () => {
       expect(pay.className).toContain("font-semibold");
       expect(link.className).not.toContain("font-semibold");
       expect(link.className).toContain("text-[11px]");
-      expect(link.className).toContain("text-black/70");
+      // Secondary through weight, size and a divider — NOT through low contrast.
+      // This used to assert text-black/70, which on the old translucent panel
+      // measured about 1.9:1 against a bright video frame, far under the 4.5:1
+      // WCAG AA minimum for the one link Stripe requires to be reachable from
+      // the purchase flow. Faded text is not an acceptable way to de-emphasise.
+      expect(link.className).toContain("text-black");
+      expect(link.className).not.toContain("text-black/70");
       // A divider separates it from the actions.
       expect(link.previousElementSibling?.className).toContain("h-px");
+    });
+
+    // ---------------------------------------------------------------------
+    // Keyboard operability. The Buy menu is the money path; before these fixes
+    // it could not practically be used without a mouse: nothing moved focus in,
+    // there was no Escape handler, and a capture-phase scroll listener closed
+    // the menu on ANY scroll — including the scroll that focusing a menu item
+    // itself causes, so the menu shut the instant it opened.
+    // ---------------------------------------------------------------------
+    it("moves focus into the menu when it opens", async () => {
+      const dropdown = await openDropdown();
+      const first = dropdown.querySelector<HTMLElement>('[role="menuitem"]');
+      expect(first).not.toBeNull();
+      expect(document.activeElement).toBe(first);
+    });
+
+    // Mutation check: remove the activeElement guard from onScroll and this fails.
+    it("does not close when the scroll came from inside the menu", async () => {
+      const dropdown = await openDropdown();
+      expect(document.activeElement?.closest("[data-buy-dropdown]")).not.toBeNull();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+
+      expect(document.querySelector("[data-buy-dropdown]")).not.toBeNull();
+      void dropdown;
+    });
+
+    it("closes on a scroll that happens outside the menu", async () => {
+      await openDropdown();
+      await act(async () => {
+        (document.activeElement as HTMLElement | null)?.blur();
+        window.dispatchEvent(new Event("scroll", { bubbles: true }));
+      });
+      expect(document.querySelector("[data-buy-dropdown]")).toBeNull();
+    });
+
+    // Mutation check: drop the stopPropagation() and this fails.
+    it("Escape closes the menu, returns focus to Buy, and does NOT bubble", async () => {
+      const dropdown = await openDropdown();
+      const buy = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+
+      // An enclosing modal (profile gallery, search, tag) listens for Escape on
+      // document. It must not see this one, or a single press would close the
+      // post behind the menu too.
+      const enclosing = jest.fn();
+      document.addEventListener("keydown", enclosing);
+
+      await act(async () => {
+        dropdown.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
+        );
+      });
+
+      document.removeEventListener("keydown", enclosing);
+      expect(document.querySelector("[data-buy-dropdown]")).toBeNull();
+      expect(document.activeElement).toBe(buy);
+      expect(enclosing).not.toHaveBeenCalled();
+    });
+
+    it("arrow keys reach every item including the Stripe-required policy link", async () => {
+      const dropdown = await openDropdown();
+      const focusables = Array.from(
+        dropdown.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled]), a[href]')
+      );
+      expect(focusables.length).toBeGreaterThan(1);
+      expect(focusables.some((el) => el.getAttribute("href") === "/legal/refunds")).toBe(true);
+
+      const press = async (key: string) => {
+        await act(async () => {
+          dropdown.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+        });
+      };
+
+      await press("End");
+      expect(document.activeElement).toBe(focusables[focusables.length - 1]);
+      await press("Home");
+      expect(document.activeElement).toBe(focusables[0]);
+      await press("ArrowDown");
+      expect(document.activeElement).toBe(focusables[1]);
+      await press("ArrowUp");
+      expect(document.activeElement).toBe(focusables[0]);
+    });
+
+    it("the button announces the menu it controls", async () => {
+      const dropdown = await openDropdown();
+      const buy = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+      expect(buy.getAttribute("aria-expanded")).toBe("true");
+      expect(buy.getAttribute("aria-controls")).toBe(dropdown.id);
+      expect(dropdown.id).not.toBe("");
+      expect(dropdown.getAttribute("aria-label")).toBe("Purchase options");
     });
 
     it("stays open on mousedown and lets the click through (nothing swallows it)", async () => {
