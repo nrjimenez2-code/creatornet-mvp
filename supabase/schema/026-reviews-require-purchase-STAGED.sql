@@ -1,4 +1,9 @@
 -- 026-reviews-require-purchase-STAGED.sql
+-- ⚠️ SUPERSEDED IN PART BY 027: the helper this file creates in `public` was moved
+--    to the `private` schema the same day, because anything in `public` is exposed
+--    by PostgREST as an RPC and this one is SECURITY DEFINER with caller-controlled
+--    arguments. Read 027 before changing anything here.
+--
 -- ✅ APPLIED TO PRODUCTION 2026-09-08 (migration 026_reviews_require_purchase),
 --    with Landon's explicit go and a backup at
 --    ~/.creatornet/db-backup-2026-09-07-reviews-and-feed/.
