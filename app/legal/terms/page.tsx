@@ -22,11 +22,10 @@ export default function TermsPage() {
     <main>
       <h1 className="text-3xl font-bold">Terms of Service</h1>
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
-      {/* TODO(Noah): replace "the CreatorNet team" with the registered legal
-          entity, and supply a mailing address + governing-law state for
-          sections 8 and 10, before or at launch. */}
+      {/* TODO(Noah): the governing-law state and venue for section 8 are still
+          pending; add them there when the legal setup is finalized. */}
       <p className="mt-4 text-gray-700 leading-relaxed">
-        These Terms govern your use of CreatorNet, operated by the CreatorNet team
+        These Terms govern your use of CreatorNet, operated by CreatorNet LLC
         (&quot;CreatorNet&quot;, &quot;we&quot;, &quot;us&quot;). By accessing or using the
         service you agree to them. If you don&apos;t agree, don&apos;t use CreatorNet.
       </p>
@@ -136,6 +135,15 @@ export default function TermsPage() {
             support@creatornet.net
           </a>
         </p>
+        <address className="not-italic">
+          CreatorNet LLC
+          <br />
+          21095 North 64th Avenue
+          <br />
+          Glendale, AZ 85308
+          <br />
+          United States
+        </address>
       </Section>
     </main>
   );
