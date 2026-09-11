@@ -12,7 +12,7 @@ import { formatSocialProof } from "@/lib/socialProof";
 import CommentPanel from "./CommentPanel";
 import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
-import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
+import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 
@@ -142,14 +142,39 @@ export default function VideoCard(props: VideoCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  // Controlled by the parent when soundEnabled is given (the feed); otherwise
-  // seeded once from the saved per-device preference (profile/tag modals).
-  const [isMuted, setIsMuted] = useState(() =>
-    soundEnabled === undefined ? defaultMuted && !readSoundOn() : !soundEnabled
-  );
+  // Subscribed read of the saved per-device preference. This MUST come from the
+  // hook, not a bare readSoundOn(): the hook renders the muted server snapshot
+  // during hydration and applies the stored choice on the next client render.
+  // Seeding useState from readSoundOn() instead made the server emit
+  // muted={true} while the first client render computed muted={false}, and React
+  // does not reliably repair a hydration mismatch on <video muted> — the saved
+  // "sound on" silently failed to apply, which is the jank Noah reported.
+  const [storedSoundOn, setStoredSoundOn] = useSoundPreference();
   // True while this card plays muted only because the browser refused
   // unmuted autoplay; shows the "Tap for sound" chip.
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
+  // Who decides whether this card is muted: the feed via soundEnabled, else the
+  // saved per-device preference. DERIVED, never mirrored into state — mirroring
+  // is what let the two drift apart (the feed said "sound on" while the card
+  // still held its own stale `false`), and a derived value cannot desync.
+  const ownerMuted =
+    soundEnabled === undefined ? defaultMuted && !storedSoundOn : !soundEnabled;
+  // The user's own tap on THIS card, applied optimistically so the video reacts
+  // instantly instead of waiting for the feed to echo soundEnabled back down.
+  // null = no local override, follow the owner.
+  const [mutedOverride, setMutedOverride] = useState<boolean | null>(null);
+  // When the owner's intent changes, both the local override and any earlier
+  // autoplay refusal are stale — the browser deserves a fresh attempt (a user
+  // gesture may have happened since). Adjusting state during render is React's
+  // documented alternative to a reset-on-prop-change effect, and it is why this
+  // component no longer needs one.
+  const [prevOwnerMuted, setPrevOwnerMuted] = useState(ownerMuted);
+  if (prevOwnerMuted !== ownerMuted) {
+    setPrevOwnerMuted(ownerMuted);
+    setMutedOverride(null);
+    setAutoplayBlocked(false);
+  }
+  const isMuted = mutedOverride ?? (autoplayBlocked || ownerMuted);
   const [isPaused, setIsPaused] = useState(true);
   const [progress, setProgress] = useState(0);
   const [hasLoaded, setHasLoaded] = useState(false);
@@ -455,7 +480,7 @@ export default function VideoCard(props: VideoCardProps) {
   // deliberately NOT touched — the user asked for sound, the browser said no.
   const fallBackToMuted = useCallback((video: HTMLVideoElement) => {
     video.muted = true;
-    setIsMuted(true);
+    // isMuted is derived from this flag, so setting it is the whole mute.
     setAutoplayBlocked(true);
     video.play().catch(() => {});
   }, []);
@@ -480,12 +505,10 @@ export default function VideoCard(props: VideoCardProps) {
     }
   }, [isMuted, fallBackToMuted]);
 
-  // Sync mute state with soundEnabled prop
-  useEffect(() => {
-    if (soundEnabled !== undefined) {
-      setIsMuted(!soundEnabled);
-    }
-  }, [soundEnabled]);
+  // No effect mirrors soundEnabled or the stored preference into state any more:
+  // isMuted is computed from both above, so the feed prop and the saved choice
+  // take effect on the very next render, and uncontrolled cards on the same page
+  // move together because useSoundPreference subscribes them to one store.
 
   useEffect(() => {
     const video = videoRef.current;
@@ -592,12 +615,16 @@ export default function VideoCard(props: VideoCardProps) {
   // A real click/tap: the one place unmuted playback is always allowed.
   const handleTapForSound = useCallback(() => {
     setAutoplayBlocked(false);
-    setIsMuted(false);
+    // The gesture is an explicit request for sound on this card right now.
+    setMutedOverride(false);
+    // For an uncontrolled card the owner is the saved preference, so record it
+    // there too — otherwise a card whose default is muted snaps straight back.
+    if (soundEnabled === undefined) setStoredSoundOn(true);
     const video = videoRef.current;
     if (!video) return;
     video.muted = false;
     video.play().catch(() => {});
-  }, []);
+  }, [soundEnabled, setStoredSoundOn]);
 
   // True only while this card is muted *solely* because the browser refused
   // unmuted autoplay: the parent (feed) or the saved preference still says
@@ -615,11 +642,20 @@ export default function VideoCard(props: VideoCardProps) {
       return;
     }
     const nextMuted = !isMuted;
-    setIsMuted(nextMuted);
-    // Uncontrolled cards own the preference; the feed writes it in FeedList.
-    if (soundEnabled === undefined) writeSoundOn(!nextMuted);
+    // Apply on this card immediately, and tell the owner: uncontrolled cards own
+    // the saved preference, the feed flips soundEnabled via onToggleSound. When
+    // the owner echoes the change back, the override is cleared above.
+    setMutedOverride(nextMuted);
+    if (soundEnabled === undefined) setStoredSoundOn(!nextMuted);
     onToggleSound?.();
-  }, [isMutedByAutoplayPolicy, handleTapForSound, isMuted, soundEnabled, onToggleSound]);
+  }, [
+    isMutedByAutoplayPolicy,
+    handleTapForSound,
+    isMuted,
+    soundEnabled,
+    onToggleSound,
+    setStoredSoundOn,
+  ]);
 
   const handleLike = useCallback(async () => {
     if (!postId) {

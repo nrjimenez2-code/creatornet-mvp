@@ -196,6 +196,27 @@ describe("audio preference", () => {
     expect(renderToStaticMarkup(createElement(Probe))).toBe("<span>off</span>");
   });
 
+  // Regression: VideoCard used to seed useState with a bare readSoundOn(). That
+  // initializer also runs on the server, where storage is unreachable and the
+  // value came back false, so the server emitted muted while the first client
+  // render computed unmuted. React does not reliably repair a hydration
+  // mismatch on <video muted>, so a saved "sound on" silently failed to apply.
+  // The card's server output must not depend on stored state at all.
+  test("VideoCard server markup does not vary with the stored sound preference", () => {
+    const ssr = () =>
+      renderToStaticMarkup(createElement(VideoCard, { src: SRC, postId: "p1" }));
+
+    writeSoundOn(false);
+    const withSoundOff = ssr();
+
+    writeSoundOn(true);
+    const withSoundOn = ssr();
+
+    expect(withSoundOn).toBe(withSoundOff);
+    // And that shared output is the muted one, matching the server snapshot.
+    expect(withSoundOn).toContain("muted");
+  });
+
   test("useSoundPreference updates subscribers on write and on cross-tab storage events", async () => {
     const seen: boolean[] = [];
     const Probe = () => {

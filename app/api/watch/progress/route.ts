@@ -33,9 +33,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
+    // watch_progress is (user_id, post_id, seconds, updated_at). Selecting
+    // duration/completed — columns that have never existed — made PostgREST
+    // reject the request, so this route returned 500 on every call since it was
+    // written and no playback position was ever restored.
     const { data, error } = await admin
       .from("watch_progress")
-      .select("seconds, duration, completed, updated_at")
+      .select("seconds, updated_at")
       .eq("user_id", session.userId)
       .eq("post_id", post_id)
       .maybeSingle();
@@ -54,7 +58,9 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { post_id, seconds, duration, completed } = await req.json();
+    // `completed` is still accepted from older clients and ignored — the column
+    // it used to target does not exist.
+    const { post_id, seconds, duration } = await req.json();
 
     if (!post_id || typeof seconds !== "number" || typeof duration !== "number") {
       return NextResponse.json(
@@ -68,11 +74,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
 
+    // duration is still required above and still clamps the saved position, but
+    // it is NOT a column: watch_progress is (user_id, post_id, seconds,
+    // updated_at). Writing duration/completed made every upsert fail, so no
+    // position was ever saved. Completion is derived where it is displayed,
+    // from posts.duration_seconds.
     const clampedSeconds = Math.max(0, Math.min(seconds, duration));
-    const isCompleted =
-      typeof completed === "boolean"
-        ? completed
-        : duration > 0 && clampedSeconds / duration >= 0.95;
 
     const { error } = await admin
       .from("watch_progress")
@@ -81,8 +88,6 @@ export async function POST(req: NextRequest) {
           user_id: session.userId,
           post_id,
           seconds: clampedSeconds,
-          duration,
-          completed: isCompleted,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id,post_id" }
