@@ -18,6 +18,7 @@ import {
   ORDER_OPEN_STATUSES,
   purchaseTerminalFilter,
 } from "@/lib/orderStatus";
+import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 import { creditPurchaseEarnings } from "@/lib/creatorEarnings";
@@ -117,12 +118,19 @@ async function linkBookingIfAny(opts: {
 
   if (!candidate) return;
 
-  try {
-    await admin.from("purchases").update({ booking_id: candidate.id as any }).eq("id", purchase_id);
-  } catch (e: any) {
-    if (!/column .*booking_id.* does not exist/i.test(String(e?.message))) {
-      console.warn("[webhook] purchases.booking_id update warning:", e?.message || e);
-    }
+  // supabase-js resolves with { data, error } and does not throw on a database
+  // error, so the try/catch this replaced could never fire and every real
+  // failure was discarded. purchases.booking_id does exist (confirmed against
+  // the live schema), so the column-missing regex guarded nothing either.
+  const { error: bookingLinkErr } = await admin
+    .from("purchases")
+    .update({ booking_id: candidate.id })
+    .eq("id", purchase_id);
+  if (bookingLinkErr) {
+    console.warn(
+      "[webhook] purchases.booking_id update failed:",
+      bookingLinkErr.message
+    );
   }
 
   const { error: updBookingErr } = await admin
@@ -136,11 +144,19 @@ async function linkBookingIfAny(opts: {
 
 // ---------- fulfillment helpers ----------
 async function getProductLinks(product_id: string | null) {
-  if (!product_id) return null;
+  // isSafeId before eitherIdFilter: the helper throws on a malformed id, and a
+  // throw here would fail the whole webhook. The old .eq() just matched
+  // nothing, so preserve that outcome for anything that is not a clean id.
+  if (!product_id || !isSafeId(product_id)) return null;
+  // Checkout writes products.id into metadata.product_id (route.ts), but this
+  // filtered on products.product_id — a DIFFERENT column that is null for most
+  // rows. So the lookup missed, fulfillment was never attached, and the buyer
+  // silently never received their Discord/Whop link while Stripe got a 200.
+  // Match either column, exactly as confirm-purchase already does.
   const { data, error } = await admin
     .from("products")
-    .select("product_id, title, price_cents, amount_cents, discord_invite_url, whop_listing_url")
-    .eq("product_id", product_id)
+    .select("id, product_id, title, price_cents, amount_cents, discord_invite_url, whop_listing_url")
+    .or(eitherIdFilter(["product_id", "id"], product_id))
     .maybeSingle();
   if (error || !data) return null;
   return data;
@@ -178,8 +194,11 @@ async function attachFulfillmentIfEmpty(purchaseId: string, productId: string | 
   }
 
   const payload = {
+    // The lookup now matches either column, so product_id is null on most rows
+    // and product.id is the real identifier. Recording a null here would make
+    // the stored receipt unable to name the product it fulfilled.
     source: "product",
-    product_id: product.product_id,
+    product_id: product.product_id ?? product.id ?? null,
     title: product.title,
     price_cents: product.price_cents ?? product.amount_cents ?? null,
     note: "creator-supplied fulfillment link",
@@ -196,7 +215,15 @@ async function attachFulfillmentIfEmpty(purchaseId: string, productId: string | 
     .eq("id", purchaseId);
 
   if (updErr) {
-    console.warn("[webhook] attachFulfillmentIfEmpty update error:", updErr.message);
+    // error, not warn: the buyer has paid and this is the write that hands them
+    // what they bought. Deliberately NOT thrown — throwing would make Stripe
+    // redeliver the whole event, and changing the money path's retry semantics
+    // is not something that can be proven safe from here. Loud log instead.
+    console.error(
+      "[webhook] attachFulfillmentIfEmpty FAILED — buyer paid but has no fulfillment link. purchase:",
+      purchaseId,
+      updErr.message
+    );
   }
 }
 
@@ -1530,9 +1557,15 @@ export async function POST(req: NextRequest) {
 
         const bookingPaymentId = session.metadata?.booking_payment_id || null;
         if (bookingPaymentId) {
+          // booking_payment_status has labels
+          // {pending, link_sent, completed, canceled, refunded} — verified
+          // against the live enum. There is no 'expired', so writing it raised
+          // 22P02, threw, and returned 500, which made Stripe redeliver this
+          // event for three days. 'canceled' is the terminal value the orders
+          // writes on this same event already use.
           const { error } = await admin
             .from("booking_payments")
-            .update({ status: "expired", updated_at: expiredAt })
+            .update({ status: "canceled", updated_at: expiredAt })
             .eq("id", bookingPaymentId)
             .in("status", ["pending", "link_sent"]);
           if (error) {
@@ -1627,7 +1660,13 @@ export async function POST(req: NextRequest) {
       case "account.updated": {
         const account = event.data.object as Stripe.Account;
         const complete = !!(account.charges_enabled && account.payouts_enabled);
-        const { error: acctErr } = await admin
+        // .select("id") matters: without it PostgREST returns no rows and a
+        // zero-row UPDATE is indistinguishable from a successful one, so this
+        // printed "complete" even when it had matched no profile at all. This
+        // is the ONLY automatic path that opens the Connect gate every purchase
+        // depends on, so a silent no-op here looks exactly like Connect simply
+        // not working, with nothing in the logs to say why.
+        const { data: acctRows, error: acctErr } = await admin
           .from("profiles")
           .update({
             charges_enabled: !!account.charges_enabled,
@@ -1638,11 +1677,24 @@ export async function POST(req: NextRequest) {
             stripe_onboarding_complete: complete,
             onboarding_complete: complete,
           })
-          .eq("stripe_account_id", account.id);
+          .eq("stripe_account_id", account.id)
+          .select("id");
         if (acctErr) {
           console.warn("[webhook] account.updated profile sync error:", acctErr.message);
+        } else if (!acctRows || acctRows.length === 0) {
+          // Stripe knows this connected account; no profile claims it. Not
+          // retryable, so do not throw — but it must never read as success.
+          console.error(
+            "[webhook] account.updated matched NO profile — no row has stripe_account_id =",
+            account.id,
+            "so the Connect gate was NOT opened.",
+            { complete }
+          );
         } else {
-          console.log("[webhook] account.updated:", account.id, { complete });
+          console.log("[webhook] account.updated:", account.id, {
+            complete,
+            profilesUpdated: acctRows.length,
+          });
         }
         break;
       }

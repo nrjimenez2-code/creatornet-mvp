@@ -308,6 +308,60 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      // purchases.post_id is NOT NULL in the live schema. Without this bail the
+      // route happily opened a Stripe Checkout Session for a product no post
+      // sells, then failed to insert the purchase row — the buyer is charged and
+      // nothing records it, which is the worst outcome available. Fail before
+      // Stripe is touched, not after.
+      if (!postId) {
+        return Response.json(
+          {
+            error: "This product isn't attached to a post yet, so it can't be purchased.",
+            code: "NO_POST_FOR_PRODUCT",
+          },
+          { status: 409 }
+        );
+      }
+
+      // The Buy button renders posts.price_cents; Stripe is charged
+      // products.amount_cents. Nothing keeps the two in step — no constraint, no
+      // shared write path — so editing one and not the other silently bills a
+      // different number than the buyer agreed to. One live post already shows
+      // $2,500 against a product that would charge $5,000.
+      //
+      // This is a fail-closed comparison, never a price substitution: on a
+      // mismatch nobody is charged. A post priced 0 is "free/unset" and is not
+      // a disagreement, so it is skipped.
+      const { data: postPricing, error: postPricingErr } = await supabase
+        .from("posts")
+        .select("price_cents")
+        .eq("id", postId)
+        .maybeSingle();
+      if (postPricingErr) {
+        throw new Error(`Load post price failed: ${postPricingErr.message}`);
+      }
+      const postPriceCents = Number(postPricing?.price_cents ?? 0);
+      if (Number.isFinite(postPriceCents) && postPriceCents > 0 && postPriceCents !== amount_cents) {
+        console.error(
+          "[checkout] price mismatch — refusing to charge. post:",
+          postId,
+          "shows",
+          postPriceCents,
+          "product",
+          String(prod.id),
+          "would charge",
+          amount_cents
+        );
+        return Response.json(
+          {
+            error:
+              "This listing's price doesn't match its product right now, so we didn't charge you. The creator needs to fix it.",
+            code: "PRICE_MISMATCH",
+          },
+          { status: 409 }
+        );
+      }
+
       // Refuse to take money for a digital product that has nothing to hand
       // over.
       //
