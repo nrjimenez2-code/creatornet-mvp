@@ -77,8 +77,28 @@ afterEach(async () => {
 
 describe("WatchPage error states", () => {
   test("purchases lookup fails: 'Unable to verify access.' with Try again + Back to Library", async () => {
+    // The page now loads the post BEFORE deciding entitlement (it needs
+    // creator_id to know whether the viewer is the creator), so the post must
+    // resolve for the purchase lookup — and therefore this error — to be
+    // reached at all. creator_id is deliberately someone else: the creator
+    // branch skips the purchase check entirely.
     db = createMockClient((op) =>
-      op.table === "purchases" ? { data: null, error: { message: "timeout" } } : undefined
+      op.table === "purchases"
+        ? { data: null, error: { message: "timeout" } }
+        : op.table === "posts"
+        ? {
+            data: {
+              id: "post_1",
+              creator_id: "someone_else",
+              title: "A post",
+              video_url: null,
+              poster_url: null,
+              hidden_at: null,
+              removed_at: null,
+            },
+            error: null,
+          }
+        : undefined
     );
 
     await render();

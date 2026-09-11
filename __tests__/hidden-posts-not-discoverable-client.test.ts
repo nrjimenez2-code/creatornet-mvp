@@ -33,13 +33,14 @@ jest.mock("@/lib/useUser", () => ({
   useUser: () => ({ userId: "buyer_1", session: null, loading: false }),
   useRequireUser: () => ({ userId: "buyer_1", session: null, loading: false }),
 }));
-// Mutable so a test can choose the fromProfile path (no purchase lookup) or
-// the buyer path (purchases lookup first).
-let mockSearch = "fromProfile=1";
+// `?fromProfile=1` used to disable the purchase check for ANY signed-in user
+// who typed it, and was set by nothing in the app. It has been deleted. Creator
+// preview is now decided by posts.creator_id === the viewer, mirroring the
+// server gate in app/api/watch/[postId]/route.ts, so these tests set the
+// creator on the post row instead of a query parameter.
 jest.mock("next/navigation", () => ({
   useParams: () => ({ postId: "post_1" }),
   useRouter: () => router,
-  useSearchParams: () => new URLSearchParams(mockSearch),
 }));
 jest.mock("next/link", () => ({
   __esModule: true,
@@ -76,7 +77,6 @@ async function render(Component: () => unknown) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  mockSearch = "fromProfile=1";
   // The watch page logs the not-found branch; expected here, keep output clean.
   jest.spyOn(console, "error").mockImplementation(() => {});
   // No resetModules(): it would hand the component a second copy of react,
@@ -112,35 +112,48 @@ describe("app/watch/[postId]", () => {
   // The watch page is the one consumer surface that must NOT filter hidden or
   // removed posts out of the query: a buyer never loses what they paid for.
   // It reads the moderation columns and decides in code.
-  it("reads the moderation columns and shows 'Post not found.' for a hidden post to a non-entitled viewer", async () => {
-    db = createMockClient((op) => (op.table === "posts" ? { data: HIDDEN_POST, error: null } : undefined));
+  // These two used to reach a "Post not found." branch only because the default
+  // test URL carried ?fromProfile=1, which skipped the purchase check. With that
+  // bypass deleted, a non-entitled viewer never gets far enough to be told
+  // anything about the post — they are redirected. That is strictly stronger:
+  // previously the page confirmed the id existed, now it reveals nothing.
+  it("still reads the moderation columns, and shows a hidden post to nobody who is not entitled", async () => {
+    db = createMockClient((op) =>
+      op.table === "purchases"
+        ? { data: null, error: null }
+        : op.table === "posts"
+        ? { data: HIDDEN_POST, error: null }
+        : undefined
+    );
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");
     await render(WatchPage);
 
     const reads = db.opsFor("posts").filter((o) => o.kind === "select");
     expect(reads).toHaveLength(1);
     expect(reads[0].filters).toHaveProperty("id", "post_1");
+    // The moderation columns must still be selected: an entitled buyer or the
+    // creator is allowed through them further down.
     expect(reads[0].columns).toMatch(/\bhidden_at\b/);
     expect(reads[0].columns).toMatch(/\bremoved_at\b/);
-    // Same branch as a nonexistent id — no new UI state.
-    expect(container.textContent).toContain("Post not found.");
     expect(container.textContent).not.toContain("Hidden thing");
-    expect(routerPush).not.toHaveBeenCalled();
+    expect(routerPush).toHaveBeenCalledWith("/dashboard?postId=post_1");
   });
 
-  it("shows 'Post not found.' for a REMOVED post to a non-entitled viewer", async () => {
+  it("shows a REMOVED post to nobody who is not entitled", async () => {
     db = createMockClient((op) =>
-      op.table === "posts"
+      op.table === "purchases"
+        ? { data: null, error: null }
+        : op.table === "posts"
         ? { data: { ...HIDDEN_POST, hidden_at: null, removed_at: "2026-09-03T00:00:00Z" }, error: null }
         : undefined
     );
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");
     await render(WatchPage);
-    expect(container.textContent).toContain("Post not found.");
+    expect(container.textContent).not.toContain("Hidden thing");
+    expect(routerPush).toHaveBeenCalledWith("/dashboard?postId=post_1");
   });
 
   it("still opens a hidden post for a buyer with a paid purchase row", async () => {
-    mockSearch = ""; // the buyer path: purchases lookup first
     db = createMockClient((op) =>
       op.table === "purchases"
         ? { data: { id: "pur_1" }, error: null }
@@ -178,20 +191,25 @@ describe("app/watch/[postId]", () => {
   });
 
   it("a non-entitled viewer without a purchase is sent to the dashboard, never shown the post", async () => {
-    mockSearch = "";
     db = createMockClient((op) =>
       op.table === "purchases" ? { data: null, error: null } : op.table === "posts" ? { data: HIDDEN_POST, error: null } : undefined
     );
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");
     await render(WatchPage);
     expect(routerPush).toHaveBeenCalledWith("/dashboard?postId=post_1");
-    expect(db.opsFor("posts")).toHaveLength(0);
+    // The post row IS read now — its creator_id is what decides whether the
+    // viewer is the creator, and that read is the same one RLS already allows
+    // this user to make directly. What matters is that nothing from it reaches
+    // the screen: the redirect fires and no post content renders.
+    expect(container.textContent).not.toContain("Hidden thing");
   });
 
-  it("still renders a visible post (the gate does not break the happy path)", async () => {
+  it("still renders a visible post to an entitled buyer (the gate does not break the happy path)", async () => {
     db = createMockClient((op) =>
-      op.table === "posts"
-        ? { data: { id: "post_1", creator_id: null, title: "Hello", video_url: null, poster_url: null, hidden_at: null, removed_at: null }, error: null }
+      op.table === "purchases"
+        ? { data: { id: "purchase_1" }, error: null }
+        : op.table === "posts"
+        ? { data: { id: "post_1", creator_id: "someone_else", title: "Hello", video_url: null, poster_url: null, hidden_at: null, removed_at: null }, error: null }
         : undefined
     );
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");
