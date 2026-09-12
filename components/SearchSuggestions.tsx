@@ -23,7 +23,7 @@ export default function SearchSuggestions({ query, onPick }: { query: string; on
       {suggestions.map((item,index) => <button key={`${item.type}:${item.label}:${index}`} type="button" onClick={()=>onPick(item.label)}
         title={item.label} className="shrink-0 max-w-64 truncate rounded-full border border-white/15 px-3 py-2 text-sm text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-purple-500">
         {item.type === "creator" ? `@${item.label}` : item.label}
-        {query.trim() && <span className="ml-2 text-xs text-white/40">{item.type}</span>}
+        {query.trim() && <span className="ml-2 text-xs text-white/40">{item.type === "offering" ? "offer" : item.type}</span>}
       </button>)}
     </div>
   </section>;
