@@ -46,6 +46,7 @@ test('sales retain current paid-order semantics; pending/refunded do not inflate
   query(['paid','pending','refunded'].map((status, id) => ({ id, status, gross_amount: 12345, currency: 'usd', created_at: '2026-09-10T12:00:00Z' })));
   const result = await loadAnalyticsDetail('sales', window);
   expect(result?.points[4].value).toBe(12345); expect(result?.stats[0].value).toBe('1');
+  expect(result?.stats[1]).toEqual({ label: 'Average order value', value: '$123.45' });
 });
 test('views RPC remains tied to signed-in creator; failure is not a zero graph', async () => {
   rpc.mockResolvedValue({ data: dailySeries(window, []).map(p => ({ date: p.date, views: p.value })), error: null });

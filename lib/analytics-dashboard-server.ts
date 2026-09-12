@@ -1,7 +1,7 @@
 import 'server-only';
 import { createServerClient } from '@/lib/supabaseServer';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
-import { dailySeries, sectionLabels, type AnalyticsDetail, type AnalyticsSection, type AnalyticsWindow } from './analytics-dashboard';
+import { dailySeries, formatMetric, sectionLabels, type AnalyticsDetail, type AnalyticsSection, type AnalyticsWindow } from './analytics-dashboard';
 
 // Only fixed query specifications. Identity comes from auth.getUser, never a
 // URL or client prop. Raw records never cross the server/client boundary.
@@ -59,7 +59,10 @@ export async function loadAnalyticsDetail(section: AnalyticsSection, window: Ana
         return { date: String(row[specs[section].time]), value: section === 'sales' ? Number(row.gross_amount) : 1 };
       }));
       if (section === 'clicks') base.stats.push({ label: 'Unique signed-in clickers', value: new Set(rows.map(row => row.user_id).filter(Boolean)).size.toLocaleString('en-US') });
-      if (section === 'sales') base.stats.push({ label: 'Paid orders', value: selected.length.toLocaleString('en-US') });
+      if (section === 'sales') {
+        base.stats.push({ label: 'Paid orders', value: selected.length.toLocaleString('en-US') });
+        base.stats.push({ label: 'Average order value', value: selected.length ? formatMetric(base.points.reduce((sum, point) => sum + point.value, 0) / selected.length, 'currency') : '—' });
+      }
     }
     return base;
   } catch (error) {
