@@ -1,28 +1,34 @@
 /**
  * @jest-environment jsdom
  *
- * VideoCard's SERVER markup must never depend on a browser capability.
+ * HARDENING, not a regression test for a live bug. Read this before assuming
+ * there was one — I originally reported this as a shipped defect and that was
+ * WRONG. Correction, verified against production:
  *
- * #154 added adaptive HLS and gated it on:
+ *   curl https://www.creatornet.net/dashboard | grep -c '<video'   ->  0
  *
- *   const [nativeHls] = useState(() => typeof document !== "undefined" &&
- *     !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl"));
+ * No page server-renders a feed card. /dashboard ships "Loading…" and FeedList
+ * mounts VideoCards only after its client-side fetch, and FeedList is the only
+ * caller that passes preferAdaptive. So the hydration path below never runs in
+ * the app today, and adaptive playback does engage on iOS — confirmed in a
+ * WebKit browser on the live site, where the <video src> is the .m3u8.
  *
- * A useState initializer also runs during the HYDRATION render, so that is not
- * a client-only read. On the Node server `document` is undefined -> false ->
- * MP4 src; on iPhone Safari the hydration render -> true -> the .m3u8 src. And
- * FeedList passes preferAdaptive={!desktop} while useDesktopViewport's
- * getServerSnapshot is () => false, so preferAdaptive is TRUE during SSR.
+ * What is still true is that the COMPONENT can produce server/client-divergent
+ * markup if it is ever server-rendered:
  *
- * React does not repair a mismatched <video src>. Its own words: "some
- * attributes of the server rendered HTML didn't match the client properties.
- * This won't be patched up." Verified by hydrating: the MP4 stayed in the DOM
- * and a later re-render did not correct it, because nativeHls never changes.
- * Adaptive playback therefore never engaged on the one platform it was for.
+ *   const [nativeHls] = useState(() => typeof document !== "undefined" && ...);
  *
- * This is the THIRD time this trap has hit VideoCard (see the <video muted>
- * regression in audio-preference.test.ts). The rule this pins: whatever the
- * server renders for a card must not vary with what the client can play.
+ * A useState initializer also runs during the hydration render, so the server
+ * would emit the MP4 while an iPhone computed the .m3u8. React does not repair
+ * a mismatched <video src> — "some attributes of the server rendered HTML
+ * didn't match the client properties. This won't be patched up." — so the MP4
+ * would stick, silently, forever.
+ *
+ * Making /dashboard server-rendered is a plausible future optimisation, and
+ * this trap has already hit VideoCard twice (see <video muted> in
+ * audio-preference.test.ts). So the rule is pinned now, while it is cheap:
+ * what the server renders for a card must not vary with what the client can
+ * play.
  */
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";

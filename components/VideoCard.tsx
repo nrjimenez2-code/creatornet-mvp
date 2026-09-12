@@ -179,13 +179,14 @@ function VideoCard(props: VideoCardProps) {
 
   const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
   const [failedAdaptiveSource, setFailedAdaptiveSource] = useState<string | undefined>();
-  // Capability detection has to survive hydration, so it goes through a store
-  // with an explicit server snapshot (see useNativeHls). The earlier assumption
-  // here — that feed cards mount only after a client fetch, so no SSR viewer
-  // opts in — does not hold: FeedList passes preferAdaptive={!desktop}, and
-  // useDesktopViewport's server snapshot is false, so preferAdaptive is TRUE on
-  // the server. That is what made the server emit the MP4 while an iPhone's
-  // hydration render computed the .m3u8, and React never patched it.
+  // Hardening, not a bug fix. Today no page server-renders a feed card: the
+  // dashboard ships "Loading…" and FeedList mounts cards only after its
+  // client-side fetch, so this never runs on the server and adaptive playback
+  // works. But a useState initializer ALSO runs during a hydration render, so
+  // the moment anything server-renders a card this would emit the MP4 on the
+  // server and the .m3u8 on an iPhone — and React does not repair a mismatched
+  // <video src> ("This won't be patched up"), so the MP4 would stick silently.
+  // A store with an explicit server snapshot cannot fail that way.
   const nativeHls = useNativeHls();
   const adaptiveSrc = props.preferAdaptive && nativeHls && failedAdaptiveSource !== originalSrc ? feedAdaptiveUrl(originalSrc) : undefined;
   const src = adaptiveSrc || (failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc));
