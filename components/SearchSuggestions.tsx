@@ -19,7 +19,7 @@ export default function SearchSuggestions({ query, onPick }: { query: string; on
   if (!suggestions.length) return null;
   return <section aria-label={query.trim() ? "Search suggestions" : "Topics in recent posts"} className="py-3">
     {!query.trim() && <h2 className="text-sm text-white/60 mb-2">Topics in recent posts</h2>}
-    <div className="flex gap-2 overflow-x-auto py-1">
+    <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
       {suggestions.map((item,index) => <button key={`${item.type}:${item.label}:${index}`} type="button" onClick={()=>onPick(item.label)}
         title={item.label} className="shrink-0 max-w-64 truncate rounded-full border border-white/15 px-3 py-2 text-sm text-white/80 hover:bg-white/10 focus-visible:outline-2 focus-visible:outline-purple-500">
         {item.type === "creator" ? `@${item.label}` : item.label}

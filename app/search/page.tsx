@@ -54,7 +54,7 @@ function SearchPage() {
         <div className="flex flex-wrap gap-2">{recent.map(term=><button key={term} onClick={()=>pick(term)} className="border border-white/15 rounded-full px-3 py-2">{term}</button>)}</div>
         {!recent.length && <p className="text-white/50 text-sm">Search for a creator, something you want to learn, or a service you need.</p>}
       </section> : <>
-        <div role="tablist" aria-label="Search result types" className="flex gap-5 border-b border-white/15 mb-5 overflow-x-auto">
+        <div role="tablist" aria-label="Search result types" className="flex gap-5 border-b border-white/15 mb-5 overflow-x-auto no-scrollbar">
           {(["all","creators","videos","offerings"] as Tab[]).map(value=><button key={value} role="tab" aria-selected={tab===value} onClick={()=>setTab(value)}
             className={`py-3 border-b-2 capitalize whitespace-nowrap ${tab===value ? "border-[#7059ef] text-white" : "border-transparent text-white/50"}`}>{value}{value!=="all" && !search.loading ? ` (${totals[value]})` : ""}</button>)}
         </div>
