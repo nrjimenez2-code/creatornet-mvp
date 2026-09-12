@@ -261,4 +261,3 @@ test.each(["success", "rejected", "unavailable"])("explicit copy handles %s with
   if (mode !== "unavailable") expect(writeText).toHaveBeenCalledWith("https://checkout.stripe.com/test-only-link");
   expect(fetchMock.mock.calls.filter(([url]) => url.includes("/payment-link"))).toHaveLength(1);
 });
-
