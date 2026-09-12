@@ -13,7 +13,7 @@ type Status =
       onboarding_complete: boolean;
     };
 
-export default function StripeConnectBanner() {
+export default function StripeConnectBanner({ appearance = "default" }: { appearance?: "default" | "earnings" }) {
   const { session, loading: authLoading } = useUser();
   const token = session?.access_token;
   const [retry, setRetry] = useState(0);
@@ -110,6 +110,12 @@ export default function StripeConnectBanner() {
   );
 
   if (s.connected && s.onboarding_complete) {
+    if (appearance === "earnings") return (
+      <div className="inline-flex items-start gap-3 rounded-2xl border border-[#29292f] bg-[#080809] px-4 py-3 text-sm text-[#f7f7f8]">
+        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-[#7659ef]" aria-hidden="true" />
+        <div><p className="font-medium">Payouts active</p><p className="mt-1 text-xs text-[#a4a4ae]">Stripe connected</p></div>
+      </div>
+    );
     return (
       <div className="flex items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-xs text-green-400">
         <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />

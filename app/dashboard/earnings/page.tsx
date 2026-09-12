@@ -7,6 +7,8 @@ import {
   type CreatorEarningsRow,
 } from "@/lib/creatorEarningsView";
 
+import styles from "./earnings.module.css";
+
 export const metadata: Metadata = {
   title: "Earnings",
   description: "Review your CreatorNet sales, fees, processing costs, and net earnings.",
@@ -67,52 +69,37 @@ export default async function EarningsPage() {
   const currencyTotals = totalsByCurrency(view.rows);
 
   return (
-    <main className="min-h-screen bg-[#05060A] px-4 py-5 text-white sm:px-6 lg:px-10">
-      <div className="mx-auto max-w-6xl">
-        <BackButton hrefOverride="/dashboard" />
-
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#8D7DFF]">
-              Creator finances
-            </p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight">Earnings</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">
-              Every sale keeps CreatorNet&apos;s 12% platform fee separate from payment
-              processing, so you can see exactly how your net earnings are calculated.
-            </p>
+    <main className={styles.page}>
+      <div className={styles.backCorner}><BackButton hrefOverride="/dashboard" className={styles.backButton} /></div>
+      <div className={styles.content}>
+        <header className={styles.header}>
+          <h1>Earnings</h1>
+          <p>Your earnings, clearly broken down.</p>
+        </header>
+        <div className={styles.panel}>
+          <div className={styles.overview}>
+            <div><p className={styles.totalLabel}>Recorded net earnings</p><p className={styles.total}>{formatMoney(view.recordedEarningsCents, "USD")}</p></div>
+            <section className={styles.connection} aria-label="Stripe account setup">
+              <StripeConnectBanner appearance="earnings" />
+            </section>
           </div>
-          <div className="rounded-2xl border border-[#6C5CE7]/35 bg-[#6C5CE7]/10 px-5 py-4 sm:min-w-60">
-            <p className="text-xs text-white/55">Recorded net earnings</p>
-            <p className="mt-1 text-2xl font-semibold tabular-nums">
-              {formatMoney(view.recordedEarningsCents, "USD")}
-            </p>
-            <p className="mt-1 text-[11px] text-white/45">From your CreatorNet profile record</p>
-          </div>
-        </div>
-
-        {/* The dashboard sidebar is hidden below lg. Keep the existing Stripe
-            setup flow reachable from Profile > Earnings at every screen size. */}
-        <section className="mt-6" aria-label="Stripe account setup">
-          <StripeConnectBanner />
-        </section>
-
         {!view.ledgerAvailable ? (
-          <div className="mt-6 rounded-2xl border border-amber-400/25 bg-amber-400/10 p-5 text-sm text-amber-100">
-            Detailed transaction history is temporarily unavailable. Your recorded earnings total
-            above is unchanged.
+          <div className={styles.unavailable} role="status">
+            Detailed transaction history is temporarily unavailable. Your recorded earnings total above is unchanged.
           </div>
         ) : view.rows.length === 0 ? (
-          <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.04] p-8 text-center">
-            <h2 className="font-semibold">No tracked payments yet</h2>
-            <p className="mt-2 text-sm text-white/55">
-              New sales will appear here with the platform fee, processing deduction, and creator
-              net shown separately.
-            </p>
-          </div>
+          <section aria-labelledby="empty-history-heading">
+            <div className={styles.historyHeading}><h2 id="empty-history-heading">Payment history</h2><span>0 payments</span></div>
+            <div className={styles.emptyColumns} aria-hidden="true"><span>Payment</span><span>Gross</span><span>Platform fee</span><span>Processing</span><span>Your net</span></div>
+            <div className={styles.empty}>
+              <svg width="44" height="52" viewBox="0 0 44 52" fill="none" aria-hidden="true"><path d="M8 3h28a3 3 0 0 1 3 3v42l-6-4-6 4-5-4-5 4-6-4-6 4V6a3 3 0 0 1 3-3Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round"/><path d="M13 16h18M13 25h18" stroke="#7659ef" strokeWidth="1.5"/><path d="M13 34h14" stroke="currentColor" strokeWidth="1.5"/></svg>
+              <h3>No tracked payments yet</h3>
+              <p>New sales will appear here with a clear breakdown<br className={styles.desktopBreak} /> of fees and your net earnings.</p>
+            </div>
+          </section>
         ) : (
           <>
-            <section className="mt-6 space-y-4" aria-labelledby="tracked-summary-heading">
+            <section className={styles.trackedSummary} aria-labelledby="tracked-summary-heading">
               <div>
                 <h2 id="tracked-summary-heading" className="text-lg font-semibold">
                   Tracked transaction summary
@@ -123,7 +110,7 @@ export default async function EarningsPage() {
               </div>
 
               {currencyTotals.map((totals) => (
-                <div key={totals.currency} className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div key={totals.currency} className={styles.currencyTotals}>
                   {[
                     ["Gross sales", totals.grossCents],
                     ["CreatorNet fee (12%)", totals.platformFeeCents],
@@ -132,7 +119,7 @@ export default async function EarningsPage() {
                   ].map(([label, amount]) => (
                     <div
                       key={String(label)}
-                      className="rounded-2xl border border-white/10 bg-white/[0.04] p-4"
+                      className={styles.currencyStat}
                     >
                       <p className="text-xs text-white/50">{label}</p>
                       <p className="mt-1 text-xl font-semibold tabular-nums">
@@ -144,11 +131,11 @@ export default async function EarningsPage() {
               ))}
             </section>
 
-            <section className="mt-8" aria-labelledby="transaction-history-heading">
+            <section className={styles.history} aria-labelledby="transaction-history-heading">
               <div className="mb-3 flex items-end justify-between gap-4">
                 <div>
                   <h2 id="transaction-history-heading" className="text-lg font-semibold">
-                    Transaction history
+                    Payment history
                   </h2>
                   <p className="mt-1 text-xs text-white/50">
                     Each row shows the original payment split plus refund and dispute status.
@@ -157,8 +144,8 @@ export default async function EarningsPage() {
                 <span className="text-xs text-white/40">{view.rows.length} payments</span>
               </div>
 
-              <div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.035]">
-                <table className="w-full min-w-[1080px] text-left text-sm">
+              <div className={styles.tableScroll} tabIndex={0} role="region" aria-label="Payment history details">
+                <table className={styles.table}>
                   <thead className="border-b border-white/10 text-xs text-white/45">
                     <tr>
                       <th className="px-4 py-3 font-medium">Payment</th>
@@ -214,7 +201,7 @@ export default async function EarningsPage() {
                             <span className="text-white/40">None</span>
                           )}
                         </td>
-                        <td className="px-4 py-4 font-semibold tabular-nums text-emerald-300">
+                        <td className="px-4 py-4 font-semibold tabular-nums text-white">
                           {formatMoney(row.currentNetCents, row.currency)}
                         </td>
                       </tr>
@@ -231,6 +218,8 @@ export default async function EarningsPage() {
             </p>
           </>
         )}
+          <footer className={styles.footer}>12% platform fee. Payment-processing fees are deducted separately.</footer>
+        </div>
       </div>
     </main>
   );
