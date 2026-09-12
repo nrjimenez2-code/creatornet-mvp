@@ -3,6 +3,10 @@
 begin;
 create schema if not exists extensions;
 create extension if not exists pg_trgm with schema extensions;
+-- Register pg_trgm's user-settable parameters in this migration connection.
+-- On a fresh connection, Postgres otherwise treats the function SET clause
+-- below as an unknown custom parameter requiring superuser privileges.
+select extensions.word_similarity('search', 'search');
 
 create or replace function public.search_normalize_v1(value text)
 returns text language sql immutable parallel safe set search_path = '' as $$
