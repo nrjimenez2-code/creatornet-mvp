@@ -1,4 +1,4 @@
-.page { position: relative; min-height: 100svh; padding: 46px 24px 64px; background: #000; color: #f7f7f8; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+.page { color-scheme: dark; position: relative; min-height: 100svh; padding: 46px 24px 64px; background: #000; color: #f7f7f8; font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
 .backCorner { position: absolute; top: 18px; left: 20px; }
 .backButton { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 50%; color: #bcbcc7; background: transparent; }
 .backButton:hover { background: #17171c; color: white; }
