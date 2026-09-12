@@ -711,6 +711,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                   <VideoCard
                     onInteractionChange={handleInteractionChange}
                     prepareFrame={!desktop && pageVisible && !isActive && warmingPostId === p.id}
+                    preferAdaptive={!desktop}
                     commentDraft={draftsRef.current.get(p.id) ?? ""}
                     onCommentDraftChange={handleDraftChange}
                     onFeedDeleted={handleDeleted}

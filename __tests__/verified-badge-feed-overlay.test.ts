@@ -120,6 +120,20 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     });
   }
 
+  test("mobile native HLS falls back to optimized MP4 and desktop retains MP4", async () => {
+    const support = jest.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue("probably");
+    const original = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/073e7bcb-5986-49cc-8be9-8567c6494562/1788481864376.mov";
+    try {
+      await render({ src: original, preferAdaptive: true });
+      expect(container.querySelector("video")?.getAttribute("src")).toContain("/manifest/video.m3u8");
+      await act(async () => container.querySelector("video")!.dispatchEvent(new Event("error")));
+      expect(container.querySelector("video")?.getAttribute("src")).toContain("media.creatornet.net/feed-v1/");
+      await act(async () => root.render(null));
+      await render({ src: original, preferAdaptive: false });
+      expect(container.querySelector("video")?.getAttribute("src")).toContain("media.creatornet.net/feed-v1/");
+    } finally { support.mockRestore(); }
+  });
+
   test("falls back to the original if CDN media fails and uses CDN for the next post", async () => {
     const original = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/fallback-test.mp4";
     await render({ src: original });

@@ -19,7 +19,7 @@ import { useUser } from "@/lib/useUser";
 import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
-import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
+import { feedMediaUrl, feedPosterUrl, feedAdaptiveUrl } from "@/lib/feedMedia";
 import { usePageVisible, useDesktopViewport } from "@/lib/browserVisibility";
 import { scheduleFeedTelemetry } from "@/lib/feedBackground";
 import type { FeedInteraction } from "@/lib/feedInteraction";
@@ -50,6 +50,7 @@ type VideoCardProps = {
   isActive?: boolean;
   /** Briefly decode an incoming, partially visible mobile card without audio. */
   prepareFrame?: boolean;
+  preferAdaptive?: boolean;
   preload?: "auto" | "metadata" | "none";
   defaultMuted?: boolean;
   onBuy?: () => void;
@@ -177,7 +178,13 @@ function VideoCard(props: VideoCardProps) {
   };
 
   const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
-  const src = failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc);
+  const [failedAdaptiveSource, setFailedAdaptiveSource] = useState<string | undefined>();
+  // Main-feed cards mount only after their client-side data fetch. Other SSR
+  // viewers do not opt in, avoiding a hydration-time source swap.
+  const [nativeHls] = useState(() => typeof document !== "undefined" &&
+    !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl"));
+  const adaptiveSrc = props.preferAdaptive && nativeHls && failedAdaptiveSource !== originalSrc ? feedAdaptiveUrl(originalSrc) : undefined;
+  const src = adaptiveSrc || (failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc));
   const [mediaError, setMediaError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
@@ -1404,7 +1411,8 @@ function VideoCard(props: VideoCardProps) {
             ref={videoRef}
             src={src}
             onError={() => {
-              if (src !== originalSrc) setFailedMediaSource(originalSrc);
+              if (adaptiveSrc) setFailedAdaptiveSource(originalSrc);
+              else if (src !== originalSrc) setFailedMediaSource(originalSrc);
               else setMediaError(true);
             }}
             poster={displayPoster}
