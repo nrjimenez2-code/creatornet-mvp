@@ -104,8 +104,7 @@ describe("public tiles load media through the CDN", () => {
     }
     expect(search).toContain("src={feedPosterUrl(p.poster_url)}");
     expect(search).toContain("src={feedMediaUrl(p.media_url)}");
-    // The search detail view renders a plain <video>, so its poster goes through the CDN too.
-    expect(search).toContain("poster={feedPosterUrl(post.poster_url)}");
+    // Search opens the full feed; it no longer has a separate video detail modal.
     expect(tag).toContain("src={feedPosterUrl(p.poster_url)}");
     expect(tag).toContain("src={feedMediaUrl(p.video_url)}");
   });
