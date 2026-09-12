@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
-import VideoCard from "./VideoCard";
+import { memo, useCallback, useEffect, useRef, useState, useMemo } from "react";
+import FeedVideoCard from "./VideoCard";
+const VideoCard = memo(FeedVideoCard);
 import FeedEmptyState from "./FeedEmptyState";
 import { loadFeedOffers } from "@/lib/feedOffers";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
-import { useSoundPreference } from "@/lib/audioPreference";
+import { readSoundOn, useSoundPreference } from "@/lib/audioPreference";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import {
   mapFeedV3Rows,
@@ -41,6 +42,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     setFeedError(null);
   }
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreError, setMoreError] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [pendingPosts, setPendingPosts] = useState<string[]>([]);
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(false);
   const loadingMoreRef = useRef(false);
@@ -95,7 +99,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   }, []);
 
   // Handler to update follow status in cached feed data
-  const handleFollowChange = (creatorId: string, isFollowing: boolean) => {
+  const handleFollowChange = useCallback((creatorId: string, isFollowing: boolean) => {
     setItems((prevItems) =>
       prevItems.map((item) =>
         item.creator_id === creatorId
@@ -103,7 +107,18 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           : item
       )
     );
-  };
+  }, []);
+
+  const toggleSound = useCallback(() => setGlobalSoundOn(!readSoundOn()), [setGlobalSoundOn]);
+  const handleDeleted = useCallback((id: string) => {
+    const current = itemsRef.current;
+    const index = current.findIndex(row => row.id === id);
+    const remaining = current.filter(row => row.id !== id);
+    itemsRef.current = remaining;
+    const neighbor = remaining[Math.min(Math.max(index, 0), remaining.length - 1)]?.id ?? null;
+    setActivePostId(active => active === id ? neighbor : active);
+    setItems(rows => rows.filter(row => row.id !== id));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +127,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     fetchGenRef.current += 1;
     offsetRef.current = 0;
     hasMoreRef.current = false;
+    loadingMoreRef.current = false;
+    setLoadingMore(false);
+    setMoreError(false);
+    setPendingPosts([]);
 
     // Wait for the auth context to settle; the effect re-runs when it does.
     if (authLoading) return;
@@ -162,7 +181,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           offsetRef.current = rawCount;
           hasMoreRef.current = rawCount >= PAGE_SIZE;
           if (mapped.length) {
-            setActivePostId((prev) => prev ?? mapped[0]?.id ?? null);
+            setActivePostId(mapped[0]?.id ?? null);
+            feedScrollRef.current?.scrollTo?.({ top: 0, behavior: "instant" });
           }
         }
       } catch (err) {
@@ -196,6 +216,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           };
           const removedId = eventRow?.id ?? eventRow?.post_id;
           if (!removedId) return;
+          // Do not prepend or hydrate unranked rows while someone is watching.
+          // Refresh through the authoritative feed RPC only on an explicit tap.
+          if (payload.eventType === "INSERT") {
+            setPendingPosts(ids => ids.includes(removedId) ? ids : [...ids, removedId]);
+            return;
+          }
           const refresh = (offerRefreshes.get(removedId) ?? 0) + 1;
           offerRefreshes.set(removedId, refresh);
 
@@ -311,7 +337,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       fetchGenRef.current += 1;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase, authLoading, enrichPosts]);
+  }, [activeTab, supabase, authLoading, enrichPosts, refreshKey]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -357,8 +383,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     }, 4000);
   }, [highlightPostId, items]);
 
+  const sectionMembership = items.map(item => item.id).join(",");
   useEffect(() => {
-    if (!items.length) return;
+    if (!sectionRefs.current.size) return;
     const ratios = new Map<Element, IntersectionObserverEntry>();
     const observer = new IntersectionObserver(
       (entries) => {
@@ -386,7 +413,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     sectionRefs.current.forEach((node) => observer.observe(node));
 
     return () => observer.disconnect();
-  }, [items]);
+  }, [sectionMembership, feedError]);
 
   const scrollByOneCard = useCallback(
     (direction: "up" | "down") => {
@@ -430,6 +457,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     if (!hasMoreRef.current || loadingMoreRef.current) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    setMoreError(false);
 
     const gen = fetchGenRef.current;
     const currentOffset = offsetRef.current;
@@ -447,6 +475,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
       if (error) {
         console.error("[Feed] loadMore error:", error);
+        setMoreError(true);
         return;
       }
 
@@ -471,9 +500,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       enrichPosts(mapped, gen);
     } catch (err) {
       console.error("[Feed] loadMore error:", err);
+      if (gen === fetchGenRef.current) setMoreError(true);
     } finally {
-      loadingMoreRef.current = false;
-      setLoadingMore(false);
+      if (gen === fetchGenRef.current) {
+        loadingMoreRef.current = false;
+        setLoadingMore(false);
+      }
     }
   }, [supabase, enrichPosts]);
 
@@ -531,7 +563,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     : 0;
 
   return (
-    <div className="relative h-full min-h-0">
+    <div className="relative h-full min-h-0 feed-mobile-viewport">
+      {pendingPosts.length > 0 && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
+      {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
+        {moreError ? <button type="button" onClick={() => void loadMore()}>Couldn’t load more · Retry</button> : "Loading more…"}
+      </div>}
       <div
         ref={feedScrollRef}
         className="h-full min-h-0 overflow-y-scroll snap-y snap-mandatory lg:snap-mandatory [&::-webkit-scrollbar]:hidden scroll-smooth"
@@ -565,7 +601,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           return (
             <section
               key={p.id}
-              className="snap-start snap-always lg:snap-always h-[calc(100dvh-56px)] lg:h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
+              className="feed-mobile-slot snap-start snap-normal lg:snap-always h-[calc(100dvh-56px)] lg:h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
               data-post-id={p.id}
               ref={(el) => {
                 const map = sectionRefs.current;
@@ -580,15 +616,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
                 {isMounted ? (
                   <VideoCard
-                    onDeleted={() => {
-                      const current = itemsRef.current;
-                      const index = current.findIndex((row) => row.id === p.id);
-                      const remaining = current.filter((row) => row.id !== p.id);
-                      itemsRef.current = remaining;
-                      const neighbor = remaining[Math.min(Math.max(index, 0), remaining.length - 1)]?.id ?? null;
-                      setActivePostId((active) => active === p.id ? neighbor : active);
-                      setItems((rows) => rows.filter((row) => row.id !== p.id));
-                    }}
+                    onFeedDeleted={handleDeleted}
                     // media
                     src={p.video_url || undefined}
                     poster={p.poster_url || undefined}
@@ -633,7 +661,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     soundEnabled={isSoundOn}
                     isActive={isActive}
                     preload={idx === activeIndex || idx === activeIndex + 1 ? "auto" : "metadata"}
-                    onToggleSound={() => setGlobalSoundOn(!globalSoundOn)}
+                    onToggleSound={toggleSound}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback
                     isLiked={p.is_liked ?? false}
@@ -648,11 +676,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             </section>
           );
         })}
-        {loadingMore && (
-          <div className="h-16 flex items-center justify-center text-sm text-gray-500">
-            Loading more…
-          </div>
-        )}
+
       </div>
 
       {/* Desktop-only feed navigation controls */}

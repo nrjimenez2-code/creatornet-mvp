@@ -60,3 +60,17 @@ body {
     transform: translateX(0);
   }
 }
+/* Stable snap slots on phones, including when browser chrome/keyboard changes.
+   Scoped to the main feed; profile viewers and desktop retain their geometry. */
+@media (max-width: 1023px) {
+  .feed-mobile-viewport { --feed-card-height: calc(100svh - 56px); }
+  .feed-mobile-viewport .feed-mobile-slot,
+  .feed-mobile-viewport .feed-mobile-card,
+  .feed-mobile-viewport .feed-mobile-card > [role="group"],
+  .feed-mobile-viewport .feed-mobile-card > [role="group"] > div:first-child,
+  .feed-mobile-viewport .feed-mobile-card video {
+    height: var(--feed-card-height);
+    min-height: var(--feed-card-height);
+  }
+  .feed-mobile-viewport { height: var(--feed-card-height); }
+}

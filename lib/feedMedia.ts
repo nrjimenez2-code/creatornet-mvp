@@ -17,3 +17,16 @@ export function feedMediaUrl(source: string | undefined): string | undefined {
     return source;
   }
 }
+
+/** Public posters share the production CDN; private/signed URLs stay untouched. */
+export function feedPosterUrl(source: string | null | undefined): string | undefined {
+  if (!source) return undefined;
+  try {
+    const url = new URL(source);
+    if ([originalOrigin, FEED_MEDIA_ORIGIN].includes(url.origin) &&
+        url.pathname.startsWith('/thumbnails/') && !url.search && !url.hash) {
+      return FEED_MEDIA_ORIGIN + url.pathname;
+    }
+  } catch { /* Relative and third-party images retain their original source. */ }
+  return source;
+}

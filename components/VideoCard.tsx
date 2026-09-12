@@ -3,6 +3,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import { getImageProps } from "next/image";
 import { useRouter } from "next/navigation";
 import { Heart, Volume2, VolumeX, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
@@ -11,15 +12,17 @@ import BuyButton from "./BuyButton";
 import DeleteVideoButton from "./DeleteVideoButton";
 import { formatSocialProof } from "@/lib/socialProof";
 import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
-import CommentPanel from "./CommentPanel";
+import dynamic from "next/dynamic";
+const CommentPanel = dynamic(() => import("./CommentPanel"));
 import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
 import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
-import { feedMediaUrl } from "@/lib/feedMedia";
+import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 
 type VideoCardProps = {
+  onFeedDeleted?: (postId: string) => void;
   src?: string;
   poster?: string | null;
   creator?: string;
@@ -90,7 +93,7 @@ function isAutoplayBlockedError(err: unknown): boolean {
   );
 }
 
-export default function VideoCard(props: VideoCardProps) {
+function VideoCard(props: VideoCardProps) {
   const {
     src: originalSrc,
     poster,
@@ -151,6 +154,21 @@ export default function VideoCard(props: VideoCardProps) {
 
   const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
   const src = failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc);
+  const [mediaError, setMediaError] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
+  const [frameReady, setFrameReady] = useState(false);
+  const [posterFailed, setPosterFailed] = useState(false);
+  const displayPoster = useMemo(() => {
+    const cdn = feedPosterUrl(poster);
+    if (posterFailed || !cdn?.startsWith("https://media.creatornet.net/thumbnails/")) return poster || undefined;
+    return getImageProps({ src: cdn, alt: "", width: 390, height: 694, quality: 75 }).props.src;
+  }, [poster, posterFailed]);
+  const deleted = useCallback(() => {
+    if (postId && props.onFeedDeleted) props.onFeedDeleted(postId);
+    else props.onDeleted?.();
+  }, [postId, props.onFeedDeleted, props.onDeleted]);
+  useEffect(() => { setMediaError(false); setFrameReady(false); }, [src, retryVersion]);
+  useEffect(() => { setPosterFailed(false); }, [poster]);
 
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -188,6 +206,10 @@ export default function VideoCard(props: VideoCardProps) {
     setAutoplayBlocked(false);
   }
   const isMuted = mutedOverride ?? (autoplayBlocked || ownerMuted);
+  const mutedRef = useRef(isMuted);
+  mutedRef.current = isMuted;
+  const activeRef = useRef(isActive);
+  activeRef.current = isActive;
   const [isPaused, setIsPaused] = useState(true);
   const [playbackFeedback, setPlaybackFeedback] = useState(false);
   const resumeFeedbackRef = useRef(false);
@@ -551,26 +573,43 @@ export default function VideoCard(props: VideoCardProps) {
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
     };
-  }, [scoreInterest, trackMetric]);
+  }, [scoreInterest, trackMetric, retryVersion, src]);
+
+  // Keep the poster until a decoded frame can actually be displayed, also in
+  // profile viewers where this card owns its own visibility observer.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const ready = () => setFrameReady(true);
+    if (video.requestVideoFrameCallback) {
+      const frame = video.requestVideoFrameCallback(ready);
+      return () => video.cancelVideoFrameCallback(frame);
+    }
+    video.addEventListener("playing", ready, { once: true });
+    return () => video.removeEventListener("playing", ready);
+  }, [src, retryVersion]);
 
   // Browser refused unmuted playback (no gesture yet on this page): keep the
   // video moving muted and offer a one-tap unmute. The saved preference is
   // deliberately NOT touched — the user asked for sound, the browser said no.
   const fallBackToMuted = useCallback((video: HTMLVideoElement) => {
-    if (manuallyPausedRef.current) return;
+    if (manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video) return;
     video.muted = true;
     // isMuted is derived from this flag, so setting it is the whole mute.
     setAutoplayBlocked(true);
     video.play().catch(() => {});
   }, []);
 
+  const activationRef = useRef(isActive);
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    const activationChanged = activationRef.current !== isActive;
+    activationRef.current = isActive;
 
     const wasPlaying = !video.paused;
     video.muted = isMuted;
-    if (isMuted || !wasPlaying) return;
+    if (activationChanged || isActive === false || isMuted || !wasPlaying) return;
 
     // Unmuting a playing video by script (the feed flips soundEnabled once a
     // card becomes active). Without user activation Chrome/WebKit pause it;
@@ -582,7 +621,7 @@ export default function VideoCard(props: VideoCardProps) {
         if (isAutoplayBlockedError(err)) fallBackToMuted(video);
       });
     }
-  }, [isMuted, fallBackToMuted]);
+  }, [isMuted, isActive, fallBackToMuted]);
 
   // No effect mirrors soundEnabled or the stored preference into state any more:
   // isMuted is computed from both above, so the feed prop and the saved choice
@@ -606,6 +645,7 @@ export default function VideoCard(props: VideoCardProps) {
     };
     const tryPlay = (retried = false) => {
       if (cancelled || !visible || manuallyPausedRef.current) return;
+      video.muted = mutedRef.current;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch((err: unknown) => {
@@ -664,7 +704,9 @@ export default function VideoCard(props: VideoCardProps) {
       video.pause();
     }
     return cleanup;
-  }, [isActive, src, trackMetric, fallBackToMuted]);
+  // Mute-only changes are handled above, without restarting activation.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isActive, src, retryVersion, trackMetric, fallBackToMuted]);
 
   // Local diagnostics only: inspect the video element to distinguish download
   // readiness from activation-to-first-frame delay without extra React renders.
@@ -690,6 +732,7 @@ export default function VideoCard(props: VideoCardProps) {
       if (measured) return;
       measured = true;
       video.dataset.startupMs = String(Math.round(performance.now() - started));
+      video.dataset.firstFrameSinceNavigationMs = String(Math.round(performance.now()));
     };
     const onWaiting = () => { video.dataset.stallCount = String(++stalls); };
     if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(recordFrame);
@@ -700,7 +743,7 @@ export default function VideoCard(props: VideoCardProps) {
       video.removeEventListener("playing", recordFrame);
       video.removeEventListener("waiting", onWaiting);
     };
-  }, [isActive, src]);
+  }, [isActive, src, retryVersion]);
 
   const handleVideoClick = useCallback(() => {
     const video = videoRef.current;
@@ -1182,7 +1225,7 @@ export default function VideoCard(props: VideoCardProps) {
   );
 
   return (
-    <div className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation"
+    <div className="feed-mobile-card relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation"
       onClick={(event) => {
         const target = event.target;
         // Portal clicks bubble through React, even outside this card's DOM.
@@ -1245,12 +1288,14 @@ export default function VideoCard(props: VideoCardProps) {
 
         {src ? (
           <video
+            key={retryVersion}
             ref={videoRef}
             src={src}
             onError={() => {
               if (src !== originalSrc) setFailedMediaSource(originalSrc);
+              else setMediaError(true);
             }}
-            poster={poster || undefined}
+            poster={displayPoster}
             playsInline
             muted={isMuted}
             preload={preload}
@@ -1266,6 +1311,13 @@ export default function VideoCard(props: VideoCardProps) {
             style={{ borderRadius: "16px 16px 0 0" }}
           />
         ) : null}
+
+        {src && displayPoster && !frameReady && !mediaError && <img src={displayPoster} alt="" aria-hidden="true" onError={() => setPosterFailed(true)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
+        {src && mediaError && <div role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/75 text-white">
+          <p>This video couldn’t load.</p>
+          <button type="button" className="rounded-full border border-white/40 px-4 py-2" onClick={() => { manuallyPausedRef.current = false; setMediaError(false); setRetryVersion(value => value + 1); }}>Retry video</button>
+          <p className="text-sm">You can also scroll to the next post.</p>
+        </div>}
 
         {src && tapToTogglePlayback && (
           <div
@@ -1606,13 +1658,13 @@ export default function VideoCard(props: VideoCardProps) {
             </span>
           )}
         </div>
-        {postId && creatorId && props.onDeleted && (
-          <DeleteVideoButton postId={postId} creatorId={creatorId} onDeleted={props.onDeleted} />
+        {postId && creatorId && (props.onDeleted || props.onFeedDeleted) && (
+          <DeleteVideoButton postId={postId} creatorId={creatorId} onDeleted={deleted} />
         )}
       </div>
 
       {/* Comment Panel */}
-      {postId && (
+      {postId && commentPanelOpen && (
         <CommentPanel
           postId={postId}
           isOpen={commentPanelOpen}
@@ -1628,3 +1680,5 @@ function toNum(n: number | string | undefined | null): number {
   if (n === undefined || n === null) return 0;
   return typeof n === "string" ? Number(n) || 0 : n || 0;
 }
+
+export default VideoCard;

@@ -148,8 +148,11 @@ async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
       video.addEventListener("error", onError, { once: true });
     });
 
-    const width = Math.max(1, video.videoWidth || 720);
-    const height = Math.max(1, video.videoHeight || 1280);
+    const sourceWidth = Math.max(1, video.videoWidth || 720);
+    const sourceHeight = Math.max(1, video.videoHeight || 1280);
+    const scale = Math.min(1, 720 / sourceWidth, 1280 / sourceHeight);
+    const width = Math.max(1, Math.round(sourceWidth * scale));
+    const height = Math.max(1, Math.round(sourceHeight * scale));
     const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
