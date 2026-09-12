@@ -39,7 +39,7 @@ const render = async (activeTab: "discover" | "following" = "discover") => act(a
 
 test("mobile warms the next video after first frame, with active playback taking priority during rapid swipes", async () => {
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
-  rpc.mockResolvedValue({ data: [row("one"), row("two"), row("three")], error: null });
+  rpc.mockResolvedValue({ data: [row("one"), row("two"), row("three")].map(post => ({ ...post, video_url: "https://example.test/video.mp4" })), error: null });
   await render();
   expect(props("one").preload).toBe("auto");
   expect(props("two").preload).toBe("metadata");
@@ -52,6 +52,14 @@ test("mobile warms the next video after first frame, with active playback taking
   expect(props("three").preload).toBe("metadata");
   await act(async () => cardProps.get("two").onFirstFrame("two"));
   expect(props("three").preload).toBe("auto");
+});
+
+test("an image-only mobile post does not block the next video's preload waiting for a video frame", async () => {
+  window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
+  rpc.mockResolvedValue({ data: [row("image"), { ...row("next"), video_url: "https://example.test/video.mp4" }], error: null });
+  await render();
+  expect(props("image").isActive).toBe(true);
+  expect(props("next").preload).toBe("auto");
 });
 
 test("successful interactions and drafts survive unmounting a card; old viewer responses cannot leak", async () => {

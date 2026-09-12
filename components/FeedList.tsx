@@ -719,7 +719,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                     soundEnabled={isSoundOn}
                     isActive={isActive}
-                    preload={!pageVisible ? "none" : idx === activeIndex || (idx === activeIndex + 1 && (desktop || readyPostId === activePostId)) ? "auto" : "metadata"}
+                    preload={!pageVisible ? "none" : idx === activeIndex || (idx === activeIndex + 1 && (desktop || !items[activeIndex]?.video_url || readyPostId === activePostId)) ? "auto" : "metadata"}
                     onToggleSound={toggleSound}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback
