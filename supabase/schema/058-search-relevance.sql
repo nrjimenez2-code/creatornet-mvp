@@ -174,7 +174,7 @@ with params as (
 ), post_matches as (
   select distinct on(id) * from matches where kind in ('post','video_text') order by id,score desc,kind
 ), post_rows as (
-  select jsonb_build_object('id',p.id,'content',coalesce(p.content,p.caption),'caption',coalesce(p.content,p.caption),
+  select jsonb_build_object('id',p.id,'content',coalesce(nullif(trim(p.content),''),p.caption),'caption',coalesce(nullif(trim(p.caption),''),nullif(trim(p.content),''),p.title),
     'media_url',p.video_url,'poster_url',p.poster_url,'creator_id',p.creator_id,'likes_count',p.likes_count,
     'creator',jsonb_build_object('username',c.username,'full_name',c.full_name,'avatar_url',c.avatar_url),
     'related_match',m.expanded,'score',m.score) item,

@@ -119,10 +119,11 @@ test("topic suggestions derive from visible recent content",async()=>{
 });
 
 test("speech and on-screen text find videos and creators, with no duplicate videos",async()=>{
-  await db.query("update posts set video_url='https://cdn.example.invalid/public.mp4' where id=$1",[postId]);
+  await db.query("update posts set video_url='https://cdn.example.invalid/public.mp4',content='',caption='Public video caption' where id=$1",[postId]);
   await db.query("insert into search_video_text_v1(post_id,source_url,status,transcript,screen_text) values ($1,'https://cdn.example.invalid/public.mp4','ready','Today we discuss watercolor painting','Ecommerce case study')",[postId]);
   expect((await search('watercolor')).creators.map(c=>c.id)).toEqual([luis]);
   expect((await search('watercolor')).items.map(p=>p.id)).toEqual([postId]);
+  expect((await search('watercolor')).items[0]).toMatchObject({caption:'Public video caption'});
   expect((await search('ecommerce')).items).toHaveLength(1);
   await db.query("update posts set video_url='https://cdn.example.invalid/replaced.mp4' where id=$1",[postId]);
   expect((await search('watercolor')).items).toEqual([]);
