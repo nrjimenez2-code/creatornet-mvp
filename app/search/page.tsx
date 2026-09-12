@@ -1,7 +1,8 @@
 "use client";
-import { Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import BackButton from "@/components/BackButton";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import SearchSuggestions from "@/components/SearchSuggestions";
@@ -12,6 +13,7 @@ import { readRecentSearches, subscribeRecentSearches, recentSearchesServerSnapsh
 import type { SearchCreator, SearchPost, SearchOffering } from "@/lib/searchTypes";
 
 type Tab = "all" | "creators" | "videos" | "offerings";
+const SearchVideoPlayer = dynamic(() => import("@/components/SearchVideoPlayer"), { ssr: false });
 function SearchPage() {
   const params = useSearchParams();
   const router = useRouter();
@@ -21,6 +23,27 @@ function SearchPage() {
   const setQuery = (value: string) => setDraft({urlQuery,value});
   const [tab,setTab] = useState<Tab>("all");
   const search = useSearchResults(query);
+  const [player, setPlayer] = useState<{index: number; query: string; token: string} | null>(null);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  const closingPlayer = useRef(false);
+  useEffect(() => {
+    const pop = () => setPlayer(null);
+    window.addEventListener("popstate", pop);
+    return () => window.removeEventListener("popstate", pop);
+  }, []);
+  const closePlayer = () => {
+    if (closingPlayer.current) return;
+    closingPlayer.current = true;
+    if (player && window.history.state?.searchVideoPlayer === player.token) window.history.back();
+    else setPlayer(null);
+  };
+  const openPlayer = (index: number) => {
+    closingPlayer.current = false;
+    const token = crypto.randomUUID();
+    window.history.pushState({ ...window.history.state, searchVideoPlayer: token }, "", window.location.href);
+    setPlayer({index, query, token});
+  };
+  const playerOpen = player !== null && player.query === query;
   const recentSnapshot = useSyncExternalStore(subscribeRecentSearches, readRecentSearches, recentSearchesServerSnapshot);
   const recent = useMemo(()=>parseRecentSearches(recentSnapshot),[recentSnapshot]);
   const pick = (term: string) => {
@@ -29,14 +52,15 @@ function SearchPage() {
     if(value) saveRecentSearches([value,...recent.filter(r=>r.toLowerCase()!==value.toLowerCase())].slice(0,10));
     router.replace(value ? `/search?q=${encodeURIComponent(value)}` : "/search", {scroll:false});
   };
-  const {creators,items,offerings,totals}=search.result;
+  const {creators,offerings,totals}=search.result;
+  const items = useMemo(() => search.result.items.filter(post => !deletedIds.has(post.id)), [search.result.items, deletedIds]);
   const count=totals.creators+totals.videos+totals.offerings;
   const openResult=(type:string,id:string,position:number)=>trackEvent("search_result_opened",{query:query.trim(),result_type:type,result_id:id,position,tab,search_version:1});
   useEffect(()=>{
     if (!query.trim() || search.loading || search.error) return;
     trackEvent("search_results_viewed",{query:query.trim(),tab,creator_ids:creators.map(c=>c.id),post_ids:items.map(p=>p.id),offering_ids:offerings.map(o=>o.id)});
   },[query,tab,creators,items,offerings,search.loading,search.error]);
-  return <main className="min-h-screen bg-black text-white">
+  return <><main inert={playerOpen} className="min-h-screen bg-black text-white">
     <div className="sticky top-0 z-30 bg-black border-b border-white/10">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center gap-3">
         <BackButton hrefOverride="/dashboard" />
@@ -56,7 +80,7 @@ function SearchPage() {
       </section> : <>
         <div role="tablist" aria-label="Search result types" className="flex gap-5 border-b border-white/15 mb-5 overflow-x-auto no-scrollbar">
           {(["all","creators","videos","offerings"] as Tab[]).map(value=><button key={value} role="tab" aria-selected={tab===value} onClick={()=>setTab(value)}
-            className={`py-3 border-b-2 capitalize whitespace-nowrap ${tab===value ? "border-[#7059ef] text-white" : "border-transparent text-white/50"}`}>{value}{value!=="all" && !search.loading ? ` (${totals[value]})` : ""}</button>)}
+            className={`py-3 border-b-2 capitalize whitespace-nowrap ${tab===value ? "border-[#7059ef] text-white" : "border-transparent text-white/50"}`}>{value === "offerings" ? "offers" : value}{value!=="all" && !search.loading ? ` (${totals[value]})` : ""}</button>)}
         </div>
         {search.loading && <p role="status" className="text-sm text-white/60 py-3">Searching…</p>}
         {search.error && <div role="alert" className="border border-red-400/30 rounded-xl p-4"><p>{search.error}</p><button onClick={search.retry} className="mt-2 underline">Try again</button></div>}
@@ -67,39 +91,42 @@ function SearchPage() {
             {!creators.length && <p className="text-white/50 text-sm">No matching creators.</p>}
           </section>}
           {(tab==="all" || tab==="videos") && <section><h2 className="text-lg mb-3">Videos</h2>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">{items.map((post,index)=><PostCard key={post.id} post={post} onOpen={()=>openResult("video",post.id,index+1)}/>)}</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">{items.map((post,index)=><PostCard key={post.id} post={post} onOpen={()=>{openResult("video",post.id,index+1);openPlayer(index);}}/>)}</div>
             {!items.length && <p className="text-white/50 text-sm">No matching videos.</p>}
           </section>}
-          {(tab==="all" || tab==="offerings") && <section><h2 className="text-lg mb-3">Offerings</h2>
+          {(tab==="all" || tab==="offerings") && <section><h2 className="text-lg mb-3">Offers</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">{offerings.map((offering,index)=><OfferingCard key={offering.id} offering={offering} onOpen={()=>openResult("offering",offering.id,index+1)}/>)}</div>
-            {!offerings.length && <p className="text-white/50 text-sm">No matching offerings.</p>}
+            {!offerings.length && <p className="text-white/50 text-sm">No matching offers.</p>}
           </section>}
         </div>}
         {search.hasMore && !search.error && <button disabled={search.loading} onClick={search.loadMore} className="mt-8 rounded-full border border-white/25 px-6 py-3 disabled:opacity-50">Load more results</button>}
       </>}
     </div>
-  </main>;
+  </main>
+    {playerOpen && <SearchVideoPlayer key={player.token} posts={items} initialIndex={player.index} onClose={closePlayer}
+      onDeleted={id => setDeletedIds(previous => new Set([...previous, id]))}
+      hasMore={search.result.items.length < totals.videos} loading={search.loading} error={search.error}
+      loadMore={search.loadMore} retry={search.retry} />}
+  </>;
 }
 function CreatorCard({creator:c,onOpen}:{creator:SearchCreator;onOpen:()=>void}) {
   return <Link href={`/profile/${encodeURIComponent(c.username)}`} onClick={onOpen} className="rounded-xl border border-white/10 p-4 hover:bg-white/5 flex gap-3">
     <img src={c.avatar_url || DEFAULT_AVATAR_URL} alt="" width={44} height={44} style={{width:44,height:44}} className="shrink-0 self-start rounded-full object-cover"/>
     <div className="min-w-0"><p className="font-medium truncate">{c.full_name || `@${c.username}`}</p>
       {c.full_name && <p className="text-xs text-white/50">@{c.username}</p>}
-      <p className="text-xs text-purple-300 mt-2">{c.related_match ? "Related match · " : ""}{c.match_reason}</p>
-      <p className="text-sm text-white/60 line-clamp-2 mt-1">{c.match_evidence || c.tagline}</p>
     </div>
   </Link>;
 }
 function PostCard({post:p,onOpen}:{post:SearchPost;onOpen:()=>void}) {
-  return <Link href={`/dashboard?postId=${encodeURIComponent(p.id)}`} onClick={onOpen} className="rounded-xl overflow-hidden border border-white/10 hover:bg-white/5">
+  return <button type="button" aria-label={`Open video: ${p.caption || p.content || p.creator.username}`} onClick={onOpen} className="text-left rounded-xl overflow-hidden border border-white/10 hover:bg-white/5">
     <div className="aspect-[3/4] bg-white/5">{p.poster_url ? <img src={feedPosterUrl(p.poster_url)} alt="" loading="lazy" style={{height:'100%'}} className="w-full object-cover"/> : p.media_url ? <video src={feedMediaUrl(p.media_url)} muted playsInline preload="none" style={{height:'100%'}} className="w-full object-cover"/> : <div className="h-full flex items-center justify-center text-white/40">View post</div>}</div>
     <div className="p-3"><p className="text-xs text-white/50">@{p.creator.username}</p><p className="text-sm line-clamp-2 mt-1">{p.caption || p.content || "View video"}</p></div>
-  </Link>;
+  </button>;
 }
 function OfferingCard({offering:o,onOpen}:{offering:SearchOffering;onOpen:()=>void}) {
   return <Link href={o.post_id ? `/dashboard?postId=${encodeURIComponent(o.post_id)}` : `/profile/${encodeURIComponent(o.creator_username)}`} onClick={onOpen} className="rounded-xl border border-white/10 p-4 hover:bg-white/5">
     <p className="font-medium">{o.title}</p><p className="text-sm text-white/50 mt-2">By @{o.creator_username}</p>
-    <p className="text-sm text-purple-300 mt-3">View offering →</p>
+    <p className="text-sm text-purple-300 mt-3">View offer →</p>
   </Link>;
 }
 export default function SearchPageWrapper() {
