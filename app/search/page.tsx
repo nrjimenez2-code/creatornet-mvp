@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState, useSyncExternalSto
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 // import { createBrowserClient } from "@/lib/supabaseBrowser"; // not used here
 import { debounce, DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent } from "@/lib/posthog";
@@ -584,14 +585,14 @@ function PostsGrid({ items }: { items: Post[] }) {
           >
             {p.poster_url ? (
               <img
-                src={p.poster_url}
+                src={feedPosterUrl(p.poster_url)}
                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
                 alt=""
                 loading="lazy"
               />
             ) : p.media_url ? (
               <video
-                src={p.media_url}
+                src={feedMediaUrl(p.media_url)}
                 className="h-full w-full object-cover transition-transform group-hover:scale-105"
                 muted
                 loop
@@ -629,8 +630,8 @@ function PostsGrid({ items }: { items: Post[] }) {
                 <div className="relative aspect-[9/16] w-full max-w-[420px] mx-auto overflow-hidden rounded-3xl border border-white/10 bg-black">
                   {post.media_url ? (
                     <video
-                      src={post.media_url}
-                      poster={post.poster_url || undefined}
+                      src={feedMediaUrl(post.media_url)}
+                      poster={feedPosterUrl(post.poster_url)}
                       aria-label={post.caption || "Video"}
                       className="h-full w-full object-cover"
                       controls
@@ -640,7 +641,7 @@ function PostsGrid({ items }: { items: Post[] }) {
                     />
                   ) : post.poster_url ? (
                     <img
-                      src={post.poster_url}
+                      src={feedPosterUrl(post.poster_url)}
                       alt={post.caption || "Post media"}
                       className="h-full w-full object-cover"
                     />
