@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useRequireUser } from "@/lib/useUser";
 import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
@@ -27,8 +27,6 @@ type Post = {
 export default function WatchPage() {
   const params = useParams<{ postId: string }>();
   const postId = params?.postId || "";
-  const searchParams = useSearchParams();
-  const fromProfile = searchParams?.get("fromProfile") === "1";
   const supabase = createClient();
   const router = useRouter();
 
@@ -67,9 +65,47 @@ export default function WatchPage() {
 
       userIdForProgress.current = userId;
 
+      // The post is loaded FIRST, before entitlement is decided, so that a
+      // creator branch can exist at all. The purchase check used to run ahead of
+      // this and redirect whenever no purchase row was found — which bounced a
+      // creator opening their OWN paid post straight to /dashboard. They could
+      // never confirm their own delivery worked, and would reasonably conclude
+      // the product was broken.
+      //
+      // Moderation columns are included. Discovery surfaces filter hidden and
+      // removed posts out of the query (lib/visiblePosts.ts); this page must
+      // not, because a buyer never loses what they paid for: a paid purchase
+      // row, or being the post's own creator, still opens a hidden or removed
+      // post. Anyone else gets the same "Post not found." a nonexistent id
+      // gets — no new UI state.
+      const { data, error: postErr } = await supabase
+        .from("posts")
+        .select("id, creator_id, title, video_url, poster_url, hidden_at, removed_at")
+        .eq("id", postId)
+        .maybeSingle();
+
+      if (cancelled) return;
+
+      if (postErr || !data) {
+        if (postErr) console.error("Post fetch error:", postErr);
+        setError("Post not found.");
+        setLoading(false);
+        return;
+      }
+
+      const isOwnPost = Boolean(data.creator_id && data.creator_id === userId);
+
+      // Creators reach their own post; everyone else needs a live purchase.
+      // This mirrors the server-side gate in app/api/watch/[postId]/route.ts,
+      // which already allowed both — the two were out of step.
+      //
+      // This replaces the old `?fromProfile=1` escape hatch, which disabled the
+      // purchase check for ANY signed-in user who simply typed it into the URL
+      // and was set by nothing anywhere in the app. The paywalled file itself
+      // never leaked (the API still returns 402), but the page rendered as
+      // though the viewer were entitled.
       let entitledByPurchase = false;
-      if (!fromProfile) {
-        // Check purchase entitlement first
+      if (!isOwnPost) {
         const { data: purchase, error: purErr } = await supabase
           .from("purchases")
           .select("id")
@@ -79,6 +115,8 @@ export default function WatchPage() {
           .in("status", ["paid", "active", "complete"])
           .maybeSingle();
 
+        if (cancelled) return;
+
         if (purErr) {
           console.error("Purchase check error:", purErr);
           setError("Unable to verify access.");
@@ -87,31 +125,21 @@ export default function WatchPage() {
         }
 
         if (!purchase) {
-          // Not entitled → redirect to dashboard where they can see the post and purchase it
+          // Not entitled → dashboard, where they can see the post and buy it.
           router.push(`/dashboard?postId=${postId}`);
           return;
         }
         entitledByPurchase = true;
       }
 
-      // Fetch the post itself, moderation columns included. Discovery surfaces
-      // filter hidden/removed posts out of the query (lib/visiblePosts.ts);
-      // this page must not, because a buyer never loses what they paid for: a
-      // paid purchase row, or being the post's own creator, still opens a
-      // hidden or removed post. Anyone else gets the same "Post not found." a
-      // nonexistent id gets — no new UI state.
-      const { data, error: postErr } = await supabase
-        .from("posts")
-        .select("id, creator_id, title, video_url, poster_url, hidden_at, removed_at")
-        .eq("id", postId)
-        .maybeSingle();
-
-      if (cancelled) return;
-
-      const isModerated = Boolean(data?.hidden_at || data?.removed_at);
-      const isOwnPost = Boolean(data?.creator_id && data.creator_id === userId);
-      if (postErr || !data || (isModerated && !entitledByPurchase && !isOwnPost)) {
-        if (postErr) console.error("Post fetch error:", postErr);
+      // Defence in depth. Everyone who reaches this line is already entitled —
+      // a paid buyer or the creator — so in the current flow this never fires:
+      // a non-entitled viewer was redirected above, which is stricter than the
+      // "Post not found." they used to get. Kept deliberately so that if the
+      // gate above is ever loosened, a hidden or removed post still does not
+      // render to someone who should not see it.
+      const isModerated = Boolean(data.hidden_at || data.removed_at);
+      if (isModerated && !entitledByPurchase && !isOwnPost) {
         setError("Post not found.");
         setLoading(false);
         return;
@@ -355,6 +383,43 @@ export default function WatchPage() {
           </p>
         </div>
       )}
+      {/*
+        "none" used to render nothing at all, so a buyer who had paid saw an
+        empty gap where a download should be and no explanation of why. Only
+        entitled viewers reach this page, so "none" means "you have access and
+        there is no separate file" — which is normal when the video above IS the
+        product, and a problem the creator must fix when it is not. Say which,
+        and give the buyer somewhere to go.
+      */}
+      {premiumState === "none" &&
+        (post.creator_id && post.creator_id === userId ? (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+            <p className="text-sm font-medium text-amber-100">
+              You haven&apos;t attached a downloadable file to this post
+            </p>
+            <p className="mt-0.5 text-xs text-amber-200/80">
+              Buyers will see the video above, but nothing to download. Add the
+              file in your dashboard if this post is meant to include one.
+            </p>
+          </div>
+        ) : (
+          <div className="mb-4 rounded-xl border border-white/15 bg-white/5 px-4 py-3">
+            <p className="text-sm font-medium text-white">
+              No separate download for this one
+            </p>
+            <p className="mt-0.5 text-xs text-white/60">
+              The video above is what your purchase includes. If you were
+              expecting a file, contact{" "}
+              <a
+                href="mailto:support@creatornet.net"
+                className="underline hover:text-white"
+              >
+                support@creatornet.net
+              </a>{" "}
+              — your purchase is recorded.
+            </p>
+          </div>
+        ))}
       
       <div className="mx-auto flex max-w-[3500px] justify-center">
         <div className="relative w-full rounded-2xl sm:rounded-[32px] border-4 sm:border-[14px] border-gray-200 bg-black/90 p-1 sm:px-2 sm:py-2 shadow-inner">
