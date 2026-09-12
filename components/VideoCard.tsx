@@ -20,7 +20,7 @@ import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { feedMediaUrl, feedPosterUrl, feedAdaptiveUrl } from "@/lib/feedMedia";
-import { usePageVisible, useDesktopViewport } from "@/lib/browserVisibility";
+import { usePageVisible, useDesktopViewport, useNativeHls } from "@/lib/browserVisibility";
 import { scheduleFeedTelemetry } from "@/lib/feedBackground";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 
@@ -179,10 +179,14 @@ function VideoCard(props: VideoCardProps) {
 
   const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
   const [failedAdaptiveSource, setFailedAdaptiveSource] = useState<string | undefined>();
-  // Main-feed cards mount only after their client-side data fetch. Other SSR
-  // viewers do not opt in, avoiding a hydration-time source swap.
-  const [nativeHls] = useState(() => typeof document !== "undefined" &&
-    !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl"));
+  // Capability detection has to survive hydration, so it goes through a store
+  // with an explicit server snapshot (see useNativeHls). The earlier assumption
+  // here — that feed cards mount only after a client fetch, so no SSR viewer
+  // opts in — does not hold: FeedList passes preferAdaptive={!desktop}, and
+  // useDesktopViewport's server snapshot is false, so preferAdaptive is TRUE on
+  // the server. That is what made the server emit the MP4 while an iPhone's
+  // hydration render computed the .m3u8, and React never patched it.
+  const nativeHls = useNativeHls();
   const adaptiveSrc = props.preferAdaptive && nativeHls && failedAdaptiveSource !== originalSrc ? feedAdaptiveUrl(originalSrc) : undefined;
   const src = adaptiveSrc || (failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc));
   const [mediaError, setMediaError] = useState(false);
