@@ -74,6 +74,7 @@ function LibraryCard({
 }) {
   const pct = clampPct(item.position_seconds, item.duration_seconds);
   const showProgress = pct > 0 && pct < 100;
+  const canResume = (item.position_seconds ?? 0) > 0 && pct < 95;
 
   return (
     <div
@@ -108,13 +109,18 @@ function LibraryCard({
       {showProgress && (
         <div className="px-4 pt-3">
           <div className="h-2 w-full bg-gray-700 rounded">
-            <div className="h-2 bg-black rounded" style={{ width: `${pct}%` }} />
+            <div className="h-2 bg-[#9370DB] rounded" style={{ width: `${pct}%` }} />
           </div>
           <div className="mt-1 text-[11px] text-gray-400">
             {fmt(item.position_seconds)} / {fmt(item.duration_seconds)}
           </div>
         </div>
       )}
+      {!item.duration_seconds && canResume ? (
+        <p className="px-4 pt-3 text-[11px] text-gray-400">
+          Resume at {fmt(item.position_seconds)}
+        </p>
+      ) : null}
 
       <div className="p-3">
         <h2 className="font-medium text-xs mb-2 line-clamp-2 text-white">{item.title}</h2>
@@ -138,7 +144,7 @@ function LibraryCard({
           prefetch
           className="inline-block bg-gray-800 text-white text-xs px-3 py-1.5 rounded-md hover:opacity-90"
         >
-          {pct > 0 && pct < 95 ? "Resume" : "Watch"}
+          {canResume ? "Resume" : "Watch"}
         </Link>
       </div>
     </div>
@@ -204,8 +210,6 @@ export default function LibraryPage() {
             `
           )
           .eq("buyer_id", userId)
-          .eq("access_granted", true)
-          .in("status", ["paid", "active", "complete"])
           .order("created_at", { ascending: false });
 
         if (cancelled) return;
@@ -217,9 +221,28 @@ export default function LibraryPage() {
           return;
         }
 
+        // The legacy flag is deliberately false for timed purchases. Discover
+        // owned rows first, then ask the same server entitlement readers used
+        // by delivery. Listing never grants access or creates a signed URL.
+        const eligibleIds = new Set<string>();
+        for (let offset = 0; offset < (purchases ?? []).length; offset += 100) {
+          const res = await fetch("/api/library/eligibility", {
+            method: "POST", credentials: "include", cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ purchaseIds: purchases!.slice(offset, offset + 100).map(row => row.id) }),
+          });
+          if (!res.ok) throw Error("Could not check library access.");
+          const body = await res.json();
+          if (!Array.isArray(body.purchaseIds) || body.purchaseIds.some((id: unknown) => typeof id !== "string")) {
+            throw Error("Could not check library access.");
+          }
+          for (const id of body.purchaseIds) eligibleIds.add(id);
+        }
+        if (cancelled) return;
+
         const baseRaw: Array<
           Omit<LibraryItem, "position_seconds">
-        > = (purchases || []).map((row: any) => ({
+        > = (purchases || []).filter(row => eligibleIds.has(row.id)).map((row: any) => ({
           id: row.id,
           post_id: row.post_id,
           created_at: row.created_at ?? null,
@@ -335,7 +358,7 @@ export default function LibraryPage() {
     () =>
       items.filter((i) => {
         const p = clampPct(i.position_seconds, i.duration_seconds);
-        return p > 0 && p < 95;
+        return (i.position_seconds ?? 0) > 0 && p < 95;
       }),
     [items]
   );
@@ -395,6 +418,9 @@ export default function LibraryPage() {
               <p className="mt-1 text-sm text-gray-400">
                 Something went wrong on our end. Give it another try.
               </p>
+              <Link href="/payments" className="mt-4 inline-block text-sm underline">Review your payment plans</Link>
+              <Link href="/calls" className="ml-4 mt-4 inline-block text-sm underline">Your paid calls</Link>
+              <Link href="/memberships" className="ml-4 mt-4 inline-block text-sm underline">Monthly mentorships</Link>
               <div className="mt-4 flex items-center justify-center gap-4">
                 <button
                   type="button"
@@ -427,6 +453,10 @@ export default function LibraryPage() {
           <p className="mt-1 text-sm text-gray-400">
             Videos and offers you buy will show up here.
           </p>
+          <Link href="/payments" className="mt-4 inline-block text-sm text-white underline">Review your payment plans</Link>
+          <Link href="/calls" className="ml-4 mt-4 inline-block text-sm text-white underline">Your paid calls</Link>
+          <Link href="/memberships" className="ml-4 mt-4 inline-block text-sm text-white underline">Monthly mentorships</Link>
+          <p className="mt-2 text-sm text-gray-400">Monthly mentorship access and billing are managed separately.</p>
           <div className="mt-4">
             <Link
               href="/dashboard"
@@ -458,6 +488,10 @@ export default function LibraryPage() {
         <div className="hidden md:flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Your Library</h1>
         </div>
+
+        <Link href="/payments" className="mb-6 inline-block text-sm underline">Review your payment plans</Link>
+        <Link href="/calls" className="mb-6 ml-4 inline-block text-sm underline">Your paid calls</Link>
+        <Link href="/memberships" className="mb-6 ml-4 inline-block text-sm underline">Monthly mentorships</Link>
 
         {continueItems.length > 0 && (
           <section className="mb-8">

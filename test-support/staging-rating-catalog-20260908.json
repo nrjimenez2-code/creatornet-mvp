@@ -1,0 +1,23 @@
+{
+  "source_project": "nwqfofezfzljhxolkycz",
+  "source_url": "https://supabase.com/dashboard/project/nwqfofezfzljhxolkycz/sql/80c0b444-5649-4b67-8828-4aa11392dfd3",
+  "observed_at": "2026-09-08T06:14:19.629527+00:00",
+  "transaction_read_only": "on",
+  "routines": [
+    {
+      "signature": "public.set_profile_rating(uuid,uuid,integer)",
+      "definition_fingerprint": "b6226e332c914d732797d070f96dbcd4",
+      "definition": "CREATE OR REPLACE FUNCTION public.set_profile_rating(p_profile_id uuid, p_reviewer_id uuid, p_rating integer)\n RETURNS TABLE(avg_rating numeric, review_count integer)\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\nDECLARE\n  v_reviewer uuid := auth.uid();\nBEGIN\n  IF v_reviewer IS NULL THEN\n    RAISE EXCEPTION 'set_profile_rating: not authenticated';\n  END IF;\n\n  IF p_rating IS NULL OR p_rating < 1 OR p_rating > 5 THEN\n    RAISE EXCEPTION 'set_profile_rating: rating must be between 1 and 5';\n  END IF;\n\n  IF v_reviewer = p_profile_id THEN\n    RAISE EXCEPTION 'set_profile_rating: cannot rate your own profile';\n  END IF;\n\n  INSERT INTO public.profile_reviews (profile_id, reviewer_id, rating)\n  VALUES (p_profile_id, v_reviewer, p_rating)\n  ON CONFLICT (profile_id, reviewer_id)\n  DO UPDATE SET rating = EXCLUDED.rating, updated_at = now();\n\n  RETURN QUERY\n    SELECT COALESCE(AVG(rating), 0)::numeric(10,2),\n           COUNT(*)::integer\n    FROM public.profile_reviews\n    WHERE profile_id = p_profile_id;\nEND;\n$function$\n"
+    },
+    {
+      "signature": "public.update_profile_rating(uuid)",
+      "definition_fingerprint": "28b76574231e2111b6404f1fe3abe0fa",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_profile_rating(p_profile_id uuid)\n RETURNS TABLE(avg_rating numeric, review_count bigint)\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\nBEGIN\r\n  UPDATE public.profiles\r\n  SET\r\n    review_rating = (\r\n      SELECT COALESCE(AVG(rating), 0)\r\n      FROM public.reviews\r\n      WHERE creator_id = p_profile_id\r\n    ),\r\n    review_count = (\r\n      SELECT COUNT(*)\r\n      FROM public.reviews\r\n      WHERE creator_id = p_profile_id\r\n    )\r\n  WHERE id = p_profile_id;\r\n  \r\n  RETURN QUERY\r\n  SELECT\r\n    COALESCE(AVG(rating), 0)::NUMERIC(3, 2) as avg_rating,\r\n    COUNT(*)::BIGINT as review_count\r\n  FROM public.reviews\r\n  WHERE creator_id = p_profile_id;\r\nEND;\r\n$function$\n"
+    },
+    {
+      "signature": "public.update_reviews_updated_at()",
+      "definition_fingerprint": "0807db4d0620b1265247ce2c36933afe",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_reviews_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = NOW();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+    }
+  ]
+}

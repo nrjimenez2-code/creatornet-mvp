@@ -39,6 +39,8 @@ export type FeedV3Row = {
 
 /** What FeedList renders per card (moved here from FeedList so it stays testable). */
 export type PostRow = {
+  monthlyTerms?: import("@/lib/membershipTerms").MonthlyMentorshipTerms | null;
+  purchaseOptionsReady?: boolean;
   id: string;
   creator_id: string | null;
   product_id: string | null;

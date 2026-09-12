@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PurchasePolicyNotice from "@/components/PurchasePolicyNotice";
+import { purchasePoliciesActive } from "@/lib/purchasePolicies";
+export const dynamic = "force-dynamic";
 
 // Stripe's website checklist requires a refund policy that "describes the
 // conditions under which customers can receive a refund". The Terms already
@@ -27,6 +30,7 @@ export default function RefundPolicyPage() {
   return (
     <main>
       <h1 className="text-3xl font-bold">Refund Policy</h1>
+      {purchasePoliciesActive(process.env) && <PurchasePolicyNotice section="refunds" />}
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
       <p className="mt-4 text-gray-700 leading-relaxed">
         Every price on CreatorNet is in <strong>US dollars (USD)</strong> and is set by the
@@ -80,6 +84,11 @@ export default function RefundPolicyPage() {
         <p>
           Approved refunds go back to the original payment method through Stripe. Stripe
           usually posts them within 5–10 business days, depending on your bank.
+        </p>
+        <p>
+          You receive the complete amount CreatorNet approves for refund. We do not deduct
+          payment-processing costs from your approved refund, and CreatorNet does not keep its
+          12% platform fee on the refunded portion.
         </p>
       </Section>
 

@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
+import { assertExactInstallmentEnvironment } from "@/lib/installments/checkoutPreparation";
+import { readContextCheckoutPayments } from "@/lib/installments/contextCheckoutApp";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -66,6 +68,16 @@ export async function GET(req: NextRequest) {
     const bookingIds = unique(bookings.map((b) => b.id));
     const postIds = unique(bookings.map((b) => b.post_id));
     const buyerIds = unique(bookings.map((b) => b.buyer_id));
+    // Migration 057 is not assumed on production. The additive marker is read
+    // only after explicitly enabling the isolated Preview schema gate.
+    let exactColumns = "";
+    if (process.env.CREATOR_EXACT_INSTALLMENTS_CONTEXT_SCHEMA_READY === "true") {
+      // Explicit installed-schema discovery, not permission to publish/pay.
+      exactColumns = ", installment_collection_version";
+    } else if (process.env.CREATOR_EXACT_INSTALLMENTS_CHECKOUT_SCHEMA_READY === "true") {
+      assertExactInstallmentEnvironment(process.env, process.env.NEXT_PUBLIC_SITE_URL || "");
+      exactColumns = ", installment_collection_version";
+    }
 
     const [
       { data: posts, error: postsError },
@@ -88,10 +100,11 @@ export async function GET(req: NextRequest) {
         ? admin
             .from("booking_payments")
             .select(
-              "id, booking_id, plan_type, installment_months, status, link_url, stripe_checkout_session_id, stripe_payment_intent_id, stripe_subscription_id, amount_total_cents, installment_amount_cents, platform_fee_cents, processing_fee_cents, total_creator_deduction_cents, creator_net_cents, fee_schedule_version, currency, created_at, completed_at, link_sent_at, closer_user_id"
+              "id, booking_id, plan_type, installment_months, status, link_url, stripe_checkout_session_id, stripe_payment_intent_id, stripe_subscription_id, amount_total_cents, installment_amount_cents, platform_fee_cents, processing_fee_cents, total_creator_deduction_cents, creator_net_cents, fee_schedule_version, currency, created_at, completed_at, link_sent_at, closer_user_id" + exactColumns
             )
             .in("booking_id", bookingIds)
             .order("created_at", { ascending: false })
+            .returns<Array<Record<string, unknown> & { booking_id: string; closer_user_id: string | null }>>()
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -142,7 +155,10 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const closerIds = unique((payments || []).map((p: any) => p?.closer_user_id));
+    const pendingContextLinks = await readContextCheckoutPayments(admin, user.id, bookingIds, process.env);
+    // A captured accounting row always replaces its earlier link projection.
+    const allPayments = [...(payments || []), ...pendingContextLinks.filter(link => !(payments || []).some(p => p.booking_id === link.booking_id))];
+    const closerIds = unique(allPayments.map((p: any) => p?.closer_user_id));
     const { data: closerProfiles, error: closersError } = closerIds.length
       ? await admin
           .from("profiles")
@@ -165,7 +181,7 @@ export async function GET(req: NextRequest) {
     const closerMap = new Map((closerProfiles || []).map((p: any) => [p.id, p]));
 
     const paymentsByBooking = new Map<string, any[]>();
-    for (const payment of payments || []) {
+    for (const payment of allPayments) {
       if (!payment) continue;
       const list = paymentsByBooking.get(payment.booking_id) || [];
       list.push({

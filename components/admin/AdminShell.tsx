@@ -6,15 +6,18 @@ import { AdminSidebar } from "@/components/admin/AdminSidebar";
 import { CommandPalette } from "@/components/admin/CommandPalette";
 import { ToastProvider } from "@/components/admin/Toast";
 import type { AdminInitialData } from "@/types/admin";
+import type { AdminPaymentMode } from "@/lib/admin/display-context";
 
 interface AdminShellProps {
   children: ReactNode;
   /** Server-fetched rows from the layout; omitted = self-contained mock demo. */
   initialData?: AdminInitialData;
+  operatorName?: string;
+  paymentMode?: AdminPaymentMode;
 }
 
 /** Client chrome for /admin — the server layout owns auth and data fetching. */
-export function AdminShell({ children, initialData }: AdminShellProps) {
+export function AdminShell({ children, initialData, operatorName, paymentMode }: AdminShellProps) {
   return (
     <ToastProvider>
       <AdminDataProvider initialData={initialData}>
@@ -24,7 +27,7 @@ export function AdminShell({ children, initialData }: AdminShellProps) {
             aria-hidden="true"
             className="pointer-events-none fixed inset-0 bg-[radial-gradient(1100px_520px_at_82%_-8%,rgba(147,112,219,0.11),transparent_60%),radial-gradient(900px_480px_at_-8%_108%,rgba(124,92,191,0.08),transparent_55%)]"
           />
-          <AdminSidebar />
+          <AdminSidebar operatorName={operatorName} paymentMode={paymentMode} demo={initialData === undefined} />
           <main className="relative min-w-0 flex-1 px-8 py-8 max-md:px-4 max-md:py-5">
             <div className="mx-auto w-full max-w-[1320px]">{children}</div>
           </main>

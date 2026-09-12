@@ -13,9 +13,20 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 // here to stop a script inflating a post, not to police an enthusiastic user.
 const LIKE_RATE = { limit: 120, windowMs: 60_000 };
 
-export async function POST(
+type Context = { params: Promise<{ postId: string }> };
+export async function POST(req: NextRequest, context: Context) {
+  return updateLike(req, context, false);
+}
+
+// Idempotent gesture: double taps must never toggle an existing like off.
+export async function PUT(req: NextRequest, context: Context) {
+  return updateLike(req, context, true);
+}
+
+async function updateLike(
   req: NextRequest,
-  { params }: { params: Promise<{ postId: string }> }
+  { params }: Context,
+  likeOnly: boolean
 ) {
   if (!allowRequest(`like:${clientKey(req)}`, LIKE_RATE)) {
     return tooManyRequests();
@@ -54,6 +65,13 @@ export async function POST(
 
     let liked = false;
     let newCount = 0;
+    let inserted = false;
+
+    if (existingLike && likeOnly) {
+      const { data: post, error } = await admin.from("posts").select("likes_count").eq("id", postId).single();
+      if (error) return NextResponse.json({ error: "Could not read like count." }, { status: 500 });
+      return NextResponse.json({ success: true, liked: true, likes_count: post?.likes_count ?? 0 });
+    }
 
     if (existingLike) {
       // Unlike: delete the like record
@@ -100,6 +118,7 @@ export async function POST(
         }
       } else {
         // Increment atomically. See lib/postCounters.ts.
+        inserted = true;
         const { count } = await bumpPostLikes(admin, postId, 1);
         newCount = count ?? 0;
 
@@ -108,7 +127,7 @@ export async function POST(
     }
 
     // Update interest score: +5 on like, no change on unlike
-    if (liked) {
+    if (inserted) {
       const { data: post } = await admin
         .from("posts")
         .select("interests")

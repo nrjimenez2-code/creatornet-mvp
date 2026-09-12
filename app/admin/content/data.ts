@@ -145,5 +145,5 @@ export async function fetchContentInitialData(): Promise<AdminInitialData> {
     };
   });
 
-  return { users: [], videos, orders: [], bookings: [] };
+  return { asOf: new Date().toISOString(), users: [], videos, orders: [], bookings: [] };
 }

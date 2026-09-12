@@ -142,6 +142,7 @@ describe("no query-parameter bypass survives in the source", () => {
 
   test("entitlement is decided by ownership or a purchase row, nothing else", () => {
     expect(SOURCE).toMatch(/creator_id === userId/);
-    expect(SOURCE).toMatch(/access_granted/);
+    expect(SOURCE).toContain("/api/library/eligibility");
+    expect(SOURCE).toContain("body.purchaseIds.includes(purchase.id)");
   });
 });

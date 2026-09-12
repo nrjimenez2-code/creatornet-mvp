@@ -6,6 +6,7 @@ import {
   calculateCreatorFeesFromMetadataSchedule,
   creatorFeeMetadata,
   creatorFeesFromMetadata,
+  exactSubscriptionApplicationFeePercent,
   getProcessingFeeSchedule,
   getSubscriptionProcessingFeeSchedule,
   type ProcessingFeeSchedule,
@@ -121,6 +122,25 @@ describe("creator-funded processing configuration", () => {
 });
 
 describe("creator-funded processing arithmetic", () => {
+  test.each([50, 1_000, 4_000, 5_000, 50_000, 100_000])("represents an exact initial subscription deduction for %i cents", (gross) => {
+    const fees = calculateCreatorFees(gross, { ...TEST_SCHEDULE, basisPoints: 360 });
+    const percent = exactSubscriptionApplicationFeePercent(fees);
+    const basisPoints = Math.round(percent * 100);
+    expect(BigInt(gross) * BigInt(basisPoints)).toBe(BigInt(fees.totalCreatorDeductionCents) * 10_000n);
+    expect(percent).toBeGreaterThanOrEqual(0);
+    expect(percent).toBeLessThanOrEqual(100);
+  });
+
+  test("does not round an unsupported fee ratio or use binary-float approximations", () => {
+    const fees = calculateCreatorFees(33_300, { ...TEST_SCHEDULE, basisPoints: 360 });
+    expect(() => exactSubscriptionApplicationFeePercent(fees)).toThrow("supported percentage precision");
+  });
+
+  test("preserves the explicitly disabled legacy subscription percentage", () => {
+    const fees = calculateCreatorFees(3_333, getProcessingFeeSchedule({}));
+    expect(exactSubscriptionApplicationFeePercent(fees)).toBe(12);
+  });
+
   test("keeps CreatorNet's 12% separate from the configured processing deduction", () => {
     expect(calculateCreatorFees(10_000, TEST_SCHEDULE)).toEqual({
       grossAmountCents: 10_000,

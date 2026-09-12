@@ -66,10 +66,12 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
-  (globalThis as { fetch?: unknown }).fetch = jest.fn(async () => ({
+  (globalThis as { fetch?: unknown }).fetch = jest.fn(async (url: string, init?: RequestInit) => ({
     ok: true,
     status: 200,
-    json: async () => ({ profiles: [] }),
+    json: async () => url === "/api/library/eligibility"
+      ? { purchaseIds: JSON.parse(init!.body as string).purchaseIds }
+      : { profiles: [] },
   }));
 });
 
@@ -82,6 +84,28 @@ afterEach(async () => {
 });
 
 describe("LibraryPage states", () => {
+  test("raw-false eligible monthly and timed purchases render alongside legacy; denied purchases do not", async () => {
+    mockUser = { userId: "buyer_1", loading: false };
+    const ids = ["monthly", "timed", "legacy", "expired", "refunded", "disputed"];
+    db = createMockClient(op => op.table === "purchases" ? { data: ids.map(id => ({ id, post_id: id,
+      access_granted: id === "legacy", posts: { id, title: `Offer ${id}` } })), error: null } : undefined);
+    (global.fetch as jest.Mock).mockImplementation(async () => ({ ok: true, json: async () => ({ purchaseIds: ["monthly", "timed", "legacy"] }) }));
+    await render();
+    expect(db.opsFor("purchases")[0].filters).toEqual({ buyer_id: "buyer_1" });
+    expect(db.opsFor("purchases")[0].inFilters).toEqual([]);
+    for (const id of ["monthly", "timed", "legacy"]) expect(container.querySelector(`a[href="/watch/${id}"]`)).not.toBeNull();
+    for (const id of ["expired", "refunded", "disputed"]) expect(text()).not.toContain(`Offer ${id}`);
+    expect(global.fetch).toHaveBeenCalledWith("/api/library/eligibility", expect.objectContaining({ credentials: "include", cache: "no-store", method: "POST" }));
+  });
+
+  test("eligibility transport failure shows retry and no unverified purchase", async () => {
+    mockUser = { userId: "buyer_1", loading: false };
+    db = createMockClient(op => op.table === "purchases" ? { data: [{ id: "monthly", post_id: "post", posts: { title: "Private offer" } }], error: null } : undefined);
+    (global.fetch as jest.Mock).mockResolvedValue({ ok: false });
+    await render();
+    expect(text()).toContain("Couldn't load your library");
+    expect(text()).not.toContain("Private offer");
+  });
   test("auth still settling: skeleton only, no sign-in prompt, no purchases query", async () => {
     mockUser = { userId: null, loading: true };
 

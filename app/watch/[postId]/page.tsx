@@ -8,6 +8,7 @@ import { useRequireUser } from "@/lib/useUser";
 import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { bindWatchProgress } from "@/lib/watchProgress";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 
 type Post = {
@@ -46,7 +47,6 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const lastSaveRef = useRef<number>(0);
   const userIdForProgress = useRef<string | null>(null);
 
   useEffect(() => {
@@ -106,13 +106,13 @@ export default function WatchPage() {
       // though the viewer were entitled.
       let entitledByPurchase = false;
       if (!isOwnPost) {
+        // Use the shared server eligibility reader for paid and timed access.
         const { data: purchase, error: purErr } = await supabase
           .from("purchases")
           .select("id")
           .eq("buyer_id", userId)
           .eq("post_id", postId)
-          .eq("access_granted", true)
-          .in("status", ["paid", "active", "complete"])
+          .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
           .maybeSingle();
 
         if (cancelled) return;
@@ -129,7 +129,30 @@ export default function WatchPage() {
           router.push(`/dashboard?postId=${postId}`);
           return;
         }
-        entitledByPurchase = true;
+        try {
+          const response = await fetch("/api/library/eligibility", {
+            method: "POST", credentials: "include", cache: "no-store",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ purchaseIds: [purchase.id] }),
+          });
+          if (!response.ok) throw Error("Could not check purchase access.");
+          const body = await response.json();
+          if (!body || !Array.isArray(body.purchaseIds) ||
+              body.purchaseIds.some((id: unknown) => typeof id !== "string")) {
+            throw Error("Invalid purchase access response.");
+          }
+          if (cancelled) return;
+          if (!body.purchaseIds.includes(purchase.id)) {
+            router.push(`/dashboard?postId=${postId}`);
+            return;
+          }
+          entitledByPurchase = true;
+        } catch {
+          if (cancelled) return;
+          setError("Unable to verify access.");
+          setLoading(false);
+          return;
+        }
       }
 
       // Defence in depth. Everyone who reaches this line is already entitled —
@@ -202,38 +225,7 @@ export default function WatchPage() {
     const video = videoRef.current;
     if (!video) return;
 
-    // Load saved progress
-    fetch(`/api/watch/progress?post_id=${post.id}`, { credentials: "include" })
-      .then((r) => r.json())
-      .then((json) => {
-        const seconds = json?.progress?.seconds;
-        if (Number.isFinite(seconds) && seconds > 5) {
-          video.currentTime = seconds;
-        }
-      })
-      .catch(() => {});
-
-    // Save progress every 5s while watching
-    const saveProgress = () => {
-      if (!userIdForProgress.current || !video.duration) return;
-      const now = Date.now();
-      if (now - lastSaveRef.current < 5000) return;
-      lastSaveRef.current = now;
-      fetch("/api/watch/progress", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        keepalive: true,
-        body: JSON.stringify({
-          post_id: post.id,
-          seconds: Math.floor(video.currentTime),
-          duration: Math.floor(video.duration),
-        }),
-      }).catch(() => {});
-    };
-
-    video.addEventListener("timeupdate", saveProgress);
-    return () => video.removeEventListener("timeupdate", saveProgress);
+    return bindWatchProgress(video, post.id);
   }, [post]);
 
   // Per-device sound preference (Noah #6): start the way the user left it and
@@ -297,7 +289,7 @@ export default function WatchPage() {
         <p className="text-red-500 mb-4" role="alert">{error}</p>
         <div className="flex items-center gap-4">
           {/* "Unable to verify access." is the one transient failure on this
-              page (the purchases lookup errored) and a reload re-runs it.
+              page (the purchase/entitlement check errored) and a reload re-runs it.
               "Invalid post." / "Post not found." are final — no retry. */}
           {error === "Unable to verify access." && (
             <button

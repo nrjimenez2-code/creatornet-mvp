@@ -38,6 +38,9 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="bg-black" data-scroll-behavior="smooth">
+      <head>
+        <link rel="preconnect" href="https://media.creatornet.net" />
+      </head>
       <body className="min-h-svh bg-black text-gray-900 antialiased" suppressHydrationWarning>
         <PostHogProvider>
           <UserProvider>

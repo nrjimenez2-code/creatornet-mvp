@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
+import { handoffExactInstallmentWebhook } from "@/lib/installments/routeHandoff";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import {
@@ -22,6 +23,7 @@ import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { updatePostMetrics } from "@/lib/updatePostMetrics";
 import { creditPurchaseEarnings } from "@/lib/creatorEarnings";
+import { fulfillFixedServicePurchase } from "@/lib/fixedServicePurchase";
 import {
   assertConfiguredApplicationFee,
   creditLedgerEarnings,
@@ -31,6 +33,8 @@ import {
 } from "@/lib/paymentFeeLedger";
 import {
   applyPaymentRefundState,
+  confirmAdminRefundWebhookDelivery,
+  getPaymentRefundState,
   reconcileKnownPaymentRefund,
   recordPaymentRefundState,
 } from "@/lib/paymentRefunds";
@@ -50,6 +54,13 @@ export const maxDuration = 60;
 // --- ENV ---
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY!;
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
+// Stripe sends platform payment events and connected-account lifecycle events
+// through different event destinations. Each destination has its own signing
+// secret, so accept the optional Connect secret without changing the existing
+// single-destination setup. The Connect destination should subscribe only to
+// connected-account events such as account.updated.
+const STRIPE_CONNECT_WEBHOOK_SECRET =
+  process.env.STRIPE_CONNECT_WEBHOOK_SECRET ?? "";
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
@@ -66,6 +77,25 @@ function jerr(stage: string, msg: string, status = 400) {
   // posts to this URL; the stage is enough to debug from, the message is not
   // needed there.
   return NextResponse.json({ ok: false, stage }, { status });
+}
+
+type WebhookSource = "platform" | "connect";
+function verifyStripeEvent(rawBody: string, signature: string): { event: Stripe.Event; source: WebhookSource } {
+  let lastError: unknown = new Error("Invalid Stripe webhook signature");
+  const destinations: Array<{ source: WebhookSource; secret: string }> = [
+    { source: "platform", secret: STRIPE_WEBHOOK_SECRET },
+    { source: "connect", secret: STRIPE_CONNECT_WEBHOOK_SECRET },
+  ];
+  for (const { source, secret } of destinations) {
+    if (!secret) continue;
+    try {
+      return { event: getStripe().webhooks.constructEvent(rawBody, signature, secret), source };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 async function fetchCreatorIdIfMissing(
@@ -546,6 +576,7 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       .select("id")
       .eq("buyer_id", buyer_id)
       .eq("post_id", post_id)
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
       .maybeSingle();
     if (pairErr) throw new Error(`seed pair-find error: ${pairErr.message}`);
     if (byPair?.id) resolved = byPair;
@@ -636,6 +667,7 @@ async function seedPurchaseFromProductSession(session: Stripe.Checkout.Session):
       .select("id")
       .eq("buyer_id", buyer_id)
       .eq("post_id", post_id)
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
       .maybeSingle();
     if (raced?.id) {
       const { data: raceUpdated, error: raceUpdErr } = await admin
@@ -920,13 +952,44 @@ async function invoiceFeeContext(inv: any): Promise<{
   };
 }
 
-/** Set the fixed + percentage creator deduction before each installment invoice is paid. */
+/**
+ * A finalized invoice is not editable. Checkout's first invoice may already be
+ * paid when invoice.created arrives. Verify its real PaymentIntent instead of
+ * attempting a retroactive repair (or acknowledging an under-collected fee).
+ */
+async function verifyFinalizedInstallmentFee(
+  inv: any,
+  metadata: Record<string, string>,
+  destination: string
+) {
+  const gross = inv?.amount_due;
+  if (!Number.isSafeInteger(gross) || gross < 0 ||
+      (inv.status !== "open" && inv.status !== "paid")) {
+    throw new Error(`invoice ${inv?.id || "unknown"} cannot verify its finalized fee`);
+  }
+  const fees = calculateCreatorFeesFromMetadataSchedule(metadata, gross);
+  if (gross === 0 && (inv.application_fee_amount ?? 0) === 0) return;
+  const paymentIntentId = await invoicePaymentIntentId(inv);
+  if (!paymentIntentId) {
+    throw new Error(`finalized invoice ${inv.id} has no PaymentIntent linkage`);
+  }
+  const pi = await getStripe().paymentIntents.retrieve(paymentIntentId);
+  if (pi.application_fee_amount !== fees.totalCreatorDeductionCents ||
+      stripeObjectId(pi.transfer_data?.destination) !== destination) {
+    throw new Error(`finalized invoice ${inv.id} creator deduction or destination mismatch; reconciliation required`);
+  }
+}
+
+/** Set exact cents on renewal drafts; verify already-finalized first invoices. */
 async function handleInvoiceCreated(inv: any) {
   const { metadata, destination } = await invoiceFeeContext(inv);
   if (metadata.processing_fee_enabled !== "true") return;
   if (!metadata.booking_payment_id || metadata.plan_type !== "installment") return;
 
-  const gross = typeof inv?.amount_due === "number" ? inv.amount_due : inv?.total;
+  // Event payloads are snapshots. An invoice can have finalized between the
+  // event's creation and delivery, or while a failed delivery was retrying.
+  const current = await getStripe().invoices.retrieve(inv.id);
+  const gross = current.amount_due;
   if (!Number.isSafeInteger(gross) || gross < 0) {
     throw new Error(`invoice ${inv?.id || "unknown"} has no valid amount_due`);
   }
@@ -938,14 +1001,25 @@ async function handleInvoiceCreated(inv: any) {
     throw new Error(`invoice ${inv.id} has no connected-account destination`);
   }
 
-  await getStripe().invoices.update(inv.id, {
-    application_fee_amount: fees.totalCreatorDeductionCents,
-    transfer_data: { destination },
-    metadata: {
-      ...metadata,
-      ...creatorFeeMetadata(fees),
-    },
-  });
+  if (current.status !== "draft") {
+    await verifyFinalizedInstallmentFee(current, metadata, destination);
+    return;
+  }
+
+  try {
+    await getStripe().invoices.update(inv.id, {
+      application_fee_amount: fees.totalCreatorDeductionCents,
+      transfer_data: { destination },
+      metadata: { ...metadata, ...creatorFeeMetadata(fees) },
+    });
+  } catch (error) {
+    // Finalization can also race the update itself. Never swallow an API
+    // failure: only acknowledge if a fresh finalized invoice has the exact
+    // intended fee AND connected account. No financial database writes here.
+    const latest = await getStripe().invoices.retrieve(inv.id);
+    if (latest.status === "draft") throw error;
+    await verifyFinalizedInstallmentFee(latest, metadata, destination);
+  }
 }
 
 /** Advance subscription / record payment for invoice events. Also attach fulfillment on first success. */
@@ -1302,6 +1376,7 @@ async function reconcilePaymentIntentSucceeded(pi: Stripe.PaymentIntent) {
     );
   }
   await reconcileKnownPaymentRefund(admin, pi.id);
+  if (paidPurchase?.id) await fulfillFixedServicePurchase(admin, paidPurchase.id, pi.id, pi.metadata);
 }
 
 async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
@@ -1348,13 +1423,39 @@ export async function POST(req: NextRequest) {
 
   console.log("[webhook] 📝 Verifying webhook signature...");
   let event: Stripe.Event;
+  let source: WebhookSource;
   try {
     const rawBody = await req.text(); // IMPORTANT: raw body for signature verification
-    event = getStripe().webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
+    ({ event, source } = verifyStripeEvent(rawBody, sig));
     console.log("[webhook] ✅ Signature verified successfully");
   } catch (e: any) {
     console.error("[webhook] ❌ Signature verification failed:", e?.message);
     return jerr("verify", e?.message || "Invalid signature", 400);
+  }
+
+  // Signatures authenticate a destination, not admission to every payment path.
+  // Keep mode/source checks before the event claim and every legacy side effect.
+  const keyMode = /^(?:sk|rk)_(test|live)_/.exec(STRIPE_SECRET_KEY)?.[1];
+  if (!keyMode || (process.env.VERCEL_ENV === "production" && keyMode !== "live") ||
+      (process.env.VERCEL_ENV === "preview" && keyMode !== "test") ||
+      (STRIPE_CONNECT_WEBHOOK_SECRET && STRIPE_CONNECT_WEBHOOK_SECRET === STRIPE_WEBHOOK_SECRET)) {
+    return jerr("provider-context", "Webhook environment is ambiguous", 500);
+  }
+  if (typeof event.livemode !== "boolean") return jerr("provider-context", "Missing event mode", 400);
+  if (event.livemode !== (keyMode === "live")) {
+    // Production Connect destinations legitimately receive test notifications.
+    // Acknowledge those without claiming or changing production application state.
+    if (source === "connect" && keyMode === "live" && !event.livemode) {
+      return NextResponse.json({ ok: true, ignored: "test-connect-event" });
+    }
+    return jerr("provider-context", "Event mode differs", 400);
+  }
+  if (source === "connect") {
+    if (event.type !== "account.updated") return jerr("provider-context", "Unsupported connected-account event", 400);
+    const account = event.data.object as Stripe.Account;
+    if (!event.account || account.id !== event.account) return jerr("provider-context", "Connected account identity differs", 400);
+  } else if (event.account != null || event.type === "account.updated") {
+    return jerr("provider-context", "Event requires the connected-account destination", 400);
   }
 
   console.log("[webhook] 🎯 Processing event type:", event.type, "Event ID:", event.id);
@@ -1368,6 +1469,20 @@ export async function POST(req: NextRequest) {
   const claimKey = `stripe:${event.id}`;
   const claim = await claimStripeEvent(claimKey, event.type);
   if (claim.status === "duplicate") {
+    // Repair a legacy missing confirmation on an authenticated resend without
+    // rerunning payment, earnings, access, or Stripe refund mutations.
+    if (event.type === "charge.refunded") {
+      const charge = event.data.object as Stripe.Charge;
+      try {
+        const state = await getPaymentRefundState(admin, stripeObjectId(charge.payment_intent));
+        if (state?.chargeId === charge.id) {
+          await confirmAdminRefundWebhookDelivery(admin, getStripe(), state);
+        }
+      } catch (error) {
+        console.error("[webhook] refund confirmation retry failed:", error);
+        return jerr("refund-confirmation", "Confirmation retry failed", 500);
+      }
+    }
     console.log("[webhook] ⏭️ Already processed, acknowledging without re-running:", event.id);
     return NextResponse.json({ ok: true, duplicate: true });
   }
@@ -1384,6 +1499,17 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Signature and durable event claim are already verified above. Exact
+    // Checkout/invoices must never also enter legacy one-time accounting.
+    const { handoffMonthlyMentorshipWebhook } = await import("@/lib/membershipWebhook");
+    if (await handoffMonthlyMentorshipWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    if (await handoffExactInstallmentWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
@@ -1473,6 +1599,7 @@ export async function POST(req: NextRequest) {
               true
             );
             await reconcileKnownPaymentRefund(admin, paymentIntentId);
+            await fulfillFixedServicePurchase(admin, purchaseId, paymentIntentId, session.metadata);
 
             const buyerId =
               (session.metadata?.buyer_user_id as string) ||
@@ -1654,11 +1781,17 @@ export async function POST(req: NextRequest) {
           refundedAmountCents: charge.amount_refunded || 0,
         });
         await applyPaymentRefundState(admin, refundState);
+        await confirmAdminRefundWebhookDelivery(
+          admin,
+          getStripe(),
+          refundState,
+        );
         break;
       }
 
       case "account.updated": {
-        const account = event.data.object as Stripe.Account;
+        // A delayed event/retry must not restore capabilities from an old snapshot.
+        const account = await getStripe().accounts.retrieve((event.data.object as Stripe.Account).id);
         const complete = !!(account.charges_enabled && account.payouts_enabled);
         // .select("id") matters: without it PostgREST returns no rows and a
         // zero-row UPDATE is indistinguishable from a successful one, so this
@@ -1680,7 +1813,7 @@ export async function POST(req: NextRequest) {
           .eq("stripe_account_id", account.id)
           .select("id");
         if (acctErr) {
-          console.warn("[webhook] account.updated profile sync error:", acctErr.message);
+          throw new Error(`account.updated profile sync failed: ${acctErr.message}`);
         } else if (!acctRows || acctRows.length === 0) {
           // Stripe knows this connected account; no profile claims it. Not
           // retryable, so do not throw — but it must never read as success.

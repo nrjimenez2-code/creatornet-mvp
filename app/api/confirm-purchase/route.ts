@@ -1,5 +1,6 @@
 // app/api/confirm-purchase/route.ts
 import { publicMessage } from "@/lib/apiError";
+import { paidCallsReady, readPaidCallAccess } from "@/lib/paidCalls";
 import { eitherIdFilter } from "@/lib/ids";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
@@ -9,12 +10,15 @@ import { createServerClient } from "@/lib/supabaseServer";
 import { creatorFeesFromMetadata } from "@/lib/money";
 import { ORDER_OPEN_STATUSES, purchaseTerminalFilter } from "@/lib/orderStatus";
 import { creditPurchaseEarnings } from "@/lib/creatorEarnings";
+import { fulfillFixedServicePurchase } from "@/lib/fixedServicePurchase";
+import { membershipAccessSeconds } from "@/lib/membershipAccess";
 import {
   assertConfiguredApplicationFee,
   recordPaymentFeeLedger,
   retrieveStripeFeeDetails,
 } from "@/lib/paymentFeeLedger";
 import { reconcileKnownPaymentRefund } from "@/lib/paymentRefunds";
+import { confirmExactInstallmentSandbox } from "@/lib/installments/purchaseLifecycle";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -205,6 +209,7 @@ async function upsertPaidBySession(
       .select("id, payment_intent_id")
       .eq("buyer_id", buyer_id)
       .eq("post_id", post_id)
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
       .maybeSingle();
     const pairRow = byPair.data as { id?: string; payment_intent_id?: string | null } | null;
     if (!byPair.error && pairRow?.id) {
@@ -291,6 +296,7 @@ async function upsertPaidBySession(
     // writing and crediting the sale so late event order cannot restore access
     // or creator earnings.
     await reconcileKnownPaymentRefund(supabase, payment_intent_id);
+    await fulfillFixedServicePurchase(supabase, purchaseId, payment_intent_id, session.metadata);
   }
 
   return { purchase_id: purchaseId, status: status ?? "paid", post_id, product_id, creator_id };
@@ -322,6 +328,14 @@ export async function POST(req: Request) {
     // attach to whoever happens to be signed in.
     if (!sessionBuyer || sessionBuyer !== user.id) {
       return NextResponse.json({ error: "This purchase belongs to another account." }, { status: 403 });
+    }
+    // Exact installment #1 uses Checkout mode=payment, not mode=subscription.
+    // Its versioned, persisted binding must be checked before the old full-price
+    // upsert. This handoff only reads receipt-driven state; it never credits.
+    const exact = await confirmExactInstallmentSandbox({ admin: supabase, session, buyerId: user.id, env: process.env });
+    if (exact) {
+      const product = exact.httpStatus === 200 ? await loadFulfillmentProduct(exact.body.product_id) : undefined;
+      return NextResponse.json({ ...exact.body, ...(product !== undefined ? { product } : {}) }, { status: exact.httpStatus });
     }
     console.log("[confirm-purchase] ✅ Session retrieved:", {
       session_id,
@@ -453,7 +467,7 @@ export async function POST(req: Request) {
       });
     }
 
-    if (!(session.status === "complete" || session.payment_status === "paid")) {
+    if (session.mode !== "payment" || session.status !== "complete" || session.payment_status !== "paid") {
       return NextResponse.json(
         { error: `Session not paid. status=${session.status}, payment_status=${session.payment_status}` },
         { status: 409 }
@@ -461,6 +475,18 @@ export async function POST(req: Request) {
     }
 
     const meta = await upsertPaidBySession(session_id, session, user.id);
+    if (session.metadata?.fixed_service_version &&
+        (!meta.purchase_id || process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY !== "true" ||
+         await membershipAccessSeconds(supabase, meta.purchase_id, user.id) <= 0)) {
+      return NextResponse.json({ error: "Service access is not available for this purchase." }, { status: 403 });
+    }
+    if (session.metadata?.product_type === "call") {
+      if (!paidCallsReady() || !meta.purchase_id) return NextResponse.json({ ok: true, status: "pending" }, { status: 202 });
+      const access = await readPaidCallAccess(supabase, meta.purchase_id, user.id);
+      if (!access) return NextResponse.json({ ok: true, status: "pending" }, { status: 202 });
+      return NextResponse.json({ ok: true, status: "paid", kind: "paid_call", purchase_id: meta.purchase_id,
+        booking_redirect_url: `/api/calls/${meta.purchase_id}/schedule` }, { headers: { "Cache-Control": "private, no-store" } });
+    }
     const product = await loadFulfillmentProduct(meta.product_id);
 
     // return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });

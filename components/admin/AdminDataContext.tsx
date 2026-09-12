@@ -15,6 +15,7 @@ import {
   MOCK_VIDEOS,
 } from "@/lib/admin/mock-data";
 import { useToast } from "@/components/admin/Toast";
+import { DEMO_TODAY_ISO } from "@/lib/admin/series";
 import type {
   AdminBooking,
   AdminInitialData,
@@ -23,9 +24,6 @@ import type {
   AdminVideo,
   PlatformStats,
 } from "@/types/admin";
-
-/** Demo "today" — matches the newest timestamps in the mock data. */
-const MOCK_TODAY_PREFIX = "2026-08-01";
 
 /**
  * Endpoint names the moderation actions POST to. The API agent implements
@@ -68,6 +66,7 @@ async function postAdminAction(
  * - Demo (no initialData): mock rows, local-state-only actions, no fetches.
  */
 interface AdminData {
+  asOf: string;
   users: AdminUser[];
   videos: AdminVideo[];
   orders: AdminOrder[];
@@ -102,6 +101,7 @@ export function AdminDataProvider({
   );
   const orders = initialData?.orders ?? MOCK_ORDERS;
   const bookings = initialData?.bookings ?? MOCK_BOOKINGS;
+  const asOf = initialData?.asOf ?? DEMO_TODAY_ISO;
   const { toast } = useToast();
 
   const callAction = useCallback(
@@ -218,9 +218,7 @@ export function AdminDataProvider({
     [runVideoAction, toast],
   );
 
-  const todayPrefix = seeded
-    ? new Date().toISOString().slice(0, 10)
-    : MOCK_TODAY_PREFIX;
+  const todayPrefix = asOf.slice(0, 10);
 
   const stats = useMemo<PlatformStats>(() => {
     const paidOrders = orders.filter((order) => order.status === "paid");
@@ -245,6 +243,7 @@ export function AdminDataProvider({
 
   const value = useMemo<AdminData>(
     () => ({
+      asOf,
       users,
       videos,
       orders,
@@ -258,6 +257,7 @@ export function AdminDataProvider({
       removeVideo,
     }),
     [
+      asOf,
       users,
       videos,
       orders,

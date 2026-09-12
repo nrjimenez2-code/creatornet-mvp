@@ -48,9 +48,10 @@ export async function GET(req: NextRequest) {
 
   try {
     const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
+    if (account.id !== profile.stripe_account_id) throw new Error("Stripe account identity differs");
     const isComplete = !!(account.charges_enabled && account.payouts_enabled);
 
-    await db
+    const { data: saved, error: saveError } = await db
       .from("profiles")
       .update({
         stripe_onboarding_complete: isComplete,
@@ -58,7 +59,12 @@ export async function GET(req: NextRequest) {
         payouts_enabled: !!account.payouts_enabled,
         onboarding_complete: isComplete,
       })
-      .eq("id", user.id);
+      .eq("id", user.id)
+      .eq("stripe_account_id", profile.stripe_account_id)
+      .select("id");
+    if (saveError || saved?.length !== 1) {
+      throw new Error("Could not persist current Stripe capabilities");
+    }
 
     const status = isComplete ? "success" : "pending";
     return NextResponse.redirect(`${SITE_URL}/dashboard?connect=${status}`);

@@ -20,7 +20,7 @@ export async function POST(req: Request) {
     });
   } else {
     // ❌ No session — clear cookies (logout)
-    await supabase.auth.signOut();
+    await supabase.auth.signOut({ scope: "local" });
   }
 
   return NextResponse.json({ ok: true });

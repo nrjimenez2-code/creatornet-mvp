@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import PurchasePolicyNotice from "@/components/PurchasePolicyNotice";
+import { purchasePoliciesActive } from "@/lib/purchasePolicies";
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Terms of Service",
@@ -6,7 +9,8 @@ export const metadata: Metadata = {
     "The terms that govern using CreatorNet — accounts, content, purchases, creator payouts, and acceptable use.",
 };
 
-const LAST_UPDATED = "September 3, 2026";
+const LAST_UPDATED = "September 9, 2026";
+const BUSINESS_LEGAL_NAME = "CREATORNET LLC NOAH RAY JIMENEZ SOLE MBR % NOAH RAY JIMENEZ SOLE MBR";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -21,12 +25,14 @@ export default function TermsPage() {
   return (
     <main>
       <h1 className="text-3xl font-bold">Terms of Service</h1>
+      {purchasePoliciesActive(process.env) && <PurchasePolicyNotice section="terms" />}
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
-      {/* TODO(Noah): replace "the CreatorNet team" with the registered legal
-          entity, and supply a mailing address + governing-law state for
-          sections 8 and 10, before or at launch. */}
+      {/* The owner supplied the business identity and address. Governing law
+          and venue still require an explicit decision; do not infer them
+          from the mailing address. */}
       <p className="mt-4 text-gray-700 leading-relaxed">
-        These Terms govern your use of CreatorNet, operated by the CreatorNet team
+        These Terms govern your use of CreatorNet, operated by {BUSINESS_LEGAL_NAME}
+        {" "}
         (&quot;CreatorNet&quot;, &quot;we&quot;, &quot;us&quot;). By accessing or using the
         service you agree to them. If you don&apos;t agree, don&apos;t use CreatorNet.
       </p>
@@ -82,6 +88,15 @@ export default function TermsPage() {
           Creators are responsible for
           delivering what they sell, for the accuracy of their listings, and for their own taxes.
         </p>
+        <p>
+          When a payment is refunded, CreatorNet does not keep its 12% fee on the refunded
+          portion. Creators bear payment-processing costs that Stripe does not return when a
+          refund results from creator non-delivery, a missed session, material listing
+          misrepresentation, or a discretionary refund the creator approved. CreatorNet bears
+          those costs for duplicate billing and CreatorNet technical or billing errors. We may
+          offset creator-responsible refund balances against future creator earnings, subject to
+          applicable law.
+        </p>
       </Section>
 
       <Section title="5. Acceptable use">
@@ -131,6 +146,13 @@ export default function TermsPage() {
       </Section>
 
       <Section title="10. Contact">
+        <p>
+          {BUSINESS_LEGAL_NAME}
+          <br />
+          21095 North 64th Avenue
+          <br />
+          Glendale, AZ 85308, United States
+        </p>
         <p>
           <a className="underline" href="mailto:support@creatornet.net">
             support@creatornet.net

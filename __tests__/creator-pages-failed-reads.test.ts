@@ -21,10 +21,16 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon_fake";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "service_fake";
 
 import { createElement, type ReactElement } from "react";
+import type { OfferCard } from "@/lib/offers";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createMockClient, type MockClient, type Responder } from "./__mocks__/supabaseQueryMock";
 
 let db: MockClient;
+let profileOffers: OfferCard[] = [];
+jest.mock("@/components/OffersPanel", () => ({
+  __esModule: true,
+  default: ({ offers }: { offers: OfferCard[] }) => { profileOffers = offers; return null; },
+}));
 
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
 jest.mock("@/lib/supabaseAdmin", () => ({
@@ -88,6 +94,39 @@ beforeEach(() => {
 
 afterEach(() => {
   (console.error as jest.Mock).mockRestore?.();
+});
+
+describe("profile offer schema readiness", () => {
+  test.each([[false, false], [false, true], [true, false], [true, true]])(
+    "monthly schema %s, fixed service schema %s", async (monthly, fixed) => {
+      const monthlyBefore = process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY;
+      const fixedBefore = process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY;
+      process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY = String(monthly);
+      process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY = String(fixed);
+      profileOffers = [];
+      const terms = { version: "monthly-mentorship-v1", minimumMonths: 3, autoRenew: true };
+      try {
+        db = createMockClient(op => {
+          if (op.table === "posts") return { data: [{ id: "visible", creator_id: "creator_1", product_id: "row" }], error: null };
+          if (op.table === "products") return { data: [{ id: "row", title: "Mentorship", type: "mentorship", amount_cents: 10000,
+            ...(op.columns?.includes("membership_terms") ? { membership_terms: terms } : {}) }], error: null };
+          return profileResponder(op);
+        });
+        await renderPage(CreatorPublicProfilePage);
+        const query = db.opsFor("products")[0];
+        expect(query.columns?.includes("membership_terms")).toBe(monthly);
+        expect(query.columns?.includes("fixed_service_months")).toBe(fixed);
+        expect(query.filters.creator_id).toBe("creator_1");
+        expect(profileOffers[0]).toMatchObject({ productId: "row", postId: "visible" });
+        expect(profileOffers[0].monthlyTerms).toEqual(monthly ? terms : undefined);
+      } finally {
+        if (monthlyBefore === undefined) delete process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY;
+        else process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY = monthlyBefore;
+        if (fixedBefore === undefined) delete process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY;
+        else process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY = fixedBefore;
+      }
+    },
+  );
 });
 
 describe("creator profile page: posts read", () => {

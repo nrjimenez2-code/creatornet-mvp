@@ -325,6 +325,56 @@ describe("policy links in the purchase flow", () => {
       expect(document.activeElement).toBe(focusables[0]);
     });
 
+    it.each(["ArrowDown", "ArrowUp", "Home", "End"])(
+      "keeps %s inside the portalled menu without swallowing Tab or leaking Escape",
+      async (key) => {
+        const ancestorKeys: string[] = [];
+        await act(async () => {
+          root.render(createElement("div", {
+            "data-feed-keyboard-ancestor": true,
+            // A React ancestor like FeedList/tag receives portal events even
+            // though the menu is not its DOM descendant. preventDefault alone
+            // does not stop those handlers from scrolling the underlying feed.
+            onKeyDown: (event: { key: string }) => { ancestorKeys.push(event.key); },
+          }, createElement(VideoCard, {
+            creator: "Creator", title: "A paid post", productId: "prod_test",
+            productType: "course", priceCents: 1999, isActive: false,
+          })));
+        });
+        const buy = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+        await act(async () => { buy.click(); });
+        const dropdown = document.querySelector<HTMLElement>("[data-buy-dropdown]")!;
+        expect(dropdown).not.toBeNull();
+        expect(container.querySelector("[data-feed-keyboard-ancestor]")?.contains(dropdown)).toBe(false);
+        const items = Array.from(dropdown.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled]), a[href]'));
+        expect(items).toHaveLength(3);
+        expect(document.activeElement).toBe(items[0]);
+        const pressFocused = async (pressedKey: string) => {
+          const focused = document.activeElement as HTMLElement;
+          expect(dropdown.contains(focused)).toBe(true);
+          const event = new KeyboardEvent("keydown", { key: pressedKey, bubbles: true, cancelable: true });
+          await act(async () => { focused.dispatchEvent(event); });
+          return event;
+        };
+
+        const event = await pressFocused(key);
+        const expectedIndex = key === "ArrowDown" ? 1 : key === "Home" ? 0 : 2;
+        expect(document.activeElement).toBe(items[expectedIndex]);
+        expect(event.defaultPrevented).toBe(true);
+        expect(ancestorKeys).toEqual([]);
+
+        // Positive control: Tab really reaches the same React ancestor and is
+        // left to normal browser navigation, including the policy link.
+        expect((await pressFocused("Tab")).defaultPrevented).toBe(false);
+        expect(ancestorKeys).toEqual(["Tab"]);
+        expect(document.querySelector("[data-buy-dropdown]")).toBe(dropdown);
+        expect((await pressFocused("Escape")).defaultPrevented).toBe(true);
+        expect(ancestorKeys).toEqual(["Tab"]);
+        expect(document.querySelector("[data-buy-dropdown]")).toBeNull();
+        expect(document.activeElement).toBe(buy);
+      }
+    );
+
     it("the button announces the menu it controls", async () => {
       const dropdown = await openDropdown();
       const buy = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;

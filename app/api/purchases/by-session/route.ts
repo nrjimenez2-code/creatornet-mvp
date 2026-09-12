@@ -3,6 +3,7 @@ import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
+import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
 
 const SUPABASE_URL: string =
@@ -38,7 +39,7 @@ export async function GET(req: Request) {
   // Look up purchase by session
   const { data: purchase, error: purchaseErr } = await admin
     .from("purchases")
-    .select("id, status, product_id, buyer_id, buyer_user_id")
+    .select("id, status, product_id, buyer_id, buyer_user_id, access_granted")
     .eq("session_id", session_id)
     .maybeSingle();
 
@@ -67,6 +68,12 @@ export async function GET(req: Request) {
   // any money moves. Fulfillment links are for paid purchases only.
   if (purchase.status !== "paid") {
     return NextResponse.json({ error: "Not paid", status: purchase.status }, { status: 402 });
+  }
+  const accessSeconds = membershipLedgerReady()
+    ? await membershipAccessSeconds(admin, purchase.id, user.id)
+    : purchase.access_granted === true ? 3600 : 0;
+  if (accessSeconds <= 0) {
+    return NextResponse.json({ error: "Service access is not available for this purchase." }, { status: 403 });
   }
 
   // Resolve the product

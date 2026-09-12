@@ -9,7 +9,7 @@
 // continue-watching — excludes them too. Apply this to each of those reads.
 //
 // Do NOT apply it to the creator's own profile (they should still see their
-// own hidden posts), to buy-time product resolution, or to entitlement checks
+// own hidden posts; that page separately excludes removed_at), to buy-time product resolution, or to entitlement checks
 // on the money path.
 
 type NullFilterable<T> = {

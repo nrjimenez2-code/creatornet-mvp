@@ -13,6 +13,7 @@
     "@aws-sdk/client-s3": "^3.1029.0",
     "@aws-sdk/s3-request-presigner": "^3.1029.0",
     "@sentry/nextjs": "^10.70.0",
+    "@stripe/stripe-js": "9.15.0",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/auth-ui-react": "^0.4.7",
     "@supabase/auth-ui-shared": "^0.1.8",
@@ -30,6 +31,7 @@
     "stripe": "^19.3.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/jest": "^30.0.0",
     "@types/node": "^20",

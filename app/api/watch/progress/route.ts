@@ -9,7 +9,7 @@ const admin = createClient(
   { auth: { persistSession: false, autoRefreshToken: false } }
 );
 
-async function requireUser(req: NextRequest): Promise<{ userId: string } | null> {
+async function requireUser(): Promise<{ userId: string } | null> {
   try {
     const supabase = await createServerSupabase();
     const { data } = await supabase.auth.getUser();
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "post_id is required" }, { status: 400 });
     }
 
-    const session = await requireUser(req);
+    const session = await requireUser();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
@@ -62,14 +62,18 @@ export async function POST(req: NextRequest) {
     // it used to target does not exist.
     const { post_id, seconds, duration } = await req.json();
 
-    if (!post_id || typeof seconds !== "number" || typeof duration !== "number") {
+    if (
+      typeof post_id !== "string" || !post_id.trim() ||
+      typeof seconds !== "number" || !Number.isFinite(seconds) ||
+      typeof duration !== "number" || !Number.isFinite(duration) || duration <= 0
+    ) {
       return NextResponse.json(
         { error: "post_id, seconds, and duration are required" },
         { status: 400 }
       );
     }
 
-    const session = await requireUser(req);
+    const session = await requireUser();
     if (!session) {
       return NextResponse.json({ error: "Not signed in" }, { status: 401 });
     }
@@ -80,6 +84,9 @@ export async function POST(req: NextRequest) {
     // position was ever saved. Completion is derived where it is displayed,
     // from posts.duration_seconds.
     const clampedSeconds = Math.max(0, Math.min(seconds, duration));
+    // The existing table stores only the resume position. Duration belongs to
+    // posts.duration_seconds; it is not a watch_progress column. Use the
+    // player's duration only to bound this request, never to mutate the post.
 
     const { error } = await admin
       .from("watch_progress")

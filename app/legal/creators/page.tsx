@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PurchasePolicyNotice from "@/components/PurchasePolicyNotice";
+import { purchasePoliciesActive } from "@/lib/purchasePolicies";
+export const dynamic = "force-dynamic";
 
 // The creator-side rules, in one place. CreatorNet's 12% platform fee and
 // standard payment-processing costs are disclosed as separate deductions.
@@ -25,6 +28,7 @@ export default function CreatorPolicyPage() {
   return (
     <main>
       <h1 className="text-3xl font-bold">Creator Policy</h1>
+      {purchasePoliciesActive(process.env) && <PurchasePolicyNotice section="creators" />}
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
       <p className="mt-4 text-gray-700 leading-relaxed">
         CreatorNet is a marketplace. Creators list short teaching videos, courses, digital
@@ -80,6 +84,18 @@ export default function CreatorPolicyPage() {
           CreatorNet records the platform fee, payment-processing deduction, and creator
           earnings separately. Repeated non-delivery or chargebacks can lead to restricted
           selling or account suspension.
+        </p>
+        <p>
+          CreatorNet does not keep its 12% platform fee on the refunded portion. A creator bears
+          payment-processing costs that Stripe does not return when the refund results from the
+          creator&apos;s non-delivery, a missed session, a listing that materially misrepresented
+          the offer, or a discretionary refund the creator approved. CreatorNet bears those costs
+          for duplicate billing and CreatorNet technical or billing errors.
+        </p>
+        <p>
+          Creator-responsible refund balances may be offset against future creator earnings. We
+          do not use CreatorNet code to debit a creator&apos;s bank account for a refund. Nothing in
+          this policy limits rights required by applicable law.
         </p>
       </Section>
 

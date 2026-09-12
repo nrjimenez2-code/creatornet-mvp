@@ -42,10 +42,12 @@ const checkoutCreate = jest.fn();
 const checkoutRetrieve = jest.fn();
 const checkoutExpire = jest.fn();
 const invoiceUpdate = jest.fn();
+const invoiceRetrieve = jest.fn();
 const subscriptionRetrieve = jest.fn();
 const subscriptionUpdate = jest.fn();
 const paymentIntentRetrieve = jest.fn();
 const disputeRetrieve = jest.fn();
+const refundsList = jest.fn();
 
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
 jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }));
@@ -65,13 +67,14 @@ jest.mock("@/lib/stripeClient", () => ({
     checkout: {
       sessions: { create: checkoutCreate, retrieve: checkoutRetrieve, expire: checkoutExpire },
     },
-    invoices: { update: invoiceUpdate },
+    invoices: { update: invoiceUpdate, retrieve: invoiceRetrieve },
     subscriptions: { retrieve: subscriptionRetrieve, update: subscriptionUpdate },
     paymentIntents: { retrieve: paymentIntentRetrieve },
     charges: { retrieve: jest.fn() },
     disputes: { retrieve: disputeRetrieve },
+    refunds: { list: refundsList },
     balanceTransactions: { retrieve: jest.fn() },
-    webhooks: { constructEvent: () => stripeEvent },
+    webhooks: { constructEvent: () => ({ livemode: false, ...stripeEvent }) },
   }),
 }));
 jest.mock("@/lib/stripeEvents", () => ({
@@ -259,6 +262,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   jest.resetModules();
   claimed = "new";
+  refundsList.mockReset().mockResolvedValue({ data: [], has_more: false });
   checkoutCreate.mockResolvedValue({
     id: "cs_test_1",
     url: "https://checkout.stripe.test/1",
@@ -272,6 +276,10 @@ beforeEach(() => {
     payment_status: "unpaid",
   }));
   invoiceUpdate.mockResolvedValue({});
+  invoiceRetrieve.mockReset().mockImplementation(async () => ({
+    ...stripeEvent?.data?.object,
+    status: stripeEvent?.data?.object?.status || "draft",
+  }));
   subscriptionUpdate.mockResolvedValue({});
   subscriptionRetrieve.mockResolvedValue({
     metadata: {},
@@ -550,6 +558,7 @@ describe("new checkout application fees", () => {
 describe("booking payment links", () => {
   function bookingDb(options: {
     bookingStatus?: string;
+    amountCents?: number;
     existingPayment?: Record<string, unknown> | null;
   } = {}): MockClient {
     const client = createMockClient((op: Op) => {
@@ -574,7 +583,7 @@ describe("booking payment links", () => {
             id: "product_row_1",
             product_id: "product_1",
             title: "Call",
-            amount_cents: 10_000,
+            amount_cents: options.amountCents ?? 10_000,
             currency: "usd",
           },
           error: null,
@@ -614,6 +623,8 @@ describe("booking payment links", () => {
     const params = checkoutCreate.mock.calls[0][0];
     expect(params.payment_intent_data.application_fee_amount).toBe(1_520);
     expect(params.payment_intent_data.transfer_data.destination).toBe("acct_creator");
+    expect(params.metadata.post_id).toBe("post_1");
+    expect(params.payment_intent_data.metadata.post_id).toBe("post_1");
     expect(checkoutCreate.mock.calls[0][1]?.idempotencyKey).toMatch(/^booking-payment:/);
   });
 
@@ -691,7 +702,7 @@ describe("booking payment links", () => {
 
     expect(response.status).toBe(200);
     const subscriptionData = checkoutCreate.mock.calls[0][0].subscription_data;
-    expect(subscriptionData.application_fee_percent).toBe(12);
+    expect(subscriptionData.application_fee_percent).toBe(16.2);
     expect(subscriptionData.metadata).toMatchObject({
       processing_fee_enabled: "true",
       processing_fee_bps: "360",
@@ -701,6 +712,89 @@ describe("booking payment links", () => {
       creator_net_cents: "4190",
       fee_schedule_version: "test-us-card-v1+billing-70bps",
     });
+  });
+
+  it("configures the first $40 charge to deduct 654 cents before any webhook runs", async () => {
+    db = bookingDb({ amountCents: 12_000 });
+    const { POST } = await import("@/app/api/bookings/[bookingId]/payment-link/route");
+    const response = await POST(new Request("https://preview.example/api/payment-link", {
+      method: "POST",
+      headers: { authorization: "Bearer token", "content-type": "application/json" },
+      body: JSON.stringify({ plan_type: "installment", installment_months: 3, post_id: "untrusted" }),
+    }) as any, { params: Promise.resolve({ bookingId: "booking_1" }) });
+    expect(response.status).toBe(200);
+    const params = checkoutCreate.mock.calls[0][0];
+    expect(params.subscription_data.application_fee_percent).toBe(16.35);
+    expect(params.subscription_data.transfer_data).toEqual({ destination: "acct_creator" });
+    expect(params.metadata.post_id).toBe("post_1");
+    expect(params.subscription_data.metadata.post_id).toBe("post_1");
+    expect(params.subscription_data.metadata.total_creator_deduction_cents).toBe("654");
+    expect(params.line_items[0].price_data.unit_amount).toBe(4_000);
+    expect(params.line_items[0].price_data.product_data.description)
+      .toBe("3 monthly payments of USD 40.00. Total: USD 120.00.");
+    expect(invoiceUpdate).not.toHaveBeenCalled();
+
+    // Exercise the real receiving handler with a database that rejects absent
+    // post linkage, just like staging's purchases trigger did.
+    db = createMockClient((op) => {
+      if (op.table === "purchases" && op.kind === "insert") {
+        return (op.payload as Record<string, unknown>).post_id === "post_1"
+          ? { data: { id: "purchase_linked" }, error: null }
+          : { data: null, error: { message: "purchases.post_id is required" } };
+      }
+      return undefined;
+    });
+    stripeEvent = {
+      id: "evt_linked_installment", type: "checkout.session.completed",
+      data: { object: {
+        id: "cs_linked", mode: "subscription", payment_status: "paid",
+        amount_total: 4_000, currency: "usd", subscription: "sub_linked",
+        payment_intent: null, metadata: params.metadata,
+      } },
+    };
+    const webhook = await import("@/app/api/stripe/webhook/route");
+    expect((await webhook.POST(webhookRequest())).status).toBe(200);
+    expect(db.opsFor("purchases").find((op) => op.kind === "insert")?.payload)
+      .toMatchObject({ post_id: "post_1", target_months: 3, access_granted: false });
+  });
+
+  it.each([
+    [10_000, 3, "INSTALLMENT_TOTAL_NOT_DIVISIBLE"],
+    [99_900, 3, "INSTALLMENT_FEE_PRECISION_UNSUPPORTED"],
+  ])("rejects an inexact installment plan before creating a payment row or Stripe session", async (amountCents, months, code) => {
+    db = bookingDb({ amountCents: Number(amountCents) });
+    const { POST } = await import("@/app/api/bookings/[bookingId]/payment-link/route");
+    const response = await POST(new Request("https://preview.example/api/payment-link", {
+      method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" },
+      body: JSON.stringify({ plan_type: "installment", installment_months: months }),
+    }) as any, { params: Promise.resolve({ bookingId: "booking_1" }) });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code });
+    expect(checkoutCreate).not.toHaveBeenCalled();
+    expect(db.opsFor("booking_payments").filter((op) => op.kind === "insert")).toHaveLength(0);
+  });
+
+  it.each([false, true])("only reuses an installment link whose Stripe metadata proves the fix (fixed=%s)", async (fixed) => {
+    db = bookingDb({ existingPayment: {
+      id: "bp_existing", status: "link_sent", plan_type: "installment", installment_months: 2,
+      amount_total_cents: 10_000, installment_amount_cents: 5_000,
+      platform_fee_cents: 600, processing_fee_cents: 210, total_creator_deduction_cents: 810,
+      creator_net_cents: 4_190, fee_schedule_version: "test-us-card-v1+billing-70bps", currency: "usd",
+      link_url: "https://checkout.stripe.test/existing", stripe_checkout_session_id: "cs_existing",
+    } });
+    checkoutRetrieve.mockResolvedValue({ status: "open", metadata: {
+      booking_payment_id: "bp_existing", post_id: "post_1",
+      ...(fixed ? { installment_fee_setup: "exact-percent-v1" } : {}),
+    } });
+    const { POST } = await import("@/app/api/bookings/[bookingId]/payment-link/route");
+    const response = await POST(new Request("https://preview.example/api/payment-link", {
+      method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" },
+      body: JSON.stringify({ plan_type: "installment", installment_months: 2 }),
+    }) as any, { params: Promise.resolve({ bookingId: "booking_1" }) });
+    expect(response.status).toBe(fixed ? 200 : 409);
+    expect(await response.json()).toMatchObject(fixed ? { reused: true } : { code: "BOOKING_PAYMENT_LINK_REVIEW_REQUIRED" });
+    expect(checkoutCreate).not.toHaveBeenCalled();
+    expect(db.opsFor("booking_payments").filter((op) => op.kind !== "select")).toHaveLength(0);
   });
 });
 
@@ -963,6 +1057,103 @@ describe("webhook purchase identity schema", () => {
 });
 
 describe("installment, failure, refund, and duplicate webhooks", () => {
+  it.each([654, 480])("verifies a finalized first invoice without trying to edit it (fee %i)", async (applicationFee) => {
+    db = createMockClient(() => undefined);
+    subscriptionRetrieve.mockResolvedValue({
+      metadata: {
+        booking_payment_id: "bp_first", plan_type: "installment",
+        creator_stripe_account_id: "acct_creator",
+        processing_fee_enabled: "true", processing_fee_bps: "360",
+        processing_fee_fixed_cents: "30", fee_schedule_version: "test-billing",
+      },
+      transfer_data: { destination: "acct_creator" },
+    });
+    stripeEvent = {
+      id: `evt_first_${applicationFee}`, type: "invoice.created",
+      data: { object: {
+        id: "in_first", subscription: "sub_first", status: "paid",
+        amount_due: 4_000, amount_paid: 4_000, payment_intent: "pi_first",
+      } },
+    };
+    paymentIntentRetrieve.mockResolvedValue({
+      id: "pi_first", application_fee_amount: applicationFee,
+      transfer_data: { destination: "acct_creator" },
+    });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(applicationFee === 654 ? 200 : 500);
+    expect(invoiceUpdate).not.toHaveBeenCalled();
+    expect(db.opsFor("credit_payment_fee_ledger_earnings")).toHaveLength(0);
+  });
+
+  it("re-reads a stale draft event before deciding whether an invoice is editable", async () => {
+    db = createMockClient(() => undefined);
+    subscriptionRetrieve.mockResolvedValue({
+      metadata: {
+        booking_payment_id: "bp_race", plan_type: "installment",
+        processing_fee_enabled: "true", processing_fee_bps: "360",
+        processing_fee_fixed_cents: "30", fee_schedule_version: "test-billing",
+      }, transfer_data: { destination: "acct_creator" },
+    });
+    stripeEvent = { id: "evt_stale_draft", type: "invoice.created", data: { object: {
+      id: "in_stale", subscription: "sub_stale", status: "draft", amount_due: 4_000,
+    } } };
+    invoiceRetrieve.mockResolvedValueOnce({
+      ...stripeEvent.data.object, status: "paid", payment_intent: "pi_stale",
+    });
+    paymentIntentRetrieve.mockResolvedValue({
+      id: "pi_stale", application_fee_amount: 654,
+      transfer_data: { destination: "acct_creator" },
+    });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(invoiceRetrieve).toHaveBeenCalledWith("in_stale");
+    expect(invoiceUpdate).not.toHaveBeenCalled();
+  });
+
+  it.each(["correct", "wrong-destination", "wrong-fee", "still-draft"])("handles finalization during the update without swallowing a bad split: %s", async (outcome) => {
+    db = createMockClient(() => undefined);
+    subscriptionRetrieve.mockResolvedValue({ metadata: {
+      booking_payment_id: "bp_race", plan_type: "installment", processing_fee_enabled: "true",
+      processing_fee_bps: "360", processing_fee_fixed_cents: "30", fee_schedule_version: "test-billing",
+    }, transfer_data: { destination: "acct_creator" } });
+    stripeEvent = { id: `evt_race_${outcome}`, type: "invoice.created", data: { object: {
+      id: "in_race", subscription: "sub_race", status: "draft", amount_due: 4_000,
+    } } };
+    invoiceRetrieve.mockResolvedValueOnce(stripeEvent.data.object).mockResolvedValueOnce({
+      ...stripeEvent.data.object, status: outcome === "still-draft" ? "draft" : "paid",
+      payment_intent: "pi_race",
+    });
+    invoiceUpdate.mockRejectedValueOnce(new Error("Non-draft invoices can't be updated"));
+    paymentIntentRetrieve.mockResolvedValue({ id: "pi_race",
+      application_fee_amount: outcome === "wrong-fee" ? 480 : 654,
+      transfer_data: { destination: outcome === "wrong-destination" ? "acct_wrong" : "acct_creator" },
+    });
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(outcome === "correct" ? 200 : 500);
+    expect(invoiceUpdate).toHaveBeenCalledTimes(1);
+    expect(invoiceRetrieve).toHaveBeenCalledTimes(2);
+    expect(db.opsFor("credit_payment_fee_ledger_earnings")).toHaveLength(0);
+  });
+
+  it.each(["draft", "paid"])("handles a zero-dollar invoice without inventing a fixed fee: %s", async (status) => {
+    db = createMockClient(() => undefined);
+    subscriptionRetrieve.mockResolvedValue({ metadata: {
+      booking_payment_id: "bp_zero", plan_type: "installment", processing_fee_enabled: "true",
+      processing_fee_bps: "360", processing_fee_fixed_cents: "30", fee_schedule_version: "test-billing",
+    }, transfer_data: { destination: "acct_creator" } });
+    stripeEvent = { id: `evt_zero_${status}`, type: "invoice.created", data: { object: {
+      id: "in_zero", subscription: "sub_zero", status, amount_due: 0, application_fee_amount: 0,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(paymentIntentRetrieve).not.toHaveBeenCalled();
+    if (status === "draft") {
+      expect(invoiceUpdate).toHaveBeenCalledWith("in_zero", expect.objectContaining({ application_fee_amount: 0 }));
+    } else {
+      expect(invoiceUpdate).not.toHaveBeenCalled();
+    }
+  });
+
   it("acknowledges an installment checkout without treating its missing PaymentIntent fee as a mismatch", async () => {
     db = createMockClient((op: Op) => {
       if (op.table === "purchases" && op.kind === "insert") {
@@ -1202,6 +1393,87 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
     const purchaseUpdate = db.opsFor("purchases").find((op) => op.kind === "update");
     expect(purchaseUpdate?.payload).not.toHaveProperty("paid_count");
     expect(purchaseUpdate?.payload).not.toHaveProperty("status");
+  });
+
+  it("retries an invoice that arrives before its purchase, then handles completion and a duplicate", async () => {
+    // Handler-level sequence only: Stripe and persistence remain test doubles.
+    let purchaseReady = false;
+    let credits = 0;
+    const metadata = {
+      booking_payment_id: "bp_early_invoice",
+      creator_id: "creator_1",
+      plan_type: "installment",
+      plan_months: "3",
+      processing_fee_enabled: "true",
+      processing_fee_bps: "290",
+      processing_fee_fixed_cents: "30",
+      fee_schedule_version: "test-us-card-v1",
+      fee_gross_cents: "5000",
+      platform_fee_cents: "600",
+      processing_fee_cents: "175",
+      total_creator_deduction_cents: "775",
+      creator_net_cents: "4225",
+    };
+    subscriptionRetrieve.mockResolvedValue({
+      metadata, transfer_data: { destination: "acct_creator" },
+    });
+    db = createMockClient((op: Op) => {
+      if (op.table === "purchases" && op.kind === "select") {
+        return {
+          data: purchaseReady ? {
+            id: "purchase_late_invoice", product_id: "product_1",
+            creator_id: "creator_1", paid_count: credits, target_months: 3,
+            fulfillment_url: "https://example.test/access",
+          } : null,
+          error: null,
+        };
+      }
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") {
+        return { data: { id: "ledger_late_invoice" }, error: null };
+      }
+      if (op.table === "credit_payment_fee_ledger_earnings") {
+        credits += 1;
+        return { data: true, error: null };
+      }
+      return undefined;
+    });
+    stripeEvent = {
+      id: "evt_invoice_before_checkout", type: "invoice.payment_succeeded",
+      data: { object: {
+        id: "in_before_checkout", amount_paid: 5_000, currency: "usd", metadata,
+        parent: { subscription_details: { subscription: "sub_early_invoice", metadata } },
+        payments: { data: [{ status: "paid", is_default: true,
+          payment: { type: "payment_intent", payment_intent: "pi_recurring_1" },
+        }] },
+      } },
+    };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const { completeStripeEvent, releaseStripeEvent } = await import("@/lib/stripeEvents");
+
+    expect((await POST(webhookRequest())).status).toBe(500);
+    expect(releaseStripeEvent).toHaveBeenCalledWith(
+      "stripe:evt_invoice_before_checkout", "11111111-1111-4111-8111-111111111111",
+    );
+    expect(completeStripeEvent).not.toHaveBeenCalled();
+    expect(db.ops.filter((op) => op.kind !== "select")).toHaveLength(0);
+    expect(paymentIntentRetrieve).not.toHaveBeenCalled();
+
+    // Model checkout fulfillment creating the linkage before Stripe retries.
+    purchaseReady = true;
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(credits).toBe(1);
+    expect(completeStripeEvent).toHaveBeenCalledTimes(1);
+    expect(db.opsFor("payment_fee_ledger").filter((op) => op.kind === "insert")).toHaveLength(1);
+
+    const operationsAfterCompletion = db.ops.length;
+    claimed = "duplicate";
+    const duplicate = await POST(webhookRequest());
+    expect(duplicate.status).toBe(200);
+    expect(await duplicate.json()).toEqual({ ok: true, duplicate: true });
+    expect(db.ops).toHaveLength(operationsAfterCompletion);
+    expect(credits).toBe(1);
+    expect(completeStripeEvent).toHaveBeenCalledTimes(1);
+    expect(releaseStripeEvent).toHaveBeenCalledTimes(1);
   });
 
   it("advances a zero-dollar installment without inventing a Stripe charge or fee", async () => {
@@ -1642,6 +1914,67 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
     expect(db.opsFor("credit_purchase_earnings")).toHaveLength(0);
   });
 
+  it.each(["paid", "active", "complete", "refunded"])(
+    "a late expiration preserves a %s purchase and the replacement checkout",
+    async (status) => {
+      const purchase = { id: "purchase_terminal", session_id: "cs_expired", status,
+        access_granted: status !== "refunded" };
+      const replacement = { id: "purchase_replacement", session_id: "cs_replacement",
+        status: "pending", access_granted: false };
+      const paidOrder = { id: "order_paid", stripe_checkout_session_id: "cs_expired", status: "paid" };
+      const replacementOrder = { id: "order_replacement", stripe_checkout_session_id: "cs_replacement", status: "created" };
+      const completedBookingPayment = { id: "bp_paid", status: "completed" };
+      const rows: Record<string, Array<Record<string, unknown>>> = {
+        purchases: [purchase, replacement], orders: [paidOrder, replacementOrder],
+        booking_payments: [completedBookingPayment],
+      };
+      const before = JSON.stringify(rows);
+      db = createMockClient((op: Op) => {
+        if (op.kind !== "update") return undefined;
+        for (const row of rows[op.table] || []) {
+          const matches = Object.entries(op.filters).every(([key, value]) => row[key] === value) &&
+            op.inFilters.every(({ column, values }) => values.includes(row[column]));
+          if (matches) Object.assign(row, op.payload);
+        }
+        return { data: null, error: null };
+      });
+      stripeEvent = {
+        id: "evt_late_expiration", type: "checkout.session.expired",
+        data: { object: { id: "cs_expired",
+          metadata: { order_id: "order_paid", booking_payment_id: "bp_paid" },
+        } },
+      };
+      const { POST } = await import("@/app/api/stripe/webhook/route");
+      expect((await POST(webhookRequest())).status).toBe(200);
+      expect(JSON.stringify(rows)).toBe(before);
+      expect(db.opsFor("credit_payment_fee_ledger_earnings")).toHaveLength(0);
+      expect(db.opsFor("credit_purchase_earnings")).toHaveLength(0);
+    },
+  );
+
+  it.each([1, 2, 3, 4])("retries expiration if persistence step %i fails", async (failAt) => {
+    let writes = 0;
+    db = createMockClient((op: Op) => {
+      if (op.kind !== "update") return undefined;
+      writes += 1;
+      return { data: null, error: writes === failAt ? { message: "test persistence failure" } : null };
+    });
+    stripeEvent = {
+      id: "evt_expiry_write_failure", type: "checkout.session.expired",
+      data: { object: { id: "cs_expired",
+        metadata: { order_id: "order_expired", booking_payment_id: "bp_expired" },
+      } },
+    };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const { completeStripeEvent, releaseStripeEvent } = await import("@/lib/stripeEvents");
+    expect((await POST(webhookRequest())).status).toBe(500);
+    expect(writes).toBe(failAt);
+    expect(completeStripeEvent).not.toHaveBeenCalled();
+    expect(releaseStripeEvent).toHaveBeenCalledWith(
+      "stripe:evt_expiry_write_failure", "11111111-1111-4111-8111-111111111111",
+    );
+  });
+
   it.each([
     ["partial", 2_500, 10_000],
     ["full", 10_000, 10_000],
@@ -1683,6 +2016,70 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
       p_ledger_id: "ledger_1",
       p_refunded_gross_cents: refunded,
     });
+  });
+
+  it.each(["new", "duplicate"] as const)("confirms an unexpanded %s refund event without creating another refund", async (claimStatus) => {
+    claimed = claimStatus;
+    db = createMockClient((op: Op) => {
+      if (op.table === "payment_refund_state") {
+        return { data: { stripe_payment_intent_id: "pi_1", stripe_charge_id: "ch_1",
+          charge_amount_cents: 10000, refunded_amount_cents: 3333 }, error: null };
+      }
+      if (op.table === "refund_operations" && op.kind === "select") {
+        return { data: [{ id: "operation_1", stripe_refund_id: null,
+          customer_refund_amount_cents: 3333, cumulative_customer_refund_target_cents: 3333 }], error: null };
+      }
+      if (op.table === "record_payment_refund_state") return { data: 3333, error: null };
+      return undefined;
+    });
+    refundsList.mockResolvedValue({ data: [{ id: "re_exact", amount: 3333,
+      payment_intent: "pi_1", charge: "ch_1", status: "succeeded",
+      metadata: { creatornet_refund_operation_id: "operation_1" } }], has_more: false });
+    stripeEvent = { id: "evt_confirm", type: "charge.refunded", data: { object: {
+      id: "ch_1", payment_intent: "pi_1", amount: 10000, amount_refunded: 3333,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const response = await POST(webhookRequest());
+    expect(response.status).toBe(200);
+    expect(refundsList).toHaveBeenCalledWith({ charge: "ch_1", limit: 100 });
+    const markers = db.opsFor("refund_operations").filter(op => op.kind === "update");
+    expect(markers).toHaveLength(1);
+    expect(markers[0].payload).toMatchObject({ webhook_confirmed_at: expect.any(String) });
+    if (claimStatus === "duplicate") {
+      expect(await response.json()).toMatchObject({ duplicate: true });
+      expect(db.ops.filter(op => op.kind === "rpc")).toHaveLength(0);
+      expect(db.opsFor("purchases")).toHaveLength(0);
+      expect(db.opsFor("orders")).toHaveLength(0);
+      const { completeStripeEvent, releaseStripeEvent } = await import("@/lib/stripeEvents");
+      expect(completeStripeEvent).not.toHaveBeenCalled();
+      expect(releaseStripeEvent).not.toHaveBeenCalled();
+    }
+  });
+
+  it("asks Stripe to retry a duplicate confirmation lookup failure without releasing its completed claim", async () => {
+    claimed = "duplicate";
+    db = createMockClient(() => ({ data: null, error: { message: "temporary database error" } }));
+    stripeEvent = { id: "evt_confirm", type: "charge.refunded", data: { object: {
+      id: "ch_1", payment_intent: "pi_1", amount: 10000, amount_refunded: 3333,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(500);
+    const { releaseStripeEvent } = await import("@/lib/stripeEvents");
+    expect(releaseStripeEvent).not.toHaveBeenCalled();
+    expect(db.ops.filter(op => op.kind === "update" || op.kind === "rpc")).toHaveLength(0);
+  });
+
+  it("does not confirm a duplicate against a different charge's persisted state", async () => {
+    claimed = "duplicate";
+    db = createMockClient(() => ({ data: { stripe_payment_intent_id: "pi_1", stripe_charge_id: "ch_other",
+      charge_amount_cents: 10000, refunded_amount_cents: 3333 }, error: null }));
+    stripeEvent = { id: "evt_confirm", type: "charge.refunded", data: { object: {
+      id: "ch_1", payment_intent: "pi_1", amount: 10000, amount_refunded: 3333,
+    } } };
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    expect((await POST(webhookRequest())).status).toBe(200);
+    expect(refundsList).not.toHaveBeenCalled();
+    expect(db.opsFor("refund_operations")).toHaveLength(0);
   });
 
   it("reverses a refunded installment only through its invoice ledger", async () => {
@@ -1807,5 +2204,61 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
       p_ledger_id: "ledger_late",
       p_refunded_gross_cents: 2_500,
     });
+  });
+});
+describe("fixed-duration one-time capture integration", () => {
+  const savedFixed = process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY;
+  afterEach(() => { if (savedFixed === undefined) delete process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY; else process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY = savedFixed; });
+  it.each([
+    ["browser", "ready", 200], ["checkout webhook", "ready", 200], ["intent webhook", "ready", 200],
+    ["browser", "binding failed", 500], ["checkout webhook", "binding failed", 500], ["intent webhook", "binding failed", 500],
+    ["browser", "expired", 403],
+  ] as const)("%s processes fixed service (%s)", async (path, state, expectedStatus) => {
+    process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY = "true";
+    const capturedAt = Math.floor(Date.now() / 1000) - 60;
+    const metadata = { buyer_id: "buyer_1", buyer_user_id: "buyer_1", creator_id: "creator_1", product_id: "product_1",
+      post_id: "post_1", order_id: "order_1", purchase_consent_id: "consent_1", checkout_attempt_key: "attempt_1",
+      fixed_service_version: "fixed-service-months-v1", processing_fee_enabled: "true", processing_fee_bps: "290",
+      processing_fee_fixed_cents: "30", fee_schedule_version: "test-us-card-v1", fee_gross_cents: "10000",
+      platform_fee_cents: "1200", processing_fee_cents: "320", total_creator_deduction_cents: "1520", creator_net_cents: "8480" };
+    const pi = { id: "pi_Timed", amount: 10000, amount_received: 10000, currency: "usd", application_fee_amount: 1520,
+      metadata, status: "succeeded", capture_method: "automatic", livemode: false, latest_charge: {
+        id: "ch_Timed", payment_intent: "pi_Timed", status: "succeeded", paid: true, captured: true, livemode: false,
+        amount: 10000, amount_captured: 10000, currency: "usd", amount_refunded: 0, refunded: false, disputed: false,
+        created: capturedAt, balance_transaction: { id: "txn_Timed", fee: 320 } } };
+    const session = { id: "cs_test_Timed", status: "complete", mode: "payment", payment_status: "paid", amount_total: 10000,
+      currency: "usd", payment_intent: pi.id, subscription: null, metadata };
+    db = createMockClient(op => {
+      if (op.table === "purchases") return { data: op.kind === "select" && op.columns === "subscription_id"
+        ? { subscription_id: null } : { id: "purchase_timed", status: "paid" }, error: null };
+      if (op.table === "payment_fee_ledger" && op.kind === "insert") return { data: { id: "ledger_timed" }, error: null };
+      if (op.table === "bind_fixed_service_one_time_v1" && state === "binding failed") return { data: null, error: { message: "synthetic bind failure" } };
+      if (["credit_purchase_earnings", "bind_fixed_service_one_time_v1"].includes(op.table)) return { data: true, error: null };
+      if (op.table === "read_fixed_service_entitlement_v1") return { data: { applicable: true, allowed: state !== "expired", maxAgeSeconds: state === "expired" ? 0 : 3600 }, error: null };
+      return undefined;
+    });
+    db.auth.getUser = async () => ({ data: { user: { id: "buyer_1" } }, error: null });
+    paymentIntentRetrieve.mockResolvedValue(pi); checkoutRetrieve.mockResolvedValue(session);
+    let response: Response;
+    if (path === "browser") {
+      const { POST } = await import("@/app/api/confirm-purchase/route");
+      response = await POST(new Request("https://www.creatornet.net/api/confirm-purchase", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ session_id: session.id }) }));
+    } else {
+      stripeEvent = { id: "evt_timed", type: path === "intent webhook" ? "payment_intent.succeeded" : "checkout.session.completed",
+        data: { object: path === "intent webhook" ? pi : session } };
+      const { POST } = await import("@/app/api/stripe/webhook/route"); response = await POST(webhookRequest());
+    }
+    expect(response.status).toBe(expectedStatus);
+    if (expectedStatus !== 200 && path === "browser") expect(db.opsFor("products")).toHaveLength(0);
+    if (state === "binding failed" && path !== "browser") {
+      const events = await import("@/lib/stripeEvents");
+      expect(events.completeStripeEvent).not.toHaveBeenCalled(); expect(events.releaseStripeEvent).toHaveBeenCalled();
+    }
+    const binding = db.opsFor("bind_fixed_service_one_time_v1");
+    expect(binding).toHaveLength(1); expect(binding[0].payload).toMatchObject({ p_purchase_id: "purchase_timed",
+      p_consent_id: "consent_1", p_payment_intent_id: "pi_Timed", p_captured_at: capturedAt });
+    expect(db.ops.findIndex(op => op.table === "credit_purchase_earnings")).toBeLessThan(db.ops.indexOf(binding[0]));
+    expect(db.ops.findIndex(op => op.table === "payment_fee_ledger" && op.kind === "insert")).toBeLessThan(db.ops.indexOf(binding[0]));
   });
 });

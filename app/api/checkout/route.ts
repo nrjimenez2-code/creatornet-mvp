@@ -3,7 +3,10 @@ import { publicMessage } from "@/lib/apiError";
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
+import { paidCallsReady, validPaidCallTarget } from "@/lib/paidCalls";
 import "server-only";
+import { requireProductConsent } from "@/lib/purchaseConsent";
+import { PURCHASE_POLICY_VERSION } from "@/lib/purchasePolicies";
 import { createHash, randomUUID } from "node:crypto";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
@@ -63,6 +66,13 @@ type BookingPayload = BodyBase & {
 };
 
 type Payload = ProductPayload | PlanPayload | BookingPayload;
+type ProductCheckoutRow = {
+  id: string; product_id: string | null; title: string; type: string; creator_id: string | null;
+  amount_cents: number | null; price_cents: number | null; currency: string | null;
+  discord_invite_url: string | null; whop_listing_url: string | null; deliver_url: string | null;
+  membership_terms?: unknown;
+  fixed_service_months?: number | null;
+};
 
 type ProductCheckoutAttempt = {
   id: string;
@@ -197,6 +207,7 @@ export async function POST(req: NextRequest) {
         .select("id, status, session_id, order_id")
         .eq("buyer_id", buyerId)
         .eq(identityColumn, identityValue)
+        .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
         .maybeSingle();
       if (error) {
         throw new Error(`Failed to verify checkout winner: ${error.message}`);
@@ -249,12 +260,21 @@ export async function POST(req: NextRequest) {
       const { data: prod, error } = await supabase
         .from("products")
         .select(
-          "id, product_id, title, type, amount_cents, price_cents, currency, creator_id, discord_invite_url, whop_listing_url, deliver_url"
+          "id, product_id, title, type, amount_cents, price_cents, currency, creator_id, discord_invite_url, whop_listing_url, deliver_url,description" +
+          (process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true" ? ",membership_terms" : "") +
+          (process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY === "true" ? ",fixed_service_months" : "")
         )
         .or(eitherIdFilter(["product_id", "id"], body.product_id))
+        .returns<ProductCheckoutRow[]>()
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
       if (!prod) throw new Error("Product not found");
+      // #4: membership setup is a distinct owned service contract. Never let
+      // an older one-time Checkout charge a month's price for lifetime access.
+      if (prod.membership_terms != null) return Response.json({ error: "Monthly mentorship checkout is not enabled yet." }, { status: 409 });
+      if (prod.fixed_service_months != null && process.env.CREATOR_FIXED_SERVICE_ONE_TIME_READY !== "true") {
+        return Response.json({ error: "This fixed-service purchase agreement is not active." }, { status: 409 });
+      }
 
       const amount_cents = Number(prod.amount_cents ?? prod.price_cents ?? 0);
       const currency = (prod.currency as string) ?? "usd";
@@ -294,6 +314,14 @@ export async function POST(req: NextRequest) {
       }
 
       const productType = String((prod as { type?: string }).type ?? "product");
+      if (productType === "call") {
+        if (!paidCallsReady()) return Response.json({ error: "Paid calls are not enabled yet." }, { status: 409 });
+        const { data: target, error: targetError } = await supabase.from("paid_call_targets")
+          .select("scheduling_url").eq("product_id", String(prod.id)).eq("creator_id", creatorId).maybeSingle();
+        if (targetError || !validPaidCallTarget(target?.scheduling_url)) {
+          return Response.json({ error: "This call has no valid scheduling destination." }, { status: 409 });
+        }
+      }
       const category = (body.category ?? "").trim();
 
       // The post a purchase unlocks must be one that actually sells this
@@ -413,6 +441,11 @@ export async function POST(req: NextRequest) {
       // A refunded row has already consumed its exactly-once earnings claim, so
       // accepting a second payment into it would charge without new access or
       // creator earnings. Reject that case before creating a Stripe session.
+      const consent = await requireProductConsent({ admin: supabase, product: prod, buyerId: resolvedBuyerId!,
+        postId, input: b.purchase_consent, site, origin: req.headers.get("origin"), env: process.env });
+      if (consent.response) return consent.response;
+      const consentId = consent.consentId;
+
       const purchaseIdentityColumn = postId ? "post_id" : "product_id";
       const resolvedProductId = String(prod.id);
       const purchaseIdentityValue = postId || resolvedProductId;
@@ -421,6 +454,7 @@ export async function POST(req: NextRequest) {
         .select("id, status, access_granted, session_id, order_id")
         .eq("buyer_id", resolvedBuyerId)
         .eq(purchaseIdentityColumn, purchaseIdentityValue)
+        .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
         .maybeSingle();
       if (priorPurchaseError) {
         throw new Error(`Failed to check prior purchase: ${priorPurchaseError.message}`);
@@ -442,7 +476,10 @@ export async function POST(req: NextRequest) {
       }
 
       const stripe = getStripe();
-      const feeMeta = creatorFeeMetadata(fees);
+      const feeMeta = { ...creatorFeeMetadata(fees), ...(consentId ? {
+        purchase_consent_id: consentId, purchase_policy_version: PURCHASE_POLICY_VERSION,
+        ...(prod.fixed_service_months != null ? { fixed_service_version: "fixed-service-months-v1" } : {}),
+      } : {}) };
       // A browser-supplied display title would make otherwise identical Stripe
       // requests differ and defeat idempotency. Checkout always uses the
       // server-owned product title.
@@ -450,6 +487,7 @@ export async function POST(req: NextRequest) {
       const purchaseIdentity = postId ? `post:${postId}` : `product:${resolvedProductId}`;
       const termsFingerprint = productCheckoutFingerprint({
         version: "creatornet-product-checkout-v1",
+        ...(consentId ? { purchase_consent_id: consentId } : {}),
         buyer_id: resolvedBuyerId,
         creator_id: creatorId,
         product_id: resolvedProductId,
@@ -494,6 +532,7 @@ export async function POST(req: NextRequest) {
               ? priorPurchase.order_id
               : randomUUID(),
           terms_fingerprint: termsFingerprint,
+          ...(consentId ? { purchase_consent_id: consentId } : {}),
           stripe_checkout_session_id: priorPurchase?.session_id || null,
           stripe_checkout_url: null,
           status: priorPurchase?.session_id ? "open" : "creating",
@@ -516,6 +555,10 @@ export async function POST(req: NextRequest) {
         current: ProductCheckoutAttempt
       ): Promise<ProductCheckoutAttempt> => {
         const replacement = {
+          // A new attempt must never inherit an old acceptance, including
+          // when the policy feature is rolled back but its schema remains.
+          ...(process.env.CREATOR_PURCHASE_CONSENT_SCHEMA_READY === "true"
+            ? { purchase_consent_id: consentId } : {}),
           creator_id: creatorId,
           product_id: resolvedProductId,
           post_id: postId,
@@ -778,6 +821,7 @@ export async function POST(req: NextRequest) {
               },
             ],
             payment_intent_data: {
+              ...(prod.fixed_service_months != null ? { capture_method: "automatic" as const } : {}),
               // Stripe receives one application fee, while CreatorNet stores and
               // displays its 12% fee and payment processing as separate amounts.
               application_fee_amount: fees.totalCreatorDeductionCents,
@@ -787,6 +831,10 @@ export async function POST(req: NextRequest) {
             metadata: meta,
             success_url: `${site}/success?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${site}/dashboard`,
+            ...(prod.fixed_service_months != null ? { custom_text: { submit: { message:
+              `Service: ${prod.fixed_service_months} calendar months from confirmed payment. One payment; no automatic renewal.`
+            } } } : {}),
+            ...(productType === "call" ? { custom_text: { submit: { message: "One standalone paid call. Scheduling becomes available after payment is confirmed. Keep your receipt and return to Your paid calls in Library to schedule." } } } : {}),
           },
           { idempotencyKey: `creatornet-product-checkout:${attempt.attempt_key}` }
         );

@@ -1,0 +1,10 @@
+[
+  {
+    "signature": "public.can_review_purchased_post(uuid,uuid)",
+    "definition": "CREATE OR REPLACE FUNCTION public.can_review_purchased_post(p_post uuid, p_creator uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'pg_catalog'\nAS $function$\n  select auth.uid() is not null and p_post is not null and p_creator is not null\n    and auth.uid() <> p_creator and exists (\n      select 1 from public.posts po join public.purchases pu on pu.post_id=po.id\n      where po.id=p_post and po.creator_id=p_creator and pu.buyer_id=auth.uid()\n        and pu.access_granted is true and pu.status not in ('refunded','failed')\n    );\n$function$\n"
+  },
+  {
+    "signature": "private.has_live_purchase_of_post(uuid,uuid,uuid)",
+    "definition": "CREATE OR REPLACE FUNCTION private.has_live_purchase_of_post(p_buyer uuid, p_post uuid, p_creator uuid)\n RETURNS boolean\n LANGUAGE sql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\n  select exists (\n    select 1\n    from public.purchases pu\n    join public.posts po on po.id = pu.post_id\n    where pu.buyer_id = p_buyer\n      and pu.post_id = p_post\n      and pu.access_granted\n      and pu.status not in ('refunded', 'failed')\n      and po.creator_id = p_creator\n  );\n$function$\n"
+  }
+]

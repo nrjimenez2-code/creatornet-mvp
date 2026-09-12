@@ -5,6 +5,7 @@ import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { getSiteUrl } from "@/lib/siteUrl";
+import { ConnectAccountReconciliationError, createOrRecoverConnectAccount } from "@/lib/connectAccountCreation";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,46 +52,47 @@ export async function POST(req: NextRequest) {
 
   if (!stripeAccountId) {
     try {
-      const account = await getStripe().accounts.create({
-        type: "express",
-        email: user.email ?? undefined,
-        capabilities: {
-          card_payments: { requested: true },
-          transfers: { requested: true },
-        },
-      });
-      stripeAccountId = account.id;
-
-      const { data: updatedRows, error: saveErr } = await db
-        .from("profiles")
-        .update({ stripe_account_id: stripeAccountId, stripe_onboarding_complete: false })
-        .eq("id", user.id)
-        .select("id");
-
-      if (saveErr) {
-        console.error("[connect/onboard] save account id error:", saveErr.message);
-        return NextResponse.json({ error: "Failed to save Stripe account" }, { status: 500 });
-      }
-
-      if (!updatedRows?.length) {
-        const { error: insErr } = await db.from("profiles").insert({
-          id: user.id,
-          stripe_account_id: stripeAccountId,
-          stripe_onboarding_complete: false,
+      // Establish the profile before a provider side effect. A concurrent insert
+      // is harmless; it must never replace another request's linked account.
+      if (!profile) {
+        const { error } = await db.from("profiles").insert({
+          id: user.id, stripe_onboarding_complete: false, onboarding_complete: false,
+          charges_enabled: false, payouts_enabled: false,
         });
-        if (insErr) {
-          console.error("[connect/onboard] insert profile for stripe failed:", insErr.message);
-          return NextResponse.json(
-            {
-              error:
-                "Stripe account was created but could not be linked to your profile. Add a profile row for your user or run onboarding in the app first.",
-            },
-            { status: 500 }
-          );
+        if (error && error.code !== "23505") throw Error("Could not create profile for Stripe account");
+      }
+      const { data: current, error: currentError } = await db.from("profiles")
+        .select("stripe_account_id").eq("id", user.id).single();
+      if (currentError || !current) throw Error("Could not reload profile for Stripe account");
+      stripeAccountId = current.stripe_account_id || await createOrRecoverConnectAccount(db, getStripe(), user);
+
+      if (!current.stripe_account_id) {
+        const link = db
+          .from("profiles")
+          .update({ stripe_account_id: stripeAccountId, stripe_onboarding_complete: false,
+            onboarding_complete: false, charges_enabled: false, payouts_enabled: false })
+          .eq("id", user.id);
+        const { data: updatedRows, error: saveErr } = await (current.stripe_account_id === ""
+          ? link.eq("stripe_account_id", "") : link.is("stripe_account_id", null)).select("id");
+
+        if (saveErr) {
+          console.error("[connect/onboard] save account id error:", saveErr.message);
+          return NextResponse.json({ error: "Failed to save Stripe account" }, { status: 500 });
+        }
+
+        if (!updatedRows?.length) {
+          const { data: winner, error } = await db.from("profiles")
+            .select("stripe_account_id").eq("id", user.id).single();
+          if (error || !winner?.stripe_account_id) throw Error("Could not link Stripe account to profile");
+          stripeAccountId = winner.stripe_account_id;
         }
       }
     } catch (e: unknown) {
       console.error("[connect/onboard] accounts.create:", e);
+      if (e instanceof ConnectAccountReconciliationError) {
+        return NextResponse.json({ error: "Your previous Stripe account setup needs support review before it can continue.",
+          code: "CONNECT_ACCOUNT_RECONCILIATION_REQUIRED" }, { status: 409 });
+      }
       if (e instanceof Stripe.errors.StripeError) {
         const m = e.message.toLowerCase();
         if (m.includes("connect") || m.includes("signed up")) {

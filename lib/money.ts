@@ -63,6 +63,37 @@ export class FeeCalculationError extends Error {
   }
 }
 
+/**
+ * Checkout subscriptions accept only a percentage (at most two decimals), not
+ * an integer application_fee_amount. The first invoice can be paid before an
+ * invoice.created handler runs. Configure its full deduction up front.
+ *
+ * Deliberately require an exact ratio: do not assume Stripe's fractional-cent
+ * rounding or silently change the creator's agreed split. Unsupported amounts
+ * need another plan length / full payment until a separate exact-amount
+ * installment architecture is reviewed. Renewal drafts still use exact cents.
+ * https://docs.stripe.com/api/checkout/sessions/create
+ * https://docs.stripe.com/billing/subscriptions/webhooks
+ */
+export function exactSubscriptionApplicationFeePercent(
+  fees: CreatorFeeBreakdown
+): number {
+  if (!fees.processingFeeEnabled) return PLATFORM_FEE_PERCENT;
+  const gross = fees.grossAmountCents;
+  const deduction = fees.totalCreatorDeductionCents;
+  if (!Number.isSafeInteger(gross) || gross <= 0 ||
+      !Number.isSafeInteger(deduction) || deduction < 0 || deduction > gross) {
+    throw new FeeCalculationError("Invalid subscription fee amounts.");
+  }
+  const numerator = BigInt(deduction) * 10_000n;
+  if (numerator % BigInt(gross) !== 0n) {
+    throw new FeeCalculationError(
+      "This installment amount cannot represent the exact creator deduction at Stripe's supported percentage precision."
+    );
+  }
+  return Number(numerator / BigInt(gross)) / 100;
+}
+
 function normalizedGross(amountCents: number): number {
   return Number.isSafeInteger(amountCents) && amountCents > 0 ? amountCents : 0;
 }

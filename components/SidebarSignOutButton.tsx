@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { signOutThisDevice } from "@/lib/browserSession";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
 
 const supabase = createBrowserClient();
@@ -15,7 +16,7 @@ export default function SidebarSignOutButton() {
     setSigningOut(true);
     setDialogOpen(false);
     try {
-      await supabase.auth.signOut();
+      await signOutThisDevice(supabase);
       window.location.href = "/auth";
     } catch (err) {
       console.error("Failed to sign out:", err);

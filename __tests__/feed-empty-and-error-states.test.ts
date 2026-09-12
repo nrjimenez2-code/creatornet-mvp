@@ -53,7 +53,7 @@ jest.mock("@/lib/posthog", () => ({
 }));
 // VideoCard is never mounted in these states; stub it so its imports
 // (Stripe-adjacent fetches, portals) stay out of the test.
-jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: () => null }));
+jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { onDeleted?: () => void }) => createElement("button", { onClick: props.onDeleted }, "Simulate deletion") }));
 jest.mock("next/link", () => ({
   __esModule: true,
   default: ({ href, children, className }: { href: string; children?: unknown; className?: string }) =>
@@ -197,6 +197,14 @@ describe("FeedList states", () => {
     expect(text()).not.toContain("No posts yet");
   });
 });
+
+  test("deleting the final feed video removes it immediately without a realtime event", async () => {
+    mockUser = { userId: "u1", loading: false };
+    rpcImpl = async () => ({ data: [{ post_id: "p1", creator_id: "u1", video_url: "https://example.invalid/v.mp4", title: "A video" }], error: null });
+    await render({ activeTab: "discover" });
+    await act(async () => { buttonNamed("Simulate deletion")!.click(); });
+    expect(buttonNamed("Simulate deletion")).toBeNull();
+  });
 
   // Switching tabs does not clear `items`. Before the fix the empty/error block
   // was gated on `items.length === 0`, so a failed load on the new tab left the

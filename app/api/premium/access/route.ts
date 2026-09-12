@@ -4,6 +4,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
+import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
 
 /**
  * POST body: { post_id: string }
@@ -35,14 +36,14 @@ export async function POST(req: Request) {
     );
 
     // does user own a purchase for this post?
-    const { data: hasPurchase, error: purchaseErr } = await admin
+    let purchaseQuery = admin
       .from("purchases")
       .select("id")
       .eq("buyer_id", userId)
       .eq("post_id", post_id)
-      .eq("access_granted", true)
-      .limit(1)
-      .maybeSingle();
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled");
+    if (!membershipLedgerReady()) purchaseQuery = purchaseQuery.eq("access_granted", true);
+    const { data: hasPurchase, error: purchaseErr } = await purchaseQuery.limit(1).maybeSingle();
 
     if (purchaseErr) {
       console.error("purchase lookup error:", purchaseErr);
@@ -51,6 +52,8 @@ export async function POST(req: Request) {
     if (!hasPurchase) {
       return NextResponse.json({ success: false, error: "No access" }, { status: 403 });
     }
+    const accessSeconds = membershipLedgerReady() ? await membershipAccessSeconds(admin, hasPurchase.id, userId) : 3600;
+    if (!accessSeconds) return NextResponse.json({ success: false, error: "No current paid access" }, { status: 403 });
 
     // fetch post to get its premium_path
     const { data: post, error: postErr } = await admin
@@ -70,7 +73,7 @@ export async function POST(req: Request) {
     // generate short-lived signed URL (60 minutes)
     const { data: signed, error: signErr } = await admin.storage
       .from("premium")
-      .createSignedUrl(post.premium_path, 60 * 60);
+      .createSignedUrl(post.premium_path, accessSeconds);
 
     if (signErr || !signed?.signedUrl) {
       console.error("signed url error:", signErr);
