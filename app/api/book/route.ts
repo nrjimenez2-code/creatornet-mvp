@@ -77,16 +77,17 @@ export async function GET(req: Request) {
       }
     }
 
-    /** 4) Final fallback: profiles.booking_url if allowed */
-    const { data: prof, error: profErr } = await admin
-      .from("profiles")
-      .select("booking_url, allow_booking")
-      .eq("id", creatorId)
-      .single();
-
-    if (!profErr && prof?.allow_booking && isHttpUrl(prof?.booking_url)) {
-      return NextResponse.redirect(prof.booking_url, 302);
-    }
+    // There used to be a fourth fallback here reading profiles.booking_url and
+    // profiles.allow_booking. Neither column has ever existed: PostgREST
+    // rejected the request, `profErr` was always set, and the `!profErr` guard
+    // meant the branch could never redirect. It was a wasted round trip on
+    // every unrouted booking click that read like a working feature.
+    //
+    // A creator-level default booking URL has no column to live in, so this is
+    // removed rather than repaired; adding one is a schema change, not a fix.
+    // The real sources are posts.booking_url (1), next_booking_target (2) and
+    // closers.booking_url (3) above — all three verified to exist in
+    // production. __tests__/book-route-schema-contract.test.ts pins that.
 
     return NextResponse.json(
       { error: "No booking destination configured for this creator." },
