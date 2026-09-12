@@ -770,6 +770,7 @@ function VideoCard(props: VideoCardProps) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !props.prepareFrame || isActive !== false || !pageVisible || frameReady || manuallyPausedRef.current) return;
+    const startingTime = video.currentTime;
     let stopped = false;
     let frame: number | undefined;
     const stop = () => {
@@ -777,7 +778,11 @@ function VideoCard(props: VideoCardProps) {
       stopped = true;
       // Activation can happen while the warm play promise is still pending.
       // Never pause or reset the now-active video during that transition.
-      if (activeRef.current === false) video.pause();
+      if (activeRef.current === false) {
+        video.pause();
+        // A decoded preview must not consume the opening of the real view.
+        if (video.currentTime !== startingTime) video.currentTime = startingTime;
+      }
     };
     const ready = () => {
       video.dataset.warmedFrame = "true";

@@ -226,8 +226,10 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
       await render({ src: "https://cdn.example.com/warm.mp4", isActive: false, prepareFrame: true });
       expect(play).toHaveBeenCalledTimes(1);
       pause.mockClear();
+      container.querySelector("video")!.currentTime = 0.4;
       await act(async () => [...frames.values()].forEach(callback => callback(1, {} as VideoFrameCallbackMetadata)));
       expect(pause).toHaveBeenCalled();
+      expect(container.querySelector("video")!.currentTime).toBe(0);
       await act(async () => jest.advanceTimersByTime(1500));
       expect(global.fetch).not.toHaveBeenCalled();
       expect(container.querySelector("video")?.dataset.warmedFrame).toBe("true");
@@ -247,9 +249,11 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     try {
       await render({ src: "https://cdn.example.com/warm.mp4", isActive: false, prepareFrame: true });
       pause.mockClear();
+      container.querySelector("video")!.currentTime = 0.25;
       await render({ src: "https://cdn.example.com/warm.mp4", isActive: true, prepareFrame: false });
       await act(async () => jest.advanceTimersByTime(700));
       expect(pause).not.toHaveBeenCalled();
+      expect(container.querySelector("video")!.currentTime).toBe(0.25);
     } finally { play.mockRestore(); pause.mockRestore(); jest.useRealTimers(); }
   });
 
