@@ -10,7 +10,7 @@ const PostComposerModal = dynamic(() => import("@/components/PostComposerModal")
 const SearchDrawer = dynamic(() => import("@/components/SearchDrawer"), { loading: () => null });
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
-import StripeConnectBanner from "@/components/StripeConnectBanner";
+import DesktopStripeConnectBanner from "@/components/DesktopStripeConnectBanner";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
@@ -257,7 +257,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             </nav>
 
             <div className="mt-6 space-y-3">
-              <StripeConnectBanner />
+              <DesktopStripeConnectBanner />
             </div>
 
             {/* Keep desktop actions in flow so a taller Connect banner or a

@@ -20,9 +20,15 @@ import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
+import { usePageVisible } from "@/lib/browserVisibility";
+import type { FeedInteraction } from "@/lib/feedInteraction";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
+  onInteractionChange?: (postId: string, patch: FeedInteraction) => void;
+  onFirstFrame?: (postId: string) => void;
+  commentDraft?: string;
+  onCommentDraftChange?: (postId: string, draft: string) => void;
   src?: string;
   poster?: string | null;
   creator?: string;
@@ -94,6 +100,9 @@ function isAutoplayBlockedError(err: unknown): boolean {
 }
 
 function VideoCard(props: VideoCardProps) {
+  const pageVisible = usePageVisible();
+  const pageVisibleRef = useRef(pageVisible);
+  pageVisibleRef.current = pageVisible;
   const {
     src: originalSrc,
     poster,
@@ -151,6 +160,15 @@ function VideoCard(props: VideoCardProps) {
     onChangeTab,
     mobileMuteButtonSide = "right",
   } = props;
+
+  const interactionChange = props.onInteractionChange;
+  const firstFrame = props.onFirstFrame;
+  const draftRef = useRef(props.commentDraft ?? "");
+  useEffect(() => { draftRef.current = props.commentDraft ?? ""; }, [postId, props.commentDraft]);
+  const updateDraft = (draft: string) => {
+    draftRef.current = draft;
+    if (postId) props.onCommentDraftChange?.(postId, draft);
+  };
 
   const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
   const src = failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc);
@@ -589,11 +607,15 @@ function VideoCard(props: VideoCardProps) {
     return () => video.removeEventListener("playing", ready);
   }, [src, retryVersion]);
 
+  useEffect(() => {
+    if (frameReady && isActive && postId) firstFrame?.(postId);
+  }, [frameReady, isActive, postId, firstFrame]);
+
   // Browser refused unmuted playback (no gesture yet on this page): keep the
   // video moving muted and offer a one-tap unmute. The saved preference is
   // deliberately NOT touched — the user asked for sound, the browser said no.
   const fallBackToMuted = useCallback((video: HTMLVideoElement) => {
-    if (manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video) return;
+    if (!pageVisibleRef.current || manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video) return;
     video.muted = true;
     // isMuted is derived from this flag, so setting it is the whole mute.
     setAutoplayBlocked(true);
@@ -609,7 +631,7 @@ function VideoCard(props: VideoCardProps) {
 
     const wasPlaying = !video.paused;
     video.muted = isMuted;
-    if (activationChanged || isActive === false || isMuted || !wasPlaying) return;
+    if (!pageVisibleRef.current || activationChanged || isActive === false || isMuted || !wasPlaying) return;
 
     // Unmuting a playing video by script (the feed flips soundEnabled once a
     // card becomes active). Without user activation Chrome/WebKit pause it;
@@ -644,12 +666,12 @@ function VideoCard(props: VideoCardProps) {
       clearTimeout(retryTimer);
     };
     const tryPlay = (retried = false) => {
-      if (cancelled || !visible || manuallyPausedRef.current) return;
+      if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
       video.muted = mutedRef.current;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch((err: unknown) => {
-          if (cancelled || !visible || manuallyPausedRef.current) return;
+          if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
           if (isAutoplayBlockedError(err) && !video.muted) {
             fallBackToMuted(video);
             return;
@@ -666,7 +688,9 @@ function VideoCard(props: VideoCardProps) {
       }
     };
 
-    if (isActive === undefined) {
+    if (!pageVisible) {
+      video.pause();
+    } else if (isActive === undefined) {
       const container = containerRef.current;
       if (!container) return;
 
@@ -706,7 +730,7 @@ function VideoCard(props: VideoCardProps) {
     return cleanup;
   // Mute-only changes are handled above, without restarting activation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, src, retryVersion, trackMetric, fallBackToMuted]);
+  }, [isActive, src, retryVersion, trackMetric, fallBackToMuted, pageVisible]);
 
   // Local diagnostics only: inspect the video element to distinguish download
   // readiness from activation-to-first-frame delay without extra React renders.
@@ -856,6 +880,7 @@ function VideoCard(props: VideoCardProps) {
         // Update with server response
         setLiked(data.liked);
         setLk(data.likes_count ?? previousCount);
+        interactionChange?.(postId, { is_liked: data.liked, likes_count: data.likes_count ?? previousCount });
         if (data.liked) {
           trackEvent("video_liked", {
             post_id: postId,
@@ -877,7 +902,7 @@ function VideoCard(props: VideoCardProps) {
     } finally {
       likePendingRef.current = false;
     }
-  }, [onLike, postId, liked, lk, creatorId, postCategory]);
+  }, [onLike, postId, liked, lk, creatorId, postCategory, interactionChange]);
 
   const handleComment = useCallback(async () => {
     if (postId) {
@@ -898,8 +923,9 @@ function VideoCard(props: VideoCardProps) {
     // Update comment count with server value
     if (postId && typeof newCount === "number") {
       setCm(newCount);
+      interactionChange?.(postId, { comments_count: newCount });
     }
-  }, [postId]);
+  }, [postId, interactionChange]);
 
   const handleShare = useCallback(async () => {
     // Copy post link to clipboard - redirects to dashboard with postId
@@ -952,6 +978,7 @@ function VideoCard(props: VideoCardProps) {
 
         if (typeof data.shares_count === "number") {
           setSh(data.shares_count);
+          interactionChange?.(postId, { shares_count: data.shares_count });
         }
       }
 
@@ -960,7 +987,7 @@ function VideoCard(props: VideoCardProps) {
       console.error("Share error:", err);
       setSh((v) => Math.max(0, v - 1));
     }
-  }, [onShare, postId]);
+  }, [onShare, postId, interactionChange]);
 
   const handleFollow = useCallback(async () => {
     if (!canFollow || !creatorId || followLoading) return;
@@ -1666,6 +1693,8 @@ function VideoCard(props: VideoCardProps) {
       {/* Comment Panel */}
       {postId && commentPanelOpen && (
         <CommentPanel
+          initialDraft={draftRef.current}
+          onDraftChange={updateDraft}
           postId={postId}
           isOpen={commentPanelOpen}
           onClose={() => setCommentPanelOpen(false)}

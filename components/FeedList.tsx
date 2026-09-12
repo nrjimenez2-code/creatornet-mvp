@@ -9,6 +9,8 @@ import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { readSoundOn, useSoundPreference } from "@/lib/audioPreference";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
+import { useDesktopViewport, usePageVisible } from "@/lib/browserVisibility";
+import type { FeedInteraction } from "@/lib/feedInteraction";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -31,13 +33,16 @@ const PAGE_SIZE = 20;
 export default function FeedList({ activeTab, onChangeTab, highlightPostId }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId, loading: authLoading } = useUser();
+  const desktop = useDesktopViewport();
+  const pageVisible = usePageVisible();
 
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
-  const [loadContext, setLoadContext] = useState({ activeTab, authLoading });
-  if (loadContext.activeTab !== activeTab || loadContext.authLoading !== authLoading) {
-    setLoadContext({ activeTab, authLoading });
+  const [loadContext, setLoadContext] = useState({ activeTab, authLoading, viewerId });
+  if (loadContext.activeTab !== activeTab || loadContext.authLoading !== authLoading || loadContext.viewerId !== viewerId) {
+    if (loadContext.viewerId !== viewerId) setItems([]);
+    setLoadContext({ activeTab, authLoading, viewerId });
     setLoading(true);
     setFeedError(null);
   }
@@ -60,8 +65,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     activeTabRef.current = activeTab;
   }, [activeTab]);
 
-  // Sync viewerId to a ref so the load effect can read it without refetching
-  // on every sign-in/out (see the comment inside the effect).
+  // Event callbacks use the current viewer to reject stale mutation responses.
   useEffect(() => {
     viewerIdRef.current = viewerId ?? null;
   }, [viewerId]);
@@ -73,6 +77,25 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   // Per-device, persisted across reloads (lib/audioPreference.ts).
   const [globalSoundOn, setGlobalSoundOn] = useSoundPreference();
   const [activePostId, setActivePostId] = useState<string | null>(null);
+  const [readyPostId, setReadyPostId] = useState<string | null>(null);
+  const activeIdRef = useRef(activePostId);
+  activeIdRef.current = activePostId;
+  const draftsRef = useRef(new Map<string, string>());
+  const handleFirstFrame = useCallback((id: string) => {
+    if (activeIdRef.current === id) setReadyPostId(id);
+  }, []);
+  // Authoritative responses are lifted out of cards so virtualization cannot
+  // restore old heart/count state. Late responses from another viewer are ignored.
+  const handleInteractionChange = useCallback((id: string, patch: FeedInteraction) => {
+    if ((viewerId ?? null) !== viewerIdRef.current) return;
+    setItems(rows => rows.map(row => row.id === id ? { ...row, ...patch } : row));
+  }, [viewerId]);
+  const handleDraftChange = useCallback((id: string, draft: string) => {
+    if ((viewerId ?? null) !== viewerIdRef.current) return;
+    if (draft) draftsRef.current.set(id, draft);
+    else draftsRef.current.delete(id);
+  }, [viewerId]);
+  useEffect(() => { draftsRef.current.clear(); }, [viewerId]);
   // Mirror of items for event callbacks (the realtime handler) that need the
   // current list without a stale closure.
   const itemsRef = useRef<PostRow[]>([]);
@@ -111,6 +134,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
   const toggleSound = useCallback(() => setGlobalSoundOn(!readSoundOn()), [setGlobalSoundOn]);
   const handleDeleted = useCallback((id: string) => {
+    draftsRef.current.delete(id);
     const current = itemsRef.current;
     const index = current.findIndex(row => row.id === id);
     const remaining = current.filter(row => row.id !== id);
@@ -131,15 +155,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     setLoadingMore(false);
     setMoreError(false);
     setPendingPosts([]);
+    setReadyPostId(null);
 
     // Wait for the auth context to settle; the effect re-runs when it does.
     if (authLoading) return;
 
     (async () => {
       try {
-        // Read the ref (synced above) instead of depending on viewerId directly,
-        // so a mid-session sign-in/out doesn't refetch until the next tab change —
-        // same as when this effect resolved auth itself.
+        // Auth transitions start a fresh generation; viewer-specific reactions
+        // must never survive an account change.
         if (activeTab === "following" && !viewerIdRef.current) {
           // Following feed needs a logged-in user; keep UI stable if session
           // is temporarily unavailable (the RPC would return no rows anyway).
@@ -339,7 +363,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       fetchGenRef.current += 1;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase, authLoading, enrichPosts, refreshKey]);
+  }, [activeTab, supabase, authLoading, viewerId, enrichPosts, refreshKey]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -386,10 +410,26 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   }, [highlightPostId, items]);
 
   const sectionMembership = items.map(item => item.id).join(",");
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const observedRootRef = useRef<HTMLDivElement | null>(null);
+  const observedNodesRef = useRef(new Set<HTMLElement>());
+  const ratiosRef = useRef(new Map<Element, IntersectionObserverEntry>());
   useEffect(() => {
-    if (!sectionRefs.current.size) return;
-    const ratios = new Map<Element, IntersectionObserverEntry>();
-    const observer = new IntersectionObserver(
+    const root = feedScrollRef.current;
+    if (!root || !sectionRefs.current.size) {
+      observerRef.current?.disconnect();
+      observerRef.current = null;
+      observedNodesRef.current.clear();
+      ratiosRef.current.clear();
+      return;
+    }
+    const ratios = ratiosRef.current;
+    if (!observerRef.current || observedRootRef.current !== root) {
+      observerRef.current?.disconnect();
+      observedNodesRef.current.clear();
+      ratios.clear();
+      observedRootRef.current = root;
+      observerRef.current = new IntersectionObserver(
       (entries) => {
         entries.forEach(entry => ratios.set(entry.target, entry));
         const visible = [...ratios.values()]
@@ -409,13 +449,26 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           }
         }
       },
-      { root: feedScrollRef.current, threshold: [0, 0.51, 1] }
+      { root, threshold: [0, 0.51, 1] }
     );
-
-    sectionRefs.current.forEach((node) => observer.observe(node));
-
-    return () => observer.disconnect();
+    }
+    // Appending a page registers only its new sections. Existing videos keep
+    // their visibility history instead of all receiving fresh observer events.
+    const nodes = new Set(sectionRefs.current.values());
+    for (const node of observedNodesRef.current) {
+      if (!nodes.has(node)) { observerRef.current.unobserve(node); ratios.delete(node); }
+    }
+    for (const node of nodes) {
+      if (!observedNodesRef.current.has(node)) observerRef.current.observe(node);
+    }
+    observedNodesRef.current = nodes;
   }, [sectionMembership, feedError]);
+  useEffect(() => () => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    observedNodesRef.current.clear();
+    ratiosRef.current.clear();
+  }, []);
 
   const scrollByOneCard = useCallback(
     (direction: "up" | "down") => {
@@ -618,6 +671,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
                 {isMounted ? (
                   <VideoCard
+                    onInteractionChange={handleInteractionChange}
+                    onFirstFrame={handleFirstFrame}
+                    commentDraft={draftsRef.current.get(p.id) ?? ""}
+                    onCommentDraftChange={handleDraftChange}
                     onFeedDeleted={handleDeleted}
                     // media
                     src={p.video_url || undefined}
@@ -662,7 +719,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                     soundEnabled={isSoundOn}
                     isActive={isActive}
-                    preload={idx === activeIndex || idx === activeIndex + 1 ? "auto" : "metadata"}
+                    preload={!pageVisible ? "none" : idx === activeIndex || (idx === activeIndex + 1 && (desktop || readyPostId === activePostId)) ? "auto" : "metadata"}
                     onToggleSound={toggleSound}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback
