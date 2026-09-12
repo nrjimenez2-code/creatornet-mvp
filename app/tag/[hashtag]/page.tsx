@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
+import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
 
 type ApiTagPost = {
@@ -275,7 +276,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
               >
                 {p.poster_url ? (
                   <img
-                    src={p.poster_url}
+                    src={feedPosterUrl(p.poster_url)}
                     alt=""
                     className="h-full w-full object-cover transition group-hover:scale-105"
                     loading="lazy"
@@ -283,7 +284,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                 ) : p.video_url ? (
                   <video
                     ref={primeVideoThumbnail}
-                    src={p.video_url}
+                    src={feedMediaUrl(p.video_url)}
                     className="h-full w-full object-cover transition group-hover:scale-105"
                     muted
                     loop
