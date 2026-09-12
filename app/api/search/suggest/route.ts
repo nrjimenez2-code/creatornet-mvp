@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { interpretSearch } from "@/lib/searchQuery";
+import { interpretSearch, normalizeSearchText } from "@/lib/searchQuery";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 export async function GET(req: Request) {
@@ -17,7 +17,10 @@ export async function GET(req: Request) {
     const suggestions: Array<{ label: string; type: string }> = [];
     for (const creator of matches.data?.creators ?? []) {
       // Typeahead identities must match the name, not just the person's topic.
-      if (creator.username.toLowerCase().startsWith(input.raw.toLowerCase().replace(/^#/, ""))) suggestions.push({ label: creator.username, type: "creator" });
+      const identity = normalizeSearchText(input.raw.replace(/^#/, ""));
+      if (normalizeSearchText(creator.username).startsWith(identity) || normalizeSearchText(creator.full_name ?? "").startsWith(identity)) {
+        suggestions.push({ label: creator.username, type: "creator" });
+      }
     }
     for (const topic of topics.data ?? []) suggestions.push({ label: topic.label, type: "topic" });
     for (const offering of matches.data?.offerings ?? []) suggestions.push({ label: offering.title, type: "offering" });

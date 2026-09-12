@@ -23,3 +23,12 @@ test('suggestions expose live topic and identity labels',async()=>{
   const res=await GET(new Request('https://example.invalid/api/search/suggest?q=ecom'));
   expect(await res.json()).toMatchObject({suggestions:[{label:'ecomcoach',type:'creator'},{label:'ecommerce',type:'topic'}]});
 });
+
+test('full-name suggestions find the username without suggesting topic-only matches',async()=>{
+  mockRpc.mockImplementation(async(name:string)=>({data:name==='search_topics_v1' ? [] : {creators:[
+    {username:'storebuilder',full_name:'Luis Garcia'},
+    {username:'lifestyle',full_name:'Another Person'},
+  ],offerings:[]},error:null}));
+  const res=await GET(new Request('https://example.invalid/api/search/suggest?q=Luis'));
+  expect(await res.json()).toMatchObject({suggestions:[{label:'storebuilder',type:'creator'}]});
+});

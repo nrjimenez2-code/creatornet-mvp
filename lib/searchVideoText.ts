@@ -25,6 +25,20 @@ export function parseVideoText(raw: string): { transcript: string; screen_text: 
   return { transcript: result.transcript.trim(), screen_text: result.screen_text.trim() };
 }
 
+/** Persist only a fixed diagnostic code; provider messages can contain credentials. */
+export function videoFailureCode(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  if (/^(unsupported_media_|media_unavailable|video_exceeds_|invalid_extraction)/.test(message)) return message.split(/[^a-z_]/)[0];
+  if (/credit|balance|billing|payment/i.test(message)) return "provider_billing_required";
+  if (/verif/i.test(message)) return "provider_verification_required";
+  const status = error && typeof error === "object" && "statusCode" in error ? error.statusCode : null;
+  if (status === 401) return "provider_authentication_failed";
+  if (status === 403) return "provider_access_denied";
+  if (status === 429) return "provider_rate_limited";
+  if (status === 404) return "provider_model_unavailable";
+  return "provider_extraction_failed";
+}
+
 export async function processNextSearchVideo() {
   const {data:job,error:claimError}=await supabaseAdmin.rpc("claim_search_video_v1");
   if(claimError) throw new Error("search_video_claim_failed");
@@ -49,8 +63,7 @@ export async function processNextSearchVideo() {
     ({transcript,screen_text}=parseVideoText(result.text));
   } catch(error) {
     // Do not persist provider messages, credentials, or media URLs as errors.
-    const code=error instanceof Error ? error.message : "";
-    failure=/^(unsupported_media_|media_unavailable|video_exceeds_|invalid_extraction)/.test(code) ? code : "provider_extraction_failed";
+    failure=videoFailureCode(error);
     console.warn("[search/video]",{post_id:job.post_id,code:failure});
   }
   const {data:accepted,error}=await supabaseAdmin.rpc("finish_search_video_v1",{
