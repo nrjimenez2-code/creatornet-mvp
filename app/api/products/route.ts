@@ -5,7 +5,12 @@ import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripe } from "@/lib/stripe";
+import { paidCallsReady, validPaidCallTarget } from "@/lib/paidCalls";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
+import { fixedServiceSchemaReady, fixedServiceOffersReady, readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
+import { readMonthlyMentorshipTerms, membershipCommitment, type MonthlyMentorshipTerms } from "@/lib/membershipTerms";
+const membershipSchemaReady = () => process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true";
+const membershipOffersReady = () => membershipSchemaReady() && process.env.CREATOR_MONTHLY_MENTORSHIPS_READY === "true";
 function dollarsToCents(d: unknown): number | null {
   const s = String(d ?? "").trim();
   if (!s) return null;
@@ -15,7 +20,7 @@ function dollarsToCents(d: unknown): number | null {
 }
 
 type Fulfillment = "FILE" | "DISCORD" | "WHOP";
-type ProductType = "video" | "course" | "mentorship";
+type ProductType = "video" | "course" | "mentorship" | "call";
 
 type ProductRow = {
   id: string;
@@ -25,6 +30,8 @@ type ProductRow = {
   type: ProductType;
   price_cents: number | null;
   plan_months: number;
+  membership_terms?: MonthlyMentorshipTerms | null;
+  fixed_service_months?: number | null;
   stripe_price_id: string | null;
   fulfillment: Fulfillment;
   discord_channel_id: string | null;
@@ -66,6 +73,8 @@ export async function GET() {
       "external_url",
       "active",
       "created_at",
+      ...(membershipSchemaReady() ? ["membership_terms"] : []),
+      ...(fixedServiceSchemaReady() ? ["fixed_service_months"] : []),
     ].join(", ");
 
     const { data, error } = await supabase
@@ -84,7 +93,7 @@ export async function GET() {
       ...row,
       id: row.id ?? row.product_id,
     }));
-    return NextResponse.json({ success: true, items });
+    return NextResponse.json({ success: true, items, capabilities: { monthlyMemberships: membershipOffersReady(), paidCalls: paidCallsReady(), fixedServiceDuration: fixedServiceOffersReady() } });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: publicMessage("products", e, "Server error") }, { status: 500 });
   }
@@ -137,9 +146,52 @@ export async function POST(req: Request) {
     const discord_channel_id = (body?.discord_channel_id ?? null) as string | null;
     const whop_listing_id = (body?.whop_listing_id ?? null) as string | null;
     const stripe_price_id = (body?.stripe_price_id ?? null) as string | null;
+    let membershipTerms: MonthlyMentorshipTerms | null;
+    try {
+      membershipTerms = readMonthlyMentorshipTerms(body?.membership_terms, type);
+      if (membershipTerms) {
+        if (!membershipOffersReady()) return NextResponse.json({ success: false, error: "Monthly mentorships are not enabled yet." }, { status: 409 });
+        membershipCommitment(price_cents as number, membershipTerms);
+        if (stripe_price_id || plan_months !== 1) throw Error("Use monthly service terms, not an existing price or installment plan.");
+      }
+    } catch {
+      return NextResponse.json({ success: false, error: "Choose valid monthly mentorship terms and a monthly USD price." }, { status: 400 });
+    }
+
+    let fixedServiceMonths: number | null;
+    try {
+      fixedServiceMonths = readFixedServiceOfferMonths(body?.fixed_service_months, type, !!membershipTerms);
+      if (fixedServiceMonths !== null && (!Number.isSafeInteger(price_cents) || (price_cents ?? 0) < 50 ||
+        (price_cents ?? 0) > 99999999 || !Number.isSafeInteger(plan_months) || plan_months < 1 || plan_months > 24)) {
+        throw Error("Invalid fixed purchase price or payment count.");
+      }
+    } catch {
+      return NextResponse.json({ success: false, error: "Choose valid fixed-purchase service months, a total USD price, and a separate payment count." }, { status: 400 });
+    }
+    if (fixedServiceMonths !== null && !fixedServiceOffersReady()) {
+      return NextResponse.json({ success: false, error: "Timed fixed-purchase offers are not enabled yet.", code: "FIXED_SERVICE_HELD" }, { status: 409 });
+    }
 
     if (!title) {
       return NextResponse.json({ success: false, error: "Title is required" }, { status: 400 });
+    }
+
+    if (!["video", "course", "mentorship", "call"].includes(type)) {
+      return NextResponse.json({ success: false, error: "Choose a supported product type." }, { status: 400 });
+    }
+    if (type === "call") {
+      if (!paidCallsReady()) return NextResponse.json({ success: false, error: "Paid calls are not enabled yet." }, { status: 409 });
+      const target = typeof body?.scheduling_url === "string" ? body.scheduling_url.trim() : "";
+      if (!validPaidCallTarget(target) || !Number.isSafeInteger(price_cents) || (price_cents ?? 0) < 50 ||
+        (price_cents ?? 0) > 99999999 || plan_months !== 1 || membershipTerms || stripe_price_id) {
+        return NextResponse.json({ success: false, error: "A paid call needs one USD price and a private https scheduling link." }, { status: 400 });
+      }
+      const { data, error } = await supabaseAdmin.rpc("create_paid_call_product_v1", {
+        p_creator_id: user.id, p_title: title, p_description: description,
+        p_price_cents: price_cents, p_scheduling_url: target,
+      });
+      if (error || !data?.id) throw Error("Paid-call product could not be created.");
+      return NextResponse.json({ success: true, id: data.id, product: { ...data, product_id: data.id } });
     }
 
     // Ensure a profile row exists so products.creator_id FK is satisfied (insert only; do not overwrite)
@@ -156,7 +208,7 @@ export async function POST(req: Request) {
     let resolvedStripePriceId = stripe_price_id;
 
     // For sellable products without stripe_price_id: create Stripe Product + Price and use that ID
-    if ((type === "course" || type === "mentorship" || type === "video") && !resolvedStripePriceId) {
+    if (!membershipTerms && (type === "course" || type === "mentorship" || type === "video") && !resolvedStripePriceId) {
       const cents = price_cents ?? 0;
       if (!Number.isFinite(cents) || cents < 50) {
         return NextResponse.json(
@@ -196,6 +248,8 @@ export async function POST(req: Request) {
       whop_listing_id,
       stripe_price_id: resolvedStripePriceId,
       external_url: null as string | null,
+      ...(membershipSchemaReady() ? { membership_terms: membershipTerms } : {}),
+      ...(fixedServiceSchemaReady() ? { fixed_service_months: fixedServiceMonths } : {}),
     };
 
     const sel = [
@@ -211,6 +265,8 @@ export async function POST(req: Request) {
       "external_url",
       "active",
       "created_at",
+      ...(membershipSchemaReady() ? ["membership_terms"] : []),
+      ...(fixedServiceSchemaReady() ? ["fixed_service_months"] : []),
     ].join(", ");
 
     const insertRes = await supabase.from("products").insert([insertRow]).select(sel).single();

@@ -90,6 +90,8 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
 
   beforeEach(() => {
     jest.clearAllMocks();
+    userCtx.userId = null;
+    userCtx.loading = false;
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -117,7 +119,181 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     });
   }
 
+  test("falls back to the original if CDN media fails and uses CDN for the next post", async () => {
+    const original = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/fallback-test.mp4";
+    await render({ src: original });
+    const video = container.querySelector("video")!;
+    expect(video.getAttribute("src")).toBe("https://media.creatornet.net/auto/videos/fallback-test.mp4");
+    await act(async () => video.dispatchEvent(new Event("error")));
+    expect(video.getAttribute("src")).toBe(original);
+    await render({ src: original.replace("fallback-test", "next-test") });
+    expect(video.getAttribute("src")).toBe("https://media.creatornet.net/auto/videos/next-test.mp4");
+  });
+
+  test("active source fallback restarts playback", async () => {
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    try {
+      await render({ src: "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/recover.mp4", isActive: true });
+      play.mockClear();
+      await act(async () => container.querySelector("video")!.dispatchEvent(new Event("error")));
+      expect(play).toHaveBeenCalledTimes(1);
+    } finally { play.mockRestore(); }
+  });
+
+  test("already-ready playback rejection retries once and stops when inactive", async () => {
+    jest.useFakeTimers();
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new DOMException("interrupted", "AbortError"));
+    const ready = jest.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+    try {
+      await render({ src: "https://cdn.example.com/retry.mp4", isActive: true });
+      await act(async () => jest.advanceTimersByTime(100));
+      expect(play).toHaveBeenCalledTimes(2);
+      await act(async () => jest.advanceTimersByTime(1000));
+      expect(play).toHaveBeenCalledTimes(2);
+      await render({ src: "https://cdn.example.com/next.mp4", isActive: true });
+      await render({ src: "https://cdn.example.com/next.mp4", isActive: false });
+      play.mockClear();
+      await act(async () => jest.advanceTimersByTime(100));
+      expect(play).not.toHaveBeenCalled();
+    } finally { play.mockRestore(); ready.mockRestore(); jest.useRealTimers(); }
+  });
+
+  test("source fallback respects manual pause", async () => {
+    jest.useFakeTimers();
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    try {
+      await render({ src: "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/paused.mp4", isActive: true, tapToTogglePlayback: true });
+      const video = container.querySelector("video")!;
+      Object.defineProperty(video, "paused", { get: () => false });
+      video.pause = jest.fn();
+      await act(async () => video.click());
+      await act(async () => jest.advanceTimersByTime(300));
+      play.mockClear();
+      await act(async () => video.dispatchEvent(new Event("error")));
+      expect(play).not.toHaveBeenCalled();
+    } finally { play.mockRestore(); jest.useRealTimers(); }
+  });
+
+  test("playback feedback follows manual pause and resume, then fades", async () => {
+    jest.useFakeTimers();
+    try {
+      await render({ src: "https://cdn.example.com/video.mp4", tapToTogglePlayback: true, postId: undefined });
+      const video = container.querySelector("video")!;
+      let paused = false;
+      Object.defineProperty(video, "paused", { get: () => paused });
+      video.pause = jest.fn(() => { paused = true; video.dispatchEvent(new Event("pause")); });
+      video.play = jest.fn(async () => { paused = false; video.dispatchEvent(new Event("play")); });
+      const feedback = () => container.querySelector('[data-playback-feedback]')!;
+      expect(feedback().className).toContain("opacity-0");
+      await act(async () => video.click());
+      await act(async () => jest.advanceTimersByTime(300));
+      expect(feedback().getAttribute("data-playback-feedback")).toBe("paused");
+      expect(feedback().className).toContain("opacity-100");
+      await act(async () => jest.advanceTimersByTime(1000));
+      expect(feedback().className).toContain("opacity-100");
+      await act(async () => video.click());
+      await act(async () => jest.advanceTimersByTime(300));
+      expect(feedback().getAttribute("data-playback-feedback")).toBe("playing");
+      expect(feedback().className).toContain("opacity-100");
+      await act(async () => jest.advanceTimersByTime(650));
+      expect(feedback().className).toContain("opacity-0");
+      expect(feedback().className).toContain("pointer-events-none");
+      const caption = container.querySelector("p")!;
+      await act(async () => caption.click());
+      await act(async () => jest.advanceTimersByTime(300));
+      expect(paused).toBe(true);
+      await act(async () => caption.parentElement!.click());
+      await act(async () => jest.advanceTimersByTime(300));
+      expect(paused).toBe(false);
+      const pauseCalls = (video.pause as jest.Mock).mock.calls.length;
+      const mute = container.querySelector<HTMLButtonElement>('button[aria-label="Mute video"], button[aria-label="Unmute video"]')!;
+      await act(async () => mute.querySelector("svg")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+      expect((video.pause as jest.Mock).mock.calls.length).toBe(pauseCalls);
+      expect(paused).toBe(false);
+    } finally { jest.useRealTimers(); }
+  });
+
+  test("repeated double taps replay the heart without toggling playback or adding another like", async () => {
+    jest.useFakeTimers();
+    try {
+      const onLike = jest.fn();
+      await render({ src: "https://cdn.example.com/video.mp4", postId: undefined, onLike });
+      const video = container.querySelector("video")!;
+      video.pause = jest.fn();
+      video.play = jest.fn().mockResolvedValue(undefined);
+      const doubleTap = async () => {
+        await act(async () => {
+          video.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 75, clientY: 150 }));
+          jest.advanceTimersByTime(100);
+          video.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 77, clientY: 152 }));
+        });
+      };
+      await doubleTap();
+      const firstHeart = container.querySelector<HTMLElement>("[data-tap-heart]")!;
+      expect(firstHeart.style.left).toBe("77px");
+      expect(firstHeart.style.top).toBe("152px");
+      expect(onLike).toHaveBeenCalledTimes(1);
+      await doubleTap();
+      expect(container.querySelector("[data-tap-heart]")).not.toBe(firstHeart);
+      expect(onLike).toHaveBeenCalledTimes(1);
+      await act(async () => jest.advanceTimersByTime(800));
+      expect(container.querySelector("[data-tap-heart]")).toBeNull();
+      expect(video.pause).not.toHaveBeenCalled();
+      expect(video.play).not.toHaveBeenCalled();
+    } finally { jest.useRealTimers(); }
+  });
+
+  test("double taps send one like-only request while saving and after success", async () => {
+    jest.useFakeTimers();
+    const oldFetch = global.fetch;
+    let finish!: (value: unknown) => void;
+    const request = jest.fn(() => new Promise(resolve => { finish = resolve; }));
+    global.fetch = request as unknown as typeof fetch;
+    try {
+      await render({ src: "https://cdn.example.com/video.mp4", postId: "post" });
+      const video = container.querySelector("video")!;
+      video.pause = jest.fn();
+      const doubleTap = async () => act(async () => { video.click(); video.click(); });
+      await doubleTap();
+      await doubleTap();
+      expect(request).toHaveBeenCalledTimes(1);
+      expect(request).toHaveBeenCalledWith(expect.stringContaining("/api/posts/post/like"), expect.objectContaining({ method: "PUT" }));
+      await act(async () => finish({ ok: true, json: async () => ({ success: true, liked: true, likes_count: 1 }) }));
+      await doubleTap();
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally { global.fetch = oldFetch; jest.useRealTimers(); }
+  });
+
+  test("a delayed canplay retry cannot restart an inactive feed video", async () => {
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new Error("not ready"));
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/video.mp4", postId: undefined, isActive: true });
+      expect(play).toHaveBeenCalledTimes(1);
+      await render({ src: "https://cdn.example.com/video.mp4", postId: undefined, isActive: false });
+      await act(async () => container.querySelector("video")!.dispatchEvent(new Event("canplay")));
+      expect(play).toHaveBeenCalledTimes(1);
+      expect(pause).toHaveBeenCalled();
+    } finally { play.mockRestore(); pause.mockRestore(); }
+  });
+
   /** The element whose text is exactly the creator's display name. */
+  test("follow plus is hidden for self and while auth loads, but remains for another creator", async () => {
+    const onFollow = jest.fn();
+    userCtx.userId = "owner";
+    await render({ creatorId: "owner", showFollowButton: true, onFollow });
+    expect(container.querySelector('button[aria-label="Follow Jane Doe"]')).toBeNull();
+    userCtx.loading = true;
+    await render({ creatorId: "other", showFollowButton: true, onFollow });
+    expect(container.querySelector('button[aria-label="Follow Jane Doe"]')).toBeNull();
+    userCtx.loading = false;
+    await render({ creatorId: "other", showFollowButton: true, onFollow });
+    const button = container.querySelector<HTMLButtonElement>('button[aria-label="Follow Jane Doe"]');
+    expect(button).not.toBeNull();
+    await act(async () => button!.click());
+    expect(onFollow).toHaveBeenCalledTimes(1);
+  });
+
   function nameNode(): HTMLElement {
     const all = Array.from(container.querySelectorAll<HTMLElement>("a, span"));
     const node = all.find((el) => el.childNodes[0]?.textContent === CREATOR);
@@ -246,3 +422,6 @@ describe("tripwire: migration 023 returns creator_verified from both feed branch
     expect(sql).toMatch(/ROLLBACK/);
   });
 });
+
+
+

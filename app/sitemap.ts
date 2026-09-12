@@ -22,6 +22,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${site}/legal/delivery`, changeFrequency: "monthly", priority: 0.2 },
     { url: `${site}/legal/creators`, changeFrequency: "monthly", priority: 0.2 },
     { url: `${site}/legal/support`, changeFrequency: "monthly", priority: 0.3 },
+    { url: `${site}/legal/purchase-agreement`, changeFrequency: "monthly", priority: 0.2 },
   ];
 
   // Creator pages are the indexable long tail — but only creators who have

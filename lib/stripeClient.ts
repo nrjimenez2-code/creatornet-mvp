@@ -11,11 +11,20 @@ import Stripe from "stripe";
 let client: Stripe | null = null;
 
 export function getStripe(): Stripe {
-  if (client) return client;
   const key = process.env.STRIPE_SECRET_KEY;
   if (!key) {
     throw new Error("STRIPE_SECRET_KEY is not set in this environment.");
   }
+  // Vercel Preview is the payment acceptance sandbox. Refuse a live or
+  // unrecognized key before any Stripe request, even if configuration drifts.
+  // Production keeps its existing key handling unchanged.
+  if (
+    process.env.VERCEL_ENV === "preview" &&
+    !/^(?:sk|rk)_test_/.test(key)
+  ) {
+    throw new Error("Stripe Preview deployments require a test-mode key.");
+  }
+  if (client) return client;
   client = new Stripe(key, {
     apiVersion: undefined,
     // Cap each Stripe request at 20s (the SDK default is 80s). Without this a

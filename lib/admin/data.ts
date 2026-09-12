@@ -342,7 +342,7 @@ export const fetchAdminInitialData = cache(
       };
     });
 
-    return { users, videos, orders: adminOrders, bookings: adminBookings };
+    return { asOf: new Date().toISOString(), users, videos, orders: adminOrders, bookings: adminBookings };
   },
 );
 

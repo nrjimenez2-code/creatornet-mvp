@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
+import { authNextPath, prepareSessionNavigation } from "@/lib/browserSession";
 import { buildAuthRedirectUrl } from "@/lib/authRedirect";
 import {
   parseAuthErrorFromUrl,
@@ -20,6 +21,8 @@ export default function AuthPage() {
 
   // -------- Session redirect on load --------
   const [checking, setChecking] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
+  const [sessionRetry, setSessionRetry] = useState(0);
   useEffect(() => {
     if (loading) return;
     let mounted = true;
@@ -29,34 +32,35 @@ export default function AuthPage() {
         return;
       }
 
-      const { data: profile, error } = await supabase
-        .from("profiles")
-        .select("interests")
-        .eq("id", session.user.id)
-        .maybeSingle();
-
-      if (!mounted) return;
-
-      if (error) {
-        // Signed in but the interests check failed — don't strand the user on
-        // the auth page looking like the login did nothing. The feed is the
-        // safe default; onboarding re-offers itself from there if needed.
-        console.error("Profile check error:", error);
-        router.replace("/dashboard");
-        return;
+      try {
+        if (!(await prepareSessionNavigation(supabase))) {
+          if (mounted) setChecking(false);
+          return;
+        }
+        if (!mounted) return;
+        const next = authNextPath(window.location.search);
+        if (next) {
+          // A full navigation avoids reusing a prefetched unauthenticated redirect.
+          window.location.replace(next);
+          return;
+        }
+        const { data: profile, error } = await supabase
+          .from("profiles").select("interests").eq("id", session.user.id).maybeSingle();
+        if (!mounted) return;
+        if (error) throw Error("Could not load your profile. Please try again.");
+        const interests = Array.isArray(profile?.interests) ? profile.interests : [];
+        router.replace(interests.length ? "/dashboard" : "/onboarding");
+      } catch (error) {
+        if (!mounted) return;
+        setChecking(false);
+        setSessionError(error instanceof Error ? error.message : "Could not verify your sign-in. Please try again.");
       }
-
-      const interests = Array.isArray(profile?.interests)
-        ? profile!.interests
-        : [];
-
-      router.replace(!interests?.length ? "/onboarding" : "/dashboard");
     })();
 
     return () => {
       mounted = false;
     };
-  }, [loading, session, router]);
+  }, [loading, session, router, sessionRetry]);
 
   // -------- UI state --------
   const [input, setInput] = useState("");
@@ -353,6 +357,14 @@ export default function AuthPage() {
         <p className="mt-2 text-[13px] text-gray-500">
           Short videos from creators who teach. Free to join.
         </p>
+        {sessionError && (
+          <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <p>{sessionError}</p>
+            <button type="button" className="mt-2 font-semibold underline" onClick={() => {
+              setSessionError(null); setChecking(true); setSessionRetry(n => n + 1);
+            }}>Try again</button>
+          </div>
+        )}
 
         <button
           onClick={() => setShowForm(!showForm)}

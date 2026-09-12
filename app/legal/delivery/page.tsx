@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import PurchasePolicyNotice from "@/components/PurchasePolicyNotice";
+import { purchasePoliciesActive } from "@/lib/purchasePolicies";
+export const dynamic = "force-dynamic";
 
 // Stripe's checklist asks for a delivery policy AND a cancellation policy.
 // CreatorNet sells installment plans as recurring Stripe subscriptions, so the
@@ -28,6 +31,7 @@ export default function DeliveryPolicyPage() {
   return (
     <main>
       <h1 className="text-3xl font-bold">Delivery &amp; Cancellation Policy</h1>
+      {purchasePoliciesActive(process.env) && <PurchasePolicyNotice section="delivery" />}
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
       <p className="mt-4 text-gray-700 leading-relaxed">
         Everything sold on CreatorNet is delivered digitally or as a live session. Nothing is
@@ -71,7 +75,7 @@ export default function DeliveryPolicyPage() {
         </p>
       </Section>
 
-      <Section title="Cancelling an installment plan">
+      <Section title={purchasePoliciesActive(process.env) ? "Cancelling an earlier installment purchase without a versioned agreement" : "Cancelling an installment plan"}>
         <p>
           You can cancel at any time by emailing{" "}
           <a href="mailto:support@creatornet.net" className="text-[#655BFF] underline">

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import VideoCard from "./VideoCard";
 import FeedEmptyState from "./FeedEmptyState";
+import { loadFeedOffers } from "@/lib/feedOffers";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { useSoundPreference } from "@/lib/audioPreference";
@@ -33,6 +34,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [items, setItems] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
+  const [loadContext, setLoadContext] = useState({ activeTab, authLoading });
+  if (loadContext.activeTab !== activeTab || loadContext.authLoading !== authLoading) {
+    setLoadContext({ activeTab, authLoading });
+    setLoading(true);
+    setFeedError(null);
+  }
   const [loadingMore, setLoadingMore] = useState(false);
   const offsetRef = useRef(0);
   const hasMoreRef = useRef(false);
@@ -67,8 +74,25 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const itemsRef = useRef<PostRow[]>([]);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
-  const wheelLockRef = useRef(false);
-  const touchStartYRef = useRef<number | null>(null);
+  const offerRefreshesRef = useRef(new Map<string, number>());
+  const enrichPosts = useCallback((posts: PostRow[], generation: number) => {
+    const versions = new Map(posts.map(post => {
+      const version = (offerRefreshesRef.current.get(post.id) ?? 0) + 1;
+      offerRefreshesRef.current.set(post.id, version);
+      return [post.id, version];
+    }));
+    void loadFeedOffers(posts).then(offers => {
+      if (generation !== fetchGenRef.current) return;
+      const byId = new Map(offers.map(offer => [offer.id, offer]));
+      setItems(current => current.map(post => {
+        const offer = byId.get(post.id);
+        if (!offer || offerRefreshesRef.current.get(post.id) !== versions.get(post.id)) return post;
+        return { ...post, product_id: offer.product_id, product_type: offer.product_type,
+          price_cents: offer.monthlyTerms ? offer.price_cents : post.price_cents,
+          monthlyTerms: offer.monthlyTerms, purchaseOptionsReady: offer.purchaseOptionsReady };
+      }));
+    }).catch(() => { /* Media remains usable; unverified purchase controls stay disabled. */ });
+  }, []);
 
   // Handler to update follow status in cached feed data
   const handleFollowChange = (creatorId: string, isFollowing: boolean) => {
@@ -89,10 +113,6 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     offsetRef.current = 0;
     hasMoreRef.current = false;
 
-    // Always set loading when fetching (including tab switches)
-    setLoading(true);
-    setFeedError(null);
-
     // Wait for the auth context to settle; the effect re-runs when it does.
     if (authLoading) return;
 
@@ -112,7 +132,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           return;
         }
 
-        // ONE call: ranked posts + creator profile + product meta + viewer
+        // Ranked posts + creator profile + product meta + viewer
         // is_liked / is_following. The viewer is auth.uid() server-side.
         const { data, error } = await supabase.rpc("get_feed_v3", {
           p_tab: activeTab,
@@ -130,10 +150,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         }
 
         const rawCount = Array.isArray(data) ? data.length : 0;
-        const mapped = mapFeedV3Rows(data);
+        const mapped = mapFeedV3Rows(data).map(post => ({ ...post, monthlyTerms: null, purchaseOptionsReady: false }));
 
         if (!cancelled) {
           setItems(mapped);
+          enrichPosts(mapped, fetchGenRef.current);
           setFeedError(null);
           setLoading(false);
           // Offset advances by RPC rows consumed, not by post-filter length,
@@ -154,6 +175,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     })();
 
     // realtime: reflect inserts/updates/deletes on posts
+    const offerRefreshes = offerRefreshesRef.current;
     const channel = supabase
       .channel("posts-realtime")
       .on(
@@ -174,6 +196,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           };
           const removedId = eventRow?.id ?? eventRow?.post_id;
           if (!removedId) return;
+          const refresh = (offerRefreshes.get(removedId) ?? 0) + 1;
+          offerRefreshes.set(removedId, refresh);
 
           // Drop the post on delete, on losing its media, or on being
           // moderated (hidden/removed — mirrors the feed's WHERE clause). If
@@ -208,6 +232,17 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             return;
           }
 
+          const currentPost = itemsRef.current.find(p => p.id === removedId);
+          const offerSource = { ...currentPost, ...payload.new, id: removedId } as PostRow;
+          void loadFeedOffers([offerSource]).then(([offer]) => {
+            if (cancelled || offerRefreshes.get(removedId) !== refresh) return;
+            setItems(curr => curr.map(p => p.id === removedId ? { ...p,
+              product_id: offer.product_id, product_type: offer.product_type,
+              price_cents: offer.monthlyTerms ? offer.price_cents : p.price_cents,
+              monthlyTerms: offer.monthlyTerms, purchaseOptionsReady: offer.purchaseOptionsReady,
+            } : p));
+          });
+
           setItems((prev) => {
             const row = payload.new as any;
             const postId = (row?.id ?? row?.post_id) as string | undefined;
@@ -224,6 +259,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                 poster_url: row.poster_url ?? next[i].poster_url,
                 price_cents: row.price_cents ?? next[i].price_cents,
                 product_id: row.product_id ?? next[i].product_id,
+                monthlyTerms: null,
+                purchaseOptionsReady: false,
                 allow_booking:
                   row.allow_booking ?? next[i].allow_booking ?? false,
                 booking_url: row.booking_url ?? next[i].booking_url,
@@ -237,11 +274,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               };
               return next;
             }
-            // add to top for new posts (realtime payload may omit product_id — fetch it so "Pay in full" works)
+            // New posts stay blocked for Buy until linked offer metadata arrives.
             const newItem = {
               id: postId,
               creator_id: row.creator_id ?? null,
               product_id: row.product_id ?? null,
+              purchaseOptionsReady: false,
               price_cents: row.price_cents ?? 0,
               title: row.title ?? null,
               video_url: row.video_url ?? null,
@@ -262,22 +300,6 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               creator_avatar_url: null,
               is_following: false,
             };
-            fetch(
-              `${typeof window !== "undefined" ? window.location.origin : ""}/api/posts/product-ids?ids=${encodeURIComponent(postId)}`,
-              { credentials: "include" }
-            )
-              .then((r) => r.json().catch(() => ({})))
-              .then((map: Record<string, string | null>) => {
-                const pid = map[postId] ?? newItem.product_id;
-                if (pid != null) {
-                  setItems((curr) =>
-                    curr.map((p) =>
-                      p.id === postId ? { ...p, product_id: pid } : p
-                    )
-                  );
-                }
-              })
-              .catch(() => {});
             return [newItem, ...prev];
           });
         }
@@ -286,9 +308,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
     return () => {
       cancelled = true;
+      fetchGenRef.current += 1;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase, authLoading]);
+  }, [activeTab, supabase, authLoading, enrichPosts]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -336,10 +359,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
   useEffect(() => {
     if (!items.length) return;
+    const ratios = new Map<Element, IntersectionObserverEntry>();
     const observer = new IntersectionObserver(
       (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
+        entries.forEach(entry => ratios.set(entry.target, entry));
+        const visible = [...ratios.values()]
+          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
         if (visible) {
           const id = (visible.target as HTMLElement).dataset.postId;
@@ -355,7 +380,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           }
         }
       },
-      { threshold: 0.6 }
+      { root: feedScrollRef.current, threshold: [0, 0.51, 1] }
     );
 
     sectionRefs.current.forEach((node) => observer.observe(node));
@@ -381,63 +406,23 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       if (!node) return;
 
       node.scrollIntoView({ behavior: "smooth", block: "start" });
-      setActivePostId(targetId);
     },
     [items, activePostId]
   );
 
-  const stepScrollWithLock = useCallback(
-    (direction: "up" | "down") => {
-      if (wheelLockRef.current) return;
-      wheelLockRef.current = true;
-      scrollByOneCard(direction);
-      window.setTimeout(() => {
-        wheelLockRef.current = false;
-      }, 520);
-    },
-    [scrollByOneCard]
-  );
-
-  const handleWheelStep = useCallback(
-    (e: React.WheelEvent<HTMLDivElement>) => {
-      // Enforce TikTok-like one-card movement per wheel gesture.
-      if (!items.length) return;
-      if (Math.abs(e.deltaY) < 8) return;
-      e.preventDefault();
-      stepScrollWithLock(e.deltaY > 0 ? "down" : "up");
-    },
-    [items.length, stepScrollWithLock]
-  );
-
   const handleFeedKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
-      if (!items.length) return;
+      if (!items.length || e.repeat) return;
+      if (e.target instanceof Element && e.target.closest('input, textarea, select, [role="dialog"], [role="menu"]')) return;
       if (e.key === "ArrowDown" || e.key === "PageDown") {
         e.preventDefault();
-        stepScrollWithLock("down");
+        scrollByOneCard("down");
       } else if (e.key === "ArrowUp" || e.key === "PageUp") {
         e.preventDefault();
-        stepScrollWithLock("up");
+        scrollByOneCard("up");
       }
     },
-    [items.length, stepScrollWithLock]
-  );
-
-  const handleTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
-    touchStartYRef.current = e.touches[0]?.clientY ?? null;
-  }, []);
-
-  const handleTouchEnd = useCallback(
-    (e: React.TouchEvent<HTMLDivElement>) => {
-      const startY = touchStartYRef.current;
-      const endY = e.changedTouches[0]?.clientY ?? null;
-      touchStartYRef.current = null;
-      if (startY == null || endY == null) return;
-      const deltaY = startY - endY;
-      if (Math.abs(deltaY) < 42) return;
-      stepScrollWithLock(deltaY > 0 ? "down" : "up");
-    },
-    [stepScrollWithLock]
+    [items.length, scrollByOneCard]
   );
 
   // Load the next page (both tabs — same single RPC, offset paginated)
@@ -471,7 +456,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         return;
       }
 
-      const mapped = mapFeedV3Rows(data);
+      const mapped = mapFeedV3Rows(data).map(post => ({ ...post, monthlyTerms: null, purchaseOptionsReady: false }));
+      if (gen !== fetchGenRef.current) return;
 
       offsetRef.current = currentOffset + rawCount;
       hasMoreRef.current = rawCount >= PAGE_SIZE;
@@ -482,13 +468,14 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         const newItems = mapped.filter((p) => !existingIds.has(p.id));
         return newItems.length ? [...prev, ...newItems] : prev;
       });
+      enrichPosts(mapped, gen);
     } catch (err) {
       console.error("[Feed] loadMore error:", err);
     } finally {
       loadingMoreRef.current = false;
       setLoadingMore(false);
     }
-  }, [supabase]);
+  }, [supabase, enrichPosts]);
 
   // Trigger loadMore when the user is within 3 posts of the end (both tabs)
   useEffect(() => {
@@ -551,13 +538,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         style={{
           scrollbarWidth: "none",
           overscrollBehaviorY: "contain",
-          // Disable native vertical pan inertia so one-swipe-one-card stays consistent.
-          touchAction: "pan-x",
+          touchAction: "pan-y pinch-zoom",
         }}
-        onWheel={handleWheelStep}
         onKeyDown={handleFeedKeyDown}
-        onTouchStart={handleTouchStart}
-        onTouchEnd={handleTouchEnd}
         tabIndex={0}
       >
         {items.map((p, idx) => {
@@ -582,7 +565,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           return (
             <section
               key={p.id}
-              className="snap-start snap-always lg:snap-always h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
+              className="snap-start snap-always lg:snap-always h-[calc(100dvh-56px)] lg:h-[100dvh] w-full flex items-start justify-center px-0 md:px-4 mt-0"
               data-post-id={p.id}
               ref={(el) => {
                 const map = sectionRefs.current;
@@ -597,6 +580,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
                 {isMounted ? (
                   <VideoCard
+                    onDeleted={() => {
+                      const current = itemsRef.current;
+                      const index = current.findIndex((row) => row.id === p.id);
+                      const remaining = current.filter((row) => row.id !== p.id);
+                      itemsRef.current = remaining;
+                      const neighbor = remaining[Math.min(Math.max(index, 0), remaining.length - 1)]?.id ?? null;
+                      setActivePostId((active) => active === p.id ? neighbor : active);
+                      setItems((rows) => rows.filter((row) => row.id !== p.id));
+                    }}
                     // media
                     src={p.video_url || undefined}
                     poster={p.poster_url || undefined}
@@ -629,6 +621,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     priceCents={price}
                     titleForCheckout={p.title ?? p.content ?? "CreatorNet Video"}
                     productType={p.product_type ?? null}
+                    monthlyTerms={p.monthlyTerms}
+                    purchaseOptionsReady={p.purchaseOptionsReady === true && creatorCanSell}
                     purchaseCount={p.purchase_count ?? null}
                     showFollowButton={activeTab === "discover"}
                     isFollowingCreator={p.is_following ?? false}
@@ -637,6 +631,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     allowBooking={allowBooking}
                     bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                     soundEnabled={isSoundOn}
+                    isActive={isActive}
+                    preload={idx === activeIndex || idx === activeIndex + 1 ? "auto" : "metadata"}
                     onToggleSound={() => setGlobalSoundOn(!globalSoundOn)}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback

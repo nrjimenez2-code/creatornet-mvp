@@ -52,10 +52,11 @@ describe("the fee is defined exactly once", () => {
 });
 
 describe("Stripe percent fields get the percent form", () => {
-  test("subscription application_fee_percent uses PLATFORM_FEE_PERCENT (12)", () => {
+  test("subscription application_fee_percent uses the exact combined whole-percent calculation", () => {
     expect(read(PAYMENT_LINK)).toMatch(
-      /application_fee_percent:\s*PLATFORM_FEE_PERCENT\b/,
+      /application_fee_percent:\s*subscriptionApplicationFeePercent\b/,
     );
+    expect(read(PAYMENT_LINK)).toContain("exactSubscriptionApplicationFeePercent(fees)");
     expect(read(PAYMENT_LINK)).not.toMatch(/application_fee_percent:\s*PLATFORM_FEE_RATE/);
   });
 

@@ -16,7 +16,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
-import { buildOffers, type OfferProduct } from "@/lib/offers";
+import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
+import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -182,12 +183,23 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
       .eq("follower_id", resolvedCreatorId),
     followStatusPromise,
     // Offers panel: the creator's products (joined to visible posts below).
-    admin
-      .from("products")
-      .select(
-        "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active"
-      )
-      .eq("creator_id", resolvedCreatorId),
+    // Separate literal selects keep Supabase's parser from receiving a string union.
+    (process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true"
+      ? fixedServiceSchemaReady()
+        ? admin.from("products").select(
+            "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active, fixed_service_months, membership_terms"
+          )
+        : admin.from("products").select(
+            "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active, membership_terms"
+          )
+      : fixedServiceSchemaReady()
+        ? admin.from("products").select(
+            "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active, fixed_service_months"
+          )
+        : admin.from("products").select(
+            "id, product_id, creator_id, title, description, type, amount_cents, price_cents, currency, thumbnail_url, active"
+          )
+    ).eq("creator_id", resolvedCreatorId),
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
   ]);
   const posts = postsRes?.data ?? [];
@@ -220,7 +232,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     // Non-fatal: the page still renders, just without the Offers button.
     console.error("[creator-profile] products query failed:", productsRes.error.message);
   }
-  const offers = buildOffers((productsRes?.data ?? []) as OfferProduct[], posts);
+  const offers = buildOffers(productsRes?.data ?? [], posts);
   const ratingRow = (ratingRes?.data?.[0] ?? null) as
     | { avg_rating?: number | null; review_count?: number | null }
     | null;
@@ -333,7 +345,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         ) : (
           <div className="mt-6 md:mt-8">
             <ProfilePostsGallery
-              posts={posts}
+              posts={mapProfileGalleryPosts(posts, productsRes?.error ? null : productsRes?.data, resolvedCreatorId)}
               creatorId={resolvedCreatorId}
               creatorName={displayName}
               creatorUsername={profile.username ?? null}
@@ -346,4 +358,3 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     </section>
   );
 }
-

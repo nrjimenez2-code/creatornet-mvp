@@ -21,7 +21,7 @@
 import { act, createElement } from "react";
 import { createRoot, Root } from "react-dom/client";
 
-type StubVideoCardProps = { postId?: string | null };
+type StubVideoCardProps = { postId?: string | null; onDeleted?: () => void };
 
 jest.mock("@/components/VideoCard", () => ({
   __esModule: true,
@@ -29,12 +29,13 @@ jest.mock("@/components/VideoCard", () => ({
     createElement("div", {
       "data-testid": "video-card",
       "data-post-id": props.postId ?? "",
+      onClick: props.onDeleted,
     }),
 }));
 
 // BackButton (rendered inside the modal) reads next/navigation's router.
 jest.mock("next/navigation", () => ({
-  useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn() }),
+  useRouter: () => ({ back: jest.fn(), push: jest.fn(), replace: jest.fn(), refresh: jest.fn() }),
 }));
 
 // lib/posthog constructs the posthog-js client at module scope; the gallery
@@ -182,6 +183,13 @@ describe("ProfilePostsGallery modal render window", () => {
     // Assert
     expect(mountedIndexes()).toEqual([0, 1, 2]);
     expect(placeholderIndexes()).toEqual([]);
+  });
+
+  test("successful deletion closes the player and removes just that profile tile", async () => {
+    await renderAndOpen(3, 1);
+    await act(async () => { (container.querySelector('[data-testid="video-card"]') as HTMLElement).click(); });
+    expect(container.querySelectorAll('button[aria-label^="Open post:"]')).toHaveLength(2);
+    expect(container.querySelector('[data-testid="video-card"]')).toBeNull();
   });
 
   test("observes every wrapper (placeholders included) and jumps instantly to the clicked post", async () => {

@@ -17,18 +17,17 @@ type ConfirmSuccess = {
   purchase_id?: string;
   status?: "paid" | "pending";
   session_id?: string;
-  kind?: "booking";
+  kind?: "booking" | "paid_call";
   booking_redirect_url?: string | null;
   post_id?: string | null;
   creator_id?: string | null;
   product?: FulfillmentProduct | null;
 };
 
-type ConfirmResp = ConfirmSuccess | { error: string };
+type ConfirmResp = ConfirmSuccess | { error: string; retryable?: boolean };
 
-function SuccessPage() {
+function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: string }) {
   const router = useRouter();
-  const params = useSearchParams();
   const { session, loading: authLoading } = useUser();
 
   // The booking effect must not depend on the session OBJECT: supabase-js
@@ -43,23 +42,19 @@ function SuccessPage() {
     sessionRef.current = session;
   }, [session]);
 
-  // Get params directly from URL as fallback
-  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-  const sessionId = params.get("session_id") || urlParams?.get("session_id") || "";
-  const kindParam = params.get("kind") || urlParams?.get("kind") || "";
-
-  const [status, setStatus] = useState<"checking" | "ok" | "pending" | "error">("checking");
+  const [status, setStatus] = useState<"checking" | "ok" | "pending" | "waiting" | "error">("checking");
   const [message, setMessage] = useState("Almost there...");
-  const triesRef = useRef(0);
-  const maxTries = 6; // ~10-12s total with backoff
+  const [checkRun, setCheckRun] = useState(0);
+  const maxTries = 12; // Bounded automatic checks, then an explicit Check status action.
   const [bookingUrl, setBookingUrl] = useState<string | null>(null);
   const [bookingState, setBookingState] = useState<"idle" | "processing" | "ready">("idle");
   const [fulfillment, setFulfillment] = useState<FulfillmentProduct | null>(null);
   const [fulfillmentMessage, setFulfillmentMessage] = useState<string | null>(null);
+  const [confirmedSessionId, setConfirmedSessionId] = useState<string | null>(null);
   const hasSeededRef = useRef(false);
   const hasRunRef = useRef(false);
 
-  async function confirmOnce(): Promise<ConfirmResp> {
+  async function confirmOnce(signal: AbortSignal): Promise<ConfirmResp> {
     const confirmUrl = typeof window !== "undefined"
       ? `${window.location.origin}/api/confirm-purchase`
       : "/api/confirm-purchase";
@@ -69,9 +64,19 @@ function SuccessPage() {
       headers: { "Content-Type": "application/json" },
       credentials: "include",
       body: JSON.stringify({ session_id: sessionId }),
+      signal,
     });
     const data = (await res.json().catch(() => ({}))) as any;
-    if (!res.ok) return { error: data?.error || `HTTP ${res.status}` };
+    // A pending response may include a purchase ID. Neither that ID nor a
+    // fulfillment URL is proof of access, and HTTP 202 always wins over body.
+    if (res.status === 202) return { ok: true, status: "pending" };
+    if (!res.ok) return {
+      error: typeof data?.error === "string" ? data.error : "Unable to check payment confirmation.",
+      retryable: res.status === 429 || res.status >= 500,
+    };
+    if (res.status !== 200 || data?.ok !== true || !["pending", "paid"].includes(data?.status)) {
+      return { error: "Payment confirmation is not available yet.", retryable: true };
+    }
     return data as ConfirmResp;
   }
 
@@ -242,10 +247,21 @@ function SuccessPage() {
   // Handle regular purchase flow
   useEffect(() => {
     let cancelled = false;
+    let requestController: AbortController | null = null;
+    let requestTimer: ReturnType<typeof setTimeout> | undefined;
+    let delayTimer: ReturnType<typeof setTimeout> | undefined;
+    let redirectTimer: ReturnType<typeof setTimeout> | undefined;
+    let finishDelay: (() => void) | undefined;
 
     // Skip if this is a booking
     if (kindParam === "booking") {
       return;
+    }
+
+    function redirectTo(path: string) {
+      redirectTimer = setTimeout(() => {
+        if (!cancelled) router.replace(path);
+      }, 700);
     }
 
     async function runPurchaseFlow() {
@@ -255,15 +271,30 @@ function SuccessPage() {
         return;
       }
 
-      while (!cancelled && triesRef.current < maxTries) {
+      for (let attempt = 0; !cancelled && attempt < maxTries; attempt += 1) {
         try {
-          const resp = await confirmOnce();
+          requestController = new AbortController();
+          const controller = requestController;
+          requestTimer = setTimeout(() => controller.abort(), 15_000);
+          const resp = await confirmOnce(controller.signal);
+          if (cancelled) return;
+          if (controller.signal.aborted) throw new Error("Confirmation check timed out");
 
           if ("error" in resp) {
-            triesRef.current += 1;
-            setStatus("pending");
-            setMessage(`Finalizing your payment... (${triesRef.current}/${maxTries})`);
-          } else {
+            if (!resp.retryable) {
+              setStatus("error");
+              setMessage(resp.error);
+              return;
+            }
+          } else if (resp.status === "paid") {
+            setConfirmedSessionId(sessionId);
+            if (resp.kind === "paid_call" && resp.booking_redirect_url) {
+              setBookingUrl(resp.booking_redirect_url);
+              setBookingState("ready");
+              setStatus("ok");
+              setMessage("Payment confirmed. Choose a time for your call.");
+              return;
+            }
             const product = resp.product || null;
             const hasFulfillment =
               product &&
@@ -285,58 +316,71 @@ function SuccessPage() {
             if (product?.type === "video" && resp.post_id) {
               setStatus("ok");
               setMessage("Video unlocked! Redirecting to your library...");
-              setTimeout(() => router.replace("/library"), 700);
+              redirectTo("/library");
               return;
             }
 
             if (resp.post_id) {
               setStatus("ok");
               setMessage("Access ready! Redirecting...");
-              setTimeout(() => router.replace("/library"), 700);
+              redirectTo("/library");
               return;
             }
 
             if (resp.purchase_id) {
               setStatus("ok");
               setMessage("Payment confirmed! Redirecting...");
-              setTimeout(() => router.replace(`/access/${resp.purchase_id}`), 700);
+              redirectTo(`/access/${resp.purchase_id}`);
               return;
             }
 
-            if (resp.status === "paid") {
-              setStatus("ok");
-              setMessage("Payment confirmed! Redirecting...");
-              setTimeout(() => router.replace("/library"), 700);
-              return;
-            }
-
-            triesRef.current += 1;
-            setStatus("pending");
-            setMessage(`Waiting for confirmation... (${triesRef.current}/${maxTries})`);
+            setStatus("ok");
+            setMessage("Payment confirmed! Redirecting...");
+            redirectTo("/library");
+            return;
           }
         } catch {
-          triesRef.current += 1;
-          setStatus("pending");
-          setMessage(`Retrying... (${triesRef.current}/${maxTries})`);
+          if (cancelled) return;
+          // A timeout/network error is uncertainty, never a failed payment or
+          // permission to buy again. Only the server's paid result unlocks UI.
+        } finally {
+          clearTimeout(requestTimer);
+          requestController = null;
         }
 
-        const delay = Math.min(400 * (triesRef.current + 1), 1500);
-        await new Promise((r) => setTimeout(r, delay));
+        if (cancelled) return;
+        setStatus("pending");
+        setMessage("Waiting for payment confirmation. Please don't pay again.");
+        if (attempt < maxTries - 1) {
+          await new Promise<void>((resolve) => {
+            finishDelay = resolve;
+            delayTimer = setTimeout(resolve, Math.min(1_000 * (attempt + 1), 10_000));
+          });
+          finishDelay = undefined;
+        }
       }
 
       if (!cancelled) {
-        setStatus("error");
-        setMessage("We couldn't verify your payment yet. It may still post in a minute—check your Library.");
+        setStatus("waiting");
+        setMessage("Confirmation is taking longer than expected. Please don't pay again. Check the status below, or return to your Library later. Contact support if it remains pending.");
       }
     }
 
     runPurchaseFlow();
     return () => {
       cancelled = true;
+      requestController?.abort();
+      clearTimeout(requestTimer);
+      clearTimeout(delayTimer);
+      clearTimeout(redirectTimer);
+      finishDelay?.();
     };
-  }, [kindParam, router, sessionId]);
+    // confirmOnce reads only sessionId; a manual check restarts this bounded,
+    // cancelable status check, never Checkout or a payment-creation endpoint.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [checkRun, kindParam, router, sessionId]);
 
-  const showFulfillment = Boolean(fulfillment && fulfillmentMessage);
+  const showFulfillment = status === "ok" && confirmedSessionId === sessionId && Boolean(fulfillment && fulfillmentMessage);
 
   return (
     <main className="min-h-svh bg-white text-gray-900 flex items-center justify-center p-6">
@@ -358,9 +402,11 @@ function SuccessPage() {
             ? "Success"
             : status === "pending"
             ? "Finalizing..."
+            : status === "waiting"
+            ? "Confirmation pending"
             : "Heads up"}
         </h1>
-        <p className="text-sm text-gray-600">{message}</p>
+        <p className="text-sm text-gray-600" role="status" aria-live="polite">{message}</p>
 
         {showFulfillment && fulfillment && (
           <div className="mt-6 space-y-4">
@@ -416,13 +462,25 @@ function SuccessPage() {
               className="px-4 py-2 text-sm rounded-lg bg-black text-white disabled:opacity-60"
               disabled={bookingState !== "ready" || !bookingUrl}
             >
-              {bookingState === "ready" ? "Book" : "Confirming your booking..."}
+              {bookingState === "ready" ? (kindParam === "booking" ? "Book" : "Schedule call") : "Confirming your booking..."}
             </button>
           </div>
         )}
 
-        {!showFulfillment && status === "error" && (
-          <div className="mt-6 flex items-center justify-center gap-3">
+        {!showFulfillment && (status === "error" || status === "waiting") && (
+          <div className="mt-6 flex items-center justify-center gap-3 flex-wrap">
+            {status === "waiting" && (
+              <button
+                onClick={() => {
+                  setStatus("checking");
+                  setMessage("Almost there...");
+                  setCheckRun((value) => value + 1);
+                }}
+                className="px-4 py-2 text-sm rounded-lg bg-black text-white"
+              >
+                Check status
+              </button>
+            )}
             <button
               onClick={() => router.replace("/library")}
               className="px-4 py-2 text-sm rounded-lg bg-black text-white"
@@ -453,10 +511,20 @@ function SuccessPage() {
   );
 }
 
+function SuccessRoute() {
+  const params = useSearchParams();
+  const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+  const sessionId = params.get("session_id") || urlParams?.get("session_id") || "";
+  const kindParam = params.get("kind") || urlParams?.get("kind") || "";
+  // A different Checkout gets fresh state immediately, not an effect that
+  // briefly renders the previous purchase's fulfillment links before resetting.
+  return <SuccessPage key={JSON.stringify([sessionId, kindParam])} sessionId={sessionId} kindParam={kindParam} />;
+}
+
 export default function SuccessPageWrapper() {
   return (
     <Suspense fallback={<main className="min-h-svh bg-white flex items-center justify-center text-sm text-gray-500">Loading…</main>}>
-      <SuccessPage />
+      <SuccessRoute />
     </Suspense>
   );
 }

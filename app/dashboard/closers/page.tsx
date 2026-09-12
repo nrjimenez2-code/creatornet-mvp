@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import InstallmentLinkForm from "@/components/InstallmentLinkForm";
 import { platformFeeCents as legacyPlatformFeeCents } from "@/lib/money";
 
 type Target = {
@@ -35,6 +36,7 @@ type BookingPayment = {
   total_creator_deduction_cents: number | null;
   creator_net_cents: number | null;
   fee_schedule_version: string | null;
+  installment_collection_version?: string | null;
   currency: string | null;
   created_at: string;
   completed_at: string | null;
@@ -99,6 +101,7 @@ export default function ClosersManagerPage() {
   const [bookingsLoading, setBookingsLoading] = useState(false);
   const [bookingsError, setBookingsError] = useState<string | null>(null);
   const [generatingLinkKey, setGeneratingLinkKey] = useState<string | null>(null);
+  const generatingLinkRef = useRef(false);
   const [linkMessage, setLinkMessage] = useState<string | null>(null);
   const [latestLink, setLatestLink] = useState<{ bookingId: string; url: string } | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -254,19 +257,21 @@ export default function ClosersManagerPage() {
     return () => window.clearTimeout(timeoutId);
   }, [creatorId, accessToken, fetchBookings]);
 
-  const handleGenerateLink = async (bookingId: string, plan: "full" | "installment") => {
-    let months: number | undefined;
+  const handleGenerateLink = async (
+    bookingId: string,
+    plan: "full" | "installment",
+    months?: number,
+  ): Promise<boolean> => {
+    if (generatingLinkRef.current) return false;
     if (plan === "installment") {
-      const input = prompt("How many monthly payments? (2 - 24)", "3");
-      if (input === null) return;
-      months = Number(input);
-      if (!Number.isInteger(months) || months < 2 || months > 24) {
-        alert("Installment months must be an integer between 2 and 24.");
-        return;
+      if (months === undefined || !Number.isInteger(months) || months < 2 || months > 24) {
+        setLinkMessage("Installment months must be an integer between 2 and 24.");
+        return false;
       }
     }
 
     const key = `${bookingId}:${plan}`;
+    generatingLinkRef.current = true;
     setGeneratingLinkKey(key);
     setLinkMessage(null);
     setLatestLink(null);
@@ -316,14 +321,19 @@ export default function ClosersManagerPage() {
 
       if (data?.url) {
         setLatestLink({ bookingId, url: data.url });
-        await copyToClipboard(data.url);
+        // Clipboard permission may remain pending after the API succeeds.
+        // Finish creation now; copying is a separate, explicit user action.
+        setLinkMessage("Link generated. Use Copy latest link or Open below.");
       } else {
         setLinkMessage("Link generated. Copy it from the list below.");
       }
+      return true;
     } catch (err: any) {
       console.error("[payment-link] error:", err?.message || err);
       setLinkMessage(err?.message || "Failed to generate payment link.");
+      return false;
     } finally {
+      generatingLinkRef.current = false;
       setGeneratingLinkKey(null);
     }
   };
@@ -536,7 +546,7 @@ export default function ClosersManagerPage() {
             <button
               onClick={fetchBookings}
               className="rounded-full border px-4 py-2 text-sm"
-              disabled={bookingsLoading}
+              disabled={bookingsLoading || generatingLinkKey !== null}
             >
               {bookingsLoading ? "Refreshing…" : "Refresh"}
             </button>
@@ -544,7 +554,7 @@ export default function ClosersManagerPage() {
         </div>
 
         {linkMessage ? (
-          <div className="rounded-lg bg-black/80 px-3 py-2 text-sm text-white/90">{linkMessage}</div>
+          <div role="status" className="rounded-lg bg-black/80 px-3 py-2 text-sm text-white/90">{linkMessage}</div>
         ) : null}
 
         {bookingsError ? (
@@ -594,7 +604,7 @@ export default function ClosersManagerPage() {
                       <button
                         type="button"
                         onClick={() => handleDeleteBooking(bundle.booking.id)}
-                        disabled={deletingId === bundle.booking.id}
+                        disabled={deletingId === bundle.booking.id || generatingLinkKey !== null}
                         aria-label="Delete booking"
                         className="rounded-full border border-[#4A35C7] bg-white/10 h-6 w-6 text-[#7A6BC4] transition hover:bg-[#4A35C7] hover:text-white disabled:opacity-50 flex items-center justify-center"
                       >
@@ -616,22 +626,17 @@ export default function ClosersManagerPage() {
                   <div className="mt-4 flex flex-wrap items-center gap-3">
                     <button
                       className="rounded-full bg-[#4A35C7] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      disabled={generatingLinkKey === `${bundle.booking.id}:full`}
+                      disabled={generatingLinkKey !== null || deletingId !== null}
                       onClick={() => handleGenerateLink(bundle.booking.id, "full")}
                     >
                       {generatingLinkKey === `${bundle.booking.id}:full`
                         ? "Creating…"
                         : "Generate full payment link"}
                     </button>
-                    <button
-                      className="rounded-full bg-gray-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
-                      disabled={generatingLinkKey === `${bundle.booking.id}:installment`}
-                      onClick={() => handleGenerateLink(bundle.booking.id, "installment")}
-                    >
-                      {generatingLinkKey === `${bundle.booking.id}:installment`
-                        ? "Creating…"
-                        : "Generate installment link"}
-                    </button>
+                    <InstallmentLinkForm
+                      disabled={generatingLinkKey !== null || deletingId !== null}
+                      onGenerate={(months) => handleGenerateLink(bundle.booking.id, "installment", months)}
+                    />
                     {latestLink?.bookingId === bundle.booking.id ? (
                       <button
                         className="rounded-full border border-blue-400 px-4 py-2 text-sm text-blue-200"
@@ -671,7 +676,13 @@ export default function ClosersManagerPage() {
                                   processingFeeCents,
                               )
                             : null);
-                        const splitLabel =
+                        const exactInstallment = payment.plan_type === "installment" &&
+                          ["exact-cents-held-v1", "exact-cents-context-v2"].includes(payment.installment_collection_version || "");
+                        const finalAmount = exactInstallment && payment.amount_total_cents !== null &&
+                          payment.installment_amount_cents !== null && payment.installment_months !== null &&
+                          Number.isSafeInteger(payment.installment_months) && payment.installment_months >= 2
+                          ? payment.amount_total_cents - payment.installment_amount_cents * (payment.installment_months - 1) : null;
+                        const splitLabel = exactInstallment ? "First payment fee estimate" :
                           payment.status === "pending" || payment.status === "link_sent"
                             ? "Expected per payment"
                             : "Recorded per payment";
@@ -686,13 +697,17 @@ export default function ClosersManagerPage() {
                               <span className="text-white/70 capitalize">{paidLabel}</span>
                               {payment.installment_months !== null ? (
                                 <span className="text-white/70">
-                                  {payment.installment_months} months
+                                  {payment.installment_months} {exactInstallment ? "payments" : "months"}
                                 </span>
                               ) : null}
                               {payment.installment_amount_cents !== null ? (
                                 <span className="text-white/70">
-                                  {formatMoney(payment.installment_amount_cents, payment.currency)} / mo
+                                  {formatMoney(payment.installment_amount_cents, payment.currency)} {exactInstallment ? "first payment; then monthly" : "/ mo"}
                                 </span>
+                              ) : null}
+                              {finalAmount !== null && Number.isSafeInteger(finalAmount) && finalAmount > 0 &&
+                                finalAmount !== payment.installment_amount_cents ? (
+                                <span className="text-white/70">{formatMoney(finalAmount, payment.currency)} final payment</span>
                               ) : null}
                               {payment.amount_total_cents !== null ? (
                                 <span className="text-white/70">
@@ -762,6 +777,11 @@ export default function ClosersManagerPage() {
                                     </dd>
                                   </div>
                                 </dl>
+                                {exactInstallment ? (
+                                  <p className="mt-2 text-xs text-white/60">
+                                    Later payments use the plan’s saved recurring-processing fee schedule. This estimate is not proof of payment.
+                                  </p>
+                                ) : null}
                               </div>
                             ) : null}
                           </div>

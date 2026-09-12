@@ -1,6 +1,8 @@
 import { AdminDataProvider } from "@/components/admin/AdminDataContext";
 import { fetchCommerceInitialData } from "@/lib/admin/commerce-data";
 import { CommercePageClient } from "./CommercePageClient";
+import { exactAdminEnabled } from "@/lib/installments/adminActions";
+import Link from "next/link";
 
 // Money data must never come from a stale cache.
 export const dynamic = "force-dynamic";
@@ -15,6 +17,8 @@ export default async function CommercePage() {
   const initialData = await fetchCommerceInitialData();
   return (
     <AdminDataProvider initialData={initialData}>
+      {exactAdminEnabled(process.env) && <Link href="/admin/commerce/installments"
+        className="mb-4 inline-block text-sm font-semibold text-[#7c5cbf]">Review staging installments →</Link>}
       <CommercePageClient />
     </AdminDataProvider>
   );

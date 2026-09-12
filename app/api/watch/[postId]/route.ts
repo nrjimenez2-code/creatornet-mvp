@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
+import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
 
 // Optional: keep this dynamic so Vercel won't try to prerender
 export const dynamic = "force-dynamic";
@@ -52,17 +53,22 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
   // their own folder. A post row pointing elsewhere is never signed for them.
   let allowed =
     post.creator_id === user.id && isOwnPremiumPath(post.premium_path, user.id);
+  let accessSeconds = 3600;
 
   if (!allowed) {
-    const { data: purchase, error: purchaseError } = await admin
+    let purchaseQuery = admin
       .from("purchases")
       .select("id")
       .eq("post_id", postId)
       .eq("buyer_id", user.id)
-      .eq("access_granted", true)
-      .maybeSingle();
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled");
+    if (!membershipLedgerReady()) purchaseQuery = purchaseQuery.eq("access_granted", true);
+    const { data: purchase, error: purchaseError } = await purchaseQuery.maybeSingle();
 
-    if (!purchaseError && purchase) allowed = true;
+    if (!purchaseError && purchase) {
+      accessSeconds = membershipLedgerReady() ? await membershipAccessSeconds(admin, purchase.id, user.id) : 3600;
+      allowed = accessSeconds > 0;
+    }
   }
 
   if (!allowed) {
@@ -71,7 +77,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
 
   const { data: signed, error: signErr } = await admin.storage
     .from("premium")
-    .createSignedUrl(post.premium_path as string, 60 * 60);
+    .createSignedUrl(post.premium_path as string, accessSeconds);
 
   if (signErr || !signed?.signedUrl) {
     return NextResponse.json({ error: "Could not sign URL" }, { status: 500 });

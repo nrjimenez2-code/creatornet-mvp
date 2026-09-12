@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { isWithinRenderWindow } from "@/lib/feedV3";
 import { normalizeCategory } from "@/lib/posthog";
+import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 
 type Post = {
   id: string;
@@ -19,6 +21,9 @@ type Post = {
   comments_count?: number | null;
   shares_count?: number | null;
   product_id?: string | null;
+  product_type?: string | null;
+  monthlyTerms?: MonthlyMentorshipTerms | null;
+  purchaseOptionsReady?: boolean;
   price_cents?: number | null;
   allow_booking?: boolean | null;
   booking_url?: string | null;
@@ -37,13 +42,16 @@ type Props = {
 };
 
 export default function ProfilePostsGallery({
-  posts,
+  posts: initialPosts,
   creatorId,
   creatorName,
   creatorUsername = null,
   creatorAvatarUrl = null,
   likedPostIds,
 }: Props) {
+  const router = useRouter();
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  const posts = useMemo(() => initialPosts.filter((post) => !deletedIds.has(post.id)), [initialPosts, deletedIds]);
   const likedIds = useMemo(() => new Set(likedPostIds ?? []), [likedPostIds]);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -234,8 +242,17 @@ export default function ProfilePostsGallery({
                     comments={post.comments_count ?? 0}
                     shares={post.shares_count ?? 0}
                     postId={post.id}
+                    onDeleted={() => {
+                      setIsOpen(false);
+                      setActiveIndex(0);
+                      setDeletedIds((ids) => new Set([...ids, post.id]));
+                      router.refresh();
+                    }}
                     postCategory={normalizeCategory(post.interests?.[0] ?? null)}
                     productId={post.product_id ?? null}
+                    productType={post.product_type ?? null}
+                    monthlyTerms={post.monthlyTerms ?? null}
+                    purchaseOptionsReady={post.purchaseOptionsReady === true}
                     creatorId={post.creator_id ?? creatorId ?? null}
                     creatorUsername={creatorUsername}
                     priceCents={post.price_cents ?? null}

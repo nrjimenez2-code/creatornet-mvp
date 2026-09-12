@@ -1,0 +1,2962 @@
+{
+  "scope": "LOCAL SYNTHETIC EXPECTATION ONLY; not hosted acceptance. Compare exact metadata below, not local legacy schema or role state.",
+  "generated_at": "2026-09-08T08:47:42.171Z",
+  "local_postgres_version": "180003",
+  "hosted_postgres_version": "170006",
+  "source_order": [
+    "captured structural baseline + synthetic auth/review/profile fixture",
+    "approved purchases ACL prerequisite",
+    "approved rating ACL prerequisite",
+    "atomic 024 + 026",
+    "approved 040 through 057 bundle"
+  ],
+  "normalization": "Routine definitions normalize CRLF to LF only; raw hash and carriage count excluded. Exact constraint aggregate excludes PG18-only NOT NULL constraints; column metadata still includes attnotnull. Other server-version deparser differences require review, not an assumed pass.",
+  "verification_metadata_sha256": "49ff196805c19a72c6be121239fd03e260efce739b774602f7528010a8b23e11",
+  "verification_empty_sha256": "48c0d8990caeefe3063873068f32fa01d20d9fae68dd8174569b8710a0ef1dce",
+  "local_legacy_fingerprints_equal": true,
+  "expected_exact_tables_empty": {
+    "exact_installment_periods": true,
+    "exact_installment_receipts": true,
+    "exact_installment_agreements": true,
+    "exact_installment_operations": true,
+    "exact_installment_activations": true,
+    "exact_installment_card_setups": true,
+    "exact_installment_billing_stops": true,
+    "exact_installment_invoice_cards": true,
+    "exact_installment_invoice_claims": true,
+    "exact_installment_collection_holds": true,
+    "exact_installment_retry_admissions": true,
+    "exact_installment_payment_recoveries": true,
+    "exact_installment_future_card_choices": true,
+    "exact_installment_resolved_card_holds": true,
+    "exact_installment_payment_confirmations": true,
+    "exact_installment_lifecycle_observations": true
+  },
+  "expected": {
+    "indexes": [
+      {
+        "name": "exact_installment_activations_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "d30ce5525974f55cf35dcd4ba0402179"
+      },
+      {
+        "name": "exact_installment_agreements_booking_payment_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "d52210182b49d1156bfced1bb8408452"
+      },
+      {
+        "name": "exact_installment_agreements_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "8640af226b3c0ad43be8477851458482"
+      },
+      {
+        "name": "exact_installment_agreements_purchase_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "a53a64c74ed60f780a6cf26c2c34d5da"
+      },
+      {
+        "name": "exact_installment_agreements_stripe_checkout_session_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "752b8e749dad0991d3566ece7873470f"
+      },
+      {
+        "name": "exact_installment_agreements_stripe_customer_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "f31a7f02b66b7d4c894fcfe24fd678e3"
+      },
+      {
+        "name": "exact_installment_agreements_stripe_subscription_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "a8b720454ffdaf5f61fecb1940bac227"
+      },
+      {
+        "name": "exact_installment_billing_stops_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "e206bca5dedea05d3c53d07c7bc50434"
+      },
+      {
+        "name": "exact_installment_billing_stops_request_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "f4a0de0077eb4ac47b9766a8da97cb2b"
+      },
+      {
+        "name": "exact_installment_card_setups_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "1ca03f8c9f3532fac97ec8d5d9a9fbba"
+      },
+      {
+        "name": "exact_installment_card_setups_stripe_checkout_session_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "7b82be780d6e18d5c1d32be5db88dd68"
+      },
+      {
+        "name": "exact_installment_card_setups_stripe_invoice_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "070f8e95df4a5cccad84f1891d692561"
+      },
+      {
+        "name": "exact_installment_card_setups_stripe_setup_intent_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "71c701bc61223eed76014ddc88a71b2b"
+      },
+      {
+        "name": "exact_installment_collection_holds_agreement",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": false,
+        "definition_hash": "37bbd039a177cc82216c7151fc9c4e62"
+      },
+      {
+        "name": "exact_installment_collection_holds_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "fa91d432d7a5fa8860d3cea46e59dc5e"
+      },
+      {
+        "name": "exact_installment_collection_holds_refund_operation_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "c3c44fd16d889eeab442bfdf34792596"
+      },
+      {
+        "name": "exact_installment_collection_holds_request_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "511cdb38813758425b77977576be315f"
+      },
+      {
+        "name": "exact_installment_collection_holds_stripe_event_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "7ce21f1107e2fd3a9803216d704d6c7f"
+      },
+      {
+        "name": "exact_installment_future_card_choices_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "03834bec78557bbcbecc068bbf657e8a"
+      },
+      {
+        "name": "exact_installment_invoice_cards_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "fbeb82cbd86b28f584e258bd780fb37c"
+      },
+      {
+        "name": "exact_installment_invoice_claims_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "f541d67bbc53edc52ba161ad86a5edf4"
+      },
+      {
+        "name": "exact_installment_invoice_claims_stripe_invoice_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "820da1d9471bc81380806e20cd587f8b"
+      },
+      {
+        "name": "exact_installment_invoice_claims_stripe_payment_intent_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "8f77534516448785eea089a5b9af4c80"
+      },
+      {
+        "name": "exact_installment_invoice_recovery_hold",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "e936b5c89e10182cc06329b45b8fe83b"
+      },
+      {
+        "name": "exact_installment_lifecycle_observations_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "a5e294041ebdde116da1a9a5ba19df8b"
+      },
+      {
+        "name": "exact_installment_one_booking",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "b27442f8ce03cc7bdf3d12e7b636332a"
+      },
+      {
+        "name": "exact_installment_one_cancellation_request",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "3d1841bd39350109384e80ef484bb92c"
+      },
+      {
+        "name": "exact_installment_one_confirmed_retry",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "bc6015752cf397c2a9280af0539525e1"
+      },
+      {
+        "name": "exact_installment_operations_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "117ceae3d53eaf82dcfe90362b64f4a9"
+      },
+      {
+        "name": "exact_installment_payment_confirmations_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "e9c66d8da0be838fe5826d324053eb54"
+      },
+      {
+        "name": "exact_installment_payment_recoveri_stripe_payment_intent_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "c86b6a098a4ada17331634f072c5a837"
+      },
+      {
+        "name": "exact_installment_payment_recoveries_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "67d960a28642e046aa98a16def76ab66"
+      },
+      {
+        "name": "exact_installment_periods_agreement_id_due_at_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "945377a0d123e36c0a67b32b8c0eef63"
+      },
+      {
+        "name": "exact_installment_periods_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "483966443f06a2d421753d07b0a6182d"
+      },
+      {
+        "name": "exact_installment_receipts_ledger_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "c037c646fc4846208be10570e0300b57"
+      },
+      {
+        "name": "exact_installment_receipts_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "6065af5dbdd836e25971cf6d43cd6a66"
+      },
+      {
+        "name": "exact_installment_receipts_stripe_invoice_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "c67ee45f0c838eaa29f7600981a1771c"
+      },
+      {
+        "name": "exact_installment_receipts_stripe_payment_intent_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "b6fa2ab57e6a2ed838eb4ae74b57e067"
+      },
+      {
+        "name": "exact_installment_resolved_card_holds_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "0f93d6cc20af9aa505711909be7bf2e3"
+      },
+      {
+        "name": "exact_installment_retry_admissions_pkey",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "17a3f6f889be9fc76d513af8fe742516"
+      },
+      {
+        "name": "exact_installment_retry_admissions_stripe_invoice_id_key",
+        "indisready": true,
+        "indisvalid": true,
+        "indisunique": true,
+        "definition_hash": "955d71845554065323ac0e320d435d5e"
+      }
+    ],
+    "triggers": [
+      {
+        "name": "exact_installment_booking_binding",
+        "tgtype": 19,
+        "present": true,
+        "routine": "public.guard_exact_installment_booking_binding()",
+        "tgenabled": "O",
+        "table_name": "booking_payments",
+        "tgisinternal": false,
+        "expected_type": 19,
+        "definition_hash": "bd81ca874bde925cc8f8a0c8bbe18012",
+        "expected_routine": "public.guard_exact_installment_booking_binding()"
+      },
+      {
+        "name": "exact_installment_checkout_estimate",
+        "tgtype": 19,
+        "present": true,
+        "routine": "public.guard_exact_installment_checkout_estimate()",
+        "tgenabled": "O",
+        "table_name": "booking_payments",
+        "tgisinternal": false,
+        "expected_type": 19,
+        "definition_hash": "24eaacebc6f5344eef29160b89ed1d1c",
+        "expected_routine": "public.guard_exact_installment_checkout_estimate()"
+      },
+      {
+        "name": "exact_installment_activation_hold",
+        "tgtype": 7,
+        "present": true,
+        "routine": "public.guard_exact_installment_activation_hold()",
+        "tgenabled": "O",
+        "table_name": "exact_installment_activations",
+        "tgisinternal": false,
+        "expected_type": 7,
+        "definition_hash": "132929aa33658d0a075dceff4c7438d9",
+        "expected_routine": "public.guard_exact_installment_activation_hold()"
+      }
+    ],
+    "functions": [
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "admit_exact_installment_admin_refund(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "126c12d05206be6e90fb6996b2b474bf"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "admit_exact_installment_admin_refund_before_recovery(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "8ffdf3a74ce1b2ad780a865755ea154d"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "admit_exact_installment_dispatch(uuid,text,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "3c62d39608b56103e7a8a8cbdb2469f0"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "admit_exact_installment_retry(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "206a4c812d6db5ef71f92da8bf49a60e"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "admit_exact_installment_retry_original(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "65d18ae70857801bcff60bf79a8baefb"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "apply_exact_installment_dispute_event(uuid,text,text,bigint,jsonb,text,text,bigint,bigint,text,bigint)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "8232f1e92aa2d11c5b03b5df4f1909d1"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "apply_exact_installment_refund_event(uuid,text,text,text,bigint,bigint)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "c5f46fda9325d4df5d507ab9783cb17d"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "assert_exact_card_setup_eligible(uuid,text,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "ef4ecbff30634a755e3682314f8b3cc7"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "assert_exact_installment_activation_ready(uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "1cdca938a179b0c314f08108824c7c27"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "assert_exact_installment_billing_stop(uuid,uuid,uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "99af14f37e8d79977fd96512507efa5e"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "assert_exact_installment_renewal_ready(uuid,integer)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "fe7f68ccc140675ece444ba56f10cb80"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "begin_exact_installment_recovery(uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "30db2e77aaec5f5422354ee435fb3f61"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "bind_exact_card_setup(uuid,uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "a4598233ca96f09439c26fcb74b54864"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "bind_exact_installment_checkout(uuid,text,text,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "c5f0438e65a0d3a792c5b8037af189ce"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "bind_exact_installment_purchase(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "b57e228ea7662586254bee0a5f039d85"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "claim_exact_installment_activation(uuid,text,text,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "a7214c26dc4bc1f30ec209f348b9e304"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "claim_exact_installment_billing_stop(uuid,uuid,uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "3e8141dd5c212f88f1fc1f0427d6df99"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "claim_exact_installment_invoice(uuid,text,text,bigint,bigint,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "b7368edec176aab8ad262e31233d199b"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "claim_exact_installment_invoice_original(uuid,text,text,bigint,bigint,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "5ee827233e9cf5ea133a7abbe64779aa"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "claim_exact_installment_operation(uuid,text,text,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "9031a21f714b9ab1fee1c11e6bb6f108"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "complete_exact_installment_activation(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "2ecb2762b629a158031085a76e154dd1"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "complete_exact_installment_agreement(uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "9af137497bad43dea22fce5e8d79720e"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "complete_exact_installment_billing_stop(uuid,uuid,uuid,uuid,text,text,bigint,text,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "bab4f638164e31fb0697f6f10773652e"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "complete_exact_installment_operation(uuid,text,uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "21b72b3cda35ace7c6d490caa2f2f85f"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "confirm_exact_installment_future_card(uuid,uuid,boolean,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "efe9305c7a478adeaa05396bec3c1e8b"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "confirm_exact_installment_retry(uuid,uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "8eaa6c6f285d8667e5c2223131f3da7d"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "create_exact_installment_agreement(uuid,uuid,uuid,jsonb)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "295b0fd81dfe0b077b0360a5feb73bc6"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "credit_exact_installment_receipt(uuid,integer,text,text,bigint)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "d5be03ffd0ff3638c712d8e4b600fb99"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "exact_installment_lifecycle_basis(uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "d648c19a87611a4970b9b986e41f1ae0"
+      },
+      {
+        "owner": "postgres",
+        "definer": false,
+        "present": true,
+        "prokind": "f",
+        "signature": "exact_installment_month(bigint,integer)",
+        "provolatile": "i",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": false,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "d4632dce8fdc8763899b88fd5d0a2a6f"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "exact_installment_recovery_basis(uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "6b0813dee7de7f15db267456343042fc"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "exact_installment_recovery_is_terminal(uuid,text,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "ecbbadb2f2fcb108065c143c45ae487d"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "exact_installment_stop_is_quiescent(uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "7402224c2112d6bb39cd6eb8425c0d59"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "finish_exact_installment_lifecycle(uuid,text,text,bigint,jsonb,text,jsonb)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "8f85c56a17923a593c407f0cfbc7df17"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "finish_exact_installment_recovery(uuid,text,text,bigint,jsonb,text,text,jsonb)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "d65cc4d5ee1f9f90d0ee652591e7e6da"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "fulfill_exact_installment_first_payment(uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "fb6ebbe6a674102dd9a39d7f6ff03956"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "guard_exact_installment_activation_hold()",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "4d49ddccae0156014055951384be06f1"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "guard_exact_installment_booking_binding()",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "7aec7edeaf4247f512e7ed0f12a7cde6"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "guard_exact_installment_checkout_estimate()",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "69b52b256744e8f2adfd3aa750abdc07"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "hold_exact_installment_for_cancellation(uuid,uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "0ebdf85e9422233c736d130a6efb0b59"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "hold_exact_installment_lifecycle_event(uuid,text,text,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "699da20c38e31c5729688c12513a1266"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "hold_exact_installment_refund_event(uuid,text,text,text,bigint)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "424ba07d135cf491d63203a6d6efe675"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "prepare_exact_installment_dispatch(uuid,text,text,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "b7390efdf289301fca7b0323f0fcdbf9"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "publish_exact_installment_checkout(uuid,uuid,text,text,uuid,text,bigint,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "cb2d2224f8478bae1d0d35e7f1dd0d8d"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "quote_exact_installment_future_card(uuid,uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "b6c43af50c928471ef2af0e16ac3ac5f"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "quote_exact_installment_retry(uuid,uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "6eb03d5216df16322732dd2ab0385a31"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "quote_exact_installment_retry(uuid,uuid,uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "0bb72db3e58e3946eab9f8a57854c27c"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "read_current_exact_card_setup(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "bf26248537f96b3ade602a1877331705"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "read_exact_buyer_recovery(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "625a0c3f83f91d1d106deb5fb57a6ab9"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "read_exact_buyer_recovery_original(uuid,uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": false,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": false,
+        "normalized_definition_hash": "649833473b16aae64f00e2845a8a44a6"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "read_exact_installment_bank_context(uuid,text,uuid,boolean)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "eb190a11e3d7b1c54520895c89066d3c"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "read_exact_installment_lifecycle(uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "cc303e68f819ebc8d6576cd7f8f0ee67"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "reconcile_exact_installment_dispute_audit(text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "e58f1b9a93155e6a318a9a9517fc7f90"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "record_exact_installment_first_receipt(uuid,text,text,bigint,bigint,timestamp with time zone)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "4982b79fb07d3b9ca27f818ea9e44af5"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "record_exact_installment_renewal_receipt(uuid,text,text,bigint,bigint,timestamp with time zone)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "4cbe3fde1f5d656eb791bfcdcd2c8920"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "record_exact_installment_retry_receipt(uuid,text,text,bigint,bigint,timestamp with time zone)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "db84f1b6643af750a48b2684ca3422bb"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "reserve_exact_card_setup(uuid,uuid,text,uuid,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "b22b00b3063950ec676b4165b661682f"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "reserve_exact_installment_checkout(uuid,uuid,integer,text,jsonb,jsonb)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "78c67e262cf410cabbc0f30500b26e61"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "seed_exact_installment_purchase(uuid)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "5ec99df2542216f3c6f6e052c9974586"
+      },
+      {
+        "owner": "postgres",
+        "definer": true,
+        "present": true,
+        "prokind": "f",
+        "signature": "verify_exact_card_setup(uuid,uuid,text,text,text)",
+        "provolatile": "v",
+        "anon_execute": false,
+        "server_execute": true,
+        "expected_definer": true,
+        "configuration_hash": "eac5bef9b92039986bf93dc486753f77",
+        "any_app_grant_option": false,
+        "reviewed_search_path": true,
+        "authenticated_execute": false,
+        "expected_server_execute": true,
+        "normalized_definition_hash": "43b5fdf1a81d37e87766d8a7fb754a44"
+      }
+    ],
+    "relations": [
+      {
+        "rls": true,
+        "name": "exact_installment_activations",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_activations_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_agreements",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_agreements_booking_payment_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_agreements_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_agreements_purchase_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_agreements_stripe_checkout_session_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_agreements_stripe_customer_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_agreements_stripe_subscription_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_billing_stops",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_billing_stops_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_billing_stops_request_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_card_setups",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_card_setups_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_card_setups_stripe_checkout_session_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_card_setups_stripe_invoice_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_card_setups_stripe_setup_intent_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_collection_holds",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_collection_holds_agreement",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_collection_holds_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_collection_holds_refund_operation_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_collection_holds_request_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_collection_holds_stripe_event_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_future_card_choices",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_future_card_choices_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_invoice_cards",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_invoice_cards_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_invoice_claims",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_invoice_claims_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_invoice_claims_stripe_invoice_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_invoice_claims_stripe_payment_intent_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_invoice_recovery_hold",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_lifecycle_observations",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_lifecycle_observations_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_one_booking",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_one_cancellation_request",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_one_confirmed_retry",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_operations",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_operations_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_payment_confirmations",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_payment_confirmations_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_payment_recoveri_stripe_payment_intent_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_payment_recoveries",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_payment_recoveries_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_periods",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_periods_agreement_id_due_at_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_periods_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_receipts",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_receipts_ledger_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_receipts_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_receipts_stripe_invoice_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_receipts_stripe_payment_intent_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_resolved_card_holds",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_resolved_card_holds_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": true,
+        "name": "exact_installment_retry_admissions",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "r",
+        "policy_count": 0,
+        "expected_kind": "r",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_retry_admissions_pkey",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      },
+      {
+        "rls": false,
+        "name": "exact_installment_retry_admissions_stripe_invoice_id_key",
+        "owner": "postgres",
+        "present": true,
+        "force_rls": false,
+        "actual_kind": "i",
+        "policy_count": 0,
+        "expected_kind": "i",
+        "relispartition": false,
+        "inheritance_edges": 0
+      }
+    ],
+    "bundle_sha256": "76693f3efd01473225caa66bfcfd39da00766ce95cc491609f38f40a6f5b6be8",
+    "booking_marker": {
+      "type": "text",
+      "attname": "installment_collection_version",
+      "atthasdef": false,
+      "attnotnull": false
+    },
+    "manifest_sha256": "bc5df8697caaa8ee4a5e3bda76baab636f32cbecbb250dda65055713bde54271",
+    "columns_fingerprint": {
+      "hash": "bb2646181f1458c4e279b36d754f700a",
+      "count": 137
+    },
+    "table_acl_conditions": [
+      {
+        "name": "exact_installment_activations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_activations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_activations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_agreements",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_agreements",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_agreements",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_billing_stops",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_billing_stops",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_billing_stops",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_card_setups",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_card_setups",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_card_setups",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_collection_holds",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_collection_holds",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_collection_holds",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_future_card_choices",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_future_card_choices",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_future_card_choices",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_invoice_cards",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_invoice_cards",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_invoice_cards",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_invoice_claims",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_invoice_claims",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_invoice_claims",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_lifecycle_observations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_lifecycle_observations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_lifecycle_observations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_operations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_operations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_operations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_payment_confirmations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_payment_confirmations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_payment_confirmations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_payment_recoveries",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_payment_recoveries",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_payment_recoveries",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_periods",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_periods",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_periods",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_receipts",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_receipts",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_receipts",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_resolved_card_holds",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_resolved_card_holds",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_resolved_card_holds",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_retry_admissions",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_retry_admissions",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 8
+      },
+      {
+        "name": "exact_installment_retry_admissions",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 8
+      }
+    ],
+    "broad_exact_relations": [
+      {
+        "kind": "r",
+        "name": "exact_installment_activations"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_activations_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_agreements"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_agreements_booking_payment_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_agreements_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_agreements_purchase_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_agreements_stripe_checkout_session_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_agreements_stripe_customer_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_agreements_stripe_subscription_id_key"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_billing_stops"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_billing_stops_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_billing_stops_request_id_key"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_card_setups"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_card_setups_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_card_setups_stripe_checkout_session_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_card_setups_stripe_invoice_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_card_setups_stripe_setup_intent_id_key"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_collection_holds"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_collection_holds_agreement"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_collection_holds_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_collection_holds_refund_operation_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_collection_holds_request_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_collection_holds_stripe_event_id_key"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_future_card_choices"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_future_card_choices_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_invoice_cards"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_invoice_cards_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_invoice_claims"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_invoice_claims_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_invoice_claims_stripe_invoice_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_invoice_claims_stripe_payment_intent_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_invoice_recovery_hold"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_lifecycle_observations"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_lifecycle_observations_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_one_booking"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_one_cancellation_request"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_one_confirmed_retry"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_operations"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_operations_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_payment_confirmations"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_payment_confirmations_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_payment_recoveri_stripe_payment_intent_id_key"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_payment_recoveries"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_payment_recoveries_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_periods"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_periods_agreement_id_due_at_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_periods_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_receipts"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_receipts_ledger_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_receipts_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_receipts_stripe_invoice_id_key"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_receipts_stripe_payment_intent_id_key"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_resolved_card_holds"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_resolved_card_holds_pkey"
+      },
+      {
+        "kind": "r",
+        "name": "exact_installment_retry_admissions"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_retry_admissions_pkey"
+      },
+      {
+        "kind": "i",
+        "name": "exact_installment_retry_admissions_stripe_invoice_id_key"
+      }
+    ],
+    "column_acl_conditions": [
+      {
+        "name": "exact_installment_activations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 28
+      },
+      {
+        "name": "exact_installment_activations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 28
+      },
+      {
+        "name": "exact_installment_activations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 28
+      },
+      {
+        "name": "exact_installment_agreements",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 48
+      },
+      {
+        "name": "exact_installment_agreements",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 48
+      },
+      {
+        "name": "exact_installment_agreements",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 48
+      },
+      {
+        "name": "exact_installment_billing_stops",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 36
+      },
+      {
+        "name": "exact_installment_billing_stops",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 36
+      },
+      {
+        "name": "exact_installment_billing_stops",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 36
+      },
+      {
+        "name": "exact_installment_card_setups",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 52
+      },
+      {
+        "name": "exact_installment_card_setups",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 52
+      },
+      {
+        "name": "exact_installment_card_setups",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 52
+      },
+      {
+        "name": "exact_installment_collection_holds",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 40
+      },
+      {
+        "name": "exact_installment_collection_holds",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 40
+      },
+      {
+        "name": "exact_installment_collection_holds",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 40
+      },
+      {
+        "name": "exact_installment_future_card_choices",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_future_card_choices",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_future_card_choices",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_invoice_cards",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_invoice_cards",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_invoice_cards",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_invoice_claims",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 36
+      },
+      {
+        "name": "exact_installment_invoice_claims",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 36
+      },
+      {
+        "name": "exact_installment_invoice_claims",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 36
+      },
+      {
+        "name": "exact_installment_lifecycle_observations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 28
+      },
+      {
+        "name": "exact_installment_lifecycle_observations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 28
+      },
+      {
+        "name": "exact_installment_lifecycle_observations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 28
+      },
+      {
+        "name": "exact_installment_operations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_operations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_operations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_payment_confirmations",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 72
+      },
+      {
+        "name": "exact_installment_payment_confirmations",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 72
+      },
+      {
+        "name": "exact_installment_payment_confirmations",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 72
+      },
+      {
+        "name": "exact_installment_payment_recoveries",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_payment_recoveries",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_payment_recoveries",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 32
+      },
+      {
+        "name": "exact_installment_periods",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 24
+      },
+      {
+        "name": "exact_installment_periods",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 24
+      },
+      {
+        "name": "exact_installment_periods",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 24
+      },
+      {
+        "name": "exact_installment_receipts",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 40
+      },
+      {
+        "name": "exact_installment_receipts",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 40
+      },
+      {
+        "name": "exact_installment_receipts",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 40
+      },
+      {
+        "name": "exact_installment_resolved_card_holds",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_resolved_card_holds",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_resolved_card_holds",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_retry_admissions",
+        "role": "anon",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_retry_admissions",
+        "role": "authenticated",
+        "expected_access": true,
+        "privileges_checked": 16
+      },
+      {
+        "name": "exact_installment_retry_admissions",
+        "role": "service_role",
+        "expected_access": true,
+        "privileges_checked": 16
+      }
+    ],
+    "constraints_fingerprint": {
+      "hash": "0c1e08dee4fc86ab9913880de3eda0f1",
+      "count": 130,
+      "scope": "Excludes PG18-only pg_constraint NOT NULL rows; attnotnull is covered by columns_fingerprint",
+      "all_validated": true
+    },
+    "function_name_inventory": [
+      "public.admit_exact_installment_admin_refund(uuid,uuid)",
+      "public.admit_exact_installment_admin_refund_before_recovery(uuid,uuid)",
+      "public.admit_exact_installment_dispatch(uuid,text,uuid)",
+      "public.admit_exact_installment_retry(uuid,uuid)",
+      "public.admit_exact_installment_retry_original(uuid,uuid)",
+      "public.apply_exact_installment_dispute_event(uuid,text,text,bigint,jsonb,text,text,bigint,bigint,text,bigint)",
+      "public.apply_exact_installment_refund_event(uuid,text,text,text,bigint,bigint)",
+      "public.assert_exact_card_setup_eligible(uuid,text,uuid)",
+      "public.assert_exact_installment_activation_ready(uuid)",
+      "public.assert_exact_installment_billing_stop(uuid,uuid,uuid,uuid)",
+      "public.assert_exact_installment_renewal_ready(uuid,integer)",
+      "public.begin_exact_installment_recovery(uuid,text)",
+      "public.bind_exact_card_setup(uuid,uuid,text)",
+      "public.bind_exact_installment_checkout(uuid,text,text,text)",
+      "public.bind_exact_installment_purchase(uuid,uuid)",
+      "public.claim_exact_installment_activation(uuid,text,text,uuid)",
+      "public.claim_exact_installment_billing_stop(uuid,uuid,uuid,uuid)",
+      "public.claim_exact_installment_invoice(uuid,text,text,bigint,bigint,uuid)",
+      "public.claim_exact_installment_invoice_original(uuid,text,text,bigint,bigint,uuid)",
+      "public.claim_exact_installment_operation(uuid,text,text,uuid)",
+      "public.complete_exact_installment_activation(uuid,uuid)",
+      "public.complete_exact_installment_agreement(uuid)",
+      "public.complete_exact_installment_billing_stop(uuid,uuid,uuid,uuid,text,text,bigint,text,text)",
+      "public.complete_exact_installment_operation(uuid,text,uuid,text)",
+      "public.confirm_exact_installment_future_card(uuid,uuid,boolean,text)",
+      "public.confirm_exact_installment_retry(uuid,uuid,text)",
+      "public.create_exact_installment_agreement(uuid,uuid,uuid,jsonb)",
+      "public.credit_exact_installment_receipt(uuid,integer,text,text,bigint)",
+      "public.exact_installment_lifecycle_basis(uuid)",
+      "public.exact_installment_month(bigint,integer)",
+      "public.exact_installment_recovery_basis(uuid,text)",
+      "public.exact_installment_recovery_is_terminal(uuid,text,text)",
+      "public.exact_installment_stop_is_quiescent(uuid)",
+      "public.finish_exact_installment_lifecycle(uuid,text,text,bigint,jsonb,text,jsonb)",
+      "public.finish_exact_installment_recovery(uuid,text,text,bigint,jsonb,text,text,jsonb)",
+      "public.fulfill_exact_installment_first_payment(uuid)",
+      "public.guard_exact_installment_activation_hold()",
+      "public.guard_exact_installment_booking_binding()",
+      "public.guard_exact_installment_checkout_estimate()",
+      "public.hold_exact_installment_for_cancellation(uuid,uuid,uuid)",
+      "public.hold_exact_installment_lifecycle_event(uuid,text,text,text)",
+      "public.hold_exact_installment_refund_event(uuid,text,text,text,bigint)",
+      "public.prepare_exact_installment_dispatch(uuid,text,text,uuid)",
+      "public.publish_exact_installment_checkout(uuid,uuid,text,text,uuid,text,bigint,text)",
+      "public.quote_exact_installment_future_card(uuid,uuid,uuid)",
+      "public.quote_exact_installment_retry(uuid,uuid,uuid)",
+      "public.quote_exact_installment_retry(uuid,uuid,uuid,text)",
+      "public.read_current_exact_card_setup(uuid,uuid)",
+      "public.read_exact_buyer_recovery(uuid,uuid)",
+      "public.read_exact_buyer_recovery_original(uuid,uuid)",
+      "public.read_exact_installment_bank_context(uuid,text,uuid,boolean)",
+      "public.read_exact_installment_lifecycle(uuid,text)",
+      "public.reconcile_exact_installment_dispute_audit(text)",
+      "public.record_exact_installment_first_receipt(uuid,text,text,bigint,bigint,timestamp with time zone)",
+      "public.record_exact_installment_renewal_receipt(uuid,text,text,bigint,bigint,timestamp with time zone)",
+      "public.record_exact_installment_retry_receipt(uuid,text,text,bigint,bigint,timestamp with time zone)",
+      "public.reserve_exact_card_setup(uuid,uuid,text,uuid,text)",
+      "public.reserve_exact_installment_checkout(uuid,uuid,integer,text,jsonb,jsonb)",
+      "public.seed_exact_installment_purchase(uuid)",
+      "public.verify_exact_card_setup(uuid,uuid,text,text,text)"
+    ]
+  }
+}

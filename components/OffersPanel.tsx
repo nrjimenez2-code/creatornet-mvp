@@ -75,7 +75,7 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
     busyKey !== null || (isPurchase(card) && !sellReady);
 
   async function handleCta(card: OfferCard) {
-    if (authLoading || busyKey) return;
+    if (authLoading || isDisabled(card)) return;
     if (!userId) {
       router.push(SIGNED_OUT_REDIRECT);
       return;
@@ -84,6 +84,11 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
     setBusyKey(card.key);
     setErrors((prev) => ({ ...prev, [card.key]: "" }));
     try {
+      if (card.productId && card.monthlyTerms) {
+        const params = new URLSearchParams({ product_id: card.productId, post_id: card.postId });
+        router.push(`/memberships/review?${params}`);
+        return;
+      }
       const payload = card.productId
         ? productCheckoutPayload({
             productId: card.productId,
@@ -167,10 +172,23 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
                   {card.description ? (
                     <p className="mt-1 text-sm text-white/60">{card.description}</p>
                   ) : null}
+                  {card.serviceDescription ? (
+                    <p className="mt-2 text-sm text-white/80" data-fixed-service-terms>{card.serviceDescription}</p>
+                  ) : null}
+                  {card.monthlyTerms && (
+                    <p className="mt-2 text-sm text-white/80" data-monthly-terms>
+                      {card.monthlyTerms.minimumMonths === 1
+                        ? "One paid month; no additional minimum. "
+                        : `${card.monthlyTerms.minimumMonths}-month minimum commitment. `}
+                      {card.monthlyTerms.autoRenew
+                        ? "Renews monthly after the minimum until canceled."
+                        : `Ends after ${card.monthlyTerms.minimumMonths} ${card.monthlyTerms.minimumMonths === 1 ? "month" : "months"}; no automatic renewal.`}
+                    </p>
+                  )}
                   <div className="mt-3 flex flex-wrap items-end justify-between gap-3">
                     {card.priceCents !== null ? (
                       <p className="text-2xl font-semibold">
-                        {formatOfferPrice(card.priceCents, card.currency)}
+                        {formatOfferPrice(card.priceCents, card.currency)}{card.monthlyTerms ? "/month" : ""}
                       </p>
                     ) : (
                       <span />

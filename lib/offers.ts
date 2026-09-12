@@ -14,6 +14,9 @@
 // becomes a CONSULTATION pseudo-card that starts the $0 Stripe setup session
 // exactly like VideoCard's Book button.
 
+import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
+import { membershipCommitment, readMonthlyMentorshipTerms, type MonthlyMentorshipTerms } from "@/lib/membershipTerms";
+
 export type OfferProduct = {
   id: string;
   product_id?: string | null;
@@ -25,6 +28,8 @@ export type OfferProduct = {
   price_cents?: number | null;
   currency?: string | null;
   thumbnail_url?: string | null;
+  fixed_service_months?: number | null;
+  membership_terms?: unknown;
   /** null = never set by the composer; only an explicit false hides it. */
   active?: boolean | null;
 };
@@ -48,6 +53,10 @@ export type OfferCard = {
   label: string;
   title: string;
   description: string | null;
+  /** Explicit fixed service time; never inferred from installment count. */
+  serviceDescription?: string | null;
+  /** Validated recurring service terms; absent for fixed-price purchases and Book. */
+  monthlyTerms?: MonthlyMentorshipTerms;
   /** null = no price line (booking cards). */
   priceCents: number | null;
   currency: string;
@@ -84,6 +93,7 @@ const DEFAULT_CURRENCY = "usd";
 
 function kindOf(type: string | null | undefined): OfferKind {
   const t = (type ?? "").toLowerCase();
+  if (t === "call") return "consultation";
   if (t === "course" || t === "mentorship") return t;
   return "video";
 }
@@ -114,7 +124,38 @@ function productForPost(post: OfferPost, products: readonly OfferProduct[]): Off
   return products.find((p) => p.product_id != null && p.product_id === wanted) ?? null;
 }
 
-function productCard(product: OfferProduct, post: OfferPost): OfferCard {
+/** Keep every gallery post, but enable Buy only with an owned, validated product. */
+export function mapProfileGalleryPosts<T extends OfferPost & { creator_id?: string | null; price_cents?: number | null }>(
+  posts: readonly T[], products: readonly OfferProduct[] | null | undefined, creatorId: string,
+) {
+  return posts.map(post => {
+    const blocked = { ...post, product_type: null, monthlyTerms: null, purchaseOptionsReady: false };
+    const product = productForPost(post, products ?? []);
+    if (!product || post.creator_id !== creatorId || product.creator_id !== creatorId || !isActive(product)) return blocked;
+    try {
+      const monthlyTerms = readMonthlyMentorshipTerms(product.membership_terms, product.type);
+      if (monthlyTerms && product.fixed_service_months != null) return blocked;
+      const price = resolvePriceCents(product);
+      if (monthlyTerms) {
+        if (price === null) return blocked;
+        membershipCommitment(price, monthlyTerms);
+      }
+      return { ...post, product_id: product.id, product_type: product.type,
+        price_cents: monthlyTerms ? price : post.price_cents,
+        monthlyTerms, purchaseOptionsReady: true };
+    } catch { return blocked; }
+  });
+}
+
+function productCard(product: OfferProduct, post: OfferPost): OfferCard | null {
+  let monthlyTerms: MonthlyMentorshipTerms | null;
+  try {
+    monthlyTerms = readMonthlyMentorshipTerms(product.membership_terms, product.type);
+  } catch {
+    // Do not present malformed monthly offers as ordinary one-time purchases.
+    return null;
+  }
+  if (monthlyTerms && product.fixed_service_months != null) return null;
   const kind = kindOf(product.type);
   const copy = OFFER_COPY[kind];
   return {
@@ -123,13 +164,15 @@ function productCard(product: OfferProduct, post: OfferPost): OfferCard {
     label: copy.label,
     title: (product.title ?? "").trim() || (post.title ?? "").trim() || "Untitled offer",
     description: (product.description ?? "").trim() || null,
+    ...(monthlyTerms ? { monthlyTerms } : {}),
+    ...(product.fixed_service_months != null ? { serviceDescription: fixedServiceDescription(product.fixed_service_months) } : {}),
     priceCents: resolvePriceCents(product),
     currency: (product.currency ?? "").trim().toLowerCase() || DEFAULT_CURRENCY,
     imageUrl: post.poster_url || product.thumbnail_url || null,
     postId: post.id,
     productId: product.id,
     bookingUrl: null,
-    cta: copy.cta,
+    cta: monthlyTerms ? "Buy monthly mentorship" : copy.cta,
   };
 }
 
@@ -173,7 +216,8 @@ export function buildOffers(
     const product = productForPost(post, productRows);
     if (!product || seenProducts.has(product.id)) return cards;
     seenProducts.add(product.id);
-    return [...cards, productCard(product, post)];
+    const card = productCard(product, post);
+    return card ? [...cards, card] : cards;
   }, []);
 
   const seenBookingPosts = new Set<string>();

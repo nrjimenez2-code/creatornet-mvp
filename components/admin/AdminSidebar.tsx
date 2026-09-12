@@ -13,6 +13,7 @@ import {
   IconUsers,
 } from "@/components/admin/icons";
 import type { ReactNode } from "react";
+import { operatorInitials, type AdminPaymentMode } from "@/lib/admin/display-context";
 
 interface NavItem {
   href: string;
@@ -51,7 +52,15 @@ function BrandMark() {
   );
 }
 
-export function AdminSidebar() {
+export function AdminSidebar({
+  operatorName = "Administrator",
+  paymentMode = "unknown",
+  demo = false,
+}: {
+  operatorName?: string;
+  paymentMode?: AdminPaymentMode;
+  demo?: boolean;
+}) {
   const pathname = usePathname();
   const { stats } = useAdminData();
 
@@ -136,19 +145,19 @@ export function AdminSidebar() {
             className="h-2 w-2 rounded-full bg-amber-400 motion-safe:animate-[softPulse_2s_ease-in-out_infinite]"
           />
           <p className="text-[11px] leading-tight font-semibold text-amber-800">
-            Stripe test mode
+            {demo ? "Demo preview" : paymentMode === "live" ? "Stripe live mode" : paymentMode === "test" ? "Stripe test mode" : "Payment mode unverified"}
             <span className="block font-normal text-amber-700/80">
-              demo data · session-only actions
+              {demo ? "Sample data · no saved actions" : paymentMode === "live" ? "Real payments · saved actions" : paymentMode === "test" ? "Test payments · saved actions" : "Verify configuration before payments"}
             </span>
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 rounded-xl border border-[#e9e3f7] bg-white/70 px-3 py-2.5">
           <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#9370DB] to-[#6b4fae] text-[11px] font-bold text-white">
-            LT
+            {operatorInitials(operatorName)}
           </span>
           <div className="min-w-0">
-            <p className="truncate text-xs font-bold text-zinc-900">Landon Thomas</p>
+            <p className="truncate text-xs font-bold text-zinc-900">{operatorName}</p>
             <p className="text-[11px] text-gray-400">Administrator</p>
           </div>
         </div>

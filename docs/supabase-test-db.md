@@ -1,7 +1,13 @@
 # Supabase Test Database README
 
-Use this guide whenever you need to mirror production into a relaxed “test” Supabase project.  
-It describes **what schema objects must exist**, **how to clone them**, and **how to toggle the app between test and production safely**.
+**Historical reference only — do not use this as the launch/staging runbook.**
+Some instructions below relax RLS or suggest swapping production environment
+files. Those steps are not approved for current CreatorNet testing. Do not copy
+production secrets/data, disable RLS, ignore migration failures, or replace the
+active environment to make a test pass. Use the isolated Preview project and
+the [current release gate](admin-refund-release-gate.md), including the verified
+[staging compatibility/access findings](installment-staging-compatibility-review.md).
+The schema examples below may be stale and require catalog verification.
 
 ---
 

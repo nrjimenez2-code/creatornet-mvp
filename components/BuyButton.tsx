@@ -6,6 +6,7 @@ import { ChevronRight, ShoppingCart } from "lucide-react";
 type Props = {
   /** Optional price in cents — renders next to the label when > 0. */
   priceCents?: number | null;
+  monthly?: boolean;
   /** Whether the dropdown menu (parent-managed) is currently open. */
   expanded?: boolean;
   /** Click handler — parent toggles the dropdown. */
@@ -29,7 +30,7 @@ const ICON_CLASS = "h-3 w-3 md:h-3.5 md:w-3.5";
  * trailing chevron rotates to point down while the dropdown is open.
  */
 const BuyButton = forwardRef<HTMLButtonElement, Props>(function BuyButton(
-  { priceCents, expanded = false, onClick, label = "Buy", menuId },
+  { priceCents, monthly = false, expanded = false, onClick, label = "Buy", menuId },
   ref
 ) {
   const showPrice = typeof priceCents === "number" && priceCents > 0;
@@ -48,7 +49,7 @@ const BuyButton = forwardRef<HTMLButtonElement, Props>(function BuyButton(
       <span className="font-semibold leading-none">{label}</span>
       {showPrice && (
         <span className="font-semibold leading-none">
-          ${(priceCents! / 100).toFixed(2)}
+          ${(priceCents! / 100).toFixed(2)}{monthly ? "/month" : ""}
         </span>
       )}
       <ChevronRight

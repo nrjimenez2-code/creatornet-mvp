@@ -3,11 +3,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type { ActivityEvent, ActivityKind, PlatformStats } from "@/types/admin";
+import type { AdminPaymentMode } from "@/lib/admin/display-context";
 import { formatCents, formatCompact } from "@/lib/admin/format";
 import { accumulate, dailyTotals, dayLabels } from "@/lib/admin/series";
 import { useAdminData } from "@/components/admin/AdminDataContext";
 import { TimeAgo } from "@/components/admin/TimeAgo";
-import { DonutRing, Sparkline, TrendChart } from "@/components/admin/charts";
+import { Sparkline, TrendChart } from "@/components/admin/charts";
 import {
   IconAlert,
   IconArrowRight,
@@ -46,21 +47,19 @@ const MENTION_PATTERN = /(@[a-z0-9_]+)/gi;
 
 type ChecklistState = "done" | "warn" | "todo";
 
-const CHECKLIST_SCORES: Record<ChecklistState, number> = {
-  done: 1,
-  warn: 0.5,
-  todo: 0,
-};
-
 interface ChecklistItem {
   label: string;
   hint: string;
   state: ChecklistState;
 }
 
-function buildLaunchChecklist(stats: PlatformStats): ChecklistItem[] {
+function buildOperationalChecks(stats: PlatformStats, paymentMode: AdminPaymentMode): ChecklistItem[] {
   return [
-    { label: "Admin board online", hint: "You're looking at it", state: "done" },
+    {
+      label: paymentMode === "unknown" ? "Payment mode unverified" : `Stripe ${paymentMode} mode configured`,
+      hint: "Key configuration only — not a payment or payout verification.",
+      state: paymentMode === "unknown" ? "warn" : "todo",
+    },
     {
       label: "Flagged queue clear",
       hint:
@@ -69,23 +68,12 @@ function buildLaunchChecklist(stats: PlatformStats): ChecklistItem[] {
           : "All clear",
       state: stats.flaggedCount > 0 ? "warn" : "done",
     },
-    { label: "Stripe in LIVE mode", hint: "still test mode", state: "warn" },
     {
-      label: "50+ creators onboarded",
-      hint: `${stats.totalCreators} of 50 so far`,
-      state: "todo",
-    },
-    {
-      label: "Auth fan-out fix deployed",
-      hint: "patch written, not yet shipped",
+      label: `${stats.totalCreators} creator accounts`,
+      hint: "Accounts with a post or a connected Stripe account.",
       state: "todo",
     },
   ];
-}
-
-function readinessScore(items: ChecklistItem[]): number {
-  const earned = items.reduce((sum, item) => sum + CHECKLIST_SCORES[item.state], 0);
-  return (earned / items.length) * 100;
 }
 
 function ChecklistStateIcon({ state }: { state: ChecklistState }) {
@@ -190,35 +178,35 @@ function AttentionRow({ media, title, reason, href }: AttentionRowProps) {
 interface OverviewPageProps {
   /** Server-derived feed (buildRecentActivity) — newest 20 real events. */
   activity: ActivityEvent[];
+  paymentMode: AdminPaymentMode;
 }
 
-export function OverviewPage({ activity }: OverviewPageProps) {
-  const { users, videos, orders, stats } = useAdminData();
+export function OverviewPage({ activity, paymentMode }: OverviewPageProps) {
+  const { users, videos, orders, stats, asOf } = useAdminData();
 
   const flaggedVideos = videos.filter((video) => video.status === "flagged");
   const flaggedUsers = users.filter((user) => user.status === "flagged");
   const attentionCount = flaggedVideos.length + flaggedUsers.length;
   const hasFlaggedItems = attentionCount > 0;
 
-  const launchChecklist = buildLaunchChecklist(stats);
-  const score = readinessScore(launchChecklist);
+  const operationalChecks = buildOperationalChecks(stats, paymentMode);
 
   const paidOrders = orders.filter((order) => order.status === "paid");
   const gmvSeries = accumulate(
-    dailyTotals(paidOrders, (order) => order.createdAt, (order) => order.grossCents, 7),
+    dailyTotals(paidOrders, (order) => order.createdAt, (order) => order.grossCents, 7, asOf),
   );
   const signupSeries = accumulate(
-    dailyTotals(users, (user) => user.joinedAt, () => 1, 90),
+    dailyTotals(users, (user) => user.joinedAt, () => 1, 90, asOf),
   );
   const uploadSeries = accumulate(
-    dailyTotals(videos, (video) => video.createdAt, () => 1, 14),
+    dailyTotals(videos, (video) => video.createdAt, () => 1, 14, asOf),
   );
 
   return (
     <div className="motion-safe:animate-[pageIn_0.35s_ease-out]">
       <PageHeader
         title="Overview"
-        subtitle="Platform health at a glance — launch readiness in real time."
+        subtitle={`Platform activity as of ${asOf.slice(0, 10)} (UTC). Reload to refresh.`}
       />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
@@ -226,28 +214,28 @@ export function OverviewPage({ activity }: OverviewPageProps) {
           hero
           label="GMV"
           value={formatCents(stats.gmvCents)}
-          hint={`${formatCents(stats.platformFeeCents)} platform fees (12%)`}
+          hint={`${formatCents(stats.platformFeeCents)} recorded platform fees`}
           icon={<IconDollar size={15} />}
           visual={<Sparkline data={gmvSeries} stroke="#ffffff" width={140} height={30} />}
         />
         <StatCard
           label="Total users"
           value={formatCompact(stats.totalUsers)}
-          hint={`+${stats.newUsersToday} today`}
+          hint={`+${stats.newUsersToday} today (UTC)`}
           icon={<IconUsers size={15} />}
           visual={<Sparkline data={signupSeries} />}
         />
         <StatCard
           label="Creators"
           value={formatCompact(stats.totalCreators)}
-          hint="of 50 launch target"
+          hint="with posts or a Stripe account"
           icon={<IconStar size={15} />}
           iconTint="bg-amber-50 text-amber-500"
         />
         <StatCard
           label="Videos"
           value={formatCompact(stats.totalVideos)}
-          hint={`${stats.uploadsToday} uploaded today`}
+          hint={`${stats.uploadsToday} uploaded today (UTC)`}
           icon={<IconPlaySquare size={15} />}
           visual={<Sparkline data={uploadSeries} />}
         />
@@ -277,18 +265,21 @@ export function OverviewPage({ activity }: OverviewPageProps) {
           }
         >
           <div className="px-5 py-4">
-            <TrendChart data={gmvSeries} labels={dayLabels(7)} formatValue={formatCents} />
+            <TrendChart data={gmvSeries} labels={dayLabels(7, asOf)} formatValue={formatCents} />
           </div>
         </Panel>
 
-        <Panel title="Launch readiness">
-          <div className="flex items-center gap-5 px-5 py-4">
-            <DonutRing percent={score} label="ready" />
-            <div className="min-w-0 flex-1">
-              {launchChecklist.map((item) => (
+        <Panel title="Operational snapshot">
+          <div className="px-5 py-4">
+            <div className="min-w-0">
+              {operationalChecks.map((item) => (
                 <ChecklistRow key={item.label} item={item} />
               ))}
             </div>
+            <p className="mt-3 text-xs text-gray-500">
+              These records do not establish launch readiness. Sign-in, payments,
+              refunds and delivery still require end-to-end verification.
+            </p>
           </div>
         </Panel>
       </div>

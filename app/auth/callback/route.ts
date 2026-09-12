@@ -3,8 +3,19 @@ import { NextResponse } from "next/server";
 import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
+import { createServerClient as createAppServerClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
+
+export async function GET() {
+  try {
+    const { data, error } = await createAppServerClient().auth.getUser();
+    return NextResponse.json({ ok: !error && !!data.user, userId: !error ? data.user?.id ?? null : null },
+      { status: !error && data.user ? 200 : 401, headers: { "Cache-Control": "no-store" } });
+  } catch {
+    return NextResponse.json({ ok: false }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -36,7 +47,13 @@ export async function POST(req: Request) {
 
     // If the user signed out, clear server cookies
     if (event === "SIGNED_OUT" || (!access_token && !refresh_token)) {
-      await supabase.auth.signOut();
+      // Cookie synchronization must never revoke another device's sessions.
+      const key = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0]}-auth-token`;
+      for (const cookie of cookieStore.getAll()) {
+        if (cookie.name === key || cookie.name.startsWith(key + ".")) {
+          cookieStore.set(cookie.name, "", { path: "/", maxAge: 0 });
+        }
+      }
       return NextResponse.json({ ok: true, cleared: true }, { status: 200 });
     }
 
@@ -54,6 +71,11 @@ export async function POST(req: Request) {
         { ok: false, reason: "setSession_error" },
         { status: 400 }
       );
+    }
+
+    const verified = await supabase.auth.getUser();
+    if (verified.error || !verified.data.user) {
+      return NextResponse.json({ ok: false, reason: "invalid_session" }, { status: 401 });
     }
 
     return NextResponse.json({ ok: true }, { status: 200 });

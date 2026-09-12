@@ -1,0 +1,14 @@
+{
+  "name": "creatornet-video-processor",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  "stream": {"binding": "STREAM"},
+  "r2_buckets": [
+    {"binding": "MEDIA", "bucket_name": "creatornet-media"},
+    {"binding": "STATE", "bucket_name": "creatornet-video-processing-state"}
+  ],
+  "queues": {"consumers": [{"queue": "creatornet-video-processing", "max_batch_size": 1, "max_concurrency": 1, "max_retries": 100, "dead_letter_queue": "creatornet-video-processing-failed"}]},
+  "routes": [{"pattern": "media.creatornet.net/auto/*", "zone_id": "81fb77b32d81b518a65bc90efe7f74c8"}],
+  "observability": {"enabled": true}
+}

@@ -20,7 +20,7 @@
 
 import { act, createElement } from "react";
 import { createRoot, Root } from "react-dom/client";
-import type { OfferCard } from "@/lib/offers";
+import { buildOffers, type OfferCard } from "@/lib/offers";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -296,6 +296,24 @@ describe("OffersPanel", () => {
     expect(d.textContent).toContain("Secure payments powered by CreatorNet");
   });
 
+  test("shows the explicit service duration separately from the full purchase price", async () => {
+    await render({ offers: [{
+      ...courseCard, priceCents: 1000000,
+      serviceDescription: "Service: 10 calendar months from the first captured payment, independent of payment count.",
+    }] });
+    const d = await open();
+    expect(d.querySelector("[data-fixed-service-terms]")?.textContent).toContain("10 calendar months");
+    expect(d.querySelector("[data-fixed-service-terms]")?.textContent).toContain("independent of payment count");
+    expect(d.textContent).toContain("$10,000");
+    expect(d.textContent).not.toContain("$10,000/month");
+  });
+
+  test("does not invent a service limit for legacy products or free booking cards", async () => {
+    await render();
+    const d = await open();
+    expect(d.querySelector("[data-fixed-service-terms]")).toBeNull();
+  });
+
   test("hides the rating line when there are no reviews", async () => {
     await render({ rating: { avgRating: 0, reviewCount: 0 }, offers: [courseCard] });
     const d = await open();
@@ -349,6 +367,72 @@ describe("OffersPanel", () => {
   });
 
   // --- checkout payloads ---------------------------------------------------
+
+  const mentorshipCards = (monthly: boolean, minimumMonths = 3, autoRenew = true) => buildOffers(
+    [{ id: "monthly_row", product_id: "legacy_product", title: "Mentorship", type: "mentorship", amount_cents: 10000,
+      ...(monthly ? { membership_terms: { version: "monthly-mentorship-v1", minimumMonths, autoRenew } }
+        : { fixed_service_months: 10 }) }],
+    [{ id: "visible_post", product_id: "legacy_product", allow_booking: true, booking_url: "https://cal.com/coach" }],
+  );
+
+  test.each([[1, true], [3, true], [3, false]] as const)(
+    "monthly Buy shows cadence and term (%s months, renewal %s) and opens explicit review", async (minimum, renewal) => {
+      await render({ offers: mentorshipCards(true, minimum, renewal) });
+      const d = await open();
+      expect(d.textContent).toContain("$100/month");
+      expect(d.querySelector("[data-monthly-terms]")?.textContent).toContain(
+        minimum === 1 ? "One paid month; no additional minimum." : "3-month minimum commitment.");
+      expect(d.querySelector("[data-monthly-terms]")?.textContent).toContain(
+        renewal ? "Renews monthly after the minimum until canceled." : "Ends after 3 months; no automatic renewal.");
+      expect(ctaButtons()[0].textContent).toBe("Buy monthly mentorship");
+      await act(async () => ctaButtons()[0].click());
+      expect(routerPush).toHaveBeenCalledWith("/memberships/review?product_id=monthly_row&post_id=visible_post");
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(assignMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test("monthly Buy preserves signed-out and loading authentication gates", async () => {
+    userCtx = { userId: null, session: null, loading: true };
+    await render({ offers: mentorshipCards(true) });
+    await open();
+    await act(async () => ctaButtons()[0].click());
+    expect(routerPush).not.toHaveBeenCalled();
+    userCtx = { userId: null, session: null, loading: false };
+    await render({ offers: mentorshipCards(true) });
+    await act(async () => ctaButtons()[0].click());
+    expect(routerPush).toHaveBeenCalledWith("/auth");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("monthly Buy preserves seller readiness; free Book on that same post keeps its existing flow", async () => {
+    const cards = mentorshipCards(true);
+    await render({ offers: cards, sellReady: false });
+    await open();
+    expect(ctaButtons()[0].disabled).toBe(true);
+    expect(ctaButtons()[0].textContent).toBe(NOT_SELL_READY_LABEL);
+    await act(async () => ctaButtons()[0].click());
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(okResponse("https://checkout.stripe.com/c/pay/free"));
+    await act(async () => ctaButtons()[1].click());
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/checkout");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(videoCardBookingBody(cards[1]));
+    expect(routerPush).not.toHaveBeenCalled();
+  });
+
+  test("fixed-price mentorship with a service duration keeps ordinary checkout and its total price", async () => {
+    const cards = mentorshipCards(false);
+    fetchMock.mockResolvedValueOnce(okResponse("https://checkout.stripe.com/c/pay/fixed"));
+    await render({ offers: cards });
+    const d = await open();
+    expect(d.textContent).not.toContain("/month");
+    expect(d.querySelector("[data-fixed-service-terms]")?.textContent).toContain("10 calendar months");
+    await act(async () => ctaButtons()[0].click());
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/checkout");
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1].body))).toEqual(videoCardProductBody(cards[0], "buyer_1"));
+    expect(routerPush).not.toHaveBeenCalled();
+  });
 
   test("product CTA POSTs /api/checkout with VideoCard's exact product payload and follows the URL", async () => {
     fetchMock.mockResolvedValueOnce(okResponse("https://checkout.stripe.com/c/pay/cs_1"));

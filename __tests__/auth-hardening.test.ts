@@ -50,7 +50,9 @@ describe("source tripwires", () => {
 
   test("Stripe success/cancel URLs come from the configured site, not the Host header", () => {
     expect(checkout).toMatch(/NEXT_PUBLIC_SITE_URL \|\| process\.env\.NEXT_PUBLIC_BASE_URL/);
-    expect(checkout).not.toMatch(/req\.headers\.get\("origin"\)/);
+    // Origin is read to reject cross-origin consent requests. It must not
+    // supply a redirect destination.
+    expect(checkout).not.toMatch(/(?:success_url|cancel_url):[^,\n]*req\.headers/);
   });
 
   test("webhook never resolves a booking buyer from the card email", () => {
@@ -66,7 +68,7 @@ describe("source tripwires", () => {
       const src = read(f);
       expect(src).toMatch(/isSameOriginRequest\(req\)/);
       expect(src.indexOf("isSameOriginRequest(req)")).toBeLessThan(src.indexOf("setSession"));
-      expect(src.indexOf("isSameOriginRequest(req)")).toBeLessThan(src.indexOf("signOut"));
+      expect(src.indexOf("isSameOriginRequest(req)")).toBeLessThan(src.indexOf("// If the user signed out") >= 0 ? src.indexOf("// If the user signed out") : src.indexOf("signOut"));
     }
   });
 

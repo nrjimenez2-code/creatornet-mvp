@@ -29,6 +29,9 @@ export default function LegalLayout({ children }: { children: React.ReactNode })
           <Link href="/legal/creators" className="text-gray-600 hover:text-gray-900 hover:underline">
             Creator Policy
           </Link>
+          <Link href="/legal/purchase-agreement" className="text-gray-600 hover:text-gray-900 hover:underline">
+            Purchase Agreement
+          </Link>
           <Link href="/legal/support" className="text-gray-600 hover:text-gray-900 hover:underline">
             Support
           </Link>

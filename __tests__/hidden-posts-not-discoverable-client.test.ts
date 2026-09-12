@@ -87,7 +87,9 @@ beforeEach(() => {
   root = createRoot(container);
   // The watch page fetches /api/watch/* after a post loads; never reached
   // here, but keep it from touching the network if it is.
-  (globalThis as { fetch?: unknown }).fetch = jest.fn(async () => ({ ok: false, status: 404, json: async () => ({}) }));
+  (globalThis as { fetch?: unknown }).fetch = jest.fn(async (url: string) => url === "/api/library/eligibility"
+    ? { ok: true, status: 200, json: async () => ({ purchaseIds: ["pur_1", "purchase_1"] }) }
+    : { ok: false, status: 404, json: async () => ({}) });
 });
 
 afterEach(async () => {
@@ -153,12 +155,12 @@ describe("app/watch/[postId]", () => {
     expect(routerPush).toHaveBeenCalledWith("/dashboard?postId=post_1");
   });
 
-  it("still opens a hidden post for a buyer with a paid purchase row", async () => {
+  it.each(["hidden_at", "removed_at"])("still opens a %s post for a buyer with a paid purchase row", async (column) => {
     db = createMockClient((op) =>
       op.table === "purchases"
         ? { data: { id: "pur_1" }, error: null }
         : op.table === "posts"
-          ? { data: HIDDEN_POST, error: null }
+          ? { data: { ...HIDDEN_POST, hidden_at: null, removed_at: null, [column]: "2026-09-11T00:00:00Z" }, error: null }
           : undefined
     );
     const { default: WatchPage } = await import("@/app/watch/[postId]/page");
@@ -169,12 +171,11 @@ describe("app/watch/[postId]", () => {
     expect(pur[0].filters).toMatchObject({
       buyer_id: "buyer_1",
       post_id: "post_1",
-      access_granted: true,
     });
-    expect(pur[0].inFilters).toContainEqual({
-      column: "status",
-      values: ["paid", "active", "complete"],
-    });
+    expect(pur[0].filters).not.toHaveProperty("access_granted");
+    expect(fetch).toHaveBeenCalledWith("/api/library/eligibility", expect.objectContaining({
+      method: "POST", credentials: "include", body: JSON.stringify({ purchaseIds: ["pur_1"] }),
+    }));
     expect(container.textContent).toContain("Hidden thing");
     expect(container.textContent).not.toContain("Post not found.");
     expect(routerPush).not.toHaveBeenCalled();

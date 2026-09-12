@@ -1,0 +1,114 @@
+{
+  "projectRef": "nwqfofezfzljhxolkycz",
+  "projectName": "CreatorNet Staging",
+  "recordedAtUtc": "2026-09-06T20:35:30Z",
+  "source": "Full Supabase SQL Editor result copied as JSON before and after the approved repair. recordedAtUtc is evidence-recording time, not the exact transaction timestamp.",
+  "dashboardUrl": "https://supabase.com/dashboard/project/nwqfofezfzljhxolkycz/sql/55f67059-085a-441e-ba04-9878f6b76553",
+  "repairFile": "docs/staging-restore-financial-acls.sql",
+  "checkFile": "docs/staging-financial-access-check.sql",
+  "transactionResult": "Success. No rows returned",
+  "precheck": {
+    "total": 15,
+    "pass": 3,
+    "review": 12
+  },
+  "postcheck": {
+    "total": 15,
+    "pass": 15,
+    "review": 0
+  },
+  "rows": [
+    {
+      "kind": "function",
+      "name": "public.apply_payment_fee_ledger_refund(uuid,bigint)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.apply_purchase_refund_earnings(uuid,bigint)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.claim_refund_operation(uuid,uuid,integer)",
+      "before": "PASS",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.claim_stripe_event(text,text,integer,uuid)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.complete_stripe_event(text,uuid)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.create_refund_operation(uuid,uuid,bigint,text,text,text,text,uuid,text,text,bigint,bigint,bigint)",
+      "before": "PASS",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.credit_payment_fee_ledger_earnings(uuid)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.record_payment_dispute_state(text,text,text,bigint,text,text,bigint)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.record_payment_refund_state(text,text,bigint,bigint)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "function",
+      "name": "public.release_stripe_event(text,uuid)",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "table",
+      "name": "public.payment_dispute_state",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "table",
+      "name": "public.payment_fee_ledger",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "table",
+      "name": "public.payment_refund_state",
+      "before": "REVIEW",
+      "after": "PASS"
+    },
+    {
+      "kind": "table",
+      "name": "public.refund_operations",
+      "before": "PASS",
+      "after": "PASS"
+    },
+    {
+      "kind": "table",
+      "name": "public.stripe_events",
+      "before": "REVIEW",
+      "after": "PASS"
+    }
+  ],
+  "scope": "Only existing PUBLIC/anon/authenticated ACLs on eight exact functions and four tables/columns were revoked. No financial RPC was called; no data statements, function replacements, RLS policy changes or server grants were executed.",
+  "limits": "Scoped effective ACL/RLS verification, not end-to-end payment acceptance, a full security audit, or a data/restore backup. No production changes or exact-installment feature migrations/configuration performed."
+}

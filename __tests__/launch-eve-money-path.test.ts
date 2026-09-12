@@ -10,6 +10,7 @@
 
 process.env.STRIPE_SECRET_KEY = "sk_test_fake";
 process.env.STRIPE_WEBHOOK_SECRET = "whsec_fake";
+process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_fake";
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "service_role_fake";
 process.env.NEXT_PUBLIC_SITE_URL = "https://www.creatornet.net";
@@ -43,7 +44,7 @@ jest.mock("@supabase/supabase-js", () => ({
 
 jest.mock("@/lib/stripeClient", () => ({
   getStripe: () => ({
-    webhooks: { constructEvent: (b: string, s: string, k: string) => constructEventImpl(b, s, k) },
+    webhooks: { constructEvent: (b: string, s: string, k: string) => ({ livemode: false, ...constructEventImpl(b, s, k) }) },
     subscriptions: { update: subscriptionsUpdate, retrieve: subscriptionsRetrieve },
     checkout: { sessions: { create: jest.fn(), retrieve: jest.fn() } },
     paymentIntents: { retrieve: paymentIntentsRetrieve },
@@ -108,6 +109,37 @@ beforeEach(() => {
       id: "ch_x",
       balance_transaction: { id: "txn_x", fee: 126 },
     },
+  });
+});
+
+describe("Stripe webhook destination signatures", () => {
+  it("verifies the separate Connect secret but rejects unsupported connected events before effects", async () => {
+    db = createMockClient(() => undefined);
+    const verify = jest.fn((_body: string, _signature: string, secret: string) => {
+      if (secret === "whsec_fake") throw new Error("wrong destination secret");
+      if (secret === "whsec_connect_fake") {
+        return {
+          id: "evt_connect_signature",
+          type: "unhandled.test",
+          data: { object: {} },
+        };
+      }
+      throw new Error("unexpected secret");
+    });
+    constructEventImpl = verify;
+
+    const { POST } = await import("@/app/api/stripe/webhook/route");
+    const response = await POST(webhookRequest());
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ stage: "provider-context" });
+    expect(verify).toHaveBeenNthCalledWith(1, "{}", "t=1,v1=fake", "whsec_fake");
+    expect(verify).toHaveBeenNthCalledWith(
+      2,
+      "{}",
+      "t=1,v1=fake",
+      "whsec_connect_fake",
+    );
   });
 });
 

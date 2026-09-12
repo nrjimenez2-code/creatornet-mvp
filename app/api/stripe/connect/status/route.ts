@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
@@ -47,47 +46,42 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  if (!profile.stripe_onboarding_complete) {
-    try {
-      const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
-      const isComplete = !!(account.charges_enabled && account.payouts_enabled);
+  // A stored true flag can be stale after restrictions or a failed webhook sync.
+  // Always observe Stripe; never infer current capability from completed onboarding.
+  try {
+    const account = await getStripe().accounts.retrieve(profile.stripe_account_id);
+    const isComplete = !!(account.charges_enabled && account.payouts_enabled);
 
-      // Write every flag together so the two "complete" columns and the
-      // two capability columns never disagree (see supabase/schema/007).
-      await db
-        .from("profiles")
-        .update({
-          stripe_onboarding_complete: isComplete,
-          onboarding_complete: isComplete,
-          charges_enabled: !!account.charges_enabled,
-          payouts_enabled: !!account.payouts_enabled,
-        })
-        .eq("id", user.id);
-
-      return NextResponse.json({
-        connected: true,
+    // Write every flag together so the two "complete" columns and the
+    // two capability columns never disagree (see supabase/schema/007).
+    const { data: saved, error: saveError } = await db
+      .from("profiles")
+      .update({
+        stripe_onboarding_complete: isComplete,
+        onboarding_complete: isComplete,
         charges_enabled: !!account.charges_enabled,
         payouts_enabled: !!account.payouts_enabled,
-        onboarding_complete: isComplete,
-        stripe_account_id: profile.stripe_account_id,
-      });
-    } catch (e: unknown) {
-      console.error("[connect/status] retrieve error:", (e as Error)?.message);
-      return NextResponse.json({
-        connected: true,
-        charges_enabled: false,
-        payouts_enabled: false,
-        onboarding_complete: false,
-        stripe_account_id: profile.stripe_account_id,
-      });
-    }
-  }
+      })
+      .eq("id", user.id)
+      .eq("stripe_account_id", account.id)
+      .select("id");
+    if (saveError || !saved?.length) throw new Error("Could not persist current Stripe capabilities");
 
-  return NextResponse.json({
-    connected: true,
-    charges_enabled: true,
-    payouts_enabled: true,
-    onboarding_complete: true,
-    stripe_account_id: profile.stripe_account_id,
-  });
+    return NextResponse.json({
+      connected: true,
+      charges_enabled: !!account.charges_enabled,
+      payouts_enabled: !!account.payouts_enabled,
+      onboarding_complete: isComplete,
+      stripe_account_id: profile.stripe_account_id,
+    });
+  } catch (e: unknown) {
+    console.error("[connect/status] sync error:", (e as Error)?.message);
+    return NextResponse.json({
+      connected: true,
+      charges_enabled: false,
+      payouts_enabled: false,
+      onboarding_complete: false,
+      stripe_account_id: profile.stripe_account_id,
+    }, { status: 503 });
+  }
 }

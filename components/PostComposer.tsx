@@ -5,6 +5,10 @@ import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { extractHashtags } from "@/lib/hashtags";
+import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
+import { readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
+import { MONTHLY_MENTORSHIP_VERSION, MAX_MEMBERSHIP_MINIMUM_MONTHS, describeMonthlyMentorship,
+  readMonthlyMentorshipTerms, type MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 
 /* ------------------------------------------------------------------ */
 /* Constants / types                                                  */
@@ -28,8 +32,10 @@ type Props = { onPosted?: () => void };
 type Product = {
   id: string;
   title: string;
-  type: "video" | "course" | "mentorship";
+  type: "video" | "course" | "mentorship" | "call";
   price_cents: number | null;
+  membership_terms?: MonthlyMentorshipTerms | null;
+  fixed_service_months?: number | null;
   external_url: string | null;
   active: boolean;
   created_at: string;
@@ -50,8 +56,11 @@ async function createProductViaAPI(input: {
   title: string;
   priceDollars?: string;
   description?: string;
-  type?: "video" | "course" | "mentorship";
+  type?: "video" | "course" | "mentorship" | "call";
   creator_id?: string;
+  scheduling_url?: string;
+  membership_terms?: MonthlyMentorshipTerms | null;
+  fixed_service_months?: number | null;
 }): Promise<Product> {
   const res = await fetch("/api/products", {
     method: "POST",
@@ -63,6 +72,9 @@ async function createProductViaAPI(input: {
       type: input.type ?? "video",
       price_cents: dollarsToCents(input.priceDollars ?? ""),
       creator_id: input.creator_id,
+      scheduling_url: input.scheduling_url,
+      membership_terms: input.membership_terms ?? null,
+      ...(input.fixed_service_months != null ? { fixed_service_months: input.fixed_service_months } : {}),
     }),
   });
 
@@ -73,7 +85,7 @@ async function createProductViaAPI(input: {
   return data.product as Product;
 }
 
-async function fetchMyProducts(): Promise<Product[]> {
+async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean }> {
   const res = await fetch("/api/products", {
     method: "GET",
     credentials: "include",
@@ -81,7 +93,7 @@ async function fetchMyProducts(): Promise<Product[]> {
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.error || "Failed to load products");
   const raw = (data?.items ?? []) as (Product & { product_id?: string })[];
-  return raw.map((p) => ({ ...p, id: p.id ?? p.product_id }));
+  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true };
 }
 
 /** Accept ANY https URL; auto-prefix missing scheme. */
@@ -329,7 +341,16 @@ export default function PostComposer({ onPosted }: Props) {
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProdTitle, setNewProdTitle] = useState("");
   const [newProdPrice, setNewProdPrice] = useState<string>(""); // dollars
-  const [newProdType, setNewProdType] = useState<"video" | "course" | "mentorship">("video");
+  const [newProdType, setNewProdType] = useState<"video" | "course" | "mentorship" | "call">("video");
+  const [paidCallsEnabled, setPaidCallsEnabled] = useState(false);
+  const [newProdSchedulingUrl, setNewProdSchedulingUrl] = useState("");
+  const [monthlyMembershipsReady, setMonthlyMembershipsReady] = useState(false);
+  const [newProdMonthly, setNewProdMonthly] = useState(false);
+  const [newProdMinimumMonths, setNewProdMinimumMonths] = useState(1);
+  const [newProdAutoRenew, setNewProdAutoRenew] = useState(false);
+  const [fixedServiceOffersEnabled, setFixedServiceOffersEnabled] = useState(false);
+  const [newProdFixedService, setNewProdFixedService] = useState(false);
+  const [newProdServiceMonths, setNewProdServiceMonths] = useState("");
 
   // Assets
   const [videoFile, setVideoFile] = useState<File | null>(null); // promo/public
@@ -342,7 +363,8 @@ export default function PostComposer({ onPosted }: Props) {
   const [postError, setPostError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState<string>("");
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const [productsLoadedFor, setProductsLoadedFor] = useState<string | null>(null);
+  const loadingProducts = !!userId && productsLoadedFor !== userId;
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
 
@@ -369,15 +391,14 @@ export default function PostComposer({ onPosted }: Props) {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    setLoadingProducts(true);
     (async () => {
       try {
-        const items = await fetchMyProducts();
-        if (!cancelled) setProducts(items);
+        const result = await fetchMyProducts();
+        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); }
       } catch (e) {
         if (!cancelled) console.debug("products GET:", (e as { message?: string })?.message);
       } finally {
-        if (!cancelled) setLoadingProducts(false);
+        if (!cancelled) setProductsLoadedFor(userId);
       }
     })();
     return () => { cancelled = true; };
@@ -390,24 +411,30 @@ export default function PostComposer({ onPosted }: Props) {
       try {
         const res = await fetch("/api/stripe/connect/status");
         const data = await res.json().catch(() => ({}));
-        if (!cancelled) setStripeSellReady(!!data?.onboarding_complete);
+        if (!cancelled) {
+          const ready = !!data?.onboarding_complete;
+          setStripeSellReady(ready);
+          if (!ready) {
+            setAttachBuy(false);
+            setProductId(null);
+            setNewProdOpen(false);
+            setPriceDollars("");
+          }
+        }
       } catch {
-        if (!cancelled) setStripeSellReady(false);
+        if (!cancelled) {
+          setStripeSellReady(false);
+          setAttachBuy(false);
+          setProductId(null);
+          setNewProdOpen(false);
+          setPriceDollars("");
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [userId]);
-
-  useEffect(() => {
-    if (stripeSellReady === false) {
-      setAttachBuy(false);
-      setProductId(null);
-      setNewProdOpen(false);
-      setPriceDollars("");
-    }
-  }, [stripeSellReady]);
 
   const chars = caption.trim().length;
 
@@ -436,11 +463,19 @@ export default function PostComposer({ onPosted }: Props) {
 
     setCreatingProduct(true);
     try {
+      const isMonthly = newProdType === "mentorship" && newProdMonthly;
+      const serviceMonths = newProdFixedService && newProdType !== "call" && !isMonthly
+        ? readFixedServiceOfferMonths(Number(newProdServiceMonths), newProdType, false) : null;
+      if (serviceMonths !== null && !fixedServiceOffersEnabled) throw Error("Timed fixed-purchase offers are not enabled yet.");
       const newProduct = await createProductViaAPI({
         title: t,
         priceDollars: newProdPrice,
         type: newProdType,
         creator_id: userId ?? undefined,
+        scheduling_url: newProdType === "call" ? newProdSchedulingUrl.trim() : undefined,
+        fixed_service_months: serviceMonths,
+        membership_terms: newProdType === "mentorship" && newProdMonthly
+          ? readMonthlyMentorshipTerms({ version: MONTHLY_MENTORSHIP_VERSION, minimumMonths: newProdMinimumMonths, autoRenew: newProdAutoRenew }, "mentorship") : null,
       });
 
       setProducts((prev) => [newProduct, ...prev]);
@@ -455,6 +490,9 @@ export default function PostComposer({ onPosted }: Props) {
       setNewProdTitle("");
       setNewProdPrice("");
       setNewProdType("video");
+      setNewProdSchedulingUrl("");
+      setNewProdMonthly(false); setNewProdMinimumMonths(1); setNewProdAutoRenew(false);
+      setNewProdFixedService(false); setNewProdServiceMonths("");
     } catch (e: unknown) {
       alert((e as { message?: string })?.message || "Failed to create product");
     } finally {
@@ -507,7 +545,7 @@ export default function PostComposer({ onPosted }: Props) {
       const validProductId = productId && uuidLike.test(String(productId)) ? productId : null;
       const attached = validProductId ? products.find((p) => p.id === validProductId) : null;
       const price_cents =
-        dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
+        attached?.membership_terms ? attached.price_cents : dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
 
       // 4b) Send selected product id when user chose one; API will verify it exists and belongs to user
       const postProductId = attachBuy && validProductId ? validProductId : null;
@@ -673,6 +711,8 @@ export default function PostComposer({ onPosted }: Props) {
                       <option key={p.id} className="bg-black text-white" value={String(p.id)}>
                         {p.title}
                         {p.price_cents != null ? ` — $${(p.price_cents / 100).toFixed(0)}` : ""}
+                        {p.membership_terms ? "/month" : ""}
+                        {p.fixed_service_months != null ? ` | ${p.fixed_service_months} service months` : ""}
                       </option>
                     )),
                 ]}
@@ -699,23 +739,68 @@ export default function PostComposer({ onPosted }: Props) {
                   <label className="text-sm text-white/60 shrink-0">Type</label>
                   <select
                     value={newProdType}
-                    onChange={(e) => setNewProdType(e.target.value as "video" | "course" | "mentorship")}
+                    aria-label="Product type"
+                    onChange={(e) => {
+                      const type = e.target.value as Product["type"];
+                      setNewProdType(type);
+                      if (type !== "mentorship") setNewProdMonthly(false);
+                      if (type === "call") { setNewProdFixedService(false); setNewProdServiceMonths(""); }
+                    }}
                     className="flex-1 rounded-lg border border-white/20 bg-black/60 px-3 py-2 text-sm text-white focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                   >
                     {[
                       <option key="video" className="bg-black text-white" value="video">Video</option>,
                       <option key="course" className="bg-black text-white" value="course">Course</option>,
                       <option key="mentorship" className="bg-black text-white" value="mentorship">Mentorship</option>,
+                      ...(paidCallsEnabled ? [<option key="call" className="bg-black text-white" value="call">Standalone paid call</option>] : []),
                     ]}
                   </select>
                 </div>
+                {newProdType === "mentorship" && monthlyMembershipsReady && <div className="space-y-2 rounded-lg border border-white/20 p-3 text-sm">
+                  <label className="flex items-center gap-2"><input type="checkbox" checked={newProdMonthly} onChange={e => { setNewProdMonthly(e.target.checked); if (e.target.checked) setNewProdFixedService(false); }} />Sell monthly mentorship service</label>
+                  {newProdMonthly && <>
+                    <label className="flex items-center gap-2">Minimum months
+                      <input type="number" min={1} max={MAX_MEMBERSHIP_MINIMUM_MONTHS} value={newProdMinimumMonths}
+                        onChange={e => setNewProdMinimumMonths(Number(e.target.value))} className="w-20 rounded border border-white/20 bg-black p-1" />
+                    </label>
+                    <label className="flex items-center gap-2"><input type="checkbox" checked={newProdAutoRenew} onChange={e => setNewProdAutoRenew(e.target.checked)} />Renew monthly after the minimum term until canceled</label>
+                    <p className="text-xs text-white/60">The price below is per month. If renewal is off, service ends after the selected term. This is not a fixed-price mentorship split into installments.</p>
+                  </>}
+                </div>}
+                {fixedServiceOffersEnabled && newProdType !== "call" && !(newProdType === "mentorship" && newProdMonthly) && (
+                  <div className="space-y-2 rounded-lg border border-white/20 p-3 text-sm">
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" aria-label="Set fixed service duration" checked={newProdFixedService}
+                        onChange={e => setNewProdFixedService(e.target.checked)} />
+                      Set a fixed service duration
+                    </label>
+                    {newProdFixedService && <>
+                      <label className="flex flex-wrap items-center gap-2">
+                        Service length in calendar months
+                        <input type="number" min={1} step={1} value={newProdServiceMonths}
+                          aria-label="Fixed service months" onChange={e => setNewProdServiceMonths(e.target.value)}
+                          className="w-24 rounded border border-white/20 bg-black p-1" />
+                      </label>
+                      <p className="text-xs text-white/60">Starts with the first captured payment. The price below is the total purchase price, not a monthly subscription price. Installment count does not change service length.</p>
+                    </>}
+                    <p className="text-xs text-white/60">Leaving this off does not add a timed-access limit or change any existing offer.</p>
+                  </div>
+                )}
+                {newProdType === "call" && <div className="space-y-2 text-sm">
+                  <label className="block">Private paid-call scheduling link
+                    <input type="url" value={newProdSchedulingUrl} onChange={e => setNewProdSchedulingUrl(e.target.value)} placeholder="https://your-scheduler.com/paid-call"
+                      className="mt-1 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white" />
+                  </label>
+                  <p className="text-xs text-white/60">Use a dedicated paid-call link. Buyers receive it after payment confirmation. Keep the free-call link below separate.</p>
+                </div>}
                 <div className="flex items-center gap-2">
                   <label className="text-sm text-white/60 shrink-0">$</label>
                   <input
                     inputMode="decimal"
+                    aria-label="Product price in USD"
                     value={newProdPrice}
                     onChange={(e) => setNewProdPrice(e.target.value)}
-                    placeholder="Price (optional)"
+                    placeholder={newProdType === "mentorship" && newProdMonthly ? "Monthly price in USD" : newProdFixedService ? "Total purchase price in USD" : "Price (optional)"}
                     className="flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
                   />
                   <button
@@ -734,7 +819,12 @@ export default function PostComposer({ onPosted }: Props) {
             )}
 
             <p className="text-xs text-white/50">
-              Tip: leave the post price blank to reuse the attached product price. You can still override above.
+              {(() => {
+                const selected = products.find(p => p.id === productId);
+                if (selected?.membership_terms && selected.price_cents) return describeMonthlyMentorship(selected.price_cents, selected.membership_terms);
+                if (selected?.fixed_service_months != null) return fixedServiceDescription(selected.fixed_service_months);
+                return "Tip: leave the post price blank to reuse the attached product price. You can still override above.";
+              })()}
             </p>
           </div>
         )}

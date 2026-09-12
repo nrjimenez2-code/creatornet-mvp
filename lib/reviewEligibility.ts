@@ -1,8 +1,9 @@
 // lib/reviewEligibility.ts — one definition of "who may review what?"
 //
-// The authoritative "paid" signal is public.purchases: the webhook /
-// confirm-purchase set access_granted=true with status 'paid', and a refund
-// flips access_granted=false + status='refunded' (lib/paymentRefunds.ts).
+// Legacy purchases use access_granted=true and a non-NULL status other than
+// 'refunded'/'failed'. When enabled, monthly/fixed purchases use the existing
+// owned, time-bounded entitlement readers. Keep the staged 101 review helpers
+// in parity; never turn a timed purchase into permanent legacy access.
 // A purchase is keyed by post_id — an offer IS a post (with a product_id).
 //
 // v2 (this file): reviews are per OFFER. public.reviews carries post_id
@@ -13,14 +14,15 @@
 // creator) — see isVerifiedPurchase.
 //
 // Both the write gate (app/api/reviews) and the labels
-// (app/creators/[creatorId]/reviews) derive from the same query shape, so a
-// refund removes the label and the right to re-review together.
+// (app/creators/[creatorId]/reviews) derive from the same query shape, so an
+// access-revoking refund removes the label and right to re-review together.
 //
 // Like lib/onboardingGate.ts, the viewer lookup lives here (not in the page)
 // so the single-auth-flow tripwire's exception list does not grow.
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServer } from "@/lib/supabaseServer";
+import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
 
 /** Rows in these states no longer count, even if access_granted was once true. */
 export const NON_QUALIFYING_PURCHASE_STATUSES = ["refunded", "failed"] as const;
@@ -37,9 +39,37 @@ export {
 import { UNTITLED_OFFER_LABEL, type PurchasedPost } from "@/lib/reviewMessages";
 
 /** The service-role client — RLS on purchases is buyer-scoped, and this must answer the same way for every caller. */
-type PurchaseReader = Pick<SupabaseClient, "from">;
+type PurchaseReader = Pick<SupabaseClient, "from"> & Partial<Pick<SupabaseClient, "rpc">>;
 
 const notInList = () => `(${NON_QUALIFYING_PURCHASE_STATUSES.join(",")})`;
+
+type ReviewPurchase = LivePurchase & { id: string; status: string | null };
+/** Read all owned candidates before evaluating access: an old unpaid purchase
+ * must not hide a later eligible purchase of the same offer. */
+async function entitledReviewPurchases(
+  admin: PurchaseReader,
+  scope: { buyerId?: string; buyerIds?: string[]; creatorId?: string; postId?: string }
+): Promise<ReviewPurchase[]> {
+  if (typeof admin.rpc !== "function") throw new Error("Review entitlement reader unavailable");
+  let query = admin.from("purchases").select("id,buyer_id,post_id,status")
+    .not("status", "in", notInList());
+  if (scope.buyerId) query = query.eq("buyer_id", scope.buyerId);
+  if (scope.buyerIds) query = query.in("buyer_id", scope.buyerIds);
+  if (scope.creatorId) query = query.eq("creator_id", scope.creatorId);
+  if (scope.postId) query = query.eq("post_id", scope.postId);
+  const { data, error } = await query;
+  if (error) throw error;
+  const eligible: ReviewPurchase[] = [];
+  for (const row of (data ?? []) as ReviewPurchase[]) {
+    if (!row.id || !row.buyer_id || typeof row.status !== "string" ||
+        (NON_QUALIFYING_PURCHASE_STATUSES as readonly string[]).includes(row.status) ||
+        scope.buyerId && row.buyer_id !== scope.buyerId ||
+        scope.buyerIds && !scope.buyerIds.includes(row.buyer_id) ||
+        scope.postId && row.post_id !== scope.postId) continue;
+    if (await membershipAccessSeconds(admin as SupabaseClient, row.id, row.buyer_id) > 0) eligible.push(row);
+  }
+  return eligible;
+}
 
 /** One live purchase row, as much of it as the labels need. */
 export type LivePurchase = { buyer_id: string; post_id: string | null };
@@ -58,6 +88,9 @@ export async function hasQualifyingPurchaseForPost(
   buyerId: string,
   postId: string
 ): Promise<boolean> {
+  if (membershipLedgerReady()) {
+    return (await entitledReviewPurchases(admin, { buyerId, postId })).length > 0;
+  }
   const { data, error } = await admin
     .from("purchases")
     .select("id")
@@ -104,7 +137,9 @@ export async function viewerPurchasedPosts(
   buyerId: string,
   creatorId: string
 ): Promise<PurchasedPost[]> {
-  const { data: rows, error } = await admin
+  const { data: rows, error } = membershipLedgerReady()
+    ? { data: await entitledReviewPurchases(admin, { buyerId, creatorId }), error: null }
+    : await admin
     .from("purchases")
     .select("post_id")
     .eq("buyer_id", buyerId)
@@ -148,6 +183,11 @@ export async function livePurchasesByReviewers(
   reviewerIds: string[]
 ): Promise<LivePurchase[]> {
   if (reviewerIds.length === 0) return [];
+
+  if (membershipLedgerReady()) {
+    return (await entitledReviewPurchases(admin, { buyerIds: reviewerIds, creatorId }))
+      .map(({ buyer_id, post_id }) => ({ buyer_id, post_id }));
+  }
 
   const { data, error } = await admin
     .from("purchases")

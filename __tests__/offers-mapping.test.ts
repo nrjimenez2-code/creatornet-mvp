@@ -41,6 +41,36 @@ const post = (overrides: Partial<OfferPost> & { id: string }): OfferPost => ({
   ...overrides,
 });
 
+describe("monthly offer mapping", () => {
+  const terms = { version: "monthly-mentorship-v1", minimumMonths: 3, autoRenew: true };
+
+  test("carries validated monthly terms and the actual product row and visible post identities", () => {
+    const cards = buildOffers(
+      [product({ id: "row", product_id: "legacy", type: "mentorship", membership_terms: terms })],
+      [post({ id: "visible", product_id: "legacy", allow_booking: true, booking_url: "https://cal.com/coach" })],
+    );
+    expect(cards[0]).toMatchObject({ productId: "row", postId: "visible", monthlyTerms: terms, cta: "Buy monthly mentorship" });
+    expect(cards[0].serviceDescription).toBeUndefined();
+    expect(cards[1].monthlyTerms).toBeUndefined();
+    expect(cards[1].productId).toBeNull();
+  });
+
+  test.each([{}, { ...terms, minimumMonths: 0 }, { ...terms, autoRenew: "true" }])(
+    "malformed monthly terms cannot fall back to a one-time purchase: %j", membership_terms => {
+      expect(buildOffers([product({ id: "row", type: "mentorship", membership_terms })],
+        [post({ id: "visible", product_id: "row" })])).toEqual([]);
+    },
+  );
+
+  test("fixed installments and fixed service time do not imply monthly recurrence", () => {
+    const fixed = { ...product({ id: "row", type: "mentorship", fixed_service_months: 10 }), plan_months: 4 };
+    const [card] = buildOffers([fixed], [post({ id: "visible", product_id: "row" })]);
+    expect(card.monthlyTerms).toBeUndefined();
+    expect(card.priceCents).toBe(9700);
+    expect(card.serviceDescription).toContain("10 calendar months");
+  });
+});
+
 describe("buildOffers — product cards", () => {
   test("joins a post to its product by products.id", () => {
     const cards = buildOffers(

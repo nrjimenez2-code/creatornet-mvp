@@ -122,3 +122,55 @@ describe("WatchPage error states", () => {
     expect(buttonNamed("Back to Library")).not.toBeNull();
   });
 });
+
+
+describe("WatchPage timed-purchase entitlement", () => {
+  function ownedPurchase() {
+    db = createMockClient(op => op.table === "purchases"
+      ? { data: op.filters.access_granted === true ? null : { id: "timed_purchase" }, error: null }
+      : op.table === "posts" ? { data: { id: "post_1", creator_id: null, title: "Paid fixed service", video_url: null,
+          poster_url: null, hidden_at: null, removed_at: null }, error: null } : undefined);
+  }
+  function response(body: unknown, ok = true) {
+    (globalThis as { fetch?: unknown }).fetch = jest.fn(async (url: string) => url === "/api/library/eligibility"
+      ? { ok, status: ok ? 200 : 503, json: async () => body }
+      : { ok: false, status: 404, json: async () => ({}) });
+  }
+  test("paid raw-false service opens through the authenticated server decision", async () => {
+    ownedPurchase(); response({ purchaseIds: ["timed_purchase"] });
+    await render();
+    expect(container.textContent).toContain("Paid fixed service");
+    expect(router.push).not.toHaveBeenCalled();
+    expect(fetch).toHaveBeenCalledWith("/api/library/eligibility", expect.objectContaining({
+      credentials: "include", cache: "no-store", body: JSON.stringify({ purchaseIds: ["timed_purchase"] }),
+    }));
+    expect(fetch).toHaveBeenCalledWith("/api/watch/post_1", expect.objectContaining({ credentials: "include" }));
+  });
+  test.each([{ purchaseIds: [] }, { purchaseIds: ["another_purchase"] }])("server denial %p never renders the post or loads delivery", async ({ purchaseIds }) => {
+    ownedPurchase(); response({ purchaseIds }); await render();
+    expect(router.push).toHaveBeenCalledWith("/dashboard?postId=post_1");
+    expect(container.textContent).not.toContain("Paid fixed service");
+    expect(fetch).not.toHaveBeenCalledWith("/api/watch/post_1", expect.anything());
+    expect(fetch).not.toHaveBeenCalledWith("/api/watch/post_1", expect.anything());
+  });
+  test.each([null, {}, { purchaseIds: "timed_purchase" }, { purchaseIds: [123] }])("malformed response %p fails closed with retry", async body => {
+    ownedPurchase(); response(body); await render();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Unable to verify access.");
+    expect(buttonNamed("Try again")).not.toBeNull();
+    expect(container.textContent).not.toContain("Paid fixed service");
+    expect(fetch).not.toHaveBeenCalledWith("/api/watch/post_1", expect.anything());
+    expect(router.push).not.toHaveBeenCalled();
+  });
+  test("entitlement endpoint error cannot grant access even with a matching ID", async () => {
+    ownedPurchase(); response({ purchaseIds: ["timed_purchase"] }, false); await render();
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Unable to verify access.");
+    expect(container.textContent).not.toContain("Paid fixed service");
+    expect(fetch).not.toHaveBeenCalledWith("/api/watch/post_1", expect.anything());
+  });
+  test("network failure cannot grant access", async () => {
+    ownedPurchase(); (globalThis as { fetch?: unknown }).fetch = jest.fn().mockRejectedValue(Error("offline"));
+    await render(); expect(container.querySelector('[role="alert"]')?.textContent).toBe("Unable to verify access.");
+    expect(container.textContent).not.toContain("Paid fixed service");
+    expect(fetch).not.toHaveBeenCalledWith("/api/watch/post_1", expect.anything());
+  });
+});

@@ -1,0 +1,4565 @@
+{
+  "capturedAt": "2026-09-06T19:13:57Z",
+  "projectRef": "nwqfofezfzljhxolkycz",
+  "scope": "Read-only catalog of eleven relevant public tables; no customer data; not a recovery backup",
+  "rows": [
+    {
+      "kind": "column",
+      "name": "admin_actions.action",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "admin_actions.actor_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "admin_actions.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "admin_actions.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "admin_actions.reason",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "admin_actions.target_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "admin_actions.target_table",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.actual_stripe_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 29,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.amount_total_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.booking_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.buyer_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.closer_user_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.completed_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.creator_net_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 25,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.currency",
+      "details": {
+        "type": "character(3)",
+        "default": "'usd'::bpchar",
+        "notNull": true,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.fee_schedule_version",
+      "details": {
+        "type": "text",
+        "default": "'platform-only-v1'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 26,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.installment_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.installment_months",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.link_sent_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.link_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.notes",
+      "details": {
+        "type": "jsonb",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.plan_type",
+      "details": {
+        "type": "booking_payment_plan",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.platform_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.processing_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 23,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.processing_fee_variance_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 30,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.product_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.status",
+      "details": {
+        "type": "booking_payment_status",
+        "default": "'pending'::booking_payment_status",
+        "notNull": true,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.stripe_balance_transaction_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 28,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.stripe_charge_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 27,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.stripe_checkout_session_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.stripe_payment_intent_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.stripe_price_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.stripe_subscription_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.total_creator_deduction_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 24,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "booking_payments.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 22,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.buyer_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.creator_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.linked_order_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.post_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "bookings.status",
+      "details": {
+        "type": "text",
+        "default": "'booked'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.currency",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.disputed_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.status",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.stripe_charge_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.stripe_dispute_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.stripe_event_created",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.stripe_payment_intent_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_dispute_state.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.actual_stripe_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.booking_payment_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 30,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.creator_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.creator_net_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.currency",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 26,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.dispute_status",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 25,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.disputed_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 24,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.earnings_credited_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 29,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.earnings_reversed_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.fee_schedule_version",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 27,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.gross_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.order_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.platform_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.platform_fee_refund_attribution_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.processing_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.processing_fee_refund_attribution_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.processing_fee_variance_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.purchase_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.refund_allocation_rounding_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 22,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.refunded_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.status",
+      "details": {
+        "type": "text",
+        "default": "'paid'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 28,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.stripe_balance_transaction_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.stripe_charge_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.stripe_checkout_session_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.stripe_dispute_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 23,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.stripe_invoice_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.stripe_payment_intent_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.total_creator_deduction_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_fee_ledger.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 31,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_refund_state.charge_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_refund_state.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_refund_state.refunded_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_refund_state.stripe_charge_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_refund_state.stripe_payment_intent_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "payment_refund_state.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.active",
+      "details": {
+        "type": "boolean",
+        "default": "true",
+        "notNull": true,
+        "identity": "",
+        "position": 31,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.allow_booking",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 28,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.booking_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 29,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.booking_url_override",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 34,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.caption",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.comments_count",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.content",
+      "details": {
+        "type": "text",
+        "default": "''::text",
+        "notNull": false,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": false,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.creator_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.cta_type",
+      "details": {
+        "type": "text",
+        "default": "'none'::text",
+        "notNull": false,
+        "identity": "",
+        "position": 32,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.display_price",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 33,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.duration_seconds",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.flag_reason",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 38,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.fulfillment_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 25,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.hashtags",
+      "details": {
+        "type": "text[]",
+        "default": "'{}'::text[]",
+        "notNull": false,
+        "identity": "",
+        "position": 30,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.height",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.hidden_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 36,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.interests",
+      "details": {
+        "type": "text[]",
+        "default": "'{}'::text[]",
+        "notNull": false,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.likes",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": false,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.likes_count",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.offering_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.poster_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.premium_path",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 27,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.price_cents",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": false,
+        "identity": "",
+        "position": 22,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.product_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 26,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.product_type",
+      "details": {
+        "type": "text",
+        "default": "'paid_video'::text",
+        "notNull": false,
+        "identity": "",
+        "position": 24,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.purchase_count",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 35,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.removed_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 37,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.shares_count",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.tags",
+      "details": {
+        "type": "text[]",
+        "default": "'{}'::text[]",
+        "notNull": false,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.title",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 23,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.topics",
+      "details": {
+        "type": "text[]",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.type",
+      "details": {
+        "type": "text",
+        "default": "'text'::text",
+        "notNull": false,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.user_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.video_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.views",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": false,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "posts.width",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.active",
+      "details": {
+        "type": "boolean",
+        "default": "true",
+        "notNull": false,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.amount_cents",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.creator_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.currency",
+      "details": {
+        "type": "text",
+        "default": "'usd'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 22,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.deliver_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.description",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.discord_channel_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.discord_invite_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.external_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.fulfillment",
+      "details": {
+        "type": "fulfillment_type",
+        "default": "'URL'::fulfillment_type",
+        "notNull": false,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.is_active",
+      "details": {
+        "type": "boolean",
+        "default": "true",
+        "notNull": true,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.plan_months",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.post_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 23,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.premium_video_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 25,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.price_cents",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.product_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 26,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.product_type",
+      "details": {
+        "type": "text",
+        "default": "'video'::text",
+        "notNull": false,
+        "identity": "",
+        "position": 24,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.stripe_price_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.thumbnail_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.title",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.type",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": false,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.whop_listing_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "products.whop_listing_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.Interests",
+      "details": {
+        "type": "text[]",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.avatar_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.banned_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.bio",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.charges_enabled",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": false,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.flag_reason",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.full_name",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.interests",
+      "details": {
+        "type": "jsonb",
+        "default": "'[]'::jsonb",
+        "notNull": false,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.onboarding_complete",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.payouts_enabled",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.review_count",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.review_rating",
+      "details": {
+        "type": "numeric",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.role",
+      "details": {
+        "type": "text",
+        "default": "'user'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.stripe_account_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.stripe_onboarding_complete",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.tagline",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.total_earnings_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": false,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "profiles.username",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.access_granted",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 31,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.amount_cents",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.booking_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.buyer_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.buyer_user_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 30,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": false,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.creator_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.creator_net_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 38,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.currency",
+      "details": {
+        "type": "text",
+        "default": "'usd'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.earnings_credited_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 33,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.earnings_credited_cents",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 34,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.earnings_reversed_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 41,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.error",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 29,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.fee_schedule_version",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 39,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.first_access_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.fulfillment",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.fulfillment_payload",
+      "details": {
+        "type": "jsonb",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.fulfillment_url",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.id",
+      "details": {
+        "type": "uuid",
+        "default": "gen_random_uuid()",
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.is_refund",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.is_suspect",
+      "details": {
+        "type": "boolean",
+        "default": "false",
+        "notNull": true,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.kind",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 24,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.order_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 32,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.paid_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 25,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.paid_count",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": false,
+        "identity": "",
+        "position": 23,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.payment_intent_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.plan_amount_cents",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 28,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.plan_months",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 27,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.platform_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 35,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.platform_fee_refund_attribution_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 42,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.post_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.processing_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 36,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.processing_fee_refund_attribution_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 43,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.product_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.product_type",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.refund_allocation_rounding_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 44,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.refunded_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 40,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.session_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.status",
+      "details": {
+        "type": "text",
+        "default": "'paid'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.stripe_payment_intent",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.subscription_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.target_months",
+      "details": {
+        "type": "integer",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 22,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.title",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 26,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "purchases.total_creator_deduction_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 37,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.actual_stripe_processing_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 22,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.allocation_rounding_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 30,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.application_fee_refund_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 32,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.application_fee_refund_target_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 33,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.application_fee_refunded_before_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 31,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.attempt_count",
+      "details": {
+        "type": "integer",
+        "default": "0",
+        "notNull": true,
+        "identity": "",
+        "position": 43,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.booking_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 5,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.booking_payment_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 6,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.connected_balance_negative",
+      "details": {
+        "type": "boolean",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 40,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.created_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 47,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.creator_balance_impact_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 27,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.creator_earnings_reversal_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 26,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.creator_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 7,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.creator_net_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 21,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.cumulative_customer_refund_target_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 24,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.currency",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 15,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.customer_refund_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 14,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.gross_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 18,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 1,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.idempotency_key",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 35,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.initiated_by",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 36,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.internal_notes",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 37,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.last_error",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 41,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.order_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 3,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.payment_fee_ledger_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 2,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.platform_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 19,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.platform_fee_refund_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 28,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.processing_claimed_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 45,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.processing_fee_allocation_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 29,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.processing_fee_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 20,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.processing_token",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 44,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.purchase_id",
+      "details": {
+        "type": "uuid",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 4,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.reason_code",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 16,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.reconciliation_info",
+      "details": {
+        "type": "jsonb",
+        "default": "'{}'::jsonb",
+        "notNull": true,
+        "identity": "",
+        "position": 42,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.refunded_before_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 23,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.remaining_refundable_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 25,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.requested_refund_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 13,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.responsibility",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 17,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.status",
+      "details": {
+        "type": "text",
+        "default": "'pending'::text",
+        "notNull": true,
+        "identity": "",
+        "position": 38,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_application_fee_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 10,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_application_fee_refund_amount_cents",
+      "details": {
+        "type": "bigint",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 34,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_application_fee_refund_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 12,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_charge_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 9,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_payment_intent_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": true,
+        "identity": "",
+        "position": 8,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_refund_id",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 11,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.stripe_refund_status",
+      "details": {
+        "type": "text",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 39,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.updated_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": "now()",
+        "notNull": true,
+        "identity": "",
+        "position": 48,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "column",
+      "name": "refund_operations.webhook_confirmed_at",
+      "details": {
+        "type": "timestamp with time zone",
+        "default": null,
+        "notNull": false,
+        "identity": "",
+        "position": 46,
+        "generated": ""
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "admin_actions.admin_actions_actor_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (actor_id) REFERENCES profiles(id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "admin_actions.admin_actions_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_booking_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_buyer_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (buyer_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_closer_user_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (closer_user_id) REFERENCES auth.users(id) ON DELETE RESTRICT"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_installment_months_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((installment_months IS NULL) OR (installment_months > 0)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_product_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "booking_payments.booking_payments_stripe_checkout_session_id_key",
+      "details": {
+        "valid": true,
+        "definition": "UNIQUE (stripe_checkout_session_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "bookings.bookings_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_dispute_state.payment_dispute_state_amount_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((disputed_amount_cents >= 0))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_dispute_state.payment_dispute_state_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (stripe_dispute_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_amounts_nonnegative_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((gross_amount_cents >= 0) AND (platform_fee_cents >= 0) AND (processing_fee_cents >= 0) AND (total_creator_deduction_cents >= 0) AND (creator_net_cents >= 0) AND (refunded_amount_cents >= 0) AND (earnings_reversed_cents >= 0) AND (platform_fee_refund_attribution_cents >= 0) AND (processing_fee_refund_attribution_cents >= 0) AND (disputed_amount_cents >= 0)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_booking_payment_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (booking_payment_id) REFERENCES booking_payments(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_creator_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (creator_id) REFERENCES profiles(id) ON DELETE RESTRICT"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_order_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_purchase_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_refund_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((refunded_amount_cents <= gross_amount_cents) AND (disputed_amount_cents <= gross_amount_cents) AND (earnings_reversed_cents <= creator_net_cents) AND (platform_fee_refund_attribution_cents <= platform_fee_cents) AND (processing_fee_refund_attribution_cents <= processing_fee_cents) AND (refund_allocation_rounding_cents >= '-2'::integer) AND (refund_allocation_rounding_cents <= 2) AND ((((earnings_reversed_cents + platform_fee_refund_attribution_cents) + processing_fee_refund_attribution_cents) + refund_allocation_rounding_cents) = refunded_amount_cents)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_split_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((((platform_fee_cents + processing_fee_cents) = total_creator_deduction_cents) AND ((total_creator_deduction_cents + creator_net_cents) = gross_amount_cents)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_fee_ledger.payment_fee_ledger_status_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'paid'::text, 'failed'::text, 'refunded'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_refund_state.payment_refund_state_amounts_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((charge_amount_cents >= 0) AND (refunded_amount_cents >= 0) AND (refunded_amount_cents <= charge_amount_cents)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "payment_refund_state.payment_refund_state_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (stripe_payment_intent_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_cta_type_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((cta_type = ANY (ARRAY['none'::text, 'stripe'::text, 'closer'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_offering_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (offering_id) REFERENCES offerings(id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_product_fk",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_product_type_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((product_type = ANY (ARRAY['paid_video'::text, 'course'::text, 'mentorship'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_type_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((type = ANY (ARRAY['text'::text, 'video'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "posts.posts_user_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (user_id) REFERENCES profiles(id) ON DELETE CASCADE"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_amount_cents_min",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((amount_cents >= 50))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_amount_cents_min_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((amount_cents IS NULL) OR (amount_cents >= 50)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_creator_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (creator_id) REFERENCES profiles(id) ON DELETE CASCADE"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_external_url_required",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((type <> 'external'::text) OR ((external_url IS NOT NULL) AND (external_url <> ''::text))))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_price_cents_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((price_cents > 0))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_product_id_key",
+      "details": {
+        "valid": true,
+        "definition": "UNIQUE (product_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "products.products_type_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((type = ANY (ARRAY['video'::text, 'course'::text, 'mentorship'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "profiles.profiles_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "profiles.profiles_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "profiles.profiles_role_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((role = ANY (ARRAY['user'::text, 'admin'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_buyer_post_unique",
+      "details": {
+        "valid": true,
+        "definition": "UNIQUE (buyer_id, post_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_buyer_user_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (buyer_user_id) REFERENCES auth.users(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_fulfillment_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((fulfillment = ANY (ARRAY['discord'::text, 'whop'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_order_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_payment_intent_id_key",
+      "details": {
+        "valid": true,
+        "definition": "UNIQUE (payment_intent_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_post_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (post_id) REFERENCES posts(id) ON DELETE CASCADE"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_product_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (product_id) REFERENCES products(id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "purchases.purchases_session_id_key",
+      "details": {
+        "valid": true,
+        "definition": "UNIQUE (session_id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_amounts_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((gross_amount_cents > 0) AND (platform_fee_cents >= 0) AND (processing_fee_cents >= 0) AND (creator_net_cents >= 0) AND (((platform_fee_cents + processing_fee_cents) + creator_net_cents) = gross_amount_cents) AND (requested_refund_amount_cents > 0) AND (customer_refund_amount_cents = requested_refund_amount_cents) AND (refunded_before_cents >= 0) AND (cumulative_customer_refund_target_cents = (refunded_before_cents + requested_refund_amount_cents)) AND (cumulative_customer_refund_target_cents <= gross_amount_cents) AND (remaining_refundable_cents = (gross_amount_cents - cumulative_customer_refund_target_cents)) AND (creator_earnings_reversal_cents >= 0) AND (creator_balance_impact_cents >= 0) AND (platform_fee_refund_amount_cents >= 0) AND (processing_fee_allocation_cents >= 0) AND ((allocation_rounding_cents >= '-2'::integer) AND (allocation_rounding_cents <= 2)) AND (application_fee_refunded_before_cents >= 0) AND (application_fee_refund_amount_cents >= 0) AND (application_fee_refund_target_cents = (application_fee_refunded_before_cents + application_fee_refund_amount_cents)) AND (application_fee_refund_target_cents <= (platform_fee_cents + processing_fee_cents)) AND (creator_balance_impact_cents = (requested_refund_amount_cents - application_fee_refund_amount_cents)) AND ((actual_stripe_processing_fee_cents IS NULL) OR (actual_stripe_processing_fee_cents >= 0)) AND ((stripe_application_fee_refund_amount_cents IS NULL) OR (stripe_application_fee_refund_amount_cents >= 0))))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_booking_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_booking_payment_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (booking_payment_id) REFERENCES booking_payments(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_creator_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (creator_id) REFERENCES profiles(id) ON DELETE RESTRICT"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_currency_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((currency ~ '^[a-z]{3}$'::text))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_initiated_by_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (initiated_by) REFERENCES profiles(id) ON DELETE RESTRICT"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_notes_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK (((internal_notes IS NULL) OR (char_length(internal_notes) <= 2000)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_order_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_payment_fee_ledger_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (payment_fee_ledger_id) REFERENCES payment_fee_ledger(id) ON DELETE RESTRICT"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_pkey",
+      "details": {
+        "valid": true,
+        "definition": "PRIMARY KEY (id)"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_purchase_id_fkey",
+      "details": {
+        "valid": true,
+        "definition": "FOREIGN KEY (purchase_id) REFERENCES purchases(id) ON DELETE SET NULL"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_reason_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((reason_code = ANY (ARRAY['creator_non_delivery'::text, 'creator_missed_session'::text, 'material_misrepresentation'::text, 'creator_discretionary'::text, 'duplicate_charge'::text, 'platform_technical_error'::text, 'incorrect_platform_billing'::text, 'platform_goodwill'::text, 'legally_required'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_reason_responsibility_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((((reason_code = ANY (ARRAY['creator_non_delivery'::text, 'creator_missed_session'::text, 'material_misrepresentation'::text, 'creator_discretionary'::text])) AND (responsibility = 'creator'::text)) OR ((reason_code = ANY (ARRAY['duplicate_charge'::text, 'platform_technical_error'::text, 'incorrect_platform_billing'::text, 'platform_goodwill'::text])) AND (responsibility = 'platform'::text)) OR (reason_code = 'legally_required'::text)))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_responsibility_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((responsibility = ANY (ARRAY['creator'::text, 'platform'::text])))"
+      }
+    },
+    {
+      "kind": "constraint",
+      "name": "refund_operations.refund_operations_status_check",
+      "details": {
+        "valid": true,
+        "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'stripe_refund_created'::text, 'application_fee_adjusted'::text, 'completed'::text, 'needs_reconciliation'::text, 'failed'::text])))"
+      }
+    },
+    {
+      "kind": "dependency_function",
+      "name": "apply_payment_fee_ledger_refund",
+      "details": {
+        "body": "CREATE OR REPLACE FUNCTION public.apply_payment_fee_ledger_refund(p_ledger_id uuid, p_refunded_gross_cents bigint)\n RETURNS bigint\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare\r\n  v_creator_id uuid;\r\n  v_gross bigint;\r\n  v_creator_net bigint;\r\n  v_previous_refunded bigint;\r\n  v_previous_reversed bigint;\r\n  v_platform_fee bigint;\r\n  v_processing_fee bigint;\r\n  v_was_credited boolean;\r\n  v_refunded bigint;\r\n  v_target_reversed bigint;\r\n  v_platform_attribution bigint;\r\n  v_processing_attribution bigint;\r\n  v_rounding_adjustment bigint;\r\n  v_delta bigint;\r\nbegin\r\n  select creator_id, gross_amount_cents, creator_net_cents, refunded_amount_cents,\r\n         earnings_reversed_cents, platform_fee_cents, processing_fee_cents,\r\n         earnings_credited_at is not null\r\n  into v_creator_id, v_gross, v_creator_net, v_previous_refunded,\r\n       v_previous_reversed, v_platform_fee, v_processing_fee, v_was_credited\r\n  from public.payment_fee_ledger where id = p_ledger_id for update;\r\n  if not found or v_gross <= 0 then return 0; end if;\r\n  v_refunded := least(v_gross, greatest(v_previous_refunded, p_refunded_gross_cents, 0));\r\n  v_target_reversed := round((v_creator_net::numeric * v_refunded::numeric) / v_gross::numeric);\r\n  v_platform_attribution := round((v_platform_fee::numeric * v_refunded::numeric) / v_gross::numeric);\r\n  v_processing_attribution := round((v_processing_fee::numeric * v_refunded::numeric) / v_gross::numeric);\r\n  v_rounding_adjustment := v_refunded - v_target_reversed - v_platform_attribution - v_processing_attribution;\r\n  v_delta := greatest(0, v_target_reversed - v_previous_reversed);\r\n  if v_delta > 0 and v_was_credited then\r\n    update public.profiles\r\n    set total_earnings_cents = greatest(0, coalesce(total_earnings_cents, 0) - v_delta)\r\n    where id = v_creator_id;\r\n  end if;\r\n  update public.payment_fee_ledger\r\n  set refunded_amount_cents = v_refunded,\r\n      earnings_reversed_cents = v_target_reversed,\r\n      platform_fee_refund_attribution_cents = v_platform_attribution,\r\n      processing_fee_refund_attribution_cents = v_processing_attribution,\r\n      refund_allocation_rounding_cents = v_rounding_adjustment,\r\n      status = case when v_refunded >= v_gross then 'refunded' else status end,\r\n      updated_at = now()\r\n  where id = p_ledger_id;\r\n  return case when v_was_credited then v_delta else 0 end;\r\nend;\r\n$function$\n",
+        "settings": [
+          "search_path=public"
+        ],
+        "anonExecute": true,
+        "serviceExecute": true,
+        "securityDefiner": true,
+        "authenticatedExecute": true
+      }
+    },
+    {
+      "kind": "dependency_function",
+      "name": "record_payment_dispute_state",
+      "details": {
+        "body": "CREATE OR REPLACE FUNCTION public.record_payment_dispute_state(p_dispute_id text, p_payment_intent_id text, p_charge_id text, p_disputed_amount_cents bigint, p_currency text, p_status text, p_event_created bigint)\n RETURNS boolean\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare v_recorded boolean;\r\nbegin\r\n  if nullif(trim(p_dispute_id), '') is null\r\n     or nullif(trim(p_payment_intent_id), '') is null\r\n     or nullif(trim(p_charge_id), '') is null then\r\n    raise exception 'dispute, payment intent, and charge ids are required';\r\n  end if;\r\n  if p_disputed_amount_cents is null or p_disputed_amount_cents < 0 then\r\n    raise exception 'disputed amount must be nonnegative';\r\n  end if;\r\n  if nullif(trim(p_currency), '') is null or nullif(trim(p_status), '') is null then\r\n    raise exception 'dispute currency and status are required';\r\n  end if;\r\n  if p_event_created is null or p_event_created < 0 then\r\n    raise exception 'Stripe event-created time is invalid';\r\n  end if;\r\n  insert into public.payment_dispute_state (\r\n    stripe_dispute_id, stripe_payment_intent_id, stripe_charge_id,\r\n    disputed_amount_cents, currency, status, stripe_event_created\r\n  ) values (\r\n    p_dispute_id, p_payment_intent_id, p_charge_id,\r\n    p_disputed_amount_cents, lower(p_currency), p_status, p_event_created\r\n  )\r\n  on conflict (stripe_dispute_id) do update\r\n  set stripe_payment_intent_id = excluded.stripe_payment_intent_id,\r\n      stripe_charge_id = excluded.stripe_charge_id,\r\n      disputed_amount_cents = excluded.disputed_amount_cents,\r\n      currency = excluded.currency,\r\n      status = excluded.status,\r\n      stripe_event_created = excluded.stripe_event_created,\r\n      updated_at = now()\r\n  where excluded.stripe_event_created >= payment_dispute_state.stripe_event_created\r\n  returning true into v_recorded;\r\n  return coalesce(v_recorded, false);\r\nend;\r\n$function$\n",
+        "settings": [
+          "search_path=public"
+        ],
+        "anonExecute": true,
+        "serviceExecute": true,
+        "securityDefiner": true,
+        "authenticatedExecute": true
+      }
+    },
+    {
+      "kind": "dependency_function",
+      "name": "record_payment_refund_state",
+      "details": {
+        "body": "CREATE OR REPLACE FUNCTION public.record_payment_refund_state(p_payment_intent_id text, p_charge_id text, p_charge_amount_cents bigint, p_refunded_amount_cents bigint)\n RETURNS bigint\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\ndeclare v_refunded bigint;\r\nbegin\r\n  if nullif(trim(p_payment_intent_id), '') is null then raise exception 'payment intent id is required'; end if;\r\n  if nullif(trim(p_charge_id), '') is null then raise exception 'charge id is required'; end if;\r\n  if p_charge_amount_cents is null or p_charge_amount_cents < 0 then\r\n    raise exception 'charge amount must be nonnegative';\r\n  end if;\r\n  if p_refunded_amount_cents is null or p_refunded_amount_cents < 0\r\n     or p_refunded_amount_cents > p_charge_amount_cents then\r\n    raise exception 'refunded amount must be between zero and the charge amount';\r\n  end if;\r\n  insert into public.payment_refund_state (\r\n    stripe_payment_intent_id, stripe_charge_id, charge_amount_cents, refunded_amount_cents\r\n  ) values (\r\n    p_payment_intent_id, p_charge_id, p_charge_amount_cents, p_refunded_amount_cents\r\n  )\r\n  on conflict (stripe_payment_intent_id) do update\r\n  set stripe_charge_id = excluded.stripe_charge_id,\r\n      charge_amount_cents = greatest(payment_refund_state.charge_amount_cents, excluded.charge_amount_cents),\r\n      refunded_amount_cents = least(\r\n        greatest(payment_refund_state.charge_amount_cents, excluded.charge_amount_cents),\r\n        greatest(payment_refund_state.refunded_amount_cents, excluded.refunded_amount_cents)\r\n      ),\r\n      updated_at = now()\r\n  returning refunded_amount_cents into v_refunded;\r\n  return v_refunded;\r\nend;\r\n$function$\n",
+        "settings": [
+          "search_path=public"
+        ],
+        "anonExecute": true,
+        "serviceExecute": true,
+        "securityDefiner": true,
+        "authenticatedExecute": true
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "booking_payment_plan",
+      "details": {
+        "labels": [
+          "full",
+          "installment"
+        ]
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "booking_payment_status",
+      "details": {
+        "labels": [
+          "pending",
+          "link_sent",
+          "completed",
+          "canceled",
+          "refunded"
+        ]
+      }
+    },
+    {
+      "kind": "enum",
+      "name": "fulfillment_type",
+      "details": {
+        "labels": [
+          "FILE",
+          "DISCORD",
+          "WHOP",
+          "URL"
+        ]
+      }
+    },
+    {
+      "kind": "index",
+      "name": "admin_actions.admin_actions_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX admin_actions_pkey ON public.admin_actions USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "admin_actions.idx_admin_actions_actor_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_admin_actions_actor_id ON public.admin_actions USING btree (actor_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.booking_payments_one_live_path_per_booking_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX booking_payments_one_live_path_per_booking_uidx ON public.booking_payments USING btree (booking_id) WHERE (status = ANY (ARRAY['pending'::booking_payment_status, 'link_sent'::booking_payment_status, 'completed'::booking_payment_status]))"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.booking_payments_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX booking_payments_pkey ON public.booking_payments USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.booking_payments_stripe_checkout_session_id_key",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX booking_payments_stripe_checkout_session_id_key ON public.booking_payments USING btree (stripe_checkout_session_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.idx_booking_payments_booking_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_booking_payments_booking_id ON public.booking_payments USING btree (booking_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.idx_booking_payments_buyer_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_booking_payments_buyer_id ON public.booking_payments USING btree (buyer_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.idx_booking_payments_closer_user",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_booking_payments_closer_user ON public.booking_payments USING btree (closer_user_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.idx_booking_payments_product_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_booking_payments_product_id ON public.booking_payments USING btree (product_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "booking_payments.idx_booking_payments_status",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_booking_payments_status ON public.booking_payments USING btree (status)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "bookings.bookings_buyer_created_at_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX bookings_buyer_created_at_idx ON public.bookings USING btree (buyer_id, created_at DESC)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "bookings.bookings_creator_created_at_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX bookings_creator_created_at_idx ON public.bookings USING btree (creator_id, created_at DESC)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "bookings.bookings_linked_order_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX bookings_linked_order_id_idx ON public.bookings USING btree (linked_order_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "bookings.bookings_linked_order_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX bookings_linked_order_idx ON public.bookings USING btree (linked_order_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "bookings.bookings_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX bookings_pkey ON public.bookings USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "bookings.bookings_post_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX bookings_post_idx ON public.bookings USING btree (post_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_dispute_state.payment_dispute_state_payment_intent_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX payment_dispute_state_payment_intent_idx ON public.payment_dispute_state USING btree (stripe_payment_intent_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_dispute_state.payment_dispute_state_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_dispute_state_pkey ON public.payment_dispute_state USING btree (stripe_dispute_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_booking_payment_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX payment_fee_ledger_booking_payment_idx ON public.payment_fee_ledger USING btree (booking_payment_id) WHERE (booking_payment_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_checkout_session_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_fee_ledger_checkout_session_uidx ON public.payment_fee_ledger USING btree (stripe_checkout_session_id) WHERE (stripe_checkout_session_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_creator_created_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX payment_fee_ledger_creator_created_idx ON public.payment_fee_ledger USING btree (creator_id, created_at DESC)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_dispute_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_fee_ledger_dispute_uidx ON public.payment_fee_ledger USING btree (stripe_dispute_id) WHERE (stripe_dispute_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_invoice_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_fee_ledger_invoice_uidx ON public.payment_fee_ledger USING btree (stripe_invoice_id) WHERE (stripe_invoice_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_payment_intent_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_fee_ledger_payment_intent_uidx ON public.payment_fee_ledger USING btree (stripe_payment_intent_id) WHERE (stripe_payment_intent_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_fee_ledger.payment_fee_ledger_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_fee_ledger_pkey ON public.payment_fee_ledger USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "payment_refund_state.payment_refund_state_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX payment_refund_state_pkey ON public.payment_refund_state USING btree (stripe_payment_intent_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.idx_posts_active_created",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_posts_active_created ON public.posts USING btree (active, created_at DESC)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.idx_posts_hashtags_gin",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_posts_hashtags_gin ON public.posts USING gin (hashtags)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.idx_posts_user_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_posts_user_id ON public.posts USING btree (user_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_allow_booking_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX posts_allow_booking_idx ON public.posts USING btree (allow_booking)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_creator_created_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX posts_creator_created_idx ON public.posts USING btree (creator_id, created_at)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_cta_type_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX posts_cta_type_idx ON public.posts USING btree (cta_type)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_hashtags_gin",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX posts_hashtags_gin ON public.posts USING gin (hashtags)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_offering_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX posts_offering_id_idx ON public.posts USING btree (offering_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX posts_pkey ON public.posts USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "posts.posts_product_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX posts_product_id_idx ON public.posts USING btree (product_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "products.products_active_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX products_active_idx ON public.products USING btree (is_active)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "products.products_creator_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX products_creator_id_idx ON public.products USING btree (creator_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "products.products_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX products_pkey ON public.products USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "products.products_post_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX products_post_id_idx ON public.products USING btree (post_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "products.products_product_id_key",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX products_product_id_key ON public.products USING btree (product_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "profiles.idx_profiles_stripe_account_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_profiles_stripe_account_id ON public.profiles USING btree (stripe_account_id) WHERE (stripe_account_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "profiles.profiles_id_unique",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX profiles_id_unique ON public.profiles USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "profiles.profiles_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX profiles_pkey ON public.profiles USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "profiles.profiles_username_unique",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX profiles_username_unique ON public.profiles USING btree (lower(username))"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.idx_purchases_buyer_user_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_purchases_buyer_user_id ON public.purchases USING btree (buyer_user_id) WHERE (buyer_user_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.idx_purchases_order_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_purchases_order_id ON public.purchases USING btree (order_id) WHERE (order_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.idx_purchases_payment_intent_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_purchases_payment_intent_id ON public.purchases USING btree (payment_intent_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.idx_purchases_session_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_purchases_session_id ON public.purchases USING btree (session_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.idx_purchases_subscription_id",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX idx_purchases_subscription_id ON public.purchases USING btree (subscription_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_buyer_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_buyer_id_idx ON public.purchases USING btree (buyer_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_buyer_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_buyer_idx ON public.purchases USING btree (buyer_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_buyer_post_unique",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_buyer_post_unique ON public.purchases USING btree (buyer_id, post_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_created_at_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_created_at_idx ON public.purchases USING btree (created_at DESC)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_creator_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_creator_idx ON public.purchases USING btree (creator_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_payment_intent_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_payment_intent_id_idx ON public.purchases USING btree (payment_intent_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_payment_intent_id_key",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_payment_intent_id_key ON public.purchases USING btree (payment_intent_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_payment_intent_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_payment_intent_idx ON public.purchases USING btree (payment_intent_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_payment_intent_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_payment_intent_uidx ON public.purchases USING btree (payment_intent_id) WHERE (payment_intent_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_payment_intent_unique",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_payment_intent_unique ON public.purchases USING btree (payment_intent_id) WHERE (payment_intent_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_pkey ON public.purchases USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_post_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_post_id_idx ON public.purchases USING btree (post_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_product_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_product_id_idx ON public.purchases USING btree (product_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_product_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_product_idx ON public.purchases USING btree (product_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_session_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_session_id_idx ON public.purchases USING btree (session_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_session_id_key",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_session_id_key ON public.purchases USING btree (session_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_session_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_session_idx ON public.purchases USING btree (session_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_subscription_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_subscription_id_idx ON public.purchases USING btree (subscription_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_subscription_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_subscription_idx ON public.purchases USING btree (subscription_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_unique_buyer_product",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX purchases_unique_buyer_product ON public.purchases USING btree (buyer_id, product_id) WHERE (product_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "purchases.purchases_user_id_post_id_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX purchases_user_id_post_id_idx ON public.purchases USING btree (buyer_id, post_id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "refund_operations.refund_operations_fee_refund_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX refund_operations_fee_refund_uidx ON public.refund_operations USING btree (stripe_application_fee_refund_id) WHERE (stripe_application_fee_refund_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "refund_operations.refund_operations_idempotency_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX refund_operations_idempotency_uidx ON public.refund_operations USING btree (idempotency_key)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "refund_operations.refund_operations_ledger_created_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX refund_operations_ledger_created_idx ON public.refund_operations USING btree (payment_fee_ledger_id, created_at DESC)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "refund_operations.refund_operations_pkey",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX refund_operations_pkey ON public.refund_operations USING btree (id)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "refund_operations.refund_operations_status_updated_idx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE INDEX refund_operations_status_updated_idx ON public.refund_operations USING btree (status, updated_at)"
+      }
+    },
+    {
+      "kind": "index",
+      "name": "refund_operations.refund_operations_stripe_refund_uidx",
+      "details": {
+        "valid": true,
+        "definition": "CREATE UNIQUE INDEX refund_operations_stripe_refund_uidx ON public.refund_operations USING btree (stripe_refund_id) WHERE (stripe_refund_id IS NOT NULL)"
+      }
+    },
+    {
+      "kind": "table",
+      "name": "admin_actions",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "booking_payments",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "bookings",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "payment_dispute_state",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "payment_fee_ledger",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "payment_refund_state",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "posts",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "products",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "profiles",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "purchases",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": true,
+        "authenticatedInsert": true
+      }
+    },
+    {
+      "kind": "table",
+      "name": "refund_operations",
+      "details": {
+        "rls": true,
+        "forceRls": false,
+        "anonInsert": false,
+        "authenticatedInsert": false
+      }
+    },
+    {
+      "kind": "trigger",
+      "name": "booking_payments.booking_payments_set_updated_at",
+      "details": {
+        "body": "CREATE OR REPLACE FUNCTION public.set_column_to_now()\n RETURNS trigger\n LANGUAGE plpgsql\n SET search_path TO 'public'\nAS $function$\r\nBEGIN\r\n  NEW.updated_at := now();\r\n  RETURN NEW;\r\nEND\r\n$function$\n",
+        "enabled": "O",
+        "function": "set_column_to_now",
+        "definition": "CREATE TRIGGER booking_payments_set_updated_at BEFORE UPDATE ON public.booking_payments FOR EACH ROW EXECUTE FUNCTION set_column_to_now()"
+      }
+    },
+    {
+      "kind": "trigger",
+      "name": "products.trg_products_updated_at",
+      "details": {
+        "body": "CREATE OR REPLACE FUNCTION public.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nbegin\r\n  new.updated_at = now();\r\n  return new;\r\nend $function$\n",
+        "enabled": "O",
+        "function": "set_updated_at",
+        "definition": "CREATE TRIGGER trg_products_updated_at BEFORE UPDATE ON public.products FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      }
+    },
+    {
+      "kind": "trigger",
+      "name": "purchases.trg_purchases_fill_ids",
+      "details": {
+        "body": "CREATE OR REPLACE FUNCTION public.purchases_fill_ids()\n RETURNS trigger\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\r\nDECLARE\r\n  v_post_id uuid;\r\n  v_product_id uuid;\r\nBEGIN\r\n  -- If post_id is missing but product_id is present, derive post_id\r\n  IF NEW.post_id IS NULL AND NEW.product_id IS NOT NULL THEN\r\n    SELECT COALESCE(pr.post_id, p.id)\r\n      INTO v_post_id\r\n    FROM public.products pr\r\n    LEFT JOIN public.posts p\r\n      ON p.product_id = pr.product_id\r\n    WHERE pr.product_id = NEW.product_id\r\n    LIMIT 1;\r\n\r\n    IF v_post_id IS NOT NULL THEN\r\n      NEW.post_id := v_post_id;\r\n    END IF;\r\n  END IF;\r\n\r\n  -- If product_id is missing but post_id is present, derive product_id\r\n  IF NEW.product_id IS NULL AND NEW.post_id IS NOT NULL THEN\r\n    SELECT COALESCE(p.product_id, pr.product_id)\r\n      INTO v_product_id\r\n    FROM public.posts p\r\n    LEFT JOIN public.products pr\r\n      ON pr.post_id = NEW.post_id OR pr.product_id = p.product_id\r\n    WHERE p.id = NEW.post_id\r\n    LIMIT 1;\r\n\r\n    IF v_product_id IS NOT NULL THEN\r\n      NEW.product_id := v_product_id;\r\n    END IF;\r\n  END IF;\r\n\r\n  -- If post_id is still null, give a clear error (better than generic NOT NULL)\r\n  IF NEW.post_id IS NULL THEN\r\n    RAISE EXCEPTION\r\n      'purchases.post_id is required; could not derive from product_id % (link products.post_id or posts.product_id)',\r\n      NEW.product_id\r\n      USING ERRCODE = '23502';\r\n  END IF;\r\n\r\n  RETURN NEW;\r\nEND\r\n$function$\n",
+        "enabled": "O",
+        "function": "purchases_fill_ids",
+        "definition": "CREATE TRIGGER trg_purchases_fill_ids BEFORE INSERT OR UPDATE ON public.purchases FOR EACH ROW EXECUTE FUNCTION purchases_fill_ids()"
+      }
+    }
+  ]
+}
+

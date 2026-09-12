@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -8,13 +8,16 @@ import { Heart, Volume2, VolumeX, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlacement";
 import BuyButton from "./BuyButton";
+import DeleteVideoButton from "./DeleteVideoButton";
 import { formatSocialProof } from "@/lib/socialProof";
+import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 import CommentPanel from "./CommentPanel";
 import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
 import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
+import { feedMediaUrl } from "@/lib/feedMedia";
 
 type VideoCardProps = {
   src?: string;
@@ -35,12 +38,14 @@ type VideoCardProps = {
   shares?: number | string;
   isLiked?: boolean;
   isActive?: boolean;
+  preload?: "auto" | "metadata" | "none";
   defaultMuted?: boolean;
   onBuy?: () => void;
   onBook?: () => void;
   followable?: boolean;
   onFollow?: () => void;
   postId?: string | null;
+  onDeleted?: () => void;
   postCategory?: string | null;
   productId?: string | null;
   creatorId?: string | null;
@@ -49,6 +54,8 @@ type VideoCardProps = {
   /** Creator finished Stripe Connect onboarding → purple "Verified creator" badge after the name. */
   creatorVerified?: boolean;
   priceCents?: number | null;
+  monthlyTerms?: MonthlyMentorshipTerms | null;
+  purchaseOptionsReady?: boolean;
   titleForCheckout?: string | null;
   planMonths?: number | null;
   planPriceCents?: number | null;
@@ -85,7 +92,7 @@ function isAutoplayBlockedError(err: unknown): boolean {
 
 export default function VideoCard(props: VideoCardProps) {
   const {
-    src,
+    src: originalSrc,
     poster,
     creator = "creator",
     creatorAvatarUrl = null,
@@ -103,6 +110,7 @@ export default function VideoCard(props: VideoCardProps) {
     shares,
     isLiked = false,
     isActive,
+    preload = "metadata",
     defaultMuted = true,
     onBuy,
     onBook,
@@ -115,6 +123,8 @@ export default function VideoCard(props: VideoCardProps) {
     creatorUsername = null,
     creatorVerified = false,
     priceCents = null,
+    monthlyTerms = null,
+    purchaseOptionsReady = true,
     titleForCheckout = null,
     planMonths = null,
     planPriceCents = null,
@@ -138,6 +148,9 @@ export default function VideoCard(props: VideoCardProps) {
     onChangeTab,
     mobileMuteButtonSide = "right",
   } = props;
+
+  const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
+  const src = failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc);
 
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -176,13 +189,44 @@ export default function VideoCard(props: VideoCardProps) {
   }
   const isMuted = mutedOverride ?? (autoplayBlocked || ownerMuted);
   const [isPaused, setIsPaused] = useState(true);
-  const [progress, setProgress] = useState(0);
-  const [hasLoaded, setHasLoaded] = useState(false);
-  const [videoSrc, setVideoSrc] = useState<string | undefined>(undefined);
+  const [playbackFeedback, setPlaybackFeedback] = useState(false);
+  const resumeFeedbackRef = useRef(false);
+  const manuallyPausedRef = useRef(false);
+  useEffect(() => { manuallyPausedRef.current = false; }, [postId, isActive]);
+
+  useEffect(() => {
+    if (!playbackFeedback || isPaused) return;
+    const timeout = window.setTimeout(() => setPlaybackFeedback(false), 650);
+    return () => window.clearTimeout(timeout);
+  }, [playbackFeedback, isPaused]);
+
+  useEffect(() => {
+    setPlaybackFeedback(false);
+    resumeFeedbackRef.current = false;
+  }, [isActive, src]);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
   const [lk, setLk] = useState(() => toNum(likeCount ?? likes ?? 0));
   const [cm, setCm] = useState(() => toNum(commentCount ?? comments ?? 0));
   const [sh, setSh] = useState(() => toNum(shareCount ?? shares ?? 0));
   const [liked, setLiked] = useState(isLiked);
+  const likePendingRef = useRef(false);
+  const tapRef = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const heartSequence = useRef(0);
+  const [tapHeart, setTapHeart] = useState<{ id: number; x: number; y: number } | null>(null);
+
+  useEffect(() => {
+    if (!tapHeart) return;
+    const timer = window.setTimeout(() => setTapHeart(null), 750);
+    return () => window.clearTimeout(timer);
+  }, [tapHeart]);
+
+  useEffect(() => {
+    setTapHeart(null);
+    return () => {
+      if (tapRef.current) window.clearTimeout(tapRef.current.timer);
+      tapRef.current = null;
+    };
+  }, [postId, src, isActive]);
   const [isFollowing, setIsFollowing] = useState(Boolean(isFollowingCreator));
   const [followLoading, setFollowLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -225,17 +269,23 @@ export default function VideoCard(props: VideoCardProps) {
       const items = buyMenuItems();
       if (items.length === 0) return;
       const i = items.indexOf(document.activeElement as HTMLElement);
+      // Portal events still reach React ancestors: keep menu navigation from
+      // also moving the underlying feed/tag carousel.
       if (e.key === "ArrowDown") {
         e.preventDefault();
+        e.stopPropagation();
         items[(i + 1) % items.length]?.focus();
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
+        e.stopPropagation();
         items[(i - 1 + items.length) % items.length]?.focus();
       } else if (e.key === "Home") {
         e.preventDefault();
+        e.stopPropagation();
         items[0]?.focus();
       } else if (e.key === "End") {
         e.preventDefault();
+        e.stopPropagation();
         items[items.length - 1]?.focus();
       }
       // Tab is deliberately left alone: closing on Tab would make the
@@ -245,7 +295,7 @@ export default function VideoCard(props: VideoCardProps) {
   );
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
-  const { userId: cachedUserId } = useUser();
+  const { userId: cachedUserId, loading: authLoading } = useUser();
 
   // Refs for analytics (allow stable event-listener closures to access latest prop values)
   const postIdRef = useRef(postId);
@@ -254,6 +304,27 @@ export default function VideoCard(props: VideoCardProps) {
   const hasTrackedViewRef = useRef(false);
   const hasTrackedCompleteRef = useRef(false);
   const hasTracked50Ref = useRef(false);
+
+  // Declare stable analytics callbacks before the effects/handlers that use them.
+  const scoreInterest = useCallback((delta: number) => {
+    const pid = postIdRef.current;
+    if (!pid) return;
+    fetch("/api/interest-score", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: pid, delta }),
+    }).catch(() => {});
+  }, []);
+
+  const trackMetric = useCallback((field: string, watchSeconds?: number) => {
+    const pid = postIdRef.current;
+    if (!pid) return;
+    fetch("/api/post-metrics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: pid, field, watch_seconds: watchSeconds }),
+    }).catch(() => {});
+  }, []);
   useEffect(() => { postIdRef.current = postId; }, [postId]);
   useEffect(() => { creatorIdRef.current = creatorId; }, [creatorId]);
   useEffect(() => { categoryRef.current = postCategory ? normalizeCategory(postCategory) : null; }, [postCategory]);
@@ -267,7 +338,7 @@ export default function VideoCard(props: VideoCardProps) {
   const displayTitle = title ?? caption ?? "";
   const displayCreator = creatorName ?? creator ?? "Creator";
   const displayAvatar = avatarUrl ?? creatorAvatarUrl ?? DEFAULT_AVATAR_URL;
-  const canFollow = followable ?? showFollowButton ?? false;
+  const canFollow = !authLoading && Boolean(creatorId) && creatorId !== cachedUserId && (followable ?? showFollowButton ?? false);
   const clickableHashtags = useMemo(() => {
     if (!Array.isArray(hashtagsList) || hashtagsList.length === 0) return [];
     const seen = new Set<string>();
@@ -322,25 +393,36 @@ export default function VideoCard(props: VideoCardProps) {
     return String(n);
   };
 
-  useEffect(() => {
-    setLk(toNum(likeCount ?? likes ?? 0));
-  }, [likeCount, likes]);
-
-  useEffect(() => {
-    setLiked(isLiked);
-  }, [isLiked]);
-
-  useEffect(() => {
-    setCm(toNum(commentCount ?? comments ?? 0));
-  }, [commentCount, comments]);
-
-  useEffect(() => {
-    setSh(toNum(shareCount ?? shares ?? 0));
-  }, [shareCount, shares]);
-
-  useEffect(() => {
-    setIsFollowing(Boolean(isFollowingCreator));
-  }, [isFollowingCreator]);
+  // Reconcile changed server props before children paint, while preserving
+  // optimistic interactions when those props have not changed.
+  const [syncedProps, setSyncedProps] = useState({
+    postId, likeCount, likes, isLiked, commentCount, comments,
+    shareCount, shares, creatorId, isFollowingCreator, soundEnabled,
+  });
+  if (
+    syncedProps.postId !== postId || syncedProps.likeCount !== likeCount ||
+    syncedProps.likes !== likes || syncedProps.isLiked !== isLiked ||
+    syncedProps.commentCount !== commentCount || syncedProps.comments !== comments ||
+    syncedProps.shareCount !== shareCount || syncedProps.shares !== shares ||
+    syncedProps.creatorId !== creatorId || syncedProps.isFollowingCreator !== isFollowingCreator ||
+    syncedProps.soundEnabled !== soundEnabled
+  ) {
+    setSyncedProps({ postId, likeCount, likes, isLiked, commentCount, comments,
+      shareCount, shares, creatorId, isFollowingCreator, soundEnabled });
+    if (syncedProps.postId !== postId || syncedProps.likeCount !== likeCount || syncedProps.likes !== likes) {
+      setLk(toNum(likeCount ?? likes ?? 0));
+    }
+    if (syncedProps.postId !== postId || syncedProps.isLiked !== isLiked) setLiked(isLiked);
+    if (syncedProps.postId !== postId || syncedProps.commentCount !== commentCount || syncedProps.comments !== comments) {
+      setCm(toNum(commentCount ?? comments ?? 0));
+    }
+    if (syncedProps.postId !== postId || syncedProps.shareCount !== shareCount || syncedProps.shares !== shares) {
+      setSh(toNum(shareCount ?? shares ?? 0));
+    }
+    if (syncedProps.creatorId !== creatorId || syncedProps.isFollowingCreator !== isFollowingCreator) {
+      setIsFollowing(Boolean(isFollowingCreator));
+    }
+  }
 
   useEffect(() => {
     function onDoc(e: MouseEvent) {
@@ -368,11 +450,8 @@ export default function VideoCard(props: VideoCardProps) {
     };
   }, [menuOpen]);
 
-  useEffect(() => {
-    if (!menuOpen || !buyButtonRef.current) {
-      setDropdownPosition(null);
-      return;
-    }
+  useLayoutEffect(() => {
+    if (!menuOpen || !buyButtonRef.current) return;
     const rect = buyButtonRef.current.getBoundingClientRect();
     const viewport = {
       width: typeof window !== "undefined" ? window.innerWidth : 400,
@@ -425,7 +504,7 @@ export default function VideoCard(props: VideoCardProps) {
     const handleTimeUpdate = () => {
       if (!video.duration) return;
       const pct = (video.currentTime / video.duration) * 100;
-      setProgress(pct);
+      if (progressBarRef.current) progressBarRef.current.style.transform = `scaleX(${pct / 100})`;
       if (pct >= 50 && !hasTracked50Ref.current) {
         hasTracked50Ref.current = true;
         scoreInterest(2);
@@ -446,6 +525,8 @@ export default function VideoCard(props: VideoCardProps) {
 
     const handlePlay = () => {
       setIsPaused(false);
+      setPlaybackFeedback(resumeFeedbackRef.current);
+      resumeFeedbackRef.current = false;
       if (!hasTrackedViewRef.current) {
         hasTrackedViewRef.current = true;
         trackEvent("video_viewed", {
@@ -460,25 +541,23 @@ export default function VideoCard(props: VideoCardProps) {
       }
     };
     const handlePause = () => setIsPaused(true);
-    const handleCanPlay = () => setHasLoaded(true);
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
-    video.addEventListener("canplay", handleCanPlay);
 
     return () => {
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
-      video.removeEventListener("canplay", handleCanPlay);
     };
-  }, []);
+  }, [scoreInterest, trackMetric]);
 
   // Browser refused unmuted playback (no gesture yet on this page): keep the
   // video moving muted and offer a one-tap unmute. The saved preference is
   // deliberately NOT touched — the user asked for sound, the browser said no.
   const fallBackToMuted = useCallback((video: HTMLVideoElement) => {
+    if (manuallyPausedRef.current) return;
     video.muted = true;
     // isMuted is derived from this flag, so setting it is the whole mute.
     setAutoplayBlocked(true);
@@ -514,21 +593,35 @@ export default function VideoCard(props: VideoCardProps) {
     const video = videoRef.current;
     if (!video) return;
 
-    // play() can reject when metadata isn't ready yet (slow networks, iOS
-    // Safari). Wrap the call so a rejection schedules one retry on `canplay`
-    // instead of leaving the video silently paused until the user taps.
-    const tryPlay = () => {
+    // Retry once, including when canplay already fired. Source replacement
+    // restarts this effect, but must not undo an intentional manual pause.
+    let cancelled = false;
+    let visible = isActive === true;
+    let retry: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => {
+      cancelled = true;
+      if (retry) video.removeEventListener("canplay", retry);
+      clearTimeout(retryTimer);
+    };
+    const tryPlay = (retried = false) => {
+      if (cancelled || !visible || manuallyPausedRef.current) return;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         playPromise.catch((err: unknown) => {
+          if (cancelled || !visible || manuallyPausedRef.current) return;
           if (isAutoplayBlockedError(err) && !video.muted) {
             fallBackToMuted(video);
             return;
           }
+          if (retried || isAutoplayBlockedError(err)) return;
           const onCanPlay = () => {
-            video.play().catch(() => {});
+            tryPlay(true);
           };
-          video.addEventListener("canplay", onCanPlay, { once: true });
+          if (retry) video.removeEventListener("canplay", retry);
+          retry = onCanPlay;
+          if (video.readyState >= 3) retryTimer = setTimeout(onCanPlay, 100);
+          else video.addEventListener("canplay", onCanPlay, { once: true });
         });
       }
     };
@@ -542,12 +635,15 @@ export default function VideoCard(props: VideoCardProps) {
         (entries) => {
           entries.forEach((entry) => {
             if (entry.isIntersecting && entry.intersectionRatio >= 0.75) {
+              visible = true;
               tryPlay();
               if (!hasTrackedImpression) {
                 hasTrackedImpression = true;
                 trackMetric("impressions");
               }
             } else {
+              visible = false;
+              manuallyPausedRef.current = false;
               video.pause();
             }
           });
@@ -558,6 +654,7 @@ export default function VideoCard(props: VideoCardProps) {
       observer.observe(container);
 
       return () => {
+        cleanup();
         observer.disconnect();
         video.pause();
       };
@@ -566,38 +663,57 @@ export default function VideoCard(props: VideoCardProps) {
     } else {
       video.pause();
     }
-  }, [isActive, fallBackToMuted]);
+    return cleanup;
+  }, [isActive, src, trackMetric, fallBackToMuted]);
 
+  // Local diagnostics only: inspect the video element to distinguish download
+  // readiness from activation-to-first-frame delay without extra React renders.
   useEffect(() => {
-    if (src && !hasLoaded) {
-      if (isActive === true) {
-        setVideoSrc(src);
-      } else if (isActive === undefined && containerRef.current) {
-        const observer = new IntersectionObserver(
-          (entries) => {
-            entries.forEach((entry) => {
-              if (entry.isIntersecting && !hasLoaded) {
-                setVideoSrc(src);
-              }
-            });
-          },
-          { threshold: 0.1 }
-        );
-
-        observer.observe(containerRef.current);
-
-        return () => observer.disconnect();
+    const video = videoRef.current;
+    if (!video || !isActive) return;
+    const started = performance.now();
+    let frame: number | undefined;
+    let stalls = 0;
+    let measured = false;
+    delete video.dataset.startupMs;
+    video.dataset.startupReadyState = String(video.readyState);
+    video.dataset.stallCount = "0";
+    let ahead = 0;
+    for (let i = 0; i < video.buffered.length; i++) {
+      if (video.buffered.start(i) <= video.currentTime && video.buffered.end(i) >= video.currentTime) {
+        ahead = video.buffered.end(i) - video.currentTime;
+        break;
       }
     }
-  }, [src, hasLoaded, isActive]);
+    video.dataset.bufferedAheadSeconds = ahead.toFixed(2);
+    const recordFrame = () => {
+      if (measured) return;
+      measured = true;
+      video.dataset.startupMs = String(Math.round(performance.now() - started));
+    };
+    const onWaiting = () => { video.dataset.stallCount = String(++stalls); };
+    if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(recordFrame);
+    else video.addEventListener("playing", recordFrame, { once: true });
+    video.addEventListener("waiting", onWaiting);
+    return () => {
+      if (frame !== undefined) video.cancelVideoFrameCallback(frame);
+      video.removeEventListener("playing", recordFrame);
+      video.removeEventListener("waiting", onWaiting);
+    };
+  }, [isActive, src]);
 
   const handleVideoClick = useCallback(() => {
     const video = videoRef.current;
     if (!video || !tapToTogglePlayback) return;
 
     if (video.paused) {
-      video.play().catch(() => {});
+      manuallyPausedRef.current = false;
+      resumeFeedbackRef.current = true;
+      video.play().catch(() => { resumeFeedbackRef.current = false; });
     } else {
+      manuallyPausedRef.current = true;
+      resumeFeedbackRef.current = false;
+      setPlaybackFeedback(true);
       video.pause();
     }
   }, [tapToTogglePlayback]);
@@ -657,14 +773,20 @@ export default function VideoCard(props: VideoCardProps) {
     setStoredSoundOn,
   ]);
 
-  const handleLike = useCallback(async () => {
+  const handleLike = useCallback(async (likeOnly = false) => {
+    if (likePendingRef.current || (likeOnly && liked)) return;
+    likePendingRef.current = true;
     if (!postId) {
       // Fallback to old behavior if no postId
-      setLk((v) => v + 1);
+      setLiked(!liked);
+      setLk((v) => liked ? Math.max(0, v - 1) : v + 1);
       try {
         await onLike?.();
       } catch {
-        setLk((v) => Math.max(0, v - 1));
+        setLiked(liked);
+        setLk(lk);
+      } finally {
+        likePendingRef.current = false;
       }
       return;
     }
@@ -681,7 +803,7 @@ export default function VideoCard(props: VideoCardProps) {
         : `/api/posts/${postId}/like`;
       
       const res = await fetch(apiUrl, {
-        method: "POST",
+        method: likeOnly ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
       });
@@ -709,8 +831,10 @@ export default function VideoCard(props: VideoCardProps) {
       setLiked(wasLiked);
       setLk(previousCount);
       console.error("Failed to toggle like:", err);
+    } finally {
+      likePendingRef.current = false;
     }
-  }, [onLike, postId, liked, lk]);
+  }, [onLike, postId, liked, lk, creatorId, postCategory]);
 
   const handleComment = useCallback(async () => {
     if (postId) {
@@ -796,12 +920,11 @@ export default function VideoCard(props: VideoCardProps) {
   }, [onShare, postId]);
 
   const handleFollow = useCallback(async () => {
+    if (!canFollow || !creatorId || followLoading) return;
     if (onFollow) {
       onFollow();
       return;
     }
-
-    if (!canFollow || !creatorId || followLoading) return;
 
     // Optimistic UI update - update immediately for instant feedback
     const previousState = isFollowing;
@@ -870,7 +993,7 @@ export default function VideoCard(props: VideoCardProps) {
   const handleBuy = useCallback(async () => {
     // A second tap while the checkout POST is in flight would create a
     // duplicate Stripe session — ignore it.
-    if (checkoutState !== "idle") return;
+    if (checkoutState !== "idle" || !purchaseOptionsReady) return;
 
     trackEvent("buy_clicked", {
       post_id: postId,
@@ -882,6 +1005,14 @@ export default function VideoCard(props: VideoCardProps) {
     });
     scoreInterest(10);
     trackMetric("buy_clicks");
+
+    if (monthlyTerms) {
+      if (authLoading) return;
+      if (!cachedUserId) { router.push("/auth"); return; }
+      if (!productId || !postId) return;
+      router.push(`/memberships/review?${new URLSearchParams({ product_id: productId, post_id: postId })}`);
+      return;
+    }
 
     if (onBuy) {
       onBuy();
@@ -944,30 +1075,11 @@ export default function VideoCard(props: VideoCardProps) {
       setCheckoutError((e as Error).message || "Failed to start checkout.");
       setCheckoutState("idle");
     }
-  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId, checkoutState]);
+  }, [onBuy, productId, postId, creatorId, titleForCheckout, cachedUserId, checkoutState,
+    monthlyTerms, purchaseOptionsReady, authLoading, router,
+    priceCents, productType, postCategory, scoreInterest, trackMetric]);
 
   const socialProof = formatSocialProof(purchaseCount, productType);
-  // Fire-and-forget interest score update (never blocks UI)
-  const scoreInterest = useCallback((delta: number) => {
-    const pid = postIdRef.current;
-    if (!pid) return;
-    fetch("/api/interest-score", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post_id: pid, delta }),
-    }).catch(() => {});
-  }, []);
-
-  // Fire-and-forget post metrics update
-  const trackMetric = useCallback((field: string, watchSeconds?: number) => {
-    const pid = postIdRef.current;
-    if (!pid) return;
-    fetch("/api/post-metrics", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post_id: pid, field, watch_seconds: watchSeconds }),
-    }).catch(() => {});
-  }, []);
 
   const handleBook = useCallback(async () => {
     if (checkoutState !== "idle") return;
@@ -1070,7 +1182,47 @@ export default function VideoCard(props: VideoCardProps) {
   );
 
   return (
-    <div className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh]">
+    <div className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation"
+      onClick={(event) => {
+        const target = event.target;
+        // Portal clicks bubble through React, even outside this card's DOM.
+        if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
+        if (target.closest('button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menu"], [role="dialog"], [role="slider"], [contenteditable="true"], [data-no-playback-toggle]')) return;
+        if (!src) return;
+        const previous = tapRef.current;
+        if (previous) {
+          window.clearTimeout(previous.timer);
+          tapRef.current = null;
+          if (Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= 48) {
+            const bounds = event.currentTarget.getBoundingClientRect();
+            setTapHeart({ id: ++heartSequence.current, x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+            void handleLike(true);
+            return;
+          }
+          handleVideoClick();
+        }
+        tapRef.current = {
+          x: event.clientX, y: event.clientY,
+          timer: window.setTimeout(() => { tapRef.current = null; handleVideoClick(); }, 300),
+        };
+      }}
+    >
+      {tapHeart && (
+        <span key={tapHeart.id} data-tap-heart aria-hidden="true"
+          className="pointer-events-none absolute z-[60] text-red-500 drop-shadow-lg"
+          style={{ left: tapHeart.x, top: tapHeart.y, transform: "translate(-50%, -50%)" }}
+          ref={(node) => {
+            if (!node?.animate || node.dataset.animated || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+            node.dataset.animated = "true";
+            node.animate([
+              { opacity: 0, transform: "translate(-50%, -50%) scale(0.5) rotate(-12deg)" },
+              { opacity: 1, transform: "translate(-50%, -50%) scale(1.12) rotate(-12deg)", offset: 0.2 },
+              { opacity: 1, transform: "translate(-50%, -50%) scale(1) rotate(-12deg)", offset: 0.6 },
+              { opacity: 0, transform: "translate(-50%, -80%) scale(1.1) rotate(-12deg)" },
+            ], { duration: 750, fill: "forwards" });
+          }}
+        ><Heart className="h-20 w-20 fill-current" strokeWidth={1} /></span>
+      )}
 
 
 
@@ -1091,17 +1243,19 @@ export default function VideoCard(props: VideoCardProps) {
 
 
 
-        {videoSrc || src ? (
+        {src ? (
           <video
             ref={videoRef}
-            src={videoSrc || src}
+            src={src}
+            onError={() => {
+              if (src !== originalSrc) setFailedMediaSource(originalSrc);
+            }}
             poster={poster || undefined}
             playsInline
             muted={isMuted}
-            preload="metadata"
+            preload={preload}
             loop
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
-            onClick={handleVideoClick}
           />
         ) : poster ? (
           <img
@@ -1112,6 +1266,18 @@ export default function VideoCard(props: VideoCardProps) {
             style={{ borderRadius: "16px 16px 0 0" }}
           />
         ) : null}
+
+        {src && tapToTogglePlayback && (
+          <div
+            aria-hidden="true"
+            data-playback-feedback={isPaused ? "paused" : "playing"}
+            className={`pointer-events-none absolute inset-0 z-10 flex items-center justify-center transition-opacity duration-200 motion-reduce:transition-none ${playbackFeedback ? "opacity-100" : "opacity-0"}`}
+          >
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" className="text-white/85 drop-shadow-[0_1px_3px_rgba(0,0,0,0.55)]">
+              {isPaused ? <path d="m8 4 12 8-12 8Z" /> : <><rect x="6" y="4" width="4" height="16" rx="0.6" /><rect x="14" y="4" width="4" height="16" rx="0.6" /></>}
+            </svg>
+          </div>
+        )}
 
         <div
           className={`absolute top-2 sm:top-3 ${
@@ -1160,7 +1326,7 @@ export default function VideoCard(props: VideoCardProps) {
               of a hashtag link was unclickable — elementFromPoint returned the
               bar, not the link. */}
           <div className="relative p-3 sm:p-4 max-lg:pb-[56px] max-lg:translate-y-[7px] lg:translate-y-0">
-          <div className="flex items-start gap-3 mb-3 translate-y-[44px] lg:translate-y-[45px]">
+          <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"}`}>
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1 min-w-0">
@@ -1224,20 +1390,27 @@ export default function VideoCard(props: VideoCardProps) {
             </div>
           </div>
           {(showCTA || onBuy || onBook || (productId && priceCents)) && (
-            <div className="mt-2 relative -translate-y-[0.67in] lg:-translate-y-[0.67in]" ref={wrapperRef}>
+            <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"}`} ref={wrapperRef}>
               <BuyButton
                 ref={buyButtonRef}
                 onClick={() => setMenuOpen((prev) => !prev)}
                 expanded={menuOpen}
                 menuId={buyMenuId}
+                monthly={!!monthlyTerms}
                 priceCents={
-                  priceCents && priceCents > 0
+                  !purchaseOptionsReady ? null : priceCents && priceCents > 0
                     ? priceCents
                     : fetchedPriceCents && fetchedPriceCents > 0
                       ? fetchedPriceCents
                       : null
                 }
               />
+              {monthlyTerms && (
+                <p className="mt-1 text-xs text-white/80" data-monthly-terms>
+                  {monthlyTerms.minimumMonths === 1 ? "One paid month; no additional minimum. " : `${monthlyTerms.minimumMonths}-month minimum commitment. `}
+                  {monthlyTerms.autoRenew ? "Renews monthly after the minimum until canceled." : `Ends after ${monthlyTerms.minimumMonths} ${monthlyTerms.minimumMonths === 1 ? "month" : "months"}; no automatic renewal.`}
+                </p>
+              )}
               {socialProof && (
                 <p className="mt-1 text-xs text-white/70" data-social-proof>
                   {socialProof}
@@ -1267,14 +1440,14 @@ export default function VideoCard(props: VideoCardProps) {
                 >
                   <button
                     role="menuitem"
-                    disabled={checkoutState === "starting"}
+                    disabled={checkoutState === "starting" || !purchaseOptionsReady || (!!monthlyTerms && authLoading)}
                     onClick={() => {
                       setMenuOpen(false);
                       handleBuy();
                     }}
                     className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-black/5 focus:bg-black/10 focus:outline-none transition disabled:opacity-60"
                   >
-                    Pay in full {((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}` : ""}
+                    {!purchaseOptionsReady ? "Purchase unavailable" : monthlyTerms ? "Buy monthly mentorship" : productType === "call" ? "Pay for call" : "Pay in full"} {purchaseOptionsReady && ((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}${monthlyTerms ? "/month" : ""}` : ""}
                   </button>
                   {(productType === "course" || productType === "mentorship" || allowBooking) && (
                     <>
@@ -1322,8 +1495,9 @@ export default function VideoCard(props: VideoCardProps) {
 
       <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20 z-30" style={{ height: "2px" }}>
         <div
-          className="h-full bg-white/60 transition-all duration-150"
-          style={{ width: `${progress}%`, height: "2px" }}
+          ref={progressBarRef}
+          className="h-full bg-white/60 origin-left transition-transform duration-150 motion-reduce:transition-none"
+          style={{ width: "100%", transform: "scaleX(0)", height: "2px" }}
         />
       </div>
     </div>
@@ -1369,7 +1543,7 @@ export default function VideoCard(props: VideoCardProps) {
         <div className="flex flex-col items-center gap-1">
           <button
             type="button"
-            onClick={handleLike}
+            onClick={() => void handleLike()}
             aria-label="Like"
             className="h-[48px] w-[48px] rounded-full border border-white/10 bg-[#1A1F22] text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60 max-lg:h-auto max-lg:w-auto max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent max-lg:focus:ring-0 max-lg:focus-visible:ring-0 max-lg:active:bg-transparent max-lg:[-webkit-tap-highlight-color:transparent]"
           >
@@ -1432,6 +1606,9 @@ export default function VideoCard(props: VideoCardProps) {
             </span>
           )}
         </div>
+        {postId && creatorId && props.onDeleted && (
+          <DeleteVideoButton postId={postId} creatorId={creatorId} onDeleted={props.onDeleted} />
+        )}
       </div>
 
       {/* Comment Panel */}
