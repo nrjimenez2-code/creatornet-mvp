@@ -3,7 +3,7 @@
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Ellipsis, Trash2 } from "lucide-react";
-import { supabase } from "@/lib/supabaseClient";
+import { getActionSession } from "@/lib/actionSession";
 import { useUser } from "@/lib/useUser";
 
 export default function DeleteVideoButton({ postId, creatorId, onDeleted }: {
@@ -28,7 +28,7 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted }: {
     setBusy(true);
     setError(null);
     try {
-      const { data, error: sessionError } = await supabase.auth.getSession();
+      const { data, error: sessionError } = await getActionSession();
       if (sessionError || !data.session?.access_token || data.session.user.id !== creatorId) {
         throw Error("Please sign in again before deleting this video.");
       }

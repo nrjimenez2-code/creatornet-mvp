@@ -399,9 +399,12 @@ describe("migration refund invariants", () => {
 
     expect(accessPage).toContain("p.access_granted === true");
     for (const source of [libraryPage, watchPage]) {
-      expect(source).toContain('.eq("access_granted", true)');
-      expect(source).toContain('.in("status", ["paid", "active", "complete"])');
+      expect(source).toContain('"/api/library/eligibility"');
     }
+    const eligibility = readFileSync(path.join(process.cwd(), "app/api/library/eligibility/route.ts"), "utf8");
+    expect(eligibility).toContain('row.access_granted === true');
+    expect(eligibility).toContain('["paid", "active", "complete"].includes(row.status');
+    expect(eligibility).toContain('membershipAccessSeconds(supabaseAdmin, row.id, user.id) > 0');
   });
 });
 

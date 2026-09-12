@@ -5,7 +5,7 @@ let mockUser: string | null = "owner";
 let mockLoading = false;
 const mockSession = jest.fn();
 jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: mockUser, loading: mockLoading }) }));
-jest.mock("@/lib/supabaseClient", () => ({ supabase: { auth: { getSession: mockSession } } }));
+jest.mock("@/lib/supabaseClient", () => ({ createClient: () => ({ auth: { getSession: mockSession } }) }));
 import DeleteVideoButton from "@/components/DeleteVideoButton";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement;

@@ -26,7 +26,8 @@ test("explicit confirmed retry uses the original invoice/PI, exact fee, replacem
     {idempotencyKey:`exact-buyer-retry:${f.args.quoteId}:v1`,maxNetworkRetries:0});
   expect(f.retryStore.admit.mock.invocationCallOrder[0]).toBeLessThan(f.api.invoices.pay.mock.invocationCallOrder[0]);
   expect(f.retryStore.recordReceipt).toHaveBeenCalledWith(f.args.quoteId,{invoiceId:f.args.invoiceId,paymentIntentId:f.f.pi.id,
-    amountCents:66633,applicationFeeCents:10425,paidAt:f.args.now()});
+    amountCents:66633,applicationFeeCents:10425,paidAt:f.args.now(),
+    actualStripeFeeCents:1962,balanceTransactionId:"txn_renewal",chargeId:"ch_renewal",refundedAmountCents:0});
   noDefaults(f);
 });
 test("repeat/refresh after successful retry only reconciles the original receipt",async()=>{

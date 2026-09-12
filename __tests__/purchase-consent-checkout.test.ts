@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { createMockClient } from "./__mocks__/supabaseQueryMock";
 import { productPurchaseTerms, type ConsentProduct } from "@/lib/purchaseConsent";
 const buyer = "10000000-0000-4000-8000-000000000001", creator = "10000000-0000-4000-8000-000000000002";
+const postId = "10000000-0000-4000-8000-000000000008";
 const consentId = "10000000-0000-4000-8000-000000000003";
 const product = { id: "10000000-0000-4000-8000-000000000004", product_id: "10000000-0000-4000-8000-000000000004",
   creator_id: creator, type: "course", title: "Owned course", description: "One complete course", price_cents: 10000,
@@ -10,6 +11,7 @@ const mockStripe = { checkout: { sessions: { create: jest.fn(), retrieve: jest.f
 let mockAttempt: Record<string, unknown> | null;
 let mockProduct: ConsentProduct;
 const mockDb = createMockClient(op => {
+  if (op.table === "posts") return { data: { id: postId, creator_id: creator, product_id: product.id, price_cents: 10000 }, error: null };
   if (op.table === "products") return { data: mockProduct, error: null };
   if (op.table === "profiles") return { data: { stripe_account_id: "acct_ownedcreator" }, error: null };
   if (op.table === "record_product_purchase_consent_v1") return { data: consentId, error: null };
@@ -45,7 +47,7 @@ function request(consent?: unknown) { return new NextRequest("https://creatornet
   method: "POST", headers: { "Content-Type": "application/json", origin: "https://creatornet.example.invalid" },
   body: JSON.stringify({ type: "product", product_id: product.id, purchase_consent: consent }),
 }); }
-const quote = productPurchaseTerms(product, buyer, null);
+const quote = productPurchaseTerms(product, buyer, postId);
 const acceptance = { accepted: true, version: quote.terms.version, fingerprint: quote.fingerprint };
 test("#6 actual existing checkout returns review before any Stripe session/order/purchase write", async () => {
   const response = await POST(request()); expect(response.status).toBe(200);
@@ -65,7 +67,7 @@ test("#6 actual checkout records acceptance and binds it to the same attempt and
 });
 test.each([null, "10000000-0000-4000-8000-000000000099"])("#6 an expired checkout replacement replaces prior acceptance %s", async priorConsent => {
   mockAttempt = { id: "10000000-0000-4000-8000-000000000005", buyer_id: buyer, creator_id: creator,
-    product_id: product.id, post_id: null, purchase_identity: `product:${product.id}`, status: "open",
+    product_id: product.id, post_id: postId, purchase_identity: `post:${postId}`, status: "open",
     terms_fingerprint: "old", attempt_key: "old-key", order_id: "10000000-0000-4000-8000-000000000007",
     purchase_consent_id: priorConsent, stripe_checkout_session_id: "cs_test_expired", stripe_checkout_url: "https://checkout.stripe.com/expired" };
   mockStripe.checkout.sessions.retrieve.mockResolvedValue({ id: "cs_test_expired", status: "expired" });
@@ -81,7 +83,7 @@ test.each([null, "10000000-0000-4000-8000-000000000099"])("#6 an expired checkou
 test("#6 rollback rotates to an unversioned attempt without falsely carrying the old acceptance", async () => {
   process.env.CREATOR_PURCHASE_POLICIES_READY = "false";
   mockAttempt = { id: "10000000-0000-4000-8000-000000000005", buyer_id: buyer, creator_id: creator,
-    product_id: product.id, post_id: null, purchase_identity: `product:${product.id}`, status: "open",
+    product_id: product.id, post_id: postId, purchase_identity: `post:${postId}`, status: "open",
     terms_fingerprint: "old", attempt_key: "old-key", order_id: "10000000-0000-4000-8000-000000000007",
     purchase_consent_id: consentId, stripe_checkout_session_id: "cs_test_expired", stripe_checkout_url: null };
   mockStripe.checkout.sessions.retrieve.mockResolvedValue({ id: "cs_test_expired", status: "expired" });
@@ -95,7 +97,7 @@ test("timed checkout reviews duration before payment and binds it to automatic c
   mockProduct.fixed_service_months = 10;
   const review = await POST(request()); expect((await review.json()).requires_consent).toBe(true);
   expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
-  const timed = productPurchaseTerms(mockProduct, buyer, null);
+  const timed = productPurchaseTerms(mockProduct, buyer, postId);
   const response = await POST(request({ accepted: true, version: timed.terms.version, fingerprint: timed.fingerprint }));
   expect(response.status).toBe(200);
   const params = mockStripe.checkout.sessions.create.mock.calls[0][0];
@@ -107,7 +109,7 @@ test("timed checkout reviews duration before payment and binds it to automatic c
 });
 test("a changed duration rejects stale consent before Stripe or financial writes", async () => {
   mockProduct.fixed_service_months = 10;
-  const timed = productPurchaseTerms(mockProduct, buyer, null); mockProduct.fixed_service_months = 4;
+  const timed = productPurchaseTerms(mockProduct, buyer, postId); mockProduct.fixed_service_months = 4;
   expect((await POST(request({ accepted: true, version: timed.terms.version, fingerprint: timed.fingerprint }))).status).toBe(409);
   expect(mockStripe.checkout.sessions.create).not.toHaveBeenCalled();
   expect(mockDb.ops.filter(op => ["orders", "purchases", "product_checkout_attempts"].includes(op.table) && op.kind !== "select")).toEqual([]);

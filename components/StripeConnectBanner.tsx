@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useUser } from "@/lib/useUser";
-import { createClient } from "@/lib/supabaseClient";
+import { getActionSession } from "@/lib/actionSession";
 
 type Status =
   | { loading: true }
@@ -59,7 +59,7 @@ export default function StripeConnectBanner() {
     setStarting(true);
     setErr(null);
     try {
-      const { data: { session: current }, error } = await createClient().auth.getSession();
+      const { data: { session: current }, error } = await getActionSession();
       if (error || !current) { setAuthRequired(true); return; }
       // Return/refresh routes need cookies after the browser comes back from Stripe.
       // Confirm the handoff before creating an account or onboarding link.
