@@ -2,8 +2,10 @@ const fs = require('node:fs');
 const cp = require('node:child_process');
 const ts = require('typescript');
 
-// Opt in only pages with explicit interaction coverage. Unknown paths fail closed.
+// Explicit UI areas with interaction coverage. Backend and unknown paths fail closed.
 const areas = [
+  { ui: ['components/analytics/AnalyticsDashboard.tsx', 'components/analytics/AnalyticsSelect.tsx', 'components/analytics/analytics.module.css'], tests: ['__tests__/analytics-dashboard-ui.test.ts', '__tests__/analytics-dashboard-data.test.ts'] },
+  { ui: ['app/dashboard/earnings/page.tsx', 'app/dashboard/earnings/earnings.module.css', 'components/StripeConnectBanner.tsx'], tests: ['__tests__/earnings-page-ui.test.ts', '__tests__/earnings-connect-access.test.ts', '__tests__/stripe-connect-session.test.ts', '__tests__/creator-earnings.test.ts'] },
   { page: 'app/profile/edit/page.tsx', css: 'app/profile/edit/profile-editor.module.css', tests: ['__tests__/profile-editor.test.ts'] },
   { page: 'app/dashboard/closers/page.tsx', css: 'app/dashboard/closers/bookings.module.css', tests: ['__tests__/booking-destinations-ui.test.ts', '__tests__/installment-link-ui.test.ts'] },
 ];
@@ -42,8 +44,14 @@ function selectTests(changes, readBefore, readAfter) {
   const tests = new Set();
   if (!changes.length) return { mode: 'full', reason: 'No reliable changed-file scope' };
   for (const { status, path } of changes) {
-    const area = areas.find(area => area.page === path || area.css === path || area.tests.includes(path));
-    if (!area || status !== 'M') return { mode: 'full', reason: `Unmapped, added, deleted or renamed file: ${path}` };
+    // Selector changes exercise every mapped suite plus mandatory safeguards.
+    // Workflow, dependencies, backend and unknown changes still select full.
+    if (['scripts/ci-tests.cjs', 'scripts/ci-tests.test.cjs'].includes(path) && status === 'M') {
+      areas.forEach(area => area.tests.forEach(test => tests.add(test)));
+      continue;
+    }
+    const area = areas.find(area => area.page === path || area.css === path || area.ui?.includes(path) || area.tests.includes(path));
+    if (!area || (status !== 'M' && !(status === 'A' && (area.ui?.includes(path) || area.tests.includes(path))))) return { mode: 'full', reason: `Unmapped, added, deleted or renamed file: ${path}` };
     if (path === area.page) {
       try {
         if (behavior(readBefore(path)) !== behavior(readAfter(path))) return { mode: 'full', reason: `Page behavior changed: ${path}` };
@@ -51,7 +59,7 @@ function selectTests(changes, readBefore, readAfter) {
     }
     area.tests.forEach(test => tests.add(test));
   }
-  return { mode: 'focused', tests: [...tests].sort(), reason: 'Known page layout/styles and their interaction tests' };
+  return { mode: 'focused', tests: [...tests].sort(), reason: 'Known UI areas and their affected interaction/data tests' };
 }
 
 function git(args) { return cp.execFileSync('git', args, { encoding: 'utf8' }); }

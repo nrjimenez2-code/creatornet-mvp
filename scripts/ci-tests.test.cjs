@@ -22,7 +22,7 @@ test('handlers, imports and JSX expressions require full checks', () => {
   ]) assert.equal(choose(before, after).mode, 'full');
 });
 test('shared, feed, auth, payments, config and CI paths always run full suite', () => {
-  for (const path of ['components/Feed.tsx', 'app/globals.css', 'app/api/book/route.ts', 'lib/stripe.ts', 'package-lock.json', '.github/workflows/ci.yml', 'scripts/ci-tests.cjs']) {
+  for (const path of ['components/Feed.tsx', 'app/globals.css', 'app/api/book/route.ts', 'lib/stripe.ts', 'package-lock.json', '.github/workflows/ci.yml']) {
     assert.equal(selectTests([change('app/profile/edit/profile-editor.module.css'), change(path)]).mode, 'full');
   }
 });
@@ -33,4 +33,24 @@ test('missing diff, deleted/new paths and unreadable pages fail closed', () => {
 });
 test('combined UI areas include all affected suites and deduplicate', () => {
   assert.equal(selectTests([change('app/profile/edit/profile-editor.module.css'), change('app/dashboard/closers/bookings.module.css'), change('__tests__/installment-link-ui.test.ts')]).tests.length, 3);
+});
+
+test('analytics and earnings UI additions select their affected tests', () => {
+  for (const path of ['components/analytics/AnalyticsSelect.tsx', 'app/dashboard/earnings/earnings.module.css']) {
+    const result = selectTests([{status:'A',path}]);
+    assert.equal(result.mode,'focused'); assert.ok(result.tests.length >= 2);
+  }
+  const result = selectTests([change('components/StripeConnectBanner.tsx')]);
+  assert.ok(result.tests.includes('__tests__/stripe-connect-session.test.ts'));
+  assert.ok(result.tests.includes('__tests__/earnings-connect-access.test.ts'));
+});
+test('UI mapping never suppresses backend or dependency changes', () => {
+  for (const path of ['lib/analytics-dashboard-server.ts','lib/creatorEarningsView.ts','app/api/stripe/connect/onboard/route.ts','package.json','.github/workflows/ci.yml']) {
+    assert.equal(selectTests([change('app/dashboard/earnings/page.tsx'),change(path)]).mode,'full');
+  }
+});
+test('selector maintenance runs every mapped suite but does not hide unknown changes', () => {
+  const result = selectTests([change('scripts/ci-tests.cjs')]);
+  assert.equal(result.mode,'focused'); assert.equal(result.tests.length,9);
+  assert.equal(selectTests([change('scripts/ci-tests.cjs'),change('lib/auth.ts')]).mode,'full');
 });
