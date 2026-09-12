@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { isWithinRenderWindow } from "@/lib/feedV3";
+import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
 import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 
@@ -164,7 +165,7 @@ export default function ProfilePostsGallery({
             {post.poster_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={post.poster_url}
+                src={feedPosterUrl(post.poster_url)}
                 alt=""
                 className="h-full w-full object-cover transition group-hover:scale-105"
                 loading="lazy"
@@ -172,7 +173,7 @@ export default function ProfilePostsGallery({
             ) : post.video_url ? (
               <video
                 ref={primeVideoThumbnail}
-                src={post.video_url}
+                src={feedMediaUrl(post.video_url)}
                 className="h-full w-full object-cover transition group-hover:scale-105"
                 muted
                 loop

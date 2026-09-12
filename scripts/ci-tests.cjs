@@ -40,26 +40,33 @@ function behavior(source) {
   finally { result.dispose(); }
 }
 
+// Suites that scan the whole tree (the auth tripwire, legal/landing wiring,
+// clock isolation) cannot be mapped to a path, so every focused run includes them.
+const invariants = [
+  '__tests__/exact-clock-isolation.test.ts',
+  '__tests__/landing-links-and-facts.test.ts',
+  '__tests__/legal-pages-wired.test.ts',
+  '__tests__/single-auth-flow.test.ts',
+];
+
 function selectTests(changes, readBefore, readAfter) {
-  const tests = new Set();
+  const tests = new Set(invariants);
   if (!changes.length) return { mode: 'full', reason: 'No reliable changed-file scope' };
   for (const { status, path } of changes) {
-    // Selector changes exercise every mapped suite plus mandatory safeguards.
-    // Workflow, dependencies, backend and unknown changes still select full.
-    if (['scripts/ci-tests.cjs', 'scripts/ci-tests.test.cjs'].includes(path) && status === 'M') {
-      areas.forEach(area => area.tests.forEach(test => tests.add(test)));
-      continue;
-    }
     const area = areas.find(area => area.page === path || area.css === path || area.ui?.includes(path) || area.tests.includes(path));
-    if (!area || (status !== 'M' && !(status === 'A' && (area.ui?.includes(path) || area.tests.includes(path))))) return { mode: 'full', reason: `Unmapped, added, deleted or renamed file: ${path}` };
-    if (path === area.page) {
+    // Only a modified mapped file, or a new stylesheet/test inside a UI area, can stay focused.
+    // The selector itself, workflows, dependencies, backend and unknown paths fail closed.
+    const added = status === 'A' && ((area?.ui?.includes(path) && path.endsWith('.css')) || area?.tests.includes(path));
+    if (!area || (status !== 'M' && !added)) return { mode: 'full', reason: `Unmapped, added, deleted or renamed file: ${path}` };
+    // Every mapped component or page gets the same cosmetic-only check.
+    if (path === area.page || (area.ui?.includes(path) && /\.tsx?$/.test(path))) {
       try {
-        if (behavior(readBefore(path)) !== behavior(readAfter(path))) return { mode: 'full', reason: `Page behavior changed: ${path}` };
+        if (behavior(readBefore(path)) !== behavior(readAfter(path))) return { mode: 'full', reason: `UI behavior changed: ${path}` };
       } catch { return { mode: 'full', reason: `Unable to classify: ${path}` }; }
     }
     area.tests.forEach(test => tests.add(test));
   }
-  return { mode: 'focused', tests: [...tests].sort(), reason: 'Known UI areas and their affected interaction/data tests' };
+  return { mode: 'focused', tests: [...tests].sort(), reason: 'Known UI areas, their affected tests, and the tree-wide invariant suites' };
 }
 
 function git(args) { return cp.execFileSync('git', args, { encoding: 'utf8' }); }
