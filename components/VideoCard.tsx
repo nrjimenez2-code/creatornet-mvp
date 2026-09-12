@@ -13,7 +13,7 @@ import DeleteVideoButton from "./DeleteVideoButton";
 import { formatSocialProof } from "@/lib/socialProof";
 import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 import dynamic from "next/dynamic";
-const CommentPanel = dynamic(() => import("./CommentPanel"));
+const CommentPanel = dynamic(() => import("./CommentPanel"), { loading: () => null });
 import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
 import { useSoundPreference } from "@/lib/audioPreference";
