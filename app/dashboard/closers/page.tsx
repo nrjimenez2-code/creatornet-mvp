@@ -5,6 +5,7 @@ import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import styles from "./bookings.module.css";
 import InstallmentLinkForm from "@/components/InstallmentLinkForm";
 import { platformFeeCents as legacyPlatformFeeCents } from "@/lib/money";
 
@@ -397,104 +398,54 @@ export default function ClosersManagerPage() {
   };
 
   return (
-    <main className="max-w-5xl mx-auto p-6 space-y-8 text-white">
-      {/* Mobile: Back button on top, heading below and left-aligned */}
-      <div className="block md:hidden mb-6">
-        <div className="mb-3">
-          <BackButton />
+    <main className={styles.page}>
+      <div className={styles.backCorner}><BackButton hrefOverride="/dashboard" className={styles.backButton} /></div>
+      <div className={styles.content}>
+      <header className={styles.header}>
+        <h1>Booking destinations</h1>
+        <p>Route calls to your sales team, one booking at a time.</p>
+      </header>
+      <section className={styles.panel} aria-labelledby="add-destination-title">
+        <h2 id="add-destination-title">Add a destination</h2>
+        <p className={styles.subtitle}>Choose where your next bookings go.</p>
+        <div className={styles.formGrid}>
+          <div className={styles.field}>
+            <label htmlFor="destination-name">Name</label>
+            <input id="destination-name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="e.g. Sales team" />
+          </div>
+          <div className={styles.field}>
+            <label htmlFor="destination-url">Booking URL</label>
+            <input id="destination-url" value={newUrl} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://cal.com/your-link" inputMode="url" />
+          </div>
         </div>
-        <h1 className="text-lg font-bold text-left">Booking Targets (Round-Robin)</h1>
-      </div>
-
-      {/* Desktop: Absolute positioned back button + heading below (original) */}
-      <div className="hidden md:block absolute top-4 left-4 z-10">
-        <BackButton />
-      </div>
-      <h1 className="hidden md:block text-xl font-bold mb-2">Booking Targets (Round-Robin)</h1>
-      <p className="text-sm text-white/80 mb-6">
-        Add one or more booking URLs for your sales team. We’ll automatically rotate them using{" "}
-        <code>next_booking_target()</code>. Counters are stored per target and update each time your
-        CTA hits <code>/api/book</code>.
-      </p>
-
-      {/* Add form */}
-      <div className="rounded-xl border p-4 mb-6 space-y-3">
-        <h2 className="font-semibold text-white">Add booking destination</h2>
-        <div className="grid sm:grid-cols-2 gap-3">
-          <input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder="Name (e.g., Closer A)"
-            className="w-full rounded-lg border px-3 py-2"
-            suppressHydrationWarning
-          />
-          <input
-            value={newUrl}
-            onChange={(e) => setNewUrl(e.target.value)}
-            placeholder="https://cal.com/your-slot or any book URL"
-            className="w-full rounded-lg border px-3 py-2"
-            suppressHydrationWarning
-          />
-        </div>
-        <div className="flex items-center gap-3">
-          <input
-            type="number"
-            min={0}
-            value={newWeight}
-            onChange={(e) => setNewWeight(parseInt(e.target.value || "0", 10))}
-            className="w-24 rounded-lg border px-3 py-2"
-            suppressHydrationWarning
-          />
-          <label className="text-sm text-white/90">Weight</label>
-
-          <label className="ml-4 inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={newActive}
-              onChange={(e) => setNewActive(e.target.checked)}
-              suppressHydrationWarning
-            />
+        <div className={styles.formBottom}>
+          <div className={styles.weightField}>
+            <label htmlFor="destination-weight">Weight</label>
+            <input id="destination-weight" type="number" min={0} value={newWeight} onChange={(e) => setNewWeight(parseInt(e.target.value || "0", 10))} aria-describedby="weight-help" />
+          </div>
+          <p id="weight-help" className={styles.weightHelp}>Higher weights receive more bookings.</p>
+          <label className={styles.toggleLabel}>
+            <input className={styles.toggle} type="checkbox" checked={newActive} onChange={(e) => setNewActive(e.target.checked)} />
             Active
           </label>
-
-          <button
-            onClick={addTarget}
-            className="ml-auto rounded-full bg-black text-white px-4 py-2"
-          >
-            Add
-          </button>
+          <button type="button" onClick={addTarget} className={styles.primary} disabled={!creatorId}><span aria-hidden="true">＋</span> Add destination</button>
         </div>
-      </div>
-
-      {/* Test round robin */}
-      <div className="rounded-xl border p-4 mb-6 flex items-center gap-3">
-        <button
-          onClick={testRoundRobin}
-          disabled={testing || !creatorId}
-          className="rounded-full border px-4 py-2 disabled:opacity-50"
-        >
-          {testing ? "Testing…" : "Test round-robin"}
-        </button>
-        {testResult && (
-          <div className="text-sm text-white">
-            Next pick →{" "}
-            <a className="underline" href={testResult.url} target="_blank" rel="noreferrer">
-              {testResult.url}
-            </a>{" "}
-            <span className="text-white/70">(target_id: {testResult.target_id})</span>
-          </div>
-        )}
-      </div>
-
+      </section>
+      <section className={styles.panel} aria-labelledby="destinations-title">
+        <div className={styles.sectionHeader}>
+          <div className={styles.titleRow}><h2 id="destinations-title">Your destinations</h2>{!loading && !targetsError ? <span>{targets.length} {targets.length === 1 ? "destination" : "destinations"}</span> : null}</div>
+          <button type="button" onClick={testRoundRobin} disabled={testing || !creatorId} className={styles.secondary}>{testing ? "Testing…" : "Test rotation"}</button>
+        </div>
+        {testResult && <div role="status" className={styles.testResult}>Next pick → <a href={testResult.url} target="_blank" rel="noreferrer">{testResult.url}</a></div>}
       {/* Table */}
-      <div className="rounded-xl border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-[#181818] text-white">
+      <div className={styles.tableScroll} tabIndex={targets.length ? 0 : undefined} role="region" aria-label="Booking destinations table">
+        <table className={styles.table}>
+          <thead>
             <tr className="text-left">
               <th className="px-3 py-2">Name</th>
               <th className="px-3 py-2">Booking URL</th>
               <th className="px-3 py-2 w-24">Weight</th>
-              <th className="px-3 py-2 w-28">Active</th>
+              <th className="px-3 py-2 w-28">Status</th>
               <th className="px-3 py-2 w-24">Used</th>
               <th className="px-3 py-2 w-48">Last used</th>
               <th className="px-3 py-2 w-40"></th>
@@ -519,7 +470,7 @@ export default function ClosersManagerPage() {
             ) : targets.length === 0 ? (
               <tr>
                 <td className="px-3 py-4 text-white/70" colSpan={7}>
-                  No booking targets yet.
+                  <EmptyState kind="link" title="No destinations yet" description="Add a booking link above to get started." />
                 </td>
               </tr>
             ) : (
@@ -529,23 +480,22 @@ export default function ClosersManagerPage() {
         </table>
       </div>
 
+      </section>
+
       {/* Bookings & payments */}
-      <section className="rounded-xl border p-4 space-y-4 bg-white/5">
+      <section className={styles.panel}>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="font-semibold text-lg">Bookings & payments</h2>
             <p className="text-sm text-white/80">
-              Generate Stripe checkout links to send after your calls.
+              Create checkout links to send after your calls.
             </p>
-            <p className="mt-1 text-xs text-white/60">
-              CreatorNet charges a 12% platform fee. Standard payment-processing fees are
-              deducted separately.
-            </p>
+
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={fetchBookings}
-              className="rounded-full border px-4 py-2 text-sm"
+              className={styles.secondary}
               disabled={bookingsLoading || generatingLinkKey !== null}
             >
               {bookingsLoading ? "Refreshing…" : "Refresh"}
@@ -562,7 +512,7 @@ export default function ClosersManagerPage() {
         ) : bookingsLoading ? (
           <div className="text-sm text-white/70">Loading bookings…</div>
         ) : bookings.length === 0 ? (
-          <div className="text-sm text-white/70">No bookings yet. Calls will show up here once they are scheduled.</div>
+          <EmptyState kind="calendar" title="No bookings yet" description="Scheduled calls will appear here." />
         ) : (
           <div className="space-y-4">
             {bookings.map((bundle) => {
@@ -794,8 +744,9 @@ export default function ClosersManagerPage() {
             })}
           </div>
         )}
+        <p className={styles.feeNote}>12% platform fee. Standard payment-processing fees apply separately.</p>
       </section>
-
+      </div>
     </main>
   );
 }
@@ -831,18 +782,19 @@ function Row({
   return (
     <tr className="border-t align-top">
       <td className="px-3 py-2">
-        <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded border px-2 py-1" />
+        <input aria-label="Destination name" value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded border px-2 py-1" />
       </td>
       <td className="px-3 py-2">
-        <input value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded border px-2 py-1" />
+        <input aria-label="Destination booking URL" value={url} onChange={(e) => setUrl(e.target.value)} className="w-full rounded border px-2 py-1" />
         {url ? (
-          <Link href={url} target="_blank" className="text-xs text-blue-600 underline">
+          <Link href={url} target="_blank" className={styles.textLink}>
             open
           </Link>
         ) : null}
       </td>
       <td className="px-3 py-2">
         <input
+          aria-label="Destination weight"
           type="number"
           min={0}
           value={Number.isFinite(weight) ? weight : 0}
@@ -852,7 +804,7 @@ function Row({
       </td>
       <td className="px-3 py-2">
         <label className="inline-flex items-center gap-2">
-          <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
+          <input aria-label="Destination active" className={styles.toggle} type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           <span>{active ? "Yes" : "No"}</span>
         </label>
       </td>
@@ -884,4 +836,12 @@ function TrashIcon({ className = "h-4 w-4" }: { className?: string }) {
       <path d="M9 3h6a1 1 0 0 1 .92.61L16 4h4a1 1 0 1 1 0 2h-1l-1 13a2 2 0 0 1-2 1.87H8a2 2 0 0 1-2-1.87L5 6H4a1 1 0 1 1 0-2h4l.08-.39A1 1 0 0 1 9 3Zm7 3H8l1 13h6l1-13ZM10 8a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V9a1 1 0 0 1 1-1Zm4 0a1 1 0 0 1 1 1v7a1 1 0 1 1-2 0V9a1 1 0 0 1 1-1Z" />
     </svg>
   );
+}
+
+function EmptyState({ kind, title, description }: { kind: "link" | "calendar"; title: string; description: string }) {
+  return <div className={styles.empty}>
+    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {kind === "calendar" ? <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 11h18" /></> : <><path d="m10 13 4-4M8 16l-1 1a4 4 0 0 1-6-6l4-4a4 4 0 0 1 6 0M13 8l1-1a4 4 0 0 1 6 6l-4 4a4 4 0 0 1-6 0" /></>}
+    </svg><h3>{title}</h3><p>{description}</p>
+  </div>;
 }
