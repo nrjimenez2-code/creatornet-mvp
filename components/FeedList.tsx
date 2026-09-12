@@ -11,7 +11,6 @@ import { readSoundOn, useSoundPreference } from "@/lib/audioPreference";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { useDesktopViewport, usePageVisible } from "@/lib/browserVisibility";
 import type { FeedInteraction } from "@/lib/feedInteraction";
-import { createFeedHandoff } from "@/lib/feedHandoff";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
 import {
   mapFeedV3Rows,
@@ -81,13 +80,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   // Per-device, persisted across reloads (lib/audioPreference.ts).
   const [globalSoundOn, setGlobalSoundOn] = useSoundPreference();
   const [activePostId, setActivePostId] = useState<string | null>(null);
-  const [readyPostId, setReadyPostId] = useState<string | null>(null);
+  const [warmingPostId, setWarmingPostId] = useState<string | null>(null);
   const activeIdRef = useRef(activePostId);
   activeIdRef.current = activePostId;
   const draftsRef = useRef(new Map<string, string>());
-  const handleFirstFrame = useCallback((id: string) => {
-    if (activeIdRef.current === id) setReadyPostId(id);
-  }, []);
   // Authoritative responses are lifted out of cards so virtualization cannot
   // restore old heart/count state. Late responses from another viewer are ignored.
   const handleInteractionChange = useCallback((id: string, patch: FeedInteraction) => {
@@ -175,7 +171,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     setLoadingMore(false);
     setMoreError(false);
     setPendingPosts([]);
-    setReadyPostId(null);
+    setWarmingPostId(null);
 
     // Wait for the auth context to settle; the effect re-runs when it does.
     if (authLoading) return;
@@ -435,11 +431,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const observedDesktopRef = useRef(desktop);
   const observedNodesRef = useRef(new Set<HTMLElement>());
   const ratiosRef = useRef(new Map<Element, IntersectionObserverEntry>());
-  const mobileHandoffRef = useRef<ReturnType<typeof createFeedHandoff> | null>(null);
+  const scrollPositionRef = useRef(0);
+  const scrollDirectionRef = useRef(1);
   useEffect(() => {
     const root = feedScrollRef.current;
     if (!root || !sectionRefs.current.size) {
-      mobileHandoffRef.current?.cancel();
       observerRef.current?.disconnect();
       observerRef.current = null;
       observedNodesRef.current.clear();
@@ -454,9 +450,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       if (pending) pendingHighlightScrollRef.current = null;
       setActivePostId(prev => prev === id ? prev : id);
     };
-    if (!mobileHandoffRef.current) mobileHandoffRef.current = createFeedHandoff(commit);
     if (!observerRef.current || observedRootRef.current !== root || observedDesktopRef.current !== desktop) {
-      mobileHandoffRef.current.cancel();
       observedDesktopRef.current = desktop;
       observerRef.current?.disconnect();
       observedNodesRef.current.clear();
@@ -464,11 +458,22 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       observedRootRef.current = root;
       observerRef.current = new IntersectionObserver(
       (entries) => {
+        const delta = root.scrollTop - scrollPositionRef.current;
+        if (Math.abs(delta) > 1) scrollDirectionRef.current = delta > 0 ? 1 : -1;
+        scrollPositionRef.current = root.scrollTop;
         entries.forEach(entry => ratios.set(entry.target, entry));
         const visible = [...ratios.values()]
-          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= (desktop ? 0.51 : 0.7))
+          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (!desktop && !visible) mobileHandoffRef.current?.propose(null);
+        // Prepare only the incoming neighbor once it enters view. No hidden
+        // autoplay, timer-gated activation, or decoder work for distant cards.
+        const selectedId = (visible?.target as HTMLElement | undefined)?.dataset.postId ?? activeIdRef.current;
+        const selectedIndex = itemsRef.current.findIndex(post => post.id === selectedId);
+        const neighbor = itemsRef.current[selectedIndex + scrollDirectionRef.current];
+        const neighborNode = neighbor && sectionRefs.current.get(neighbor.id);
+        const entry = neighborNode && ratios.get(neighborNode);
+        const warmId = !desktop && entry?.isIntersecting && entry.intersectionRatio >= 0.08 ? neighbor.id : null;
+        setWarmingPostId(prev => prev === warmId ? prev : warmId);
         if (visible) {
           const id = (visible.target as HTMLElement).dataset.postId;
           if (id) {
@@ -478,12 +483,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             if (pending) {
               if (id !== pending) return;
             }
-            if (desktop) commit(id);
-            else mobileHandoffRef.current?.propose(id);
+            commit(id);
           }
         }
       },
-      { root, threshold: [0, 0.3, 0.51, 0.7, 1] }
+      { root, threshold: [0, 0.08, 0.49, 0.51, 0.92, 1] }
     );
     }
     // Appending a page registers only its new sections. Existing videos keep
@@ -497,8 +501,6 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     }
     observedNodesRef.current = nodes;
   }, [sectionMembership, feedError, desktop]);
-  useEffect(() => () => mobileHandoffRef.current?.cancel(), []);
-  useEffect(() => { mobileHandoffRef.current?.cancel(); }, [viewerId, activeTab, refreshKey]);
   useEffect(() => () => {
     observerRef.current?.disconnect();
     observerRef.current = null;
@@ -708,7 +710,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                 {isMounted ? (
                   <VideoCard
                     onInteractionChange={handleInteractionChange}
-                    onFirstFrame={handleFirstFrame}
+                    prepareFrame={!desktop && pageVisible && !isActive && warmingPostId === p.id}
                     commentDraft={draftsRef.current.get(p.id) ?? ""}
                     onCommentDraftChange={handleDraftChange}
                     onFeedDeleted={handleDeleted}
@@ -755,7 +757,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                     soundEnabled={isSoundOn}
                     isActive={isActive}
-                    preload={!pageVisible ? "none" : idx === activeIndex || (idx === activeIndex + 1 && (desktop || !items[activeIndex]?.video_url || readyPostId === activePostId)) ? "auto" : "metadata"}
+                    preload={!pageVisible ? "none" : idx === activeIndex || idx === activeIndex + 1 || warmingPostId === p.id ? "auto" : "metadata"}
                     onToggleSound={toggleSound}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback

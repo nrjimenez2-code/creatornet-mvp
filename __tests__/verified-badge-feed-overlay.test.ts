@@ -90,6 +90,7 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
 
   beforeEach(() => {
     jest.clearAllMocks();
+    global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({}) });
     userCtx.userId = null;
     userCtx.loading = false;
     container = document.createElement("div");
@@ -189,6 +190,53 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
         expect(container.querySelector('button[aria-label="Like"] svg')?.getAttribute("class")).toContain("fill-red-500");
       } finally { error.mockRestore(); }
     } finally { global.fetch = savedFetch; }
+  });
+
+  test("incoming warmup decodes muted, records no view, and stops after its first frame", async () => {
+    jest.useFakeTimers();
+    const savedFetch = global.fetch;
+    global.fetch = jest.fn().mockResolvedValue({ ok: true });
+    const frames = new Map<number, VideoFrameRequestCallback>();
+    let sequence = 0;
+    const originalRequest = HTMLVideoElement.prototype.requestVideoFrameCallback;
+    const originalCancel = HTMLVideoElement.prototype.cancelVideoFrameCallback;
+    HTMLVideoElement.prototype.requestVideoFrameCallback = callback => { frames.set(++sequence, callback); return sequence; };
+    HTMLVideoElement.prototype.cancelVideoFrameCallback = id => { frames.delete(id); };
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(function (this: HTMLMediaElement) {
+      expect(this.muted).toBe(true);
+      this.dispatchEvent(new Event("play"));
+      return Promise.resolve();
+    });
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/warm.mp4", isActive: false, prepareFrame: true });
+      expect(play).toHaveBeenCalledTimes(1);
+      pause.mockClear();
+      await act(async () => [...frames.values()].forEach(callback => callback(1, {} as VideoFrameCallbackMetadata)));
+      expect(pause).toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTime(1500));
+      expect(global.fetch).not.toHaveBeenCalled();
+      expect(container.querySelector("video")?.dataset.warmedFrame).toBe("true");
+    } finally {
+      await act(async () => root.render(null));
+      play.mockRestore(); pause.mockRestore(); global.fetch = savedFetch;
+      HTMLVideoElement.prototype.requestVideoFrameCallback = originalRequest;
+      HTMLVideoElement.prototype.cancelVideoFrameCallback = originalCancel;
+      jest.useRealTimers();
+    }
+  });
+
+  test("warmup cleanup never pauses a video that has become active", async () => {
+    jest.useFakeTimers();
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/warm.mp4", isActive: false, prepareFrame: true });
+      pause.mockClear();
+      await render({ src: "https://cdn.example.com/warm.mp4", isActive: true, prepareFrame: false });
+      await act(async () => jest.advanceTimersByTime(700));
+      expect(pause).not.toHaveBeenCalled();
+    } finally { play.mockRestore(); pause.mockRestore(); jest.useRealTimers(); }
   });
 
   test("already-ready playback rejection retries once and stops when inactive", async () => {

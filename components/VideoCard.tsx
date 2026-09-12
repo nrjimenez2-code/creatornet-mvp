@@ -48,6 +48,8 @@ type VideoCardProps = {
   shares?: number | string;
   isLiked?: boolean;
   isActive?: boolean;
+  /** Briefly decode an incoming, partially visible mobile card without audio. */
+  prepareFrame?: boolean;
   preload?: "auto" | "metadata" | "none";
   defaultMuted?: boolean;
   onBuy?: () => void;
@@ -348,6 +350,7 @@ function VideoCard(props: VideoCardProps) {
   const creatorIdRef = useRef(creatorId);
   const categoryRef = useRef<string | null>(postCategory ? normalizeCategory(postCategory) : null);
   const hasTrackedViewRef = useRef(false);
+  const playbackStartedRef = useRef<(() => void) | null>(null);
   const hasTrackedCompleteRef = useRef(false);
   const hasTracked50Ref = useRef(false);
 
@@ -548,6 +551,7 @@ function VideoCard(props: VideoCardProps) {
     if (!video) return;
 
     const handleTimeUpdate = () => {
+      if (activeRef.current === false) return;
       if (!video.duration) return;
       const pct = (video.currentTime / video.duration) * 100;
       if (progressBarRef.current) progressBarRef.current.style.transform = `scaleX(${pct / 100})`;
@@ -570,6 +574,7 @@ function VideoCard(props: VideoCardProps) {
     };
 
     const handlePlay = () => {
+      if (activeRef.current === false) return;
       setIsPaused(false);
       setPlaybackFeedback(resumeFeedbackRef.current);
       resumeFeedbackRef.current = false;
@@ -599,12 +604,14 @@ function VideoCard(props: VideoCardProps) {
       }
     };
     const handlePause = () => setIsPaused(true);
+    playbackStartedRef.current = handlePlay;
 
     video.addEventListener("timeupdate", handleTimeUpdate);
     video.addEventListener("play", handlePlay);
     video.addEventListener("pause", handlePause);
 
     return () => {
+      playbackStartedRef.current = null;
       video.removeEventListener("timeupdate", handleTimeUpdate);
       video.removeEventListener("play", handlePlay);
       video.removeEventListener("pause", handlePause);
@@ -688,6 +695,9 @@ function VideoCard(props: VideoCardProps) {
       video.muted = mutedRef.current;
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
+        void playPromise.then(() => {
+          if (!cancelled && visible && !video.paused) playbackStartedRef.current?.();
+        }, () => {});
         playPromise.catch((err: unknown) => {
           if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
           if (isAutoplayBlockedError(err) && !video.muted) {
@@ -749,6 +759,40 @@ function VideoCard(props: VideoCardProps) {
   // Mute-only changes are handled above, without restarting activation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isActive, src, retryVersion, trackMetric, fallBackToMuted, pageVisible]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !props.prepareFrame || isActive !== false || !pageVisible || frameReady || manuallyPausedRef.current) return;
+    let stopped = false;
+    let frame: number | undefined;
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      // Activation can happen while the warm play promise is still pending.
+      // Never pause or reset the now-active video during that transition.
+      if (activeRef.current === false) video.pause();
+    };
+    const ready = () => {
+      video.dataset.warmedFrame = "true";
+      setFrameReady(true);
+      stop();
+    };
+    if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(ready);
+    else video.addEventListener("playing", ready, { once: true });
+    video.muted = true;
+    // Budget the decoder work; unsupported/blocked warmup falls back to normal
+    // active playback. The poster remains until a frame actually arrives.
+    const timer = window.setTimeout(stop, 600);
+    video.play()?.then(() => {
+      if (stopped && activeRef.current === false) video.pause();
+    }, () => { video.dataset.warmedFrame = "blocked"; stop(); });
+    return () => {
+      window.clearTimeout(timer);
+      if (frame !== undefined) video.cancelVideoFrameCallback(frame);
+      video.removeEventListener("playing", ready);
+      stop();
+    };
+  }, [props.prepareFrame, isActive, pageVisible, frameReady, src, retryVersion]);
 
   // Local diagnostics only: inspect the video element to distinguish download
   // readiness from activation-to-first-frame delay without extra React renders.
