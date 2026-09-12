@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { resolveOnboardingRedirect } from "@/lib/onboardingGate";
+import { Suspense } from "react";
+import StripeConnectedSuccess from "@/components/StripeConnectedSuccess";
 
 export const metadata: Metadata = {
   title: "Feed",
@@ -28,5 +30,5 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // performs.
   if (target === "/onboarding") redirect(target);
 
-  return children;
+  return <>{children}<Suspense fallback={null}><StripeConnectedSuccess /></Suspense></>;
 }

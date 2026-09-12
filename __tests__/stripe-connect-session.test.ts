@@ -72,10 +72,10 @@ test("successful onboarding navigates only after session sync", async () => {
   ]);
   expect(window.location.hash).toBe('#stripe-onboarding-test');
 });
-test("earnings appearance shows connected status without changing the default banner", async () => {
+test("earnings keeps its status while the connected sidebar banner disappears", async () => {
   request.mockResolvedValue(response(200, { connected: true, onboarding_complete: true }));
   await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: 'earnings' })); });
   expect(container.textContent).toContain('Payouts active'); expect(container.textContent).toContain('Stripe connected');
   expect(container.querySelector('button')).toBeNull();
-  await render(); expect(container.textContent).toContain('Payouts active (Stripe connected)');
+  await render(); expect(container.textContent).toBe('');
 });

@@ -116,12 +116,7 @@ export default function StripeConnectBanner({ appearance = "default" }: { appear
         <div><p className="font-medium">Payouts active</p><p className="mt-1 text-xs text-[#a4a4ae]">Stripe connected</p></div>
       </div>
     );
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-green-500/30 bg-green-500/10 px-3 py-2.5 text-xs text-green-400">
-        <span className="h-1.5 w-1.5 rounded-full bg-green-400 shrink-0" />
-        Payouts active (Stripe connected)
-      </div>
-    );
+    return null;
   }
 
   if (s.connected && !s.onboarding_complete) {
