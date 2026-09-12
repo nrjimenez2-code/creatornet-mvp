@@ -2702,7 +2702,7 @@ async function seedOneTimeDuration(months = 10, ageDays = 0) {
     type: "mentorship", amount_cents: 199900, fixed_service_months: months }, ids.buyer, ids.post);
   // Historical fixtures are inserted with their ORIGINAL accepted time; no
   // existing purchase or immutable service dates are modified to fake expiry.
-  const captured = Math.floor(Date.now() / 1000) - ageDays * 86400;
+  let captured = Math.floor(Date.now() / 1000) - ageDays * 86400;
   const consent = ageDays === 0 ? (await db.query<{ id: string }>(
     "select public.record_product_purchase_consent_v1($1,$2,$3,$4,$5,$6) id",
     [ids.buyer, ids.creator, ids.product, ids.post, JSON.stringify(quote.terms), quote.fingerprint])).rows[0].id
@@ -2710,6 +2710,10 @@ async function seedOneTimeDuration(months = 10, ageDays = 0) {
     (buyer_id,creator_id,product_id,post_id,policy_version,terms,fingerprint,accepted_at)
     values($1,$2,$3,$4,$5,$6,$7,to_timestamp($8)) returning id`,
     [ids.buyer, ids.creator, ids.product, ids.post, quote.terms.version, JSON.stringify(quote.terms), quote.fingerprint, captured - 5])).rows[0].id;
+  // A real capture follows consent. Sampling before its insert could cross a
+  // second boundary and correctly fail the database's capture-after-consent guard.
+  if (ageDays === 0) captured = Number((await db.query<{ captured: number }>(
+    "select floor(extract(epoch from clock_timestamp())) captured")).rows[0].captured);
   const order = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   await db.query("insert into public.orders(id) values($1)", [order]);
   const attempt = (await db.query<{ attempt_key: string }>(`insert into public.product_checkout_attempts
