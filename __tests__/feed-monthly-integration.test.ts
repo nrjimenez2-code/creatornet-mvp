@@ -34,10 +34,11 @@ beforeEach(() => {
   global.fetch = jest.fn(async (url: string) => response(new URL(url, "https://site.invalid").searchParams.get("ids")!.split(","))) as unknown as typeof fetch;
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
 });
-afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+afterEach(async () => { await act(async () => root.unmount()); container.remove(); jest.useRealTimers(); });
 const render = async (activeTab: "discover" | "following" = "discover") => act(async () => root.render(createElement(FeedList, { activeTab, onChangeTab: jest.fn() })));
 
 test("mobile warms the next video after first frame, with active playback taking priority during rapid swipes", async () => {
+  jest.useFakeTimers();
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
   rpc.mockResolvedValue({ data: [row("one"), row("two"), row("three")].map(post => ({ ...post, video_url: "https://example.test/video.mp4" })), error: null });
   await render();
@@ -46,6 +47,7 @@ test("mobile warms the next video after first frame, with active playback taking
   await act(async () => cardProps.get("one").onFirstFrame("one"));
   expect(props("two").preload).toBe("auto");
   await act(async () => observe([{ target: container.querySelector('[data-post-id="two"]'), isIntersecting: true, intersectionRatio: 1 }]));
+  await act(async () => jest.advanceTimersByTime(80));
   expect(props("two").preload).toBe("auto");
   expect(props("three").preload).toBe("metadata");
   await act(async () => cardProps.get("one").onFirstFrame("one"));
@@ -60,6 +62,25 @@ test("an image-only mobile post does not block the next video's preload waiting 
   await render();
   expect(props("image").isActive).toBe(true);
   expect(props("next").preload).toBe("auto");
+});
+
+test("mobile ignores a half swipe and reversal, then activates only a stable incoming card", async () => {
+  jest.useFakeTimers();
+  window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
+  rpc.mockResolvedValue({ data: [row("one"), row("two")], error: null });
+  await render();
+  const target = container.querySelector('[data-post-id="two"]');
+  await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 0.55 }]));
+  await act(async () => jest.advanceTimersByTime(100));
+  expect(props("one").isActive).toBe(true);
+  await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 0.75 }]));
+  await act(async () => jest.advanceTimersByTime(40));
+  await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 0.5 }]));
+  await act(async () => jest.advanceTimersByTime(100));
+  expect(props("one").isActive).toBe(true);
+  await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 1 }]));
+  await act(async () => jest.advanceTimersByTime(80));
+  expect(props("two").isActive).toBe(true);
 });
 
 test("successful interactions and drafts survive unmounting a card; old viewer responses cannot leak", async () => {
