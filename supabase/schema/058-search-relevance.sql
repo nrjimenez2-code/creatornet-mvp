@@ -6,9 +6,20 @@ create extension if not exists pg_trgm with schema extensions;
 
 create or replace function public.search_normalize_v1(value text)
 returns text language sql immutable parallel safe set search_path = '' as $$
-  select trim(regexp_replace(regexp_replace(regexp_replace(
-    lower(coalesce(value, '')), '\me[ -]?com(merce)?\M', 'ecommerce', 'g'),
-    '\mdrop[ -]shipping\M', 'dropshipping', 'g'), '[^[:alnum:] ]+', ' ', 'g'));
+  with cleaned as (
+    select trim(regexp_replace(regexp_replace(lower(normalize(coalesce(value, ''), NFKC)),
+      '[^[:alnum:][:space:]]+', ' ', 'g'), '[[:space:]]+', ' ', 'g')) as body
+  )
+  select regexp_replace(regexp_replace(regexp_replace(regexp_replace(regexp_replace(
+    regexp_replace(regexp_replace(body,
+      '\me ?com(merce)?\M', 'ecommerce', 'g'),
+      '\mdrop shipping\M', 'dropshipping', 'g'),
+      '\msearch engine optimi[sz]ation\M', 'seo', 'g'),
+      '\martificial intelligence\M', 'ai', 'g'),
+      '\muser generated content\M', 'ugc', 'g'),
+      '\m(social media marketing agency|smma)\M', 'social media marketing', 'g'),
+      '\m(mentoring|mentor)\M', 'mentorship', 'g')
+  from cleaned;
 $$;
 
 create table if not exists public.search_video_text_v1 (
@@ -112,7 +123,7 @@ with params as (
   from public_products o join public.products product on product.id=o.id join public.profiles c on c.id=o.creator_id
   where c.banned_at is null and nullif(trim(c.username),'') is not null
   union all
-  select 'booking',p.id,p.creator_id,public.search_post_text_v1(p) || ' consultation coaching call',coalesce(p.title,'1-on-1 call'),p.created_at
+  select 'booking',p.id,p.creator_id,public.search_post_text_v1(p) || ' consultation call',coalesce(p.title,'1-on-1 call'),p.created_at
   from public.posts p join public.profiles c on c.id=p.creator_id
   where p.allow_booking is true and nullif(p.booking_url,'') is not null
     and p.hidden_at is null and p.removed_at is null and c.banned_at is null and nullif(trim(c.username),'') is not null

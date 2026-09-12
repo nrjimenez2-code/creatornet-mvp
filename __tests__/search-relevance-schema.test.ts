@@ -39,6 +39,22 @@ test("discovers Luis from existing public text and real hashtag arrays, without 
 test("does not produce unrelated fallback profiles",async()=>{
   expect(await search('qzxvnone')).toMatchObject({creators:[],items:[],offerings:[]});
 });
+
+test("normalizes equivalent terms in source content and queries consistently",async()=>{
+  const cases = [
+    ['Artificial intelligence tutorials', 'AI'],
+    ['Search engine optimisation tips', 'SEO'],
+    ['User-generated content examples', 'UGC'],
+    ['Social media marketing agency services', 'SMMA'],
+    ['Mentoring founders', 'mentorship'],
+    ['Ｅ－ｃｏｍｍｅｒｃｅ\n\tstore advice', 'ecommerce'],
+  ];
+  await db.query('update posts set hidden_at=now() where id=$1',[postId]);
+  for (const [bio,query] of cases) {
+    await db.query('update profiles set bio=$1 where id=$2',[bio,luis]);
+    expect((await search(query)).creators.map(c=>c.id)).toEqual([luis]);
+  }
+});
 test("moderation and profile edits take effect immediately",async()=>{
   await db.query("update profiles set bio=null where id=$1",[luis]);
   await db.query("update posts set hidden_at=now() where id=$1",[postId]);
@@ -78,6 +94,7 @@ test("discovers public products and booking offers, but excludes drafts and hidd
   expect((await search('store coaching')).offerings).toHaveLength(0);
   await db.query("update posts set hidden_at=null,product_id=null,allow_booking=true,booking_url='https://example.invalid/calendar' where id=$1",[postId]);
   expect((await search('consultation')).offerings).toHaveLength(1);
+  expect((await search('coaching')).offerings).toHaveLength(0);
 });
 
 test("returns every page without repeating creators",async()=>{
