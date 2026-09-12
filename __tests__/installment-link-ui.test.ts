@@ -29,7 +29,7 @@ const submit = async () => act(async () => {
   container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
 });
 const setMonths = async (value: string) => act(async () => {
-  const input = container.querySelector<HTMLInputElement>('input[aria-describedby]')!;
+  const input = container.querySelector<HTMLInputElement>('form input[aria-describedby]')!;
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
   input.dispatchEvent(new Event("input", { bubbles: true }));
 });
@@ -261,3 +261,4 @@ test.each(["success", "rejected", "unavailable"])("explicit copy handles %s with
   if (mode !== "unavailable") expect(writeText).toHaveBeenCalledWith("https://checkout.stripe.com/test-only-link");
   expect(fetchMock.mock.calls.filter(([url]) => url.includes("/payment-link"))).toHaveLength(1);
 });
+

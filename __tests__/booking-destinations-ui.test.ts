@@ -1,0 +1,21 @@
+/** @jest-environment jsdom */
+import {act,createElement} from 'react';
+import {createRoot,type Root} from 'react-dom/client';
+const order=jest.fn();const upsert=jest.fn();const patch=jest.fn();const rpc=jest.fn();
+const client={from:()=>({select:()=>({eq:()=>({order})}),upsert,update:(data:unknown)=>({eq:(key:string,id:string)=>patch(data,key,id)})}),rpc};
+jest.mock('@/lib/supabaseBrowser',()=>({createBrowserClient:()=>client}));
+jest.mock('@/lib/useUser',()=>({useUser:()=>({userId:'creator',session:{access_token:'test-token'}})}));
+jest.mock('@/components/BackButton',()=>({__esModule:true,default:()=>null}));
+jest.mock('next/link',()=>({__esModule:true,default:({children,href}:any)=>createElement('a',{href},children)}));
+import Page from '@/app/dashboard/closers/page';
+(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
+let root:Root;let container:HTMLDivElement;const fetchMock=jest.fn();const originalFetch=global.fetch;
+beforeEach(()=>{jest.clearAllMocks();order.mockResolvedValue({data:[],error:null});upsert.mockResolvedValue({error:null});patch.mockResolvedValue({error:null});fetchMock.mockResolvedValue({ok:true,json:async()=>({bookings:[]})});global.fetch=fetchMock;container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);});
+afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;jest.restoreAllMocks();});
+const mount=async()=>{await act(async()=>root.render(createElement(Page)));await act(async()=>{await new Promise(r=>setTimeout(r,10));});};
+const button=(name:string)=>Array.from(container.querySelectorAll('button')).find(b=>b.textContent?.trim().endsWith(name))!;
+const fill=async(selector:string,value:string)=>{const input=container.querySelector<HTMLInputElement>(selector)!;await act(async()=>{Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));});};
+test('new destination fields retain the creator-scoped payload and reset after add',async()=>{await mount();await fill('#destination-name','Team');await fill('#destination-url','https://cal.com/team');await fill('#destination-weight','3');await act(async()=>button('Add destination').click());expect(upsert).toHaveBeenCalledWith({creator_id:'creator',name:'Team',booking_url:'https://cal.com/team',weight:3,active:true},{onConflict:'creator_id,booking_url'});expect(container.querySelector<HTMLInputElement>('#destination-url')!.value).toBe('');});
+test('test rotation still calls the existing RPC and shows its returned link',async()=>{rpc.mockResolvedValue({data:[{target_id:'one',booking_url:'https://cal.com/team'}],error:null});await mount();await act(async()=>button('Test rotation').click());expect(rpc).toHaveBeenCalledWith('next_booking_target',{p_creator_id:'creator'});expect(container.querySelector('[role=status] a')!.getAttribute('href')).toBe('https://cal.com/team');});
+test('populated row editing still saves only the selected destination',async()=>{order.mockResolvedValue({data:[{id:'one',name:'Team',booking_url:'https://cal.com/team',weight:1,active:true,uses_count:0,last_used_at:null}],error:null});await mount();await fill('[aria-label="Destination name"]','Updated team');await act(async()=>button('Save').click());expect(patch).toHaveBeenCalledWith({name:'Updated team',booking_url:'https://cal.com/team',weight:1,active:true},'id','one');});
+test('failed destination reads stay distinct from empty state and can retry',async()=>{jest.spyOn(console,'error').mockImplementation(()=>{});order.mockResolvedValueOnce({data:null,error:{message:'offline'}});await mount();expect(container.textContent).toContain("Couldn't load your booking targets");expect(container.textContent).not.toContain('No destinations yet');await act(async()=>button('Try again').click());expect(container.textContent).toContain('No destinations yet');});
