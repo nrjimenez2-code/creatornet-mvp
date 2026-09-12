@@ -1312,7 +1312,7 @@ function VideoCard(props: VideoCardProps) {
           />
         ) : null}
 
-        {src && displayPoster && !frameReady && !mediaError && <img src={displayPoster} alt="" aria-hidden="true" onError={() => setPosterFailed(true)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
+        {src && displayPoster && !frameReady && !mediaError && <img src={displayPoster} alt="" aria-hidden="true" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setPosterFailed(true)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
         {src && mediaError && <div role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/75 text-white">
           <p>This video couldn’t load.</p>
           <button type="button" className="rounded-full border border-white/40 px-4 py-2" onClick={() => { manuallyPausedRef.current = false; setMediaError(false); setRetryVersion(value => value + 1); }}>Retry video</button>
