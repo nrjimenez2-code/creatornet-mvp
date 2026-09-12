@@ -15,8 +15,8 @@ export async function POST(req: Request) {
     input = interpretSearch(body?.q);
     page = body?.page ?? 0;
     if (!Number.isInteger(page) || page < 0 || page > 500) throw new Error("Invalid search page.");
-  } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid search." }, { status: 400 });
+  } catch {
+    return NextResponse.json({ error: "Enter a valid search of up to 160 characters and a valid page." }, { status: 400 });
   }
   if (!input.normalized) {
     return NextResponse.json({ creators: [], items: [], offerings: [], totals: { creators: 0, videos: 0, offerings: 0 }, page, page_size: SEARCH_PAGE_SIZE });
