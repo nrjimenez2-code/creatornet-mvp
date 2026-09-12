@@ -20,7 +20,7 @@ import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { feedMediaUrl, feedPosterUrl, feedAdaptiveUrl } from "@/lib/feedMedia";
-import { usePageVisible, useDesktopViewport } from "@/lib/browserVisibility";
+import { usePageVisible, useDesktopViewport, useNativeHls } from "@/lib/browserVisibility";
 import { scheduleFeedTelemetry } from "@/lib/feedBackground";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 
@@ -179,10 +179,15 @@ function VideoCard(props: VideoCardProps) {
 
   const [failedMediaSource, setFailedMediaSource] = useState<string | undefined>();
   const [failedAdaptiveSource, setFailedAdaptiveSource] = useState<string | undefined>();
-  // Main-feed cards mount only after their client-side data fetch. Other SSR
-  // viewers do not opt in, avoiding a hydration-time source swap.
-  const [nativeHls] = useState(() => typeof document !== "undefined" &&
-    !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl"));
+  // Hardening, not a bug fix. Today no page server-renders a feed card: the
+  // dashboard ships "Loading…" and FeedList mounts cards only after its
+  // client-side fetch, so this never runs on the server and adaptive playback
+  // works. But a useState initializer ALSO runs during a hydration render, so
+  // the moment anything server-renders a card this would emit the MP4 on the
+  // server and the .m3u8 on an iPhone — and React does not repair a mismatched
+  // <video src> ("This won't be patched up"), so the MP4 would stick silently.
+  // A store with an explicit server snapshot cannot fail that way.
+  const nativeHls = useNativeHls();
   const adaptiveSrc = props.preferAdaptive && nativeHls && failedAdaptiveSource !== originalSrc ? feedAdaptiveUrl(originalSrc) : undefined;
   const src = adaptiveSrc || (failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc));
   const [mediaError, setMediaError] = useState(false);
