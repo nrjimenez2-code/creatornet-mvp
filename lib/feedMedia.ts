@@ -1,7 +1,19 @@
 import manifest from "./feedMediaManifest.json";
+import adaptiveManifest from "./feedAdaptiveManifest.json";
 
 const originalOrigin = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev";
 export const FEED_MEDIA_ORIGIN = "https://media.creatornet.net";
+
+/** Only explicitly provisioned public renditions opt into adaptive playback. */
+export function feedAdaptiveUrl(source: string | undefined): string | undefined {
+  const normalized = feedMediaUrl(source);
+  if (!normalized) return undefined;
+  try {
+    const url = new URL(normalized);
+    if (url.origin !== FEED_MEDIA_ORIGIN || url.search || url.hash) return undefined;
+    return (adaptiveManifest as Record<string, string>)[url.pathname];
+  } catch { return undefined; }
+}
 
 /** Only public feed paths are rewritten. Signed/private and third-party URLs stay intact. */
 export function feedMediaUrl(source: string | undefined): string | undefined {

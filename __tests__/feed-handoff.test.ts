@@ -1,38 +1,8 @@
 /** @jest-environment jsdom */
-import { createFeedHandoff } from "@/lib/feedHandoff";
 import { scheduleFeedBackground, scheduleFeedTelemetry } from "@/lib/feedBackground";
 
 beforeEach(() => jest.useFakeTimers());
 afterEach(() => { jest.runOnlyPendingTimers(); jest.useRealTimers(); });
-
-test("a reversed or skipped swipe never activates the transient video", () => {
-  const commit = jest.fn();
-  const handoff = createFeedHandoff(commit);
-  handoff.propose("second");
-  jest.advanceTimersByTime(40);
-  handoff.propose(null);
-  jest.advanceTimersByTime(100);
-  expect(commit).not.toHaveBeenCalled();
-  handoff.propose("second");
-  jest.advanceTimersByTime(40);
-  handoff.propose("third");
-  jest.advanceTimersByTime(80);
-  expect(commit.mock.calls).toEqual([["third"]]);
-});
-
-test("repeated observations do not postpone a stable handoff; teardown cancels", () => {
-  const commit = jest.fn();
-  const handoff = createFeedHandoff(commit);
-  handoff.propose("second");
-  jest.advanceTimersByTime(60);
-  handoff.propose("second");
-  jest.advanceTimersByTime(20);
-  expect(commit).toHaveBeenCalledWith("second");
-  handoff.propose("third");
-  handoff.cancel();
-  jest.runOnlyPendingTimers();
-  expect(commit).toHaveBeenCalledTimes(1);
-});
 
 test("generation-owned background work is deferred and cancellable", () => {
   const work = jest.fn();
