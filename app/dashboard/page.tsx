@@ -4,9 +4,10 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
-import PostComposerModal from "@/components/PostComposerModal";
+import dynamic from "next/dynamic";
+const PostComposerModal = dynamic(() => import("@/components/PostComposerModal"), { loading: () => null });
 // import ContinueWatching from "@/components/ContinueWatching";
-import SearchDrawer from "@/components/SearchDrawer";
+const SearchDrawer = dynamic(() => import("@/components/SearchDrawer"), { loading: () => null });
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import StripeConnectBanner from "@/components/StripeConnectBanner";
@@ -382,7 +383,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       )}
 
       {/* SEARCH DRAWER */}
-      <SearchDrawer open={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+      {isSearchOpen && <SearchDrawer open onClose={() => setIsSearchOpen(false)} />}
 
       {/* TABLET CREATE POST FAB — desktop uses the in-flow sidebar action. */}
       <button

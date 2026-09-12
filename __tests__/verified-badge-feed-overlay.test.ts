@@ -277,6 +277,37 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     } finally { play.mockRestore(); pause.mockRestore(); }
   });
 
+  test("failed original playback offers a retry that rebinds the new player", async () => {
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/video.mp4", postId: undefined, isActive: true });
+      const failed = container.querySelector("video")!;
+      await act(async () => failed.dispatchEvent(new Event("error")));
+      const retry = Array.from(container.querySelectorAll("button")).find(button => button.textContent === "Retry video");
+      expect(retry).toBeDefined();
+      await act(async () => retry!.click());
+      expect(container.querySelector("video")).not.toBe(failed);
+      expect(container.textContent).not.toContain("This video couldn’t load.");
+      expect(play).toHaveBeenCalledTimes(2);
+      await act(async () => container.querySelector("video")!.dispatchEvent(new Event("play")));
+      expect(container.querySelector('[data-playback-feedback="playing"]')).not.toBeNull();
+    } finally { play.mockRestore(); pause.mockRestore(); }
+  });
+
+  test("poster remains until the first displayed frame and returns on a source change", async () => {
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/one.mp4", poster: "/poster.jpg", isActive: true });
+      expect(container.querySelector('img[aria-hidden="true"]')).not.toBeNull();
+      await act(async () => container.querySelector("video")!.dispatchEvent(new Event("playing")));
+      expect(container.querySelector('img[aria-hidden="true"]')).toBeNull();
+      await render({ src: "https://cdn.example.com/two.mp4", poster: "/poster.jpg", isActive: true });
+      expect(container.querySelector('img[aria-hidden="true"]')).not.toBeNull();
+    } finally { play.mockRestore(); pause.mockRestore(); }
+  });
+
   /** The element whose text is exactly the creator's display name. */
   test("follow plus is hidden for self and while auth loads, but remains for another creator", async () => {
     const onFollow = jest.fn();

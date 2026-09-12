@@ -61,10 +61,42 @@ test("pagination enriches additional monthly cards", async () => {
   expect(rpc).toHaveBeenCalledWith("get_feed_v3", expect.objectContaining({ p_offset: 20 }));
   expect(props("next")).toMatchObject({ productId: "product-next", monthlyTerms: terms, purchaseOptionsReady: true });
 });
-test("realtime insert obtains omitted product identity and monthly terms", async () => {
+test("realtime inserts keep the current card in place until an explicit ranked refresh", async () => {
   await render();
   await act(async () => realtime({ eventType: "INSERT", new: { id: "two", creator_id: "creator", poster_url: "poster.jpg" } }));
+  expect(container.querySelector('[data-card="two"]')).toBeNull();
+  expect(props("one").isActive).toBe(true);
+  await act(async () => realtime({ eventType: "UPDATE", new: { id: "two", creator_id: "creator", poster_url: "poster.jpg" } }));
+  expect(container.querySelector('[data-card="two"]')).toBeNull();
+  rpc.mockResolvedValue({ data: [row("two"), row("one")], error: null });
+  await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent?.includes("New posts"))!.click());
   expect(props("two")).toMatchObject({ productId: "product-two", priceCents: 9900, monthlyTerms: terms, purchaseOptionsReady: true });
+  expect(props("two").isActive).toBe(true);
+});
+
+test("offer enrichment does not rebuild the visibility observer", async () => {
+  let finish!: (value: unknown) => void;
+  (global.fetch as jest.Mock).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+  await render();
+  const originalObserver = observe;
+  await act(async () => finish(response(["one"])));
+  expect(observe).toBe(originalObserver);
+});
+
+test("a failed later page retries the same offset without moving or duplicating cards", async () => {
+  const errors = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    rpc.mockResolvedValueOnce({ data: Array.from({ length: 20 }, (_, index) => row(String(index))), error: null })
+      .mockResolvedValueOnce({ data: null, error: { message: "offline" } })
+      .mockResolvedValueOnce({ data: [row("next")], error: null });
+    await render();
+    await act(async () => observe([{ isIntersecting: true, intersectionRatio: 1, target: container.querySelector('[data-post-id="19"]') }]));
+    expect(props("19").isActive).toBe(true);
+    await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent?.includes("Retry"))!.click());
+    expect(rpc.mock.calls.slice(1).map(call => call[1].p_offset)).toEqual([20, 20]);
+    expect(props("19").isActive).toBe(true);
+    expect(container.querySelectorAll('[data-post-id="next"]')).toHaveLength(1);
+  } finally { errors.mockRestore(); }
 });
 test("realtime update blocks Buy while refreshing and discards an older metadata response", async () => {
   await render();

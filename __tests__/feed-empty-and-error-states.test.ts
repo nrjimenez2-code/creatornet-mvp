@@ -53,7 +53,7 @@ jest.mock("@/lib/posthog", () => ({
 }));
 // VideoCard is never mounted in these states; stub it so its imports
 // (Stripe-adjacent fetches, portals) stay out of the test.
-jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { onDeleted?: () => void }) => createElement("button", { onClick: props.onDeleted }, "Simulate deletion") }));
+jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { postId: string; onFeedDeleted?: (id: string) => void }) => createElement("button", { onClick: () => props.onFeedDeleted?.(props.postId) }, "Simulate deletion") }));
 jest.mock("next/link", () => ({
   __esModule: true,
   default: ({ href, children, className }: { href: string; children?: unknown; className?: string }) =>

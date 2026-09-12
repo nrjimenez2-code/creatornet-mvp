@@ -19,6 +19,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: [{ protocol: "https", hostname: "media.creatornet.net", pathname: "/thumbnails/**", search: "" }],
+  },
 
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
