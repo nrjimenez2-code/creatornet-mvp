@@ -14,17 +14,40 @@ beforeEach(() => { (globalThis as any).IS_REACT_ACT_ENVIRONMENT = true; jest.cle
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 test('one section dropdown navigates seven views and preserves selected range', async () => {
   await act(async () => root.render(createElement(Dashboard, { detail, window })));
-  const section = container.querySelector<HTMLSelectElement>('#analytics-section')!;
-  expect(section.options).toHaveLength(7);
-  await act(async () => { section.value = 'sales'; section.dispatchEvent(new Event('change', { bubbles: true })); });
+  const section = container.querySelector<HTMLButtonElement>('#analytics-section')!;
+  await act(async () => section.click());
+  expect(container.querySelectorAll('[role=option]')).toHaveLength(7);
+  await act(async () => (container.querySelector('#analytics-section-option-4') as HTMLElement).click());
   expect(push).toHaveBeenCalledWith('/dashboard/analytics?section=sales&days=7', { scroll: false });
-  const days = container.querySelector<HTMLSelectElement>('#analytics-days')!;
-  await act(async () => { days.value = '30'; days.dispatchEvent(new Event('change', { bubbles: true })); });
+  const days = container.querySelector<HTMLButtonElement>('#analytics-days')!;
+  await act(async () => days.click());
+  await act(async () => (container.querySelector('#analytics-days-option-2') as HTMLElement).click());
   expect(push).toHaveBeenCalledWith('/dashboard/analytics?section=views&days=30', { scroll: false });
   expect(container.querySelectorAll('tbody tr')).toHaveLength(7);
 });
 test('failure exposes retry without a fake zero total or graph', async () => {
   await act(async () => root.render(createElement(Dashboard, { detail: { ...detail, points: [], unavailable: true }, window })));
   expect(container.querySelector('[role=alert]')).not.toBeNull(); expect(container.querySelector('[role=img]')).toBeNull();
-  await act(async () => container.querySelector('button')!.click()); expect(refresh).toHaveBeenCalled();
+  await act(async () => container.querySelector<HTMLButtonElement>('[role=alert] button')!.click()); expect(refresh).toHaveBeenCalled();
+});
+test('keyboard selection, Escape, Tab and outside click preserve combobox behavior', async () => {
+  await act(async () => root.render(createElement(Dashboard, { detail, window })));
+  const button = container.querySelector<HTMLButtonElement>('#analytics-section')!;
+  const key = async (value: string) => { await act(async () => button.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true }))); };
+  button.focus();
+  await key('ArrowDown'); await key('End');
+  expect(button.getAttribute('aria-activedescendant')).toBe('analytics-section-option-6');
+  await key('Enter');
+  expect(push).toHaveBeenLastCalledWith('/dashboard/analytics?section=refunds&days=7', { scroll: false });
+  expect(button.getAttribute('aria-expanded')).toBe('false');
+  expect(document.activeElement).toBe(button);
+  push.mockClear();
+  await key('Enter'); await key('ArrowDown'); await key('Escape');
+  expect(push).not.toHaveBeenCalled(); expect(container.querySelector('[role=listbox]')).toBeNull();
+  await key('b'); await key('Enter');
+  expect(push).toHaveBeenLastCalledWith('/dashboard/analytics?section=bookings&days=7', { scroll: false });
+  await key('Enter'); await key('Tab'); expect(button.getAttribute('aria-expanded')).toBe('false');
+  await act(async () => button.click());
+  await act(async () => document.body.dispatchEvent(new Event('pointerdown', { bubbles: true })));
+  expect(button.getAttribute('aria-expanded')).toBe('false');
 });

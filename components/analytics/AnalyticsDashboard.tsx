@@ -3,6 +3,7 @@ import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import BackButton from '@/components/BackButton';
+import AnalyticsSelect from './AnalyticsSelect';
 import { analyticsSections, formatMetric, sectionLabels, type AnalyticsDetail, type AnalyticsWindow } from '@/lib/analytics-dashboard';
 import styles from './analytics.module.css';
 
@@ -23,11 +24,11 @@ export default function AnalyticsDashboard({ detail, window }: { detail: Analyti
       <div className={styles.panel}>
         <div className={styles.toolbar}>
           <nav aria-label="Analytics sections"><label htmlFor="analytics-section">Metric</label>
-            <select id="analytics-section" aria-label="Analytics section" value={detail.section} disabled={pending} onChange={e => navigate(e.target.value, String(window.days))}>{analyticsSections.map(section => <option key={section} value={section}>{sectionLabels[section]}</option>)}</select>
+            <AnalyticsSelect id="analytics-section" label="Analytics section" value={detail.section} disabled={pending} onChange={section => navigate(section, String(window.days))} options={analyticsSections.map(section => ({ value: section, label: sectionLabels[section] }))} />
           </nav>
           <div className={styles.dateControls}>
             <label className={styles.srOnly} htmlFor="analytics-days">Date range</label>
-            <select id="analytics-days" value={String(window.days)} disabled={pending} onChange={e => navigate(detail.section, e.target.value)}><option value="7">Last 7 days</option><option value="14">Last 14 days</option><option value="30">Last 30 days</option></select>
+            <AnalyticsSelect id="analytics-days" label="Date range" value={String(window.days)} disabled={pending} onChange={days => navigate(detail.section, days)} options={[{ value: "7", label: "Last 7 days" }, { value: "14", label: "Last 14 days" }, { value: "30", label: "Last 30 days" }]} />
             <p>{dayLabel(window.start)} – {dayLabel(window.end)}, {window.end.slice(0, 4)} · UTC</p>
           </div>
         </div>
