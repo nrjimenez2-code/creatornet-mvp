@@ -55,7 +55,7 @@ function SearchPage() {
       </section> : <>
         <div role="tablist" aria-label="Search result types" className="flex gap-5 border-b border-white/15 mb-5 overflow-x-auto">
           {(["all","creators","videos","offerings"] as Tab[]).map(value=><button key={value} role="tab" aria-selected={tab===value} onClick={()=>setTab(value)}
-            className={`py-3 border-b-2 capitalize ${tab===value ? "border-[#7059ef] text-white" : "border-transparent text-white/50"}`}>{value}{value!=="all" && !search.loading ? ` (${totals[value]})` : ""}</button>)}
+            className={`py-3 border-b-2 capitalize whitespace-nowrap ${tab===value ? "border-[#7059ef] text-white" : "border-transparent text-white/50"}`}>{value}{value!=="all" && !search.loading ? ` (${totals[value]})` : ""}</button>)}
         </div>
         {search.loading && <p role="status" className="text-sm text-white/60 py-3">Searching…</p>}
         {search.error && <div role="alert" className="border border-red-400/30 rounded-xl p-4"><p>{search.error}</p><button onClick={search.retry} className="mt-2 underline">Try again</button></div>}
@@ -81,7 +81,7 @@ function SearchPage() {
 }
 function CreatorCard({creator:c,onOpen}:{creator:SearchCreator;onOpen:()=>void}) {
   return <Link href={`/profile/${encodeURIComponent(c.username)}`} onClick={onOpen} className="rounded-xl border border-white/10 p-4 hover:bg-white/5 flex gap-3">
-    <img src={c.avatar_url || DEFAULT_AVATAR_URL} alt="" className="h-11 w-11 rounded-full object-cover"/>
+    <img src={c.avatar_url || DEFAULT_AVATAR_URL} alt="" width={44} height={44} style={{width:44,height:44}} className="shrink-0 self-start rounded-full object-cover"/>
     <div className="min-w-0"><p className="font-medium truncate">{c.full_name || `@${c.username}`}</p>
       {c.full_name && <p className="text-xs text-white/50">@{c.username}</p>}
       <p className="text-xs text-purple-300 mt-2">{c.related_match ? "Related match · " : ""}{c.match_reason}</p>
@@ -91,7 +91,7 @@ function CreatorCard({creator:c,onOpen}:{creator:SearchCreator;onOpen:()=>void})
 }
 function PostCard({post:p,onOpen}:{post:SearchPost;onOpen:()=>void}) {
   return <Link href={`/dashboard?postId=${encodeURIComponent(p.id)}`} onClick={onOpen} className="rounded-xl overflow-hidden border border-white/10 hover:bg-white/5">
-    <div className="aspect-[3/4] bg-white/5">{p.poster_url ? <img src={p.poster_url} alt="" loading="lazy" className="w-full h-full object-cover"/> : p.media_url ? <video src={p.media_url} muted playsInline preload="none" className="w-full h-full object-cover"/> : <div className="h-full flex items-center justify-center text-white/40">View post</div>}</div>
+    <div className="aspect-[3/4] bg-white/5">{p.poster_url ? <img src={p.poster_url} alt="" loading="lazy" style={{height:'100%'}} className="w-full object-cover"/> : p.media_url ? <video src={p.media_url} muted playsInline preload="none" style={{height:'100%'}} className="w-full object-cover"/> : <div className="h-full flex items-center justify-center text-white/40">View post</div>}</div>
     <div className="p-3"><p className="text-xs text-white/50">@{p.creator.username}</p><p className="text-sm line-clamp-2 mt-1">{p.caption || p.content || "View video"}</p></div>
   </Link>;
 }
