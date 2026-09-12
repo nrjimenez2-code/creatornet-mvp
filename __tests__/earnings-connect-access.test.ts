@@ -9,7 +9,7 @@ const connectBanner = read("components/StripeConnectBanner.tsx");
 describe("creator Stripe setup access", () => {
   test("reuses the existing setup control on the authenticated earnings page", () => {
     expect(earningsPage).toContain('import StripeConnectBanner from "@/components/StripeConnectBanner"');
-    expect(earningsPage.match(/<StripeConnectBanner\s*\/>/g)).toHaveLength(1);
+    expect(earningsPage.match(/<StripeConnectBanner\s+appearance="earnings"\s*\/>/g)).toHaveLength(1);
     expect(earningsPage).toContain('if (!view) redirect("/auth")');
     expect(earningsPage).not.toContain("/api/stripe/connect/onboard");
   });
@@ -17,7 +17,7 @@ describe("creator Stripe setup access", () => {
   test("makes setup reachable from the mobile profile menu without a breakpoint gate", () => {
     expect(profileMenu).toContain('href="/dashboard/earnings"');
     expect(earningsPage).toMatch(
-      /<section className="mt-6" aria-label="Stripe account setup">\s*<StripeConnectBanner\s*\/>\s*<\/section>/,
+      /<section className=\{styles.connection\} aria-label="Stripe account setup">\s*<StripeConnectBanner\s+appearance="earnings"\s*\/>\s*<\/section>/,
     );
     const layoutClasses = [...earningsPage.matchAll(/className="([^"]*)"/g)]
       .flatMap((match) => match[1].split(/\s+/));
