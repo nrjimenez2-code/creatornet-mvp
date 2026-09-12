@@ -63,7 +63,12 @@ body {
 /* Stable snap slots on phones, including when browser chrome/keyboard changes.
    Scoped to the main feed; profile viewers and desktop retain their geometry. */
 @media (max-width: 1023px) {
-  .feed-mobile-viewport { --feed-card-height: calc(100svh - 56px); }
+  .dashboard-feed-shell {
+    --feed-nav-height: calc(53px + max(env(safe-area-inset-bottom, 0px), 0.5rem));
+  }
+  .dashboard-feed-column { padding-bottom: var(--feed-nav-height); }
+  .dashboard-feed-nav { height: var(--feed-nav-height); }
+  .feed-mobile-viewport { --feed-card-height: calc(100svh - var(--feed-nav-height, 61px)); }
   .feed-mobile-viewport .feed-mobile-slot,
   .feed-mobile-viewport .feed-mobile-card,
   .feed-mobile-viewport .feed-mobile-card > [role="group"],

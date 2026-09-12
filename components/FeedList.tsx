@@ -11,6 +11,8 @@ import { readSoundOn, useSoundPreference } from "@/lib/audioPreference";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { useDesktopViewport, usePageVisible } from "@/lib/browserVisibility";
 import type { FeedInteraction } from "@/lib/feedInteraction";
+import { createFeedHandoff } from "@/lib/feedHandoff";
+import { scheduleFeedBackground } from "@/lib/feedBackground";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -34,6 +36,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId, loading: authLoading } = useUser();
   const desktop = useDesktopViewport();
+  const desktopRef = useRef(desktop);
+  desktopRef.current = desktop;
   const pageVisible = usePageVisible();
 
   const [items, setItems] = useState<PostRow[]>([]);
@@ -102,12 +106,19 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
   const offerRefreshesRef = useRef(new Map<string, number>());
+  const backgroundRef = useRef(new Set<() => void>());
+  useEffect(() => () => {
+    backgroundRef.current.forEach(cancel => cancel());
+    backgroundRef.current.clear();
+  }, [viewerId, activeTab]);
   const enrichPosts = useCallback((posts: PostRow[], generation: number) => {
     const versions = new Map(posts.map(post => {
       const version = (offerRefreshesRef.current.get(post.id) ?? 0) + 1;
       offerRefreshesRef.current.set(post.id, version);
       return [post.id, version];
     }));
+    const run = () => {
+    if (generation !== fetchGenRef.current) return;
     void loadFeedOffers(posts).then(offers => {
       if (generation !== fetchGenRef.current) return;
       const byId = new Map(offers.map(offer => [offer.id, offer]));
@@ -119,6 +130,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           monthlyTerms: offer.monthlyTerms, purchaseOptionsReady: offer.purchaseOptionsReady };
       }));
     }).catch(() => { /* Media remains usable; unverified purchase controls stay disabled. */ });
+    };
+    if (desktopRef.current) run();
+    else {
+      const cancel = scheduleFeedBackground(() => {
+        backgroundRef.current.delete(cancel);
+        run();
+      });
+      backgroundRef.current.add(cancel);
+    }
   }, []);
 
   // Handler to update follow status in cached feed data
@@ -412,11 +432,14 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const sectionMembership = items.map(item => item.id).join(",");
   const observerRef = useRef<IntersectionObserver | null>(null);
   const observedRootRef = useRef<HTMLDivElement | null>(null);
+  const observedDesktopRef = useRef(desktop);
   const observedNodesRef = useRef(new Set<HTMLElement>());
   const ratiosRef = useRef(new Map<Element, IntersectionObserverEntry>());
+  const mobileHandoffRef = useRef<ReturnType<typeof createFeedHandoff> | null>(null);
   useEffect(() => {
     const root = feedScrollRef.current;
     if (!root || !sectionRefs.current.size) {
+      mobileHandoffRef.current?.cancel();
       observerRef.current?.disconnect();
       observerRef.current = null;
       observedNodesRef.current.clear();
@@ -424,7 +447,17 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       return;
     }
     const ratios = ratiosRef.current;
-    if (!observerRef.current || observedRootRef.current !== root) {
+    const commit = (id: string) => {
+      if (!itemsRef.current.some(item => item.id === id)) return;
+      const pending = pendingHighlightScrollRef.current;
+      if (pending && pending !== id) return;
+      if (pending) pendingHighlightScrollRef.current = null;
+      setActivePostId(prev => prev === id ? prev : id);
+    };
+    if (!mobileHandoffRef.current) mobileHandoffRef.current = createFeedHandoff(commit);
+    if (!observerRef.current || observedRootRef.current !== root || observedDesktopRef.current !== desktop) {
+      mobileHandoffRef.current.cancel();
+      observedDesktopRef.current = desktop;
       observerRef.current?.disconnect();
       observedNodesRef.current.clear();
       ratios.clear();
@@ -433,8 +466,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       (entries) => {
         entries.forEach(entry => ratios.set(entry.target, entry));
         const visible = [...ratios.values()]
-          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
+          .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= (desktop ? 0.51 : 0.7))
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (!desktop && !visible) mobileHandoffRef.current?.propose(null);
         if (visible) {
           const id = (visible.target as HTMLElement).dataset.postId;
           if (id) {
@@ -443,13 +477,13 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             const pending = pendingHighlightScrollRef.current;
             if (pending) {
               if (id !== pending) return;
-              pendingHighlightScrollRef.current = null;
             }
-            setActivePostId((prev) => (prev === id ? prev : id));
+            if (desktop) commit(id);
+            else mobileHandoffRef.current?.propose(id);
           }
         }
       },
-      { root, threshold: [0, 0.51, 1] }
+      { root, threshold: [0, 0.3, 0.51, 0.7, 1] }
     );
     }
     // Appending a page registers only its new sections. Existing videos keep
@@ -462,7 +496,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       if (!observedNodesRef.current.has(node)) observerRef.current.observe(node);
     }
     observedNodesRef.current = nodes;
-  }, [sectionMembership, feedError]);
+  }, [sectionMembership, feedError, desktop]);
+  useEffect(() => () => mobileHandoffRef.current?.cancel(), []);
+  useEffect(() => { mobileHandoffRef.current?.cancel(); }, [viewerId, activeTab, refreshKey]);
   useEffect(() => () => {
     observerRef.current?.disconnect();
     observerRef.current = null;

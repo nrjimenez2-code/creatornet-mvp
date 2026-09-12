@@ -101,7 +101,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   // }, [router]);
 
   return (
-    <section className="min-h-screen px-0">
+    <section className="dashboard-feed-shell min-h-screen px-0">
       {/* Back button intentionally removed on dashboard */}
       <Link
         href="/search"
@@ -280,7 +280,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll.
             100dvh (not h-screen=100vh) so the container matches the 100dvh snap
             sections when the mobile URL bar is visible. */}
-        <div className="h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
+        <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
             <FeedList key={feedRefreshKey} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
@@ -294,7 +294,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           so branching on !userId alone would flash the signed-out CTA at
           every signed-in user on first paint. */}
       {authLoading ? null : !userId ? (
-        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
+        <div className="dashboard-feed-nav lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
           <div className="flex h-[52px] items-center justify-between gap-3 px-4">
             <p className="min-w-0 truncate text-xs text-white/70">
               Follow creators and unlock their offers
@@ -308,7 +308,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           </div>
         </div>
       ) : (
-      <nav className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
+      <nav className="dashboard-feed-nav lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
         <div className="grid grid-cols-5 h-[52px]">
           <button
             type="button"

@@ -20,7 +20,8 @@ import { useSoundPreference } from "@/lib/audioPreference";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
-import { usePageVisible } from "@/lib/browserVisibility";
+import { usePageVisible, useDesktopViewport } from "@/lib/browserVisibility";
+import { scheduleFeedTelemetry } from "@/lib/feedBackground";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 
 type VideoCardProps = {
@@ -100,6 +101,9 @@ function isAutoplayBlockedError(err: unknown): boolean {
 }
 
 function VideoCard(props: VideoCardProps) {
+  const desktop = useDesktopViewport();
+  const desktopRef = useRef(desktop);
+  desktopRef.current = desktop;
   const pageVisible = usePageVisible();
   const pageVisibleRef = useRef(pageVisible);
   pageVisibleRef.current = pageVisible;
@@ -251,6 +255,7 @@ function VideoCard(props: VideoCardProps) {
   const [liked, setLiked] = useState(isLiked);
   const likePendingRef = useRef(false);
   const tapRef = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const [tapPending, setTapPending] = useState(false);
   const heartSequence = useRef(0);
   const [tapHeart, setTapHeart] = useState<{ id: number; x: number; y: number } | null>(null);
 
@@ -262,6 +267,7 @@ function VideoCard(props: VideoCardProps) {
 
   useEffect(() => {
     setTapHeart(null);
+    setTapPending(false);
     return () => {
       if (tapRef.current) window.clearTimeout(tapRef.current.timer);
       tapRef.current = null;
@@ -569,15 +575,27 @@ function VideoCard(props: VideoCardProps) {
       resumeFeedbackRef.current = false;
       if (!hasTrackedViewRef.current) {
         hasTrackedViewRef.current = true;
-        trackEvent("video_viewed", {
+        const event = {
           post_id: postIdRef.current,
           creator_id: creatorIdRef.current,
           category: categoryRef.current,
           watch_time_seconds: Math.round(video.currentTime ?? 0),
           percent_watched: video.duration > 0 ? Math.round((video.currentTime / video.duration) * 100) : 0,
-        });
-        scoreInterest(1);
-        trackMetric("views");
+        };
+        const record = () => {
+          trackEvent("video_viewed", event);
+          if (!event.post_id) return;
+          // Snapshot the post before deferring: a swipe may recycle this card.
+          for (const [url, body] of [
+            ["/api/interest-score", { post_id: event.post_id, delta: 1 }],
+            ["/api/post-metrics", { post_id: event.post_id, field: "views" }],
+          ] as const) {
+            fetch(url, { method: "POST", keepalive: true,
+              headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
+          }
+        };
+        if (desktopRef.current) record();
+        else scheduleFeedTelemetry(record, video);
       }
     };
     const handlePause = () => setIsPaused(true);
@@ -757,6 +775,9 @@ function VideoCard(props: VideoCardProps) {
       measured = true;
       video.dataset.startupMs = String(Math.round(performance.now() - started));
       video.dataset.firstFrameSinceNavigationMs = String(Math.round(performance.now()));
+      video.dataset.firstFrameReadyState = String(video.readyState);
+      const quality = video.getVideoPlaybackQuality?.();
+      if (quality) video.dataset.droppedFramesAtStart = String(quality.droppedVideoFrames);
     };
     const onWaiting = () => { video.dataset.stallCount = String(++stalls); };
     if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(recordFrame);
@@ -768,6 +789,23 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("waiting", onWaiting);
     };
   }, [isActive, src, retryVersion]);
+
+  // Readiness is observed, never inferred from the preload hint (especially on iOS).
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const update = () => {
+      video.dataset.preparedReadyState = String(video.readyState);
+      video.dataset.preparedPreload = video.preload;
+    };
+    update();
+    video.addEventListener("loadeddata", update);
+    video.addEventListener("canplay", update);
+    return () => {
+      video.removeEventListener("loadeddata", update);
+      video.removeEventListener("canplay", update);
+    };
+  }, [src, retryVersion, preload]);
 
   const handleVideoClick = useCallback(() => {
     const video = videoRef.current;
@@ -1263,6 +1301,7 @@ function VideoCard(props: VideoCardProps) {
         if (previous) {
           window.clearTimeout(previous.timer);
           tapRef.current = null;
+          setTapPending(false);
           if (Math.hypot(event.clientX - previous.x, event.clientY - previous.y) <= 48) {
             const bounds = event.currentTarget.getBoundingClientRect();
             setTapHeart({ id: ++heartSequence.current, x: event.clientX - bounds.left, y: event.clientY - bounds.top });
@@ -1271,12 +1310,14 @@ function VideoCard(props: VideoCardProps) {
           }
           handleVideoClick();
         }
+        if (!desktop) setTapPending(true);
         tapRef.current = {
           x: event.clientX, y: event.clientY,
-          timer: window.setTimeout(() => { tapRef.current = null; handleVideoClick(); }, 300),
+          timer: window.setTimeout(() => { tapRef.current = null; setTapPending(false); handleVideoClick(); }, 300),
         };
       }}
     >
+      {tapPending && <span data-tap-feedback aria-hidden="true" className="pointer-events-none absolute inset-0 z-[60] flex items-center justify-center"><span className="h-16 w-16 rounded-full border-2 border-white/80 bg-black/15" /></span>}
       {tapHeart && (
         <span key={tapHeart.id} data-tap-heart aria-hidden="true"
           className="pointer-events-none absolute z-[60] text-red-500 drop-shadow-lg"

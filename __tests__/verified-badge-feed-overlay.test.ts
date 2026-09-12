@@ -237,8 +237,11 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
       const feedback = () => container.querySelector('[data-playback-feedback]')!;
       expect(feedback().className).toContain("opacity-0");
       await act(async () => video.click());
+      expect(container.querySelector("[data-tap-feedback]")).not.toBeNull();
+      expect(paused).toBe(false);
       await act(async () => jest.advanceTimersByTime(300));
       expect(feedback().getAttribute("data-playback-feedback")).toBe("paused");
+      expect(container.querySelector("[data-tap-feedback]")).toBeNull();
       expect(feedback().className).toContain("opacity-100");
       await act(async () => jest.advanceTimersByTime(1000));
       expect(feedback().className).toContain("opacity-100");
@@ -280,6 +283,7 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
         });
       };
       await doubleTap();
+      expect(container.querySelector("[data-tap-feedback]")).toBeNull();
       const firstHeart = container.querySelector<HTMLElement>("[data-tap-heart]")!;
       expect(firstHeart.style.left).toBe("77px");
       expect(firstHeart.style.top).toBe("152px");
