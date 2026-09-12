@@ -62,7 +62,6 @@ const SERVER_PAGE_EXCEPTIONS = [
   "app/access/[purchaseId]/page.tsx",
   "app/admin/layout.tsx",
   "app/creators/[creatorId]/page.tsx",
-  "app/dashboard/analytics/page.tsx",
   "app/profile/page.tsx",
 ];
 
