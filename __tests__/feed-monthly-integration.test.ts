@@ -66,6 +66,8 @@ test("realtime inserts keep the current card in place until an explicit ranked r
   await act(async () => realtime({ eventType: "INSERT", new: { id: "two", creator_id: "creator", poster_url: "poster.jpg" } }));
   expect(container.querySelector('[data-card="two"]')).toBeNull();
   expect(props("one").isActive).toBe(true);
+  await act(async () => realtime({ eventType: "UPDATE", new: { id: "two", creator_id: "creator", poster_url: "poster.jpg" } }));
+  expect(container.querySelector('[data-card="two"]')).toBeNull();
   rpc.mockResolvedValue({ data: [row("two"), row("one")], error: null });
   await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent?.includes("New posts"))!.click());
   expect(props("two")).toMatchObject({ productId: "product-two", priceCents: 9900, monthlyTerms: terms, purchaseOptionsReady: true });

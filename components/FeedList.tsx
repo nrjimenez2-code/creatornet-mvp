@@ -259,6 +259,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           }
 
           const currentPost = itemsRef.current.find(p => p.id === removedId);
+          // Updates to an unseen/queued post must not bypass the ranked refresh.
+          if (!currentPost) return;
           const offerSource = { ...currentPost, ...payload.new, id: removedId } as PostRow;
           void loadFeedOffers([offerSource]).then(([offer]) => {
             if (cancelled || offerRefreshes.get(removedId) !== refresh) return;
