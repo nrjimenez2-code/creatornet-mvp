@@ -25,6 +25,8 @@ type CommentPanelProps = {
   isOpen: boolean;
   onClose: () => void;
   onCommentAdded?: (newCount?: number) => void;
+  initialDraft?: string;
+  onDraftChange?: (draft: string) => void;
 };
 
 export default function CommentPanel(props: CommentPanelProps) {
@@ -32,11 +34,12 @@ export default function CommentPanel(props: CommentPanelProps) {
   return <CommentPanelContent key={props.postId} {...props} />;
 }
 
-function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: CommentPanelProps) {
+function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialDraft = "", onDraftChange }: CommentPanelProps) {
   const supabase = createClient();
   const { userId, session } = useUser();
   const userEmail = session?.user?.email;
   const [comments, setComments] = useState<Comment[]>([]);
+  const [visibleCount, setVisibleCount] = useState(20);
   const [loading, setLoading] = useState(!!postId && isOpen);
   const [wasOpen, setWasOpen] = useState(isOpen);
   if (wasOpen !== isOpen) {
@@ -46,7 +49,8 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: Commen
   const [loadError, setLoadError] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [submitting, setSubmitting] = useState(false);
-  const [commentText, setCommentText] = useState("");
+  const [commentText, updateCommentText] = useState(initialDraft);
+  const setCommentText = (draft: string) => { updateCommentText(draft); onDraftChange?.(draft); };
   const [loadedUser, setLoadedUser] = useState<{ id: string; username: string; avatar_url: string | null } | null>(null);
   const currentUser = loadedUser?.id === userId ? loadedUser : null;
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
@@ -54,7 +58,6 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: Commen
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const commentsEndRef = useRef<HTMLDivElement>(null);
 
   // Fetch current user's profile (identity comes from the auth context)
   useEffect(() => {
@@ -117,19 +120,8 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: Commen
     return () => controller.abort();
   }, [postId, isOpen, loadAttempt]);
 
-  // Scroll to bottom when comments update
-  useEffect(() => {
-    if (commentsEndRef.current) {
-      commentsEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [comments]);
-
-  // Focus input when panel opens
-  useEffect(() => {
-    if (isOpen && inputRef.current) {
-      setTimeout(() => inputRef.current?.focus(), 100);
-    }
-  }, [isOpen]);
+  // Reading comments must not open the keyboard or scroll the feed behind it.
+  // The input is focused only by the reader's own interaction.
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -328,7 +320,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: Commen
         </div>
 
         {/* Comments List */}
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
           {loading ? (
             <div className="flex items-center justify-center h-full">
               <p className="text-white/60">Loading comments...</p>
@@ -352,7 +344,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: Commen
             </div>
           ) : (
             <>
-              {comments.map((comment) => (
+              {comments.slice(0, visibleCount).map((comment) => (
                 <div key={comment.id} className="flex gap-3">
                   {/* Avatar */}
                   <div className="flex-shrink-0">
@@ -453,7 +445,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded }: Commen
                   </div>
                 </div>
               ))}
-              <div ref={commentsEndRef} />
+              {comments.length > visibleCount && <button type="button" className="text-sm text-white/80 underline" onClick={() => setVisibleCount(count => count + 20)}>Show more comments</button>}
             </>
           )}
         </div>

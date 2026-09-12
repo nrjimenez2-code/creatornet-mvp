@@ -3,17 +3,20 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 let realtime: (event: any) => void;
 let rpc: jest.Mock;
+let viewerId = "buyer";
+const cardProps = new Map<string, any>();
+const observeNode = jest.fn();
 const channel = { on: (_event: unknown, _filter: unknown, fn: typeof realtime) => { realtime = fn; return channel; }, subscribe: () => channel };
 jest.mock("@/lib/supabaseClient", () => ({ createClient: () => ({ rpc: (...args: unknown[]) => rpc(...args), channel: () => channel, removeChannel: jest.fn() }) }));
-jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: "buyer", loading: false }) }));
+jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: viewerId, loading: false }) }));
 jest.mock("@/lib/posthog", () => ({ trackEvent: jest.fn(), normalizeCategory: (v: unknown) => v }));
-jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: any) => createElement("div", { "data-card": props.postId, "data-props": JSON.stringify(props) }) }));
+jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: any) => { cardProps.set(props.postId, props); return createElement("div", { "data-card": props.postId, "data-props": JSON.stringify(props) }); } }));
 import FeedList from "@/components/FeedList";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let observe: (entries: any[]) => void;
 class Observer {
   constructor(fn: typeof observe) { observe = fn; }
-  observe() {} unobserve() {} disconnect() {}
+  observe(node: Element) { observeNode(node); } unobserve() {} disconnect() {}
 }
 (globalThis as any).IntersectionObserver = Observer;
 let container: HTMLDivElement, root: Root;
@@ -24,12 +27,87 @@ const response = (ids: string[], monthlyTerms: unknown = terms) => ({ ok: true, 
 }])) }) });
 const props = (id: string) => JSON.parse(container.querySelector(`[data-card="${id}"]`)!.getAttribute("data-props")!);
 beforeEach(() => {
+  viewerId = "buyer";
+  cardProps.clear(); observeNode.mockClear();
+  window.matchMedia = jest.fn(() => ({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
   rpc = jest.fn(async () => ({ data: [row("one")], error: null }));
   global.fetch = jest.fn(async (url: string) => response(new URL(url, "https://site.invalid").searchParams.get("ids")!.split(","))) as unknown as typeof fetch;
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 const render = async (activeTab: "discover" | "following" = "discover") => act(async () => root.render(createElement(FeedList, { activeTab, onChangeTab: jest.fn() })));
+
+test("mobile warms the next video after first frame, with active playback taking priority during rapid swipes", async () => {
+  window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
+  rpc.mockResolvedValue({ data: [row("one"), row("two"), row("three")].map(post => ({ ...post, video_url: "https://example.test/video.mp4" })), error: null });
+  await render();
+  expect(props("one").preload).toBe("auto");
+  expect(props("two").preload).toBe("metadata");
+  await act(async () => cardProps.get("one").onFirstFrame("one"));
+  expect(props("two").preload).toBe("auto");
+  await act(async () => observe([{ target: container.querySelector('[data-post-id="two"]'), isIntersecting: true, intersectionRatio: 1 }]));
+  expect(props("two").preload).toBe("auto");
+  expect(props("three").preload).toBe("metadata");
+  await act(async () => cardProps.get("one").onFirstFrame("one"));
+  expect(props("three").preload).toBe("metadata");
+  await act(async () => cardProps.get("two").onFirstFrame("two"));
+  expect(props("three").preload).toBe("auto");
+});
+
+test("an image-only mobile post does not block the next video's preload waiting for a video frame", async () => {
+  window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
+  rpc.mockResolvedValue({ data: [row("image"), { ...row("next"), video_url: "https://example.test/video.mp4" }], error: null });
+  await render();
+  expect(props("image").isActive).toBe(true);
+  expect(props("next").preload).toBe("auto");
+});
+
+test("successful interactions and drafts survive unmounting a card; old viewer responses cannot leak", async () => {
+  rpc.mockResolvedValue({ data: Array.from({ length: 6 }, (_, i) => row(String(i))), error: null });
+  await render();
+  const oldCallback = cardProps.get("0").onInteractionChange;
+  await act(async () => {
+    oldCallback("0", { is_liked: true, likes_count: 8, comments_count: 3, shares_count: 4 });
+    cardProps.get("0").onCommentDraftChange("0", "Unsent words");
+    observe([{ target: container.querySelector('[data-post-id="4"]'), isIntersecting: true, intersectionRatio: 1 }]);
+  });
+  expect(container.querySelector('[data-card="0"]')).toBeNull();
+  await act(async () => observe([
+    { target: container.querySelector('[data-post-id="4"]'), isIntersecting: false, intersectionRatio: 0 },
+    { target: container.querySelector('[data-post-id="0"]'), isIntersecting: true, intersectionRatio: 1 },
+  ]));
+  expect(props("0")).toMatchObject({ isLiked: true, likes: 8, comments: 3, shares: 4, commentDraft: "Unsent words" });
+  viewerId = "another-buyer";
+  await render();
+  await act(async () => oldCallback("0", { is_liked: true, likes_count: 99 }));
+  expect(props("0")).toMatchObject({ isLiked: false, likes: 0, commentDraft: "" });
+});
+
+test("300-post forward/back navigation keeps at most five players and observes each section only once", async () => {
+  rpc.mockImplementation(async (_name, args) => ({ data: Array.from({ length: Math.max(0, Math.min(20, 300 - args.p_offset)) }, (_, i) => row(String(args.p_offset + i))), error: null }));
+  await render();
+  const originalObserver = observe;
+  let previous: Element | null = null;
+  for (let end = 19; end < 300; end += 20) {
+    const target = container.querySelector(`[data-post-id="${end}"]`)!;
+    await act(async () => observe([
+      ...(previous ? [{ target: previous, isIntersecting: false, intersectionRatio: 0 }] : []),
+      { target, isIntersecting: true, intersectionRatio: 1 },
+    ]));
+    previous = target;
+    expect(container.querySelectorAll('[data-card]').length).toBeLessThanOrEqual(5);
+    expect(props(String(end)).isActive).toBe(true);
+    expect(observe).toBe(originalObserver);
+  }
+  expect(container.querySelectorAll('[data-post-id]')).toHaveLength(300);
+  expect(observeNode).toHaveBeenCalledTimes(300);
+  await act(async () => observe([
+    { target: previous, isIntersecting: false, intersectionRatio: 0 },
+    { target: container.querySelector('[data-post-id="0"]'), isIntersecting: true, intersectionRatio: 1 },
+  ]));
+  expect(props("0").isActive).toBe(true);
+  expect(container.querySelectorAll('[data-card]')).toHaveLength(3);
+});
 test("initial feed passes canonical product/post identity, terms and product monthly price to VideoCard", async () => {
   await render();
   expect(props("one")).toMatchObject({ postId: "one", productId: "product-one", priceCents: 9900, monthlyTerms: terms, purchaseOptionsReady: true });

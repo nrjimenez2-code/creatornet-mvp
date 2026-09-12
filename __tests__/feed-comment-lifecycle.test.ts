@@ -64,6 +64,19 @@ test("comments show loading and a late response cannot overwrite another post", 
   expect(container.textContent).not.toContain("stale post comment");
 });
 
+test("opening a populated comment thread does not focus the keyboard or scroll ancestors, and limits initial rendering", async () => {
+  fetchMock.mockResolvedValue(response({ success: true, comments: Array.from({ length: 50 }, (_, i) => comment(`Comment number ${i}`)) }));
+  const focus = jest.spyOn(HTMLElement.prototype, "focus");
+  await act(async () => root.render(createElement(CommentPanel, { postId: "a", isOpen: true, onClose: jest.fn() })));
+  expect(container.textContent).toContain("Comment number 19");
+  expect(container.textContent).not.toContain("Comment number 20");
+  expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  expect(focus).not.toHaveBeenCalled();
+  await act(async () => Array.from(container.querySelectorAll('button')).find(b => b.textContent === "Show more comments")!.click());
+  expect(container.textContent).toContain("Comment number 39");
+  expect(container.textContent).not.toContain("Comment number 40");
+});
+
 test("a comment retry shows loading, then only the successful result", async () => {
   jest.spyOn(console, "error").mockImplementation(() => {});
   const retry = deferred<ReturnType<typeof response>>();

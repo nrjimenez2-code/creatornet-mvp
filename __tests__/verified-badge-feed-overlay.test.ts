@@ -140,6 +140,57 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     } finally { play.mockRestore(); }
   });
 
+  test("page hide pauses playback; resume preserves manual pause and never starts an inactive card", async () => {
+    let paused = true;
+    const visibility = jest.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const pausedGetter = jest.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(() => paused);
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockImplementation(async () => { paused = false; });
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => { paused = true; });
+    const change = async (state: DocumentVisibilityState) => act(async () => {
+      visibility.mockReturnValue(state);
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    try {
+      await render({ src: "https://cdn.example.com/visible.mp4", isActive: true });
+      expect(paused).toBe(false);
+      await change("hidden");
+      expect(paused).toBe(true);
+      const calls = play.mock.calls.length;
+      await change("visible");
+      expect(play).toHaveBeenCalledTimes(calls + 1);
+      const group = container.querySelector('[role="group"]')!;
+      (group as HTMLElement).focus();
+      await act(async () => group.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true })));
+      expect(paused).toBe(true);
+      const manuallyPausedCalls = play.mock.calls.length;
+      await change("hidden"); await change("visible");
+      expect(play).toHaveBeenCalledTimes(manuallyPausedCalls);
+      await render({ src: "https://cdn.example.com/visible.mp4", isActive: false });
+      await change("hidden"); await change("visible");
+      expect(play).toHaveBeenCalledTimes(manuallyPausedCalls);
+    } finally { await act(async () => root.render(null)); visibility.mockRestore(); pausedGetter.mockRestore(); play.mockRestore(); pause.mockRestore(); }
+  });
+
+  test("a successful like reports authoritative state to the feed, but a failed mutation does not", async () => {
+    const savedFetch = global.fetch;
+    const change = jest.fn();
+    userCtx.userId = "buyer";
+    global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ success: true, liked: true, likes_count: 9 }) })) as any;
+    try {
+      await render({ onInteractionChange: change });
+      await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.click());
+      expect(change).toHaveBeenCalledWith("post_1", { is_liked: true, likes_count: 9 });
+      change.mockClear();
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: false, json: async () => ({ success: false }) });
+      const error = jest.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.click());
+        expect(change).not.toHaveBeenCalled();
+        expect(container.querySelector('button[aria-label="Like"] svg')?.getAttribute("class")).toContain("fill-red-500");
+      } finally { error.mockRestore(); }
+    } finally { global.fetch = savedFetch; }
+  });
+
   test("already-ready playback rejection retries once and stops when inactive", async () => {
     jest.useFakeTimers();
     const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockRejectedValue(new DOMException("interrupted", "AbortError"));
