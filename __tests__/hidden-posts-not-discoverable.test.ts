@@ -75,74 +75,26 @@ beforeEach(() => {
   db = createMockClient(() => undefined);
 });
 
-describe("/api/search/perform", () => {
-  const post = (q: string) =>
-    new Request("https://x/api/search/perform", {
-      method: "POST",
-      headers: { "content-type": "application/json", "x-forwarded-for": "5.5.5.5" },
-      body: JSON.stringify({ q }),
-    });
-
-  it("#tag search: both posts reads exclude hidden and removed posts", async () => {
+// Search now enforces moderation inside the database RPC. The real SQL is
+// exercised against hidden/removed/banned fixtures in search-relevance-schema.test.ts.
+// These boundary tests ensure both public routes continue using that protected RPC.
+describe("search moderation RPC boundary", () => {
+  it.each(["#yoga", "noah", "zzz-nobody"])("uses the moderated search for %s", async q => {
+    db = createMockClient(op => op.kind === "rpc" ? { data: { creators: [], items: [], offerings: [], totals: { creators: 0, videos: 0, offerings: 0 } }, error: null } : undefined);
     const { POST } = await import("@/app/api/search/perform/route");
-    const res = await POST(post("#yoga"));
+    const res = await POST(new Request("https://x/api/search/perform", { method: "POST", body: JSON.stringify({ q }) }));
     expect(res.status).toBe(200);
-
-    const reads = postReads();
-    expect(reads).toHaveLength(2);
-    expect(reads.map((r) => Object.keys(r.filters)).flat()).toEqual(
-      expect.arrayContaining(["hashtags", "content"])
-    );
-    reads.forEach(expectModerationFilter);
+    expect(db.ops).toHaveLength(1);
+    expect(db.ops[0]).toMatchObject({ table: "search_relevance_v1", kind: "rpc" });
   });
-
-  it("name search with a matching creator: the by-creator read excludes them", async () => {
-    db = createMockClient((op) =>
-      op.table === "profiles" && op.kind === "select" ? { data: [CREATOR], error: null } : undefined
-    );
-    const { POST } = await import("@/app/api/search/perform/route");
-    const res = await POST(post("noah"));
-    expect(res.status).toBe(200);
-
-    const reads = postReads();
-    expect(reads).toHaveLength(1);
-    expect(reads[0].inFilters).toEqual([{ column: "creator_id", values: [CREATOR.id] }]);
-    expectModerationFilter(reads[0]);
-  });
-
-  it("name search with no creator: the caption read AND the suggested-posts read exclude them", async () => {
-    db = createMockClient((op) => {
-      if (op.table !== "profiles" || op.kind !== "select") return undefined;
-      // The two ilike lookups find nobody; the unfiltered "suggest 6" finds one.
-      const isNameLookup = "username" in op.filters || "full_name" in op.filters;
-      return { data: isNameLookup ? [] : [CREATOR], error: null };
-    });
-    const { POST } = await import("@/app/api/search/perform/route");
-    const res = await POST(post("zzz-nobody"));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ noUserFound: true });
-
-    const reads = postReads();
-    expect(reads).toHaveLength(2);
-    expect(reads[0].filters).toHaveProperty("content", "%zzz-nobody%");
-    expect(reads[1].inFilters).toEqual([{ column: "creator_id", values: [CREATOR.id] }]);
-    reads.forEach(expectModerationFilter);
-  });
-});
-
-describe("/api/search/suggest", () => {
-  it("hashtag suggestions are not derived from hidden or removed posts", async () => {
+  it("suggestions use moderated recent topics and creator search", async () => {
+    db = createMockClient(op => op.kind === "rpc" ? { data: op.table === "search_topics_v1" ? [] : { creators: [], offerings: [] }, error: null } : undefined);
     const { GET } = await import("@/app/api/search/suggest/route");
     const res = await GET(new Request("https://x/api/search/suggest?q=yo"));
     expect(res.status).toBe(200);
-
-    const reads = postReads();
-    expect(reads).toHaveLength(1);
-    expect(reads[0].columns).toBe("hashtags");
-    expectModerationFilter(reads[0]);
+    expect(db.ops.map(op => op.table).sort()).toEqual(["search_relevance_v1", "search_topics_v1"]);
   });
 });
-
 describe("/api/tag/[hashtag]", () => {
   it("all five posts reads exclude hidden and removed posts", async () => {
     const { GET } = await import("@/app/api/tag/[hashtag]/route");
@@ -192,3 +144,4 @@ describe("the helper itself", () => {
     ]);
   });
 });
+

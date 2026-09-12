@@ -1,257 +1,44 @@
-// app/api/search/perform/route.ts
-import { publicMessage } from "@/lib/apiError";
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
-import { onlyVisiblePosts } from "@/lib/visiblePosts";
-import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
+import { interpretSearch, SEARCH_PAGE_SIZE } from "@/lib/searchQuery";
 
-type CreatorHit = {
-  id: string;
-  username: string | null;
-  full_name: string | null;
-  avatar_url: string | null;
-  tagline: string | null;
-  /** Derived server-side (lib/sellReady.ts); the raw stripe_* columns never leave this route. */
-  is_verified_seller: boolean;
-};
-
-type PostHit = {
-  id: string;
-  content: string | null;
-  media_url: string | null;
-  poster_url: string | null;
-  creator_id: string;
-  created_at: string;
-  likes_count?: number;
-  creator: {
-    username: string | null;
-    full_name: string | null;
-    tagline: string | null;
-    avatar_url: string | null;
-  } | null;
-};
-
-type RawPostRow = {
-  id: string;
-  content: string | null;
-  video_url: string | null;
-  poster_url: string | null;
-  creator_id: string;
-  created_at: string;
-  likes_count?: number | null;
-  creator?:
-    | null
-    | {
-        username?: string | null;
-        full_name?: string | null;
-        tagline?: string | null;
-        avatar_url?: string | null;
-      }
-    | Array<{
-        username?: string | null;
-        full_name?: string | null;
-        tagline?: string | null;
-        avatar_url?: string | null;
-      }>;
-};
-
-function normalizePost(r: RawPostRow): PostHit {
-  const rawCreator = r.creator;
-  const c = Array.isArray(rawCreator) ? rawCreator[0] ?? null : rawCreator ?? null;
-  return {
-    id: r.id,
-    content: r.content ?? null,
-    media_url: r.video_url ?? null,
-    poster_url: r.poster_url ?? null,
-    creator_id: r.creator_id,
-    created_at: r.created_at,
-    likes_count: typeof r.likes_count === "number" ? r.likes_count : undefined,
-    creator: c
-      ? {
-          username: c.username ?? null,
-          full_name: c.full_name ?? null,
-          tagline: c.tagline ?? null,
-          avatar_url: c.avatar_url ?? null,
-        }
-      : null,
-  };
-}
-
-const postSelect = `
-  id,
-  content,
-  video_url,
-  poster_url,
-  creator_id,
-  created_at,
-  likes_count
-`;
-
-// Unauthenticated and the most expensive query in the app. Sixty a minute is
-// generous for a person typing and cheap protection against a scraper.
 const SEARCH_RATE = { limit: 60, windowMs: 60_000 };
+export const maxDuration = 180;
 
 export async function POST(req: Request) {
-  if (!allowRequest(`search:${clientKey(req)}`, SEARCH_RATE)) {
-    return tooManyRequests();
-  }
-
+  if (!allowRequest(`search:${clientKey(req)}`, SEARCH_RATE)) return tooManyRequests();
+  let input: ReturnType<typeof interpretSearch>;
+  let page: number;
   try {
-    const { q } = (await req.json().catch(() => ({}))) as { q?: string };
-    const query = (q ?? "").trim();
-    const admin = supabaseAdmin;
-
-    if (!query) {
-      return NextResponse.json({ creators: [], items: [] });
-    }
-
-    const isHashtag = query.startsWith("#");
-    const tag = isHashtag ? query.slice(1).toLowerCase().trim() : "";
-
-    // —— #tag: top posts by likes ——
-    if (isHashtag && tag) {
-      const tagPattern = `%${tag}%`;
-      const captionTagPattern = `%#${tag}%`;
-      const [fromHashtags, fromCaption] = await Promise.all([
-        onlyVisiblePosts(admin.from("posts").select(postSelect))
-          .ilike("hashtags", tagPattern)
-          .order("likes_count", { ascending: false, nullsFirst: false })
-          .limit(30),
-        onlyVisiblePosts(admin.from("posts").select(postSelect))
-          .ilike("content", captionTagPattern)
-          .order("likes_count", { ascending: false, nullsFirst: false })
-          .limit(30),
-      ]);
-
-      if (fromHashtags.error) {
-        console.error("[search/perform] hashtag(text) error:", fromHashtags.error.message);
-      }
-      if (fromCaption.error) {
-        console.error("[search/perform] hashtag(caption) error:", fromCaption.error.message);
-      }
-
-      const merged: RawPostRow[] = [];
-      const seenIds = new Set<string>();
-      for (const row of [
-        ...((fromHashtags.data ?? []) as RawPostRow[]),
-        ...((fromCaption.data ?? []) as RawPostRow[]),
-      ]) {
-        if (!row?.id || seenIds.has(row.id)) continue;
-        seenIds.add(row.id);
-        merged.push(row);
-      }
-      merged.sort((a, b) => (b.likes_count ?? 0) - (a.likes_count ?? 0));
-      const items: PostHit[] = merged.slice(0, 30).map(normalizePost);
-      return NextResponse.json({ creators: [], items, isTagSearch: true });
-    }
-
-    // —— Text/name search: creators + posts ——
-    // 1) Find creators by username or full_name (two queries to avoid .or() URL-encoding % in pattern)
-    const pattern = `%${query}%`;
-    const [byUsername, byFullName] = await Promise.all([
-      admin
-        .from("profiles")
-        .select(`id, username, full_name, avatar_url, tagline, ${SELL_READY_COLUMNS}`)
-        .ilike("username", pattern)
-        .limit(20),
-      admin
-        .from("profiles")
-        .select(`id, username, full_name, avatar_url, tagline, ${SELL_READY_COLUMNS}`)
-        .ilike("full_name", pattern)
-        .limit(20),
-    ]);
-
-    const seen = new Set<string>();
-    const creators: CreatorHit[] = [];
-    for (const row of [...(byUsername.data ?? []), ...(byFullName.data ?? [])]) {
-      const id = row?.id;
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      creators.push({
-        id,
-        username: row.username ?? null,
-        full_name: row.full_name ?? null,
-        avatar_url: row.avatar_url ?? null,
-        tagline: row.tagline ?? null,
-        is_verified_seller: isSellReadyProfile(row),
-      });
-    }
-    creators.splice(20); // keep at most 20
-
-    const creatorIds = creators.map((c) => c.id);
-
-    // 2) Posts:
-    // - If creators matched, return ONLY those creators' posts.
-    // - If no creators matched, fall back to caption search.
-    let postData: RawPostRow[] | null = null;
-    if (creatorIds.length > 0) {
-      const byCreator = await onlyVisiblePosts(admin.from("posts").select(postSelect))
-        .in("creator_id", creatorIds)
-        .order("created_at", { ascending: false })
-        .limit(30);
-      if (byCreator.error) {
-        console.error("[search/perform] byCreator error:", byCreator.error.message);
-        postData = [];
-      } else {
-        postData = (byCreator.data ?? []) as RawPostRow[];
-      }
-    } else {
-      const res = await onlyVisiblePosts(admin.from("posts").select(postSelect)).ilike("content", pattern).order("created_at", { ascending: false }).limit(30);
-      if (res.error) {
-        console.error("[search/perform] caption-only error:", res.error.message);
-        postData = [];
-      } else {
-        postData = res.data as RawPostRow[] | null;
-      }
-    }
-
-    const items: PostHit[] = (postData ?? []).map(normalizePost);
-
-    // 3) No creators found → suggest random creators + their posts
-    let noUserFound = false;
-    let suggested_creators: CreatorHit[] = [];
-    let suggested_posts: PostHit[] = [];
-
-    if (creators.length === 0) {
-      noUserFound = true;
-      const { data: suggestedProfiles } = await admin
-        .from("profiles")
-        .select(`id, username, full_name, avatar_url, tagline, ${SELL_READY_COLUMNS}`)
-        .limit(6);
-
-      suggested_creators = (suggestedProfiles ?? []).map((p: any) => ({
-        id: p.id,
-        username: p.username ?? null,
-        full_name: p.full_name ?? null,
-        avatar_url: p.avatar_url ?? null,
-        tagline: p.tagline ?? null,
-        is_verified_seller: isSellReadyProfile(p),
-      }));
-
-      const suggestedIds = suggested_creators.map((c) => c.id);
-      if (suggestedIds.length > 0) {
-        const { data: suggestedPostRows } = await onlyVisiblePosts(admin.from("posts").select(postSelect))
-          .in("creator_id", suggestedIds)
-          .order("created_at", { ascending: false })
-          .limit(12);
-
-        suggested_posts = (suggestedPostRows as RawPostRow[] | null)?.map(normalizePost) ?? [];
-      }
-    }
-
-    return NextResponse.json({
-      creators,
-      items,
-      noUserFound,
-      suggested_creators: noUserFound ? suggested_creators : undefined,
-      suggested_posts: noUserFound ? suggested_posts : undefined,
+    const body = await req.json();
+    input = interpretSearch(body?.q);
+    page = body?.page ?? 0;
+    if (!Number.isInteger(page) || page < 0 || page > 500) throw new Error("Invalid search page.");
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : "Invalid search." }, { status: 400 });
+  }
+  if (!input.normalized) {
+    return NextResponse.json({ creators: [], items: [], offerings: [], totals: { creators: 0, videos: 0, offerings: 0 }, page, page_size: SEARCH_PAGE_SIZE });
+  }
+  try {
+    const { data, error } = await supabaseAdmin.rpc("search_relevance_v1", {
+      query_text: input.normalized,
+      related_terms: input.related,
+      page_number: page,
+      page_size: SEARCH_PAGE_SIZE,
+      identity_query: input.raw.replace(/^#/, ""),
     });
-  } catch (err: unknown) {
-    console.error("[search/perform]", err);
-    return NextResponse.json(
-      { error: publicMessage("search", err, "Search failed") },
-      { status: 500 }
-    );
+    if (error || !data) throw error ?? new Error("Missing search response");
+    // Wake the durable queue after delivering results. A database lease admits
+    // only one extraction, regardless of how many visitors search concurrently.
+    if (process.env.VERCEL === "1") after(async () => {
+      try { const { processNextSearchVideo } = await import("@/lib/searchVideoText"); await processNextSearchVideo(); }
+      catch { console.warn("[search/video] queue processing needs retry"); }
+    });
+    return NextResponse.json({ ...data, isTagSearch: input.isTagSearch, normalized_query: input.normalized });
+  } catch (error) {
+    console.error("[search/perform] search failed", error);
+    return NextResponse.json({ error: "Search isn't working right now. Please try again." }, { status: 503 });
   }
 }
