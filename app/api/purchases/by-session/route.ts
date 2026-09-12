@@ -3,6 +3,7 @@ import { publicMessage } from "@/lib/apiError";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
+import { eitherIdFilter, isSafeId } from "@/lib/ids";
 
 const SUPABASE_URL: string =
   process.env.SUPABASE_URL ||
@@ -69,11 +70,20 @@ export async function GET(req: Request) {
   }
 
   // Resolve the product
-  const { data: product, error: productErr } = await admin
-    .from("products")
-    .select("fulfillment, discord_channel_id, whop_listing_id, external_url")
-    .eq("product_id", purchase.product_id)
-    .maybeSingle();
+  // Same wrong-column bug the webhook had: purchases.product_id holds
+  // products.id, but this filtered products.product_id, which is null on most
+  // rows — so the buyer's fulfillment link was never found. Match either.
+  //
+  // eitherIdFilter THROWS on a null or malformed id, where the old .eq() merely
+  // matched nothing, so guard first: a purchase with no product_id must keep
+  // resolving to "no product", not become a 500.
+  const { data: product, error: productErr } = isSafeId(purchase.product_id)
+    ? await admin
+        .from("products")
+        .select("fulfillment, discord_channel_id, whop_listing_id, external_url")
+        .or(eitherIdFilter(["product_id", "id"], purchase.product_id))
+        .maybeSingle()
+    : { data: null, error: null };
 
   if (productErr) {
     return NextResponse.json(

@@ -17,6 +17,23 @@ process.env.STRIPE_BILLING_FEE_BPS = "70";
 
 import { createMockClient, type MockClient, type Op } from "./__mocks__/supabaseQueryMock";
 
+/**
+ * The live `booking_payment_status` enum, read from production on 2026-09-11:
+ *   select enumlabel from pg_enum e join pg_type t on t.oid = e.enumtypid
+ *   where t.typname = 'booking_payment_status';
+ *
+ * The mock database accepts any string, so a write of a non-existent label
+ * passes here and raises 22P02 in production. Assert membership whenever a test
+ * pins a booking_payments status.
+ */
+const BOOKING_PAYMENT_STATUS_LABELS = [
+  "pending",
+  "link_sent",
+  "completed",
+  "canceled",
+  "refunded",
+] as const;
+
 let db: MockClient;
 let stripeEvent: any;
 let claimed: "new" | "duplicate" | "busy" | "unrecorded" = "new";
@@ -1610,7 +1627,18 @@ describe("installment, failure, refund, and duplicate webhooks", () => {
       column: "status",
       values: ["pending", "processing", "failed"],
     });
-    expect(db.opsFor("booking_payments")[0]?.payload).toMatchObject({ status: "expired" });
+    // This asserted status "expired" — a value the live booking_payment_status
+    // enum does not have. Its labels are {pending, link_sent, completed,
+    // canceled, refunded}, verified against production. The mock DB accepted the
+    // bad write, so the test passed while the real one raised 22P02, threw, and
+    // returned 500 — making Stripe redeliver this event for three days. The
+    // assertion followed the code instead of the schema; it now follows the
+    // schema, and "canceled" is the same terminal value the orders writes on
+    // this very event use above.
+    expect(db.opsFor("booking_payments")[0]?.payload).toMatchObject({ status: "canceled" });
+    expect(BOOKING_PAYMENT_STATUS_LABELS).toContain(
+      (db.opsFor("booking_payments")[0]?.payload as { status?: string } | undefined)?.status
+    );
     expect(db.opsFor("credit_purchase_earnings")).toHaveLength(0);
   });
 
