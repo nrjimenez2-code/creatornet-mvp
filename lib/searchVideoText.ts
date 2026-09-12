@@ -6,7 +6,9 @@ export const SEARCH_VIDEO_MODEL = "google/gemini-3.6-flash";
 const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
 
 /** Only the public preview URL is eligible. Premium assets never enter this path. */
-export function approvedSearchVideoUrl(raw: string, env: NodeJS.ProcessEnv = process.env): URL {
+export function approvedSearchVideoUrl(raw: string, env: { R2_PUBLIC_URL?: string; NEXT_PUBLIC_SUPABASE_URL?: string } = {
+  R2_PUBLIC_URL: process.env.R2_PUBLIC_URL, NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+}): URL {
   const url = new URL(raw);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash) throw new Error("unsupported_media_url");
   const r2 = env.R2_PUBLIC_URL ? new URL(env.R2_PUBLIC_URL) : null;
