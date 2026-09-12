@@ -81,9 +81,13 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [globalSoundOn, setGlobalSoundOn] = useSoundPreference();
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const [warmingPostId, setWarmingPostId] = useState<string | null>(null);
+  const [readyPostId, setReadyPostId] = useState<string | null>(null);
   const activeIdRef = useRef(activePostId);
   activeIdRef.current = activePostId;
   const draftsRef = useRef(new Map<string, string>());
+  const handleFirstFrame = useCallback((id: string) => {
+    if (activeIdRef.current === id) setReadyPostId(id);
+  }, []);
   // Authoritative responses are lifted out of cards so virtualization cannot
   // restore old heart/count state. Late responses from another viewer are ignored.
   const handleInteractionChange = useCallback((id: string, patch: FeedInteraction) => {
@@ -172,6 +176,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     setMoreError(false);
     setPendingPosts([]);
     setWarmingPostId(null);
+    setReadyPostId(null);
 
     // Wait for the auth context to settle; the effect re-runs when it does.
     if (authLoading) return;
@@ -465,8 +470,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         const visible = [...ratios.values()]
           .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        // Prepare only the incoming neighbor once it enters view. No hidden
-        // autoplay, timer-gated activation, or decoder work for distant cards.
+        // The visible incoming neighbor takes priority over forward prediction.
+        // No timer-gated activation or decoder work for distant cards.
         const selectedId = (visible?.target as HTMLElement | undefined)?.dataset.postId ?? activeIdRef.current;
         const selectedIndex = itemsRef.current.findIndex(post => post.id === selectedId);
         const neighbor = itemsRef.current[selectedIndex + scrollDirectionRef.current];
@@ -710,7 +715,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                 {isMounted ? (
                   <VideoCard
                     onInteractionChange={handleInteractionChange}
-                    prepareFrame={!desktop && pageVisible && !isActive && warmingPostId === p.id}
+                    onFirstFrame={!desktop ? handleFirstFrame : undefined}
+                    prepareFrame={!desktop && pageVisible && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1 && readyPostId === activePostId)}
                     preferAdaptive={!desktop}
                     commentDraft={draftsRef.current.get(p.id) ?? ""}
                     onCommentDraftChange={handleDraftChange}

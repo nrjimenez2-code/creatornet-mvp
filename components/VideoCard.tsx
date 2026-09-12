@@ -48,7 +48,7 @@ type VideoCardProps = {
   shares?: number | string;
   isLiked?: boolean;
   isActive?: boolean;
-  /** Briefly decode an incoming, partially visible mobile card without audio. */
+  /** Briefly decode the predicted or entering mobile neighbor without audio. */
   prepareFrame?: boolean;
   preferAdaptive?: boolean;
   preload?: "auto" | "metadata" | "none";

@@ -44,6 +44,10 @@ test("mobile preloads its next video immediately and prepares an entering card w
   expect(props("one").preload).toBe("auto");
   expect(props("two").preload).toBe("auto");
   expect(props("three").preload).toBe("metadata");
+  expect(props("two").prepareFrame).toBe(false);
+  await act(async () => cardProps.get("one").onFirstFrame("one"));
+  expect(props("two").prepareFrame).toBe(true);
+  expect(props("three").prepareFrame).toBe(false);
   const target = container.querySelector('[data-post-id="two"]');
   await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 0.15 }]));
   expect(props("one").isActive).toBe(true);
@@ -53,6 +57,9 @@ test("mobile preloads its next video immediately and prepares an entering card w
   expect(props("two").isActive).toBe(true);
   expect(props("two").prepareFrame).toBe(false);
   expect(props("three").preload).toBe("auto");
+  expect(props("three").prepareFrame).toBe(false);
+  await act(async () => cardProps.get("two").onFirstFrame("two"));
+  expect(props("three").prepareFrame).toBe(true);
 });
 
 test("mobile cancels preparation when the swipe reverses before activation", async () => {
