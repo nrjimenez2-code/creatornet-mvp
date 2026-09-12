@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { pathToFileURL, fileURLToPath } from "node:url";
 /**
  * Audit every database name in this codebase against the LIVE production schema.
  *
@@ -89,29 +90,48 @@ function normCol(raw) {
   return /^[a-z][a-z0-9_]*$/.test(c) ? c : null;
 }
 
-/** Every (table, column, file:line) the code names, including .or() filters. */
+// Names JavaScript itself puts before `.from(` — never a PostgREST table.
+const NOT_A_QUERY = new Set(["Array", "Buffer", "Uint8Array", "Int8Array", "Uint16Array", "Int16Array", "Uint32Array", "Int32Array", "Float32Array", "Float64Array", "BigInt64Array", "Promise", "Object", "Map", "Set", "String"]);
+const FROM_RE = /\.from\(\s*(?:(["'`])([a-z0-9_]+)\1|([^)]{1,80}?))\s*\)/g;
+const NEXT_FROM = /\.from\(/g;
+
+/** Every (table, column, file:line) the code names, including .or() filters,
+ *  plus every `.from(<expression>)` whose table name is not a plain string
+ *  literal — those cannot be checked and are reported as unverified. */
 export function collectSites(files) {
   const sites = [];
+  const unverified = [];
   for (const f of files) {
+    if (path.resolve(f) === fileURLToPath(import.meta.url)) continue; // this file talks about .from() without querying
     const text = fs.readFileSync(f, "utf8");
-    for (const m of text.matchAll(/\.from\(\s*"([a-z0-9_]+)"\s*\)/g)) {
-      const table = m[1];
+    const rel = path.relative(ROOT, f);
+    for (const m of text.matchAll(FROM_RE)) {
       const start = m.index;
-      const nextFrom = text.indexOf('.from("', start + 5);
+      const line = text.slice(0, start).split("\n").length;
+      const receiver = (text.slice(Math.max(0, start - 40), start).match(/([A-Za-z_$][\w$]*)\s*$/) || [])[1];
+      if (NOT_A_QUERY.has(receiver)) continue; // Array.from(...), Buffer.from(...)
+      if (!m[2]) {
+        const expr = m[3].trim();
+        if (!/^[{\[\d]/.test(expr)) unverified.push({ file: rel, line, expr });
+        continue;
+      }
+      const table = m[2];
+      NEXT_FROM.lastIndex = start + 5;
+      const nextFrom = NEXT_FROM.exec(text)?.index ?? -1;
       const end = Math.min(text.length, nextFrom === -1 ? start + 1800 : Math.min(nextFrom, start + 1800));
       const win = text.slice(start, end);
       const cols = new Set();
 
-      for (const s of win.matchAll(/\.select\(\s*"([^"]*)"/g))
-        for (const raw of splitTop(s[1])) { const c = normCol(raw); if (c) cols.add(c); }
+      for (const s of win.matchAll(/\.select\(\s*(["'`])([^"'`$]*)\1/g))
+        for (const raw of splitTop(s[2])) { const c = normCol(raw); if (c) cols.add(c); }
 
-      for (const s of win.matchAll(/\.(eq|neq|gt|gte|lt|lte|like|ilike|is|in|contains|order)\(\s*"([a-z0-9_]+)"/g))
+      for (const s of win.matchAll(/\.(eq|neq|gt|gte|lt|lte|like|ilike|is|in|contains|order)\(\s*["'`]([a-z0-9_]+)["'`]/g))
         cols.add(s[2]);
 
       // .or("kind.is.null,status.neq.canceled") names columns too, and no
       // .select()/.eq() pattern sees them.
-      for (const s of win.matchAll(/\.or\(\s*"([^"]+)"/g))
-        for (const c of s[1].matchAll(/(^|,)\s*([a-z][a-z0-9_]*)\s*\./g)) cols.add(c[2]);
+      for (const s of win.matchAll(/\.or\(\s*(["'`])([^"'`$]+)\1/g))
+        for (const c of s[2].matchAll(/(^|,)\s*([a-z][a-z0-9_]*)\s*\./g)) cols.add(c[2]);
 
       for (const s of win.matchAll(/\.(insert|update|upsert)\(\s*(\{[\s\S]{0,700}?\})/g)) {
         for (const k of s[2].matchAll(/(^|[{,\s])([a-z][a-z0-9_]*)\s*:/g))
@@ -121,10 +141,10 @@ export function collectSites(files) {
           if (!RESERVED.has(k[2])) cols.add(k[2]);
       }
 
-      if (cols.size) sites.push({ file: path.relative(ROOT, f), line: text.slice(0, start).split("\n").length, table, cols: [...cols] });
+      if (cols.size) sites.push({ file: rel, line, table, cols: [...cols] });
     }
   }
-  return sites;
+  return { sites, unverified };
 }
 
 // ------------------------------------------------------------------- probing
@@ -142,7 +162,7 @@ async function main() {
     return { status: 0, code: "NETFAIL" };
   };
 
-  const sites = collectSites(sourceFiles(ROOT));
+  const { sites, unverified } = collectSites(sourceFiles(ROOT));
   const byTable = new Map();
   for (const s of sites) {
     if (!byTable.has(s.table)) byTable.set(s.table, new Set());
@@ -170,14 +190,22 @@ async function main() {
     }
   }
 
-  if (!missing.length) { console.log("\nOK — every table and column this codebase names exists in production."); return; }
+  const reportUnverified = () => {
+    if (!unverified.length) return;
+    console.log(`\n${unverified.length} .from() call(s) use a computed table name and were NOT verified:`);
+    for (const u of unverified) console.log(`  ${u.file}:${u.line}  .from(${u.expr})`);
+  };
+  if (!missing.length) { console.log("\nOK — every literal table and column name this codebase uses exists in production."); reportUnverified(); return; }
   console.log(`\n${missing.length} mismatch(es):`);
   for (const m of missing) {
     const where = sites.filter(s => s.table === m.table && (m.kind === "table" || s.cols.includes(m.column)));
     console.log(`\n  ${m.table}${m.column ? "." + m.column : ""}`);
     for (const w of [...new Set(where.map(w => `${w.file}:${w.line}`))]) console.log(`      ${w}`);
   }
+  reportUnverified();
   process.exitCode = 1;
 }
 
-main().catch(e => { console.error("audit failed:", e.message); process.exitCode = 2; });
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  main().catch(e => { console.error("audit failed:", e.message); process.exitCode = 2; });
+}
