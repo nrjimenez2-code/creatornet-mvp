@@ -9,6 +9,12 @@
  * These tests import and invoke the real helper and the real layout.
  */
 
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+
+// The client-only notice has its own behavior tests; this suite verifies the gate.
+jest.mock("@/components/StripeConnectedSuccess", () => ({ __esModule: true, default: () => null }));
+
 let sessionValue: { user: { id: string } } | null = { user: { id: "u1" } };
 let profileValue: { username: string | null; interests: unknown } | null = null;
 const profileSelect = jest.fn();
@@ -98,7 +104,8 @@ describe("the /dashboard layout gate", () => {
   it("lets a finished profile through and renders its children", async () => {
     profileValue = { username: "landon", interests: ["fitness"] };
     const { default: DashboardLayout } = await import("@/app/dashboard/layout");
-    await expect(DashboardLayout({ children: "FEED" as never })).resolves.toBe("FEED");
+    const result = await DashboardLayout({ children: createElement("main", null, "FEED") });
+    expect(renderToStaticMarkup(result)).toContain("<main>FEED</main>");
     expect(redirectMock).not.toHaveBeenCalled();
   });
 
@@ -114,7 +121,8 @@ describe("the /dashboard layout gate", () => {
   it("does NOT bounce to /auth when the server-side session read comes back empty", async () => {
     sessionValue = null;
     const { default: DashboardLayout } = await import("@/app/dashboard/layout");
-    await expect(DashboardLayout({ children: "FEED" as never })).resolves.toBe("FEED");
+    const result = await DashboardLayout({ children: createElement("main", null, "FEED") });
+    expect(renderToStaticMarkup(result)).toContain("<main>FEED</main>");
     expect(redirectMock).not.toHaveBeenCalled();
   });
 });
