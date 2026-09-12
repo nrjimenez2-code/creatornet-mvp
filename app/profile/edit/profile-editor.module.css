@@ -55,9 +55,10 @@
   .panel { padding: 20px; border-radius: 20px; }
   .header { margin-bottom: 28px; }
   .header h1 { font-size: 28px; }
-  .photoRow { flex-wrap: wrap; gap: 14px; }
+  .photoRow { display: grid; grid-template-columns: 60px minmax(0, 1fr); gap: 14px; }
   .avatar { width: 60px; height: 60px; min-width: 60px; }
-  .changePhoto { margin-left: 74px; }
+  .changePhoto { grid-column: 2; justify-self: start; }
   .actions { gap: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .panel button { transition: none; } }
+
