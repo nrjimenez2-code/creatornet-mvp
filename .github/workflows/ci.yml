@@ -52,6 +52,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -67,8 +69,11 @@ jobs:
       - name: Typecheck
         run: npx tsc --noEmit
 
+      - name: Test scope safeguards
+        run: node --test scripts/ci-tests.test.cjs
+
       - name: Tests
-        run: npm test
+        run: node scripts/ci-tests.cjs
 
       - name: Production build
         run: npm run build
