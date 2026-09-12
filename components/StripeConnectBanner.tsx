@@ -13,7 +13,7 @@ type Status =
       onboarding_complete: boolean;
     };
 
-export default function StripeConnectBanner({ appearance = "default" }: { appearance?: "default" | "earnings" } = {}) {
+export default function StripeConnectBanner({ appearance = "default" }: { appearance?: "default" | "earnings" }) {
   const { session, loading: authLoading } = useUser();
   const token = session?.access_token;
   const [retry, setRetry] = useState(0);
