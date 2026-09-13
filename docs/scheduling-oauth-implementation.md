@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google Bookings dashboard checkpoint
+
+Native Google bookings now appear in the Bookings dashboard with separate buyer and creator views, participant display names, local times, pending statuses and requested reschedule times. Buyers reopen the owner-scoped management page; creators can open Google Calendar for their incoming calls. The creator view does not impersonate buyer permissions for native API mutations.
+
+Migration `20260913231348_google_booking_dashboard.sql` adds a service-only participant-scoped listing with immutable creation-time/ID pagination. The authenticated route always supplies the actor from the session and validates role/cursor inputs. Each page returns twenty rows plus a continuation cursor. Account/role changes remount the list so prior participant data is not retained.
+
+Validation: three selected suites passed 24 tests covering real local PostgreSQL ownership/pagination, route authentication/pagination and dashboard UI isolation. TypeScript passed after the final timezone label. No live browser, remote migration or deployment was verified.
+
+Next: implement background Google calendar-change reconciliation, proactive watch renewal and retired/unknown-channel cleanup. Resolve permanent booking failures and ambiguity recovery, then complete concrete provider/database integration, real OAuth accounts and full scheduling/payment/later-sale acceptance. Ranking pilot/calibration, representative performance, PR review and production rollout remain required. The full goal remains active and incomplete.
+
 ### Google rescheduling UI checkpoint
 
 The buyer page now exposes a rescheduling picker with weekly navigation, explicit time selection and the saved booking revision. A stale options response cannot be submitted. Closing the picker retains the current booking and refreshes status. Pending rescheduling displays both the current and requested times; the current time is not replaced until the provider-backed reservation becomes confirmed. The status projection includes the requested interval. New reschedule controls are hidden after the original start time.

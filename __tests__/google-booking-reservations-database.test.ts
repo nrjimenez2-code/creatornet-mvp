@@ -10,8 +10,8 @@ jest.setTimeout(90000);
 beforeAll(async () => {
   db = createLocalPostgres();
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
-    create table profiles(id uuid primary key); insert into profiles values('${creator}'),('${buyer}');`);
-  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql", "20260913225146_google_booking_admission.sql", "20260913230334_google_booking_reschedule_admission.sql"])
+    create table profiles(id uuid primary key,full_name text,username text); insert into profiles values('${creator}'),('${buyer}');`);
+  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql", "20260913225146_google_booking_admission.sql", "20260913230334_google_booking_reschedule_admission.sql", "20260913231348_google_booking_dashboard.sql"])
     await db.exec(readFileSync("supabase/migrations/" + migration, "utf8"));
   await db.query(`insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,
     webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','account','encrypted','channel','encrypted',now()+interval '1 hour')`, [connection, creator]);
@@ -175,4 +175,21 @@ test("reschedule admission rejects changed settings and keeps the old time until
   await expect(db.query("select reschedule_google_booking_checked_v1($1,$2,0,starts_at+interval '1 hour',ends_at+interval '1 hour','{}') from google_booking_reservations_v1 where id=$1",[booking,buyer])).rejects.toThrow(/settings changed/);
   await db.query("select reschedule_google_booking_checked_v1($1,$2,0,r.starts_at+interval '1 hour',r.ends_at+interval '1 hour',s.availability) from google_booking_reservations_v1 r join google_booking_settings_v1 s on s.connection_id=r.connection_id where r.id=$1",[booking,buyer]);
   await expect(reserve(another,0)).rejects.toThrow(/no longer available/);await expect(reserve(another,60)).rejects.toThrow(/no longer available/);
+});
+
+
+test("dashboard lists are scoped to the authenticated participant's role",async()=>{
+  await confirmInitial();
+  expect((await db.query("select id from list_google_bookings_v1($1,'buyer')",[buyer])).rows).toEqual([{id:booking}]);
+  expect((await db.query("select id from list_google_bookings_v1($1,'creator')",[creator])).rows).toEqual([{id:booking}]);
+  expect((await db.query("select id from list_google_bookings_v1($1,'buyer')",[creator])).rows).toHaveLength(0);
+  expect((await db.query("select id from list_google_bookings_v1($1,'creator')",[buyer])).rows).toHaveLength(0);
+  expect((await db.query("select id from list_google_bookings_v1($1,'buyer')",[another])).rows).toHaveLength(0);
+  await db.exec('set role authenticated');await expect(db.query("select * from list_google_bookings_v1($1,'creator')",[creator])).rejects.toThrow(/permission denied/);await db.exec('reset role');
+});
+test("dashboard pagination uses immutable creation time and ID without losing equal-time rows",async()=>{
+  await db.query("insert into google_booking_reservations_v1(id,connection_id,buyer_id,calendar_id,original_post_id,status,starts_at,ends_at,buffer_before_minutes,buffer_after_minutes,hold_expires_at,event_id) select gen_random_uuid(),$1,$2,'primary',$3,'confirmed',now()+interval '2 days',now()+interval '2 days 30 minutes',0,0,now(),'event-'||n from generate_series(1,25)n",[connection,buyer,post]);
+  const first=await db.query<{id:string;created_at:string}>("select id,created_at from list_google_bookings_v1($1,'buyer')",[buyer]);expect(first.rows).toHaveLength(21);
+  const cursor=first.rows[19];const next=await db.query<{id:string}>("select id from list_google_bookings_v1($1,'buyer',$2,$3)",[buyer,cursor.created_at,cursor.id]);
+  expect(next.rows).toHaveLength(5);expect(new Set([...first.rows.slice(0,20),...next.rows].map(row=>row.id)).size).toBe(25);
 });
