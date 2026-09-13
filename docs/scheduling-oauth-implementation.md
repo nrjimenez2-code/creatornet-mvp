@@ -8,6 +8,14 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google Calendar adapter checkpoint
+
+`lib/googleCalendarProvider.ts` now implements Google OAuth offline/PKCE authorization, permission validation, refresh-token retention, verified account lookup, calendar listing, fail-closed free/busy reads, deterministic event IDs, attributed event creation, conditional rescheduling/cancellation, watch creation/removal/notification validation, and paginated incremental synchronization reads including cancellation tombstones. `lib/bookingAvailability.ts` implements creator-defined weekly availability, duration/steps, lead time/horizon, buffers and busy/reservation exclusions using actual UTC instants with timezone/DST handling.
+
+Google is not yet wired into the database/provider union, OAuth routes, Bookings controls, creator availability editor or buyer booking pages. No Google connection is live. Remaining work includes a persisted reservation/outbox lifecycle with double-booking protection and idempotent recovery, Google watch renewal/reconciliation jobs, permissions/credential setup and real acceptance. Sync notification validation is only a signal to fetch authoritative events; it must never directly award booking credit. Commit a nextSyncToken only after the entire corresponding change set has been reconciled. A Google 410 sync error requires a full reconciliation, not treating bookings as absent.
+
+Validation: the Google adapter and availability suites passed 22 tests; TypeScript passed. These are adapter tests with mocked HTTP responses and pure availability tests, not evidence of Google production interoperability. Existing Cal.com/Calendly code was not changed in this checkpoint.
+
 ### Second checkpoint
 
 The composer now mounts `SchedulingConnections` when creating or attaching a one-off call and when adding a sales-call booking option. It opens a separate authorization window, retains the mounted draft (including selected File objects), rechecks on return, and reuses saved event selections. The same component adds Bookings status/manage/reconnect/disconnect controls. It clears stale status after failed reads and hides prior-account state on an account switch.
