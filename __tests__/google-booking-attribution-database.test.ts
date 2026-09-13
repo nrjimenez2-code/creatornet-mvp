@@ -41,6 +41,7 @@ beforeAll(async () => {
     "20260913223807_google_booking_attribution.sql",
     "20260913224148_google_calendar_setup.sql",
     "20260913232056_google_calendar_reconciliation.sql",
+    "20260913233649_google_reschedule_recovery.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -184,4 +185,41 @@ test("a missing revision cannot bypass optimistic concurrency during reconciliat
  await create();await claimSweep();
  expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,null,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
  expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed'}]);
+});
+
+
+async function queuedMove(){await create();await db.query("select request_google_booking_change_v1($1,$2,0,'reschedule',starts_at+interval '1 hour',ends_at+interval '1 hour') from google_booking_reservations_v1 where id=$1",[reservation,viewer]);return claim();}
+test("external reschedule recovery restores the actual time and allows a new buyer request",async()=>{
+ const job=await queuedMove();
+ await db.query("select recover_google_reschedule_v1($1,$2,'google-event','external',starts_at+interval '2 hours',ends_at+interval '2 hours',false) from google_booking_reservations_v1 where id=$3",[job,worker,reservation]);
+ expect((await db.query("select status,desired_starts_at,recovery_code from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed',desired_starts_at:null,recovery_code:'google_booking_changed_externally'}]);
+ expect((await db.query("select status from google_booking_jobs_v1 where id=$1",[job])).rows).toEqual([{status:'failed'}]);
+ expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+ await db.query("select request_google_booking_change_v1($1,$2,1,'reschedule',starts_at+interval '1 hour',ends_at+interval '1 hour') from google_booking_reservations_v1 where id=$1",[reservation,viewer]);
+ expect((await db.query("select status,revision,recovery_code from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling',revision:2,recovery_code:null}]);
+});
+test("external cancellation during rescheduling retracts scheduling credit",async()=>{
+ const job=await queuedMove();await db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker]);
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'canceled'}]);
+ expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:false}]);
+});
+test("recovery refuses unchanged event versions and rolls back if attribution cannot commit",async()=>{
+ const job=await queuedMove();
+ await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event','etag',starts_at,ends_at,false) from google_booking_reservations_v1 where id=$3",[job,worker,reservation])).rejects.toThrow('changed calendar event');
+ await db.query("update discover_booking_attribution_v1 set provider_event_at=now()+interval '1 day' where id=$1",[attribution]);
+ await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow('recover booking attribution');
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling'}]);
+ expect((await db.query("select status from google_booking_jobs_v1 where id=$1",[job])).rows).toEqual([{status:'processing'}]);
+});
+
+test("recovery is unavailable to browser roles or expired workers",async()=>{
+ const job=await queuedMove();
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  try{await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow(/permission denied/);}
+  finally{await db.exec('reset role');}
+ }
+ await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[job]);
+ await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow('lease expired');
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling'}]);
 });

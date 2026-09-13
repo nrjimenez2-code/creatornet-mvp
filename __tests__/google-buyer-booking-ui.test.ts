@@ -60,3 +60,13 @@ test("stale reschedule options cannot be submitted",async()=>{
   expect(container.querySelector('[role=alert]')?.textContent).toContain('booking changed');
   expect(container.querySelector('input[name=new-time]')).toBeNull();
 });
+
+test("recovered external changes show the actual booking and allow another reschedule",async()=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'confirmed',revision:1,...slot,recoveryCode:'google_booking_changed_externally'}})});
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.textContent).toContain('changed in Google Calendar before your reschedule finished');
+ expect(container.textContent).toContain('Booking confirmed');
+ expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(true);
+ expect(container.textContent).not.toContain('Confirming your new time');
+});

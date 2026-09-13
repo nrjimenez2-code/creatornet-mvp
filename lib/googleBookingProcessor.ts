@@ -21,6 +21,7 @@ export type GoogleProcessorPorts = {
   createEvent: (reservation: GoogleReservation) => Promise<GoogleBookingEvent>;
   rescheduleEvent: (reservation: GoogleReservation, start: string, end: string) => Promise<GoogleBookingEvent>;
   cancelEvent: (reservation: GoogleReservation) => Promise<void>;
+  recoverReschedule: (job: GoogleBookingOperation, reservation: GoogleReservation, event: GoogleBookingEvent | null) => Promise<void>;
   complete: (job: GoogleBookingOperation, event: GoogleBookingEvent | null) => Promise<void>;
 };
 
@@ -76,6 +77,19 @@ export async function processGoogleBookingOperation(job: GoogleBookingOperation,
   if (existing && matches(existing, reservation, start, end)) {
     await guard();
     await ports.complete(job, existing);
+    return;
+  }
+  if (job.action === "reschedule" && reservation.eventId &&
+      (!existing || existing.status === "cancelled" || (reservation.eventEtag && existing.etag !== reservation.eventEtag))) {
+    // A changed ETag fences previous conditional PATCH attempts. Preserve the
+    // authoritative event instead of retrying the stale requested move forever.
+    if (existing && existing.status !== "cancelled" &&
+        (!existing.start?.dateTime || !existing.end?.dateTime ||
+         Date.parse(existing.end.dateTime) <= Date.parse(existing.start.dateTime) ||
+         !matches(existing, reservation, existing.start.dateTime, existing.end.dateTime)))
+      throw new Error("Calendar event cannot be safely recovered");
+    await guard();
+    await ports.recoverReschedule(job, reservation, existing?.status === "cancelled" ? null : existing);
     return;
   }
   if (existing?.status === "cancelled") throw new Error("Calendar booking was canceled externally");

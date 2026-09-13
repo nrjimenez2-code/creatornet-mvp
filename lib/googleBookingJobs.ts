@@ -73,6 +73,12 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
       rescheduleEvent: (reservation, start, end) => changeGoogleBookingEvent(token, reservation.calendarId, reservation.id,
         { start, end, timeZone: settings.availability.timeZone }, reservation.eventEtag ?? undefined),
       cancelEvent: reservation => cancelGoogleBookingEvent(token, reservation.calendarId, reservation.id),
+      recoverReschedule: async (current, reservation, event) => {
+        const recovered = await db.rpc("recover_google_reschedule_v1", {p_job:current.id,p_worker:worker,
+          p_event:reservation.eventId,p_etag:event?.etag??null,p_start:event?.start?.dateTime??null,
+          p_end:event?.end?.dateTime??null,p_canceled:!event});
+        if(recovered.error)throw new Error("Could not recover externally changed booking");
+      },
       complete: async (current, event) => {
         const completed = await db.rpc("complete_google_booking_job_v1", { p_job: current.id, p_worker: worker,
           p_event_id: event?.id ?? null, p_event_etag: event?.etag ?? null, p_start: event?.start?.dateTime ?? null, p_end: event?.end?.dateTime ?? null });

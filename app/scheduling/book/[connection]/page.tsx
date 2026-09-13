@@ -5,7 +5,7 @@ import GoogleReschedulePicker from "@/components/GoogleReschedulePicker";
 import {useUser} from "@/lib/useUser";
 
 type Slot={start:string;end:string};
-type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null};
+type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null;recoveryCode?:string|null};
 type Options={title:string;timeZone:string;durationMinutes:number;slots:Slot[];reservation:Reservation|null};
 function BookingEntry() {
   const params=useParams<{connection:string}>();const query=useSearchParams();const {userId,session,loading}=useUser();
@@ -85,6 +85,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
     {error&&<p role="alert" className="rounded border border-red-300/40 p-3">{error}</p>}
     {reservation&&!["held","failed"].includes(reservation.status)?<section className="space-y-3 rounded-xl border border-white/20 p-4">
       <h2 className="text-lg font-semibold">{reservation.status==="confirmed"?"Booking confirmed":reservation.status==="canceled"?"Booking canceled":reservation.status==="canceling"?"Confirming cancellation":reservation.status==="rescheduling"?"Confirming your new time":"Confirming with Google Calendar"}</h2>
+      {reservation.recoveryCode==="google_booking_changed_externally"&&<p role="status">This booking changed in Google Calendar before your reschedule finished. The booking shown here reflects Google Calendar. {reservation.status==="confirmed"?"You can choose another time using Reschedule booking.":"The booking was canceled."}</p>}
       <p>{reservation.status==="rescheduling"?"Current time: ":""}{format(reservation.start)}</p>
       {reservation.status==="rescheduling"&&reservation.desiredStart&&<p>Requested new time: {format(reservation.desiredStart)}</p>}<p className="text-sm text-white/70">Time zone: {zone}</p>
       {reservation.status==="confirmed"&&!rescheduling && (cancelPrompt?<div className="space-y-3"><p>Cancel this booking? The creator will receive the cancellation.</p><button type="button" disabled={busy} className="rounded border border-red-300 px-3 py-2" onClick={()=>void cancelBooking()}>{busy?"Requesting cancellation…":"Confirm cancellation"}</button><button type="button" disabled={busy} className="ml-3 underline" onClick={()=>setCancelPrompt(false)}>Keep booking</button></div>:<button type="button" className="underline" onClick={()=>setCancelPrompt(true)}>Cancel booking</button>)}

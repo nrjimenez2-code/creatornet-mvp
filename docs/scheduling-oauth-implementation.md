@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Externally changed reschedule recovery
+
+Added recovery for a pending Google reschedule when authoritative provider reads show a changed event version or deletion. A changed version prevents the stale conditional PATCH from succeeding; the worker restores the actual provider time and marks the superseded job failed. Deletions become canceled bookings. Matching desired times still complete normally, and unverifiable provider responses remain reserved for retry.
+
+Migration `20260913233649_google_reschedule_recovery.sql` commits booking state, original-video attribution and terminal job state under the current worker lease. It verifies attribution ownership and rejects unchanged event versions. The buyer status API exposes a recovery notice; the management page explains the restored state and offers another reschedule when eligible. Starting a fresh operation clears the notice.
+
+Validation: four affected suites passed 44 tests covering processor behavior, local PostgreSQL recovery/rollback/permissions, owner-scoped status and buyer UI. TypeScript passed. No remote migrations, live provider calls, push or deployment occurred.
+
+Remaining: safe recovery for never-created/past or unavailable slots, revoked connections and uncertain remote mutations; full representative sync/worker throughput; live Google/Cal.com/Calendly OAuth and scheduling/payment/later-sale acceptance; ranking pilot/calibration; PR review and production rollout. Do not classify all permanent booking failures as resolved by this change.
+
 ### Google sync reliability review
 
 Reconciliation now locks the notification lease through the booking/attribution transaction, checks expiry again before commit, and rejects missing booking revisions. A PostgreSQL trigger test expires the lease during the update and verifies that both reservation changes and scheduling-credit changes roll back. Browser roles cannot invoke the service-only reconciliation functions.

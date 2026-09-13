@@ -5,7 +5,7 @@ jest.mock("@/lib/supabaseAdmin",()=>({get supabaseAdmin(){return db;}}));
 jest.mock("@/lib/googleBookingAccess",()=>({authorizeGoogleBooking:(...args:unknown[])=>authorize(...args)}));
 jest.mock("@/lib/googleCalendarConnection",()=>({googleConnectionAccessToken:async()=>"token"}));
 jest.mock("@/lib/googleCalendarProvider",()=>({getGoogleBusyIntervals:(...args:unknown[])=>busy(...args),getGoogleBookingEvent:()=>event(),getGoogleBusyIntervalsExcludingEvent:(...args:unknown[])=>excluding(...args)}));
-import {submitGoogleBooking,getGoogleBookingOptions,cancelGoogleBuyerBooking,getGoogleRescheduleOptions,rescheduleGoogleBuyerBooking} from "@/lib/googleBuyerBookings";
+import {readGoogleBuyerReservation,submitGoogleBooking,getGoogleBookingOptions,cancelGoogleBuyerBooking,getGoogleRescheduleOptions,rescheduleGoogleBuyerBooking} from "@/lib/googleBuyerBookings";
 const start="2026-10-01T10:00:00.000Z",end="2026-10-01T10:30:00.000Z";
 const policy={timeZone:"UTC",durationMinutes:30,stepMinutes:30,leadMinutes:0,horizonDays:30,bufferBeforeMinutes:0,bufferAfterMinutes:0,windows:[{weekday:4,startMinute:540,endMinute:1020}]};
 beforeEach(()=>{
@@ -61,4 +61,11 @@ test("retry of an accepted move returns its current state without a second calen
   reservation={id:'reservation',status:'rescheduling',revision:1,starts_at:start,ends_at:end,desired_starts_at:'2026-10-01T11:00:00Z',desired_ends_at:'2026-10-01T11:30:00Z'};
   await rescheduleGoogleBuyerBooking('reservation','buyer',0,'2026-10-01T11:00:00Z','2026-10-01T11:30:00Z');
   expect(event).not.toHaveBeenCalled();expect(db.opsFor('reschedule_google_booking_checked_v1')).toHaveLength(0);
+});
+
+
+test("buyer status exposes the recovery notice with the restored booking version",async()=>{
+ reservation={id:'reservation',status:'confirmed',starts_at:start,ends_at:end,revision:1,recovery_code:'google_booking_changed_externally'};
+ expect(await readGoogleBuyerReservation('reservation','buyer')).toMatchObject({status:'confirmed',revision:1,recoveryCode:'google_booking_changed_externally'});
+ expect(db.opsFor('google_booking_reservations_v1')[0].filters).toEqual({id:'reservation',buyer_id:'buyer'});
 });

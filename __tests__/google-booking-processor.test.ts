@@ -13,7 +13,7 @@ beforeEach(() => {
   job = { id: "job", reservationId: id, revision: 0, action: "create", leaseId: "worker", leaseUntil: "2026-10-01T09:30:00Z" };
   ports = { now: () => Date.parse("2026-10-01T09:00:00Z"), loadReservation: jest.fn(async () => reservation),
     verifyLease: jest.fn(async () => {}), assertAvailable: jest.fn(async () => {}), findEvent: jest.fn(async () => null),
-    createEvent: jest.fn(async () => event()), rescheduleEvent: jest.fn(async () => event()), cancelEvent: jest.fn(async () => {}), complete: jest.fn(async () => {}) };
+    createEvent: jest.fn(async () => event()), rescheduleEvent: jest.fn(async () => event()), cancelEvent: jest.fn(async () => {}), recoverReschedule: jest.fn(async () => {}), complete: jest.fn(async () => {}) };
 });
 test("creation requires current availability and a matching attributed provider confirmation", async () => {
   await processGoogleBookingOperation(job, ports);
@@ -48,7 +48,8 @@ test("external edit is not overwritten by an old reschedule job", async () => {
   reservation.eventId = googleBookingEventId(id); reservation.eventEtag = "old";
   reservation.desiredStart = "2026-10-01T11:00:00Z"; reservation.desiredEnd = "2026-10-01T11:30:00Z";
   ports.findEvent = jest.fn(async () => ({ ...event(), etag: "external-edit", start: { dateTime: reservation.start }, end: { dateTime: reservation.end } }));
-  await expect(processGoogleBookingOperation(job, ports)).rejects.toThrow("changed externally");
+  await processGoogleBookingOperation(job, ports);
+  expect(ports.recoverReschedule).toHaveBeenCalledWith(job,reservation,expect.objectContaining({etag:"external-edit"}));
   expect(ports.rescheduleEvent).not.toHaveBeenCalled();
 });
 test("failed remote cancellation never completes or releases the reservation", async () => {
@@ -65,3 +66,17 @@ test("already deleted event completes cancellation without sending another reque
 });
 
 test("delayed work cannot create a new event for a time that has already passed",async()=>{ports.now=()=>Date.parse('2026-10-01T11:00:00Z');job.leaseUntil='2026-10-01T11:30:00Z';await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow(/already passed/);expect(ports.createEvent).not.toHaveBeenCalled();});
+
+
+test("deleted events terminate a pending reschedule without recreating the booking",async()=>{
+ job.action='reschedule';reservation.status='rescheduling';reservation.eventId=googleBookingEventId(id);reservation.eventEtag='old';
+ reservation.desiredStart='2026-10-01T11:00:00Z';reservation.desiredEnd='2026-10-01T11:30:00Z';
+ await processGoogleBookingOperation(job,ports);
+ expect(ports.recoverReschedule).toHaveBeenCalledWith(job,reservation,null);expect(ports.rescheduleEvent).not.toHaveBeenCalled();expect(ports.complete).not.toHaveBeenCalled();
+});
+test("unverifiable provider state remains pending instead of releasing a reservation",async()=>{
+ job.action='reschedule';reservation.status='rescheduling';reservation.eventId=googleBookingEventId(id);reservation.eventEtag='old';
+ reservation.desiredStart='2026-10-01T11:00:00Z';reservation.desiredEnd='2026-10-01T11:30:00Z';
+ ports.findEvent=jest.fn(async()=>({...event(),etag:'changed',start:{dateTime:'invalid'}}));
+ await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow('safely recovered');expect(ports.recoverReschedule).not.toHaveBeenCalled();
+});
