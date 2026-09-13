@@ -99,13 +99,16 @@ export async function processGoogleBookingOperation(job: GoogleBookingOperation,
   if (job.action === "create" && existing) throw new Error("Existing event differs from the reservation");
   if (job.action === "reschedule" && (!existing || !reservation.eventEtag || existing.etag !== reservation.eventEtag))
     throw new Error("Calendar booking changed externally; reconcile before rescheduling");
+  const recoverableWithoutMutation = (job.action==='create' && !existing) ||
+    (job.action==='reschedule' && !!existing && existing.etag===reservation.eventEtag &&
+     matches(existing,reservation,reservation.start,reservation.end));
   if (Date.parse(start) <= ports.now()) {
-    if(job.action==='create' && !existing && await ports.failUnattempted(job,'google_booking_time_passed'))return;
+    if(recoverableWithoutMutation && await ports.failUnattempted(job,'google_booking_time_passed'))return;
     throw new Error("Reserved time has already passed; choose a new time");
   }
   try {await ports.assertAvailable(reservation, start, end);}
   catch(cause){
-    if(cause instanceof GoogleBookingTimeUnavailable && job.action==='create' && !existing &&
+    if(cause instanceof GoogleBookingTimeUnavailable && recoverableWithoutMutation &&
        await ports.failUnattempted(job,'google_booking_time_unavailable'))return;
     throw cause;
   }

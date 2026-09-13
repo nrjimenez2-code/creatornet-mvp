@@ -82,3 +82,12 @@ test("an unattempted failed booking can choose again from its saved reservation 
  const body=JSON.parse(fetchMock.mock.calls.find(([,init])=>init?.method==='POST')![1].body);
  expect(body.reservationId).toBe('reservation');expect(container.textContent).toContain('Confirming with Google Calendar');
 });
+
+
+test("a failed unattempted reschedule clearly retains the original booking",async()=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'confirmed',revision:1,...slot,recoveryCode:'google_booking_time_unavailable'}})});
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.textContent).toContain('Your original booking is unchanged');expect(container.textContent).toContain('Booking confirmed');
+ expect(container.textContent).not.toContain('No event was created');expect(container.textContent).not.toContain('Requested new time:');
+});

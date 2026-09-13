@@ -43,6 +43,7 @@ beforeAll(async () => {
     "20260913232056_google_calendar_reconciliation.sql",
     "20260913233649_google_reschedule_recovery.sql",
     "20260913234159_google_unattempted_booking_recovery.sql",
+    "20260913235026_google_unattempted_reschedule_recovery.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -242,4 +243,20 @@ test("a possibly delivered mutation cannot release a reservation even after retr
  await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[job]);await claim();
  expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') released",[job,worker])).rows).toEqual([{released:false}]);
  expect((await db.query('select status from google_booking_reservations_v1')).rows).toEqual([{status:'creating'}]);
+});
+
+
+test("an unattempted unavailable reschedule retains the confirmed booking and its credit",async()=>{
+ const job=await queuedMove();
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_unavailable') recovered",[job,worker])).rows).toEqual([{recovered:true}]);
+ expect((await db.query("select status,desired_starts_at,recovery_code from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed',desired_starts_at:null,recovery_code:'google_booking_time_unavailable'}]);
+ expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+ expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:true}]);
+ await db.query("select request_google_booking_change_v1($1,$2,1,'cancel')",[reservation,viewer]);
+ expect((await db.query('select revision,status,recovery_code from google_booking_reservations_v1')).rows).toEqual([{revision:2,status:'canceling',recovery_code:null}]);
+});
+test("an attempted reschedule cannot discard its desired interval during recovery",async()=>{
+ const job=await queuedMove();await db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker]);
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') recovered",[job,worker])).rows).toEqual([{recovered:false}]);
+ expect((await db.query("select status,desired_starts_at is not null retained from google_booking_reservations_v1")).rows).toEqual([{status:'rescheduling',retained:true}]);
 });

@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Recovery before a Google reschedule attempt
+
+Migration `20260913235026_google_unattempted_reschedule_recovery.sql` extends guarded unattempted failure recovery to reschedules. The processor first verifies the unchanged original event. If the new time has passed or becomes busy and the durable marker proves no mutation was started, the database retains the confirmed original interval, clears the requested interval, preserves attribution and finishes the unsuccessful job. A new buyer change uses the next revision. Potentially delivered updates remain reserved. The buyer page explicitly says the original booking is unchanged.
+
+Validation: three affected suites passed 46 tests (database attribution/recovery, processor and buyer UI), TypeScript and diff checks passed. No remote migration, push or deployment occurred.
+
+Live-provider recheck: Edge inventory showed Calendly “My Apps” at https://developer.calendly.com/console/apps and Cal.com “Personal settings” at https://app.cal.com/onboarding/personal/settings. These titles are not proof of app configuration. Reading the external tab through cua.getTab timed out twice and reset the browser runtime; no app details or credentials were read and no account settings changed. Runtime reset reassigned Edge from browser ID 1 to 2 (ID 1 became the in-app browser); re-discover current browser IDs before continuing. An intermediate in-app Calendly tab was opened but did not establish account status. Do not keep asserting that both providers are logged out based on older checkpoints.
+
+Remaining: reconnect/ambiguity visibility and recovery, representative worker/sync performance, actual OAuth applications and full live provider/payment/later-sale acceptance, ranking pilot/calibration, PR review and production rollout. The full goal remains active and incomplete.
+
 ### Recovery before a Google creation attempt
 
 Migration `20260913234159_google_unattempted_booking_recovery.sql` adds a durable mutation-start marker written under the job lease before external mutations. An unavailable or elapsed create time can become a failed, recoverable reservation only when no mutation was started. Prior attempts predating the marker are conservatively backfilled as possibly delivered. Ambiguous remote outcomes remain reserved for reconciliation.

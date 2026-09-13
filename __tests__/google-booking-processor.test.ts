@@ -94,3 +94,12 @@ test("busy time is recoverable only when the store proves no mutation was attemp
 test("remote work cannot start when the durable mutation guard fails",async()=>{
  ports.beginMutation=jest.fn(async()=>{throw new Error('lease lost');});await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow('lease lost');expect(ports.createEvent).not.toHaveBeenCalled();
 });
+
+
+test("an expired new time recovers only when the unchanged original event is verified",async()=>{
+ job.action='reschedule';reservation.status='rescheduling';reservation.eventId=googleBookingEventId(id);reservation.eventEtag='etag';
+ reservation.desiredStart='2026-10-01T08:00:00Z';reservation.desiredEnd='2026-10-01T08:30:00Z';
+ ports.findEvent=jest.fn(async()=>({...event(),start:{dateTime:reservation.start},end:{dateTime:reservation.end}}));ports.failUnattempted=jest.fn(async()=>true);
+ await processGoogleBookingOperation(job,ports);expect(ports.failUnattempted).toHaveBeenCalledWith(job,'google_booking_time_passed');expect(ports.rescheduleEvent).not.toHaveBeenCalled();
+ ports.failUnattempted=jest.fn(async()=>false);await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow('already passed');
+});
