@@ -8,6 +8,14 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google attribution transaction checkpoint
+
+Migration `20260913223807_google_booking_attribution.sql` adds Google to the verified scheduling provider set, binds each non-null attribution to one reservation, rejects mismatched buyer/creator/original-video identities, and completes reservations, Discover scheduling/cancellation signals and jobs in one transaction. An attribution failure rolls back completion so retry remains possible. Live lease checks guard completion, including after attribution reconciliation.
+
+Eight local PostgreSQL tests cover no credit at setup/queue time, confirmation idempotency, source/identity rejection, rollback, reschedule/cancellation, duplicate attribution, browser role restrictions, later mentorship attribution and repair after a delayed confirmation. The selected three database suites passed 31 tests; the changed attribution suite is rerun after the final lease guards. This is local database evidence, not a live Google or Stripe end-to-end test. No remote migration or deployment occurred.
+
+Next: wire Google OAuth start/callback and safe connection status, calendar/availability setup and watch provisioning, then authenticated buyer admission and booking/reschedule/cancel screens. Run concrete worker integration tests and connect a protected recurring worker, watch reconciliation and renewal. Cal.com/Calendly live account setup remains unverified. Complete commercial acceptance, ranking pilot, representative performance, PR review and production rollout before closing the goal.
+
 ### Google booking processor checkpoint
 
 The local processor and concrete database/Google runner now reconcile deterministic event IDs before retrying, guard operation revisions and live leases, recheck external availability with the reservation’s saved buffers, use conditional rescheduling, and retain occupied reservations after uncertain failures. Token refresh is serialized and encrypted. Deleted-event tombstones are accepted only for a recorded event ID.
