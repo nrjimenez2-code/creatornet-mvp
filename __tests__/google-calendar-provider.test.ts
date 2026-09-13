@@ -1,7 +1,7 @@
 import { GoogleCalendarError, GOOGLE_CALENDAR_SCOPES, googleCalendarAuthorizationUrl, exchangeGoogleCalendarToken,
   getGoogleBusyIntervals, googleBookingEventId, createGoogleBookingEvent, changeGoogleBookingEvent,
   cancelGoogleBookingEvent, verifyGoogleCalendarNotification, startGoogleCalendarWatch, listGoogleCalendars,
-  readGoogleCalendarChanges,
+  readGoogleCalendarChanges, getGoogleBookingEvent, assertGoogleBookingTimeAvailable,
 } from "@/lib/googleCalendarProvider";
 const originalFetch = global.fetch;
 const fetchMock = jest.fn();
@@ -137,4 +137,27 @@ test("incremental sync includes tombstones and exposes final cursor only after l
   expect(query.get("showDeleted")).toBe("true");
   expect(query.has("privateExtendedProperty")).toBe(false);
   expect(query.has("timeMin")).toBe(false);
+});
+
+
+test("deleted tombstones require an already recorded event identity", async () => {
+  const id = googleBookingEventId(bookingId);
+  reply({ id, status: "cancelled" });
+  await expect(getGoogleBookingEvent("token", "primary", bookingId)).rejects.toThrow("attribution mismatch");
+  reply({ id, status: "cancelled" });
+  await expect(getGoogleBookingEvent("token", "primary", bookingId, id)).resolves.toHaveProperty("status", "cancelled");
+});
+
+test("reschedule availability ignores its own event but catches an overlapping event on a later page", async () => {
+  const id = googleBookingEventId(bookingId);
+  reply({ items: [{ id }], nextPageToken: "next" });
+  reply({ items: [{ id: "other", status: "confirmed" }] });
+  await expect(assertGoogleBookingTimeAvailable("token", "primary", ["primary"], interval, id)).rejects.toThrow("no longer available");
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+});
+
+test("an event edited after processor inspection cannot be overwritten", async () => {
+  reply({ ...booking(), etag: "new-version" });
+  await expect(changeGoogleBookingEvent("token", "primary", bookingId, { ...interval, timeZone: "UTC" }, "old-version")).rejects.toMatchObject({ status: 412 });
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

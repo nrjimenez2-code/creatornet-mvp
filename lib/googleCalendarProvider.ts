@@ -130,9 +130,9 @@ export function googleBookingEventId(bookingId: string): string {
   return createHash("sha256").update(`creatornet-booking:${bookingId}`).digest("hex");
 }
 
-export async function getGoogleBookingEvent(token: string, calendar: string, bookingId: string): Promise<GoogleBookingEvent> {
+export async function getGoogleBookingEvent(token: string, calendar: string, bookingId: string, recordedEventId?: string): Promise<GoogleBookingEvent> {
   const event = await calendarRequest<GoogleBookingEvent>(token, eventPath(calendar, googleBookingEventId(bookingId)));
-  if (event.id !== googleBookingEventId(bookingId) || event.extendedProperties?.private?.cn_booking_id !== bookingId)
+  if (event.id !== googleBookingEventId(bookingId) || (event.extendedProperties?.private?.cn_booking_id !== bookingId && !(event.status === "cancelled" && recordedEventId === event.id)))
     throw new Error("Calendar booking attribution mismatch");
   return event;
 }
@@ -160,13 +160,45 @@ export async function createGoogleBookingEvent(token: string, calendar: string, 
 }
 
 export async function changeGoogleBookingEvent(token: string, calendar: string, bookingId: string,
-  interval: CalendarInterval & { timeZone: string }): Promise<GoogleBookingEvent> {
+  interval: CalendarInterval & { timeZone: string }, expectedEtag?: string): Promise<GoogleBookingEvent> {
   validateInterval(interval);
   const event = await getGoogleBookingEvent(token, calendar, bookingId);
   if (!event.etag || event.status === "cancelled") throw new Error("Calendar booking is not editable");
+  if (expectedEtag && event.etag !== expectedEtag) throw new GoogleCalendarError(412);
   return calendarRequest<GoogleBookingEvent>(token, `${eventPath(calendar, event.id)}?sendUpdates=all`, "PATCH", {
     start: { dateTime: interval.start, timeZone: interval.timeZone }, end: { dateTime: interval.end, timeZone: interval.timeZone },
   }, event.etag);
+}
+
+export async function assertGoogleBookingTimeAvailable(token: string, calendar: string, conflictCalendars: string[],
+  interval: CalendarInterval, ownEventId: string | null): Promise<void> {
+  validateInterval(interval);
+  const otherCalendars = conflictCalendars.filter(id => id !== calendar);
+  if (otherCalendars.length && (await getGoogleBusyIntervals(token, otherCalendars, interval)).length)
+    throw new Error("That time is no longer available");
+  if (!ownEventId) {
+    if ((await getGoogleBusyIntervals(token, [calendar], interval)).length) throw new Error("That time is no longer available");
+    return;
+  }
+  // freeBusy merges overlapping events, so subtracting the old event's interval
+  // could hide another event. Inspect individual overlapping events instead.
+  let pageToken = "";
+  const seen = new Set<string>();
+  const deadline = Date.now() + 40_000;
+  for (let page = 0; page < 100; page++) {
+    if (Date.now() > deadline) throw new Error("Calendar availability check timed out");
+    const query = new URLSearchParams({ timeMin: interval.start, timeMax: interval.end, singleEvents: "true",
+      showDeleted: "false", maxResults: "250", ...(pageToken ? { pageToken } : {}) });
+    const result = await calendarRequest<{ items?: { id: string; status?: string; transparency?: string }[]; nextPageToken?: string }>(
+      token, `/calendars/${encodeURIComponent(calendar)}/events?${query}`);
+    if (result.items?.some(event => event.id !== ownEventId && event.status !== "cancelled" && event.transparency !== "transparent"))
+      throw new Error("That time is no longer available");
+    pageToken = result.nextPageToken ?? "";
+    if (!pageToken) return;
+    if (seen.has(pageToken)) throw new Error("Repeated calendar cursor");
+    seen.add(pageToken);
+  }
+  throw new Error("Calendar availability response too large");
 }
 
 export async function cancelGoogleBookingEvent(token: string, calendar: string, bookingId: string): Promise<void> {

@@ -2,11 +2,17 @@
 
 ## Additional user requirement
 
-The user requested Google Calendar as an additional provider on 2026-09-13. Include this in the full completion scope. Implement direct Google Calendar connection with availability, event creation/update/cancellation, calendar-change reconciliation, automatic watch-channel renewal, and the same original-video attribution and Bookings connection controls. Do not mark the goal complete with only Cal.com/Calendly, or label ordinary Calendar sync as a completed direct booking provider. Google Calendar work is not implemented yet. Official API references: https://developers.google.com/workspace/calendar/api/v3/reference and https://developers.google.com/workspace/calendar/api/guides/push .
+The user requested Google Calendar as an additional provider on 2026-09-13. Include this in the full completion scope. Implement direct Google Calendar connection with availability, event creation/update/cancellation, calendar-change reconciliation, automatic watch-channel renewal, and the same original-video attribution and Bookings connection controls. Do not mark the goal complete with only Cal.com/Calendly, or label ordinary Calendar sync as a completed direct booking provider. Google Calendar implementation is in progress; see the latest checkpoint. Official API references: https://developers.google.com/workspace/calendar/api/v3/reference and https://developers.google.com/workspace/calendar/api/guides/push .
 
 Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media processor deployment and three-video production duration backfill are complete; do not repeat them.
 
 ## Current work (2026-09-13)
+
+### Google booking processor checkpoint
+
+The local processor and concrete database/Google runner now reconcile deterministic event IDs before retrying, guard operation revisions and live leases, recheck external availability with the reservation’s saved buffers, use conditional rescheduling, and retain occupied reservations after uncertain failures. Token refresh is serialized and encrypted. Deleted-event tombstones are accepted only for a recorded event ID.
+
+Validation: 28 focused processor/adapter tests pass, including duplicate recovery, external edits, attribution mismatch, cancellation failure, tombstones and overlapping-event pagination. The concrete database runner still needs integration tests. No cron endpoint or schedule is connected, Google OAuth/UI and buyer admission routes remain unwired, and job completion does not yet update Discover attribution (the existing SQL provider whitelist excludes Google). Implement atomic attribution/outbox handling before enabling this path. Watch reconciliation/renewal and live acceptance remain required. Nothing was deployed.
 
 ### Google reservation lifecycle checkpoint
 
