@@ -6,17 +6,17 @@ import { getGoogleBusyIntervals,getGoogleBusyIntervalsExcludingEvent,getGoogleBo
 import { availableBookingSlots, validateBookingAvailability, type BookingAvailability, type BookingInterval } from "@/lib/bookingAvailability";
 
 type Settings = { calendar_id:string; conflict_calendar_ids:string[]; availability:BookingAvailability; title:string };
-export type GoogleBuyerReservation = { id:string; status:string; start:string; end:string; revision:number };
+export type GoogleBuyerReservation = { id:string; status:string; start:string; end:string; revision:number; desiredStart:string|null; desiredEnd:string|null };
 async function settings(connectionId:string):Promise<Settings> {
   const row=await db.from("google_booking_settings_v1").select("calendar_id,conflict_calendar_ids,availability,title").eq("connection_id",connectionId).eq("active",true).single();
   if(row.error || !row.data)throw new Error("Booking hours are unavailable");
   const value=row.data as Settings;validateBookingAvailability(value.availability);return value;
 }
 export async function readGoogleBuyerReservation(id:string,buyer:string):Promise<GoogleBuyerReservation|null> {
-  const result=await db.from("google_booking_reservations_v1").select("id,status,starts_at,ends_at,revision").eq("id",id).eq("buyer_id",buyer).maybeSingle();
+  const result=await db.from("google_booking_reservations_v1").select("id,status,starts_at,ends_at,revision,desired_starts_at,desired_ends_at").eq("id",id).eq("buyer_id",buyer).maybeSingle();
   if(result.error)throw new Error("Could not check your booking");
   const row=result.data;
-  return row?{id:row.id,status:row.status,start:row.starts_at,end:row.ends_at,revision:Number(row.revision)}:null;
+  return row?{id:row.id,status:row.status,start:row.starts_at,end:row.ends_at,revision:Number(row.revision),desiredStart:row.desired_starts_at??null,desiredEnd:row.desired_ends_at??null}:null;
 }
 async function slots(access:GoogleBookingAccess,config:Settings,range:BookingInterval) {
   const from=Date.parse(range.start),to=Date.parse(range.end);

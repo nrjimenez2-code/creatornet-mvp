@@ -41,3 +41,22 @@ test("canceling requires an explicit confirmation and remains pending until Goog
   await click('Confirm cancellation');expect(container.textContent).toContain('Confirming cancellation');expect(container.textContent).not.toContain('Booking canceled');
   expect(JSON.parse(fetchMock.mock.calls.find(([,init])=>init?.method==='DELETE')![1].body)).toEqual({revision:0});
 });
+
+
+test("rescheduling keeps the confirmed time visible while a new time is pending",async()=>{
+  query=new URLSearchParams('reservation_id=reservation');await act(async()=>root.render(createElement(Page)));
+  const next={start:'2026-10-01T11:00:00Z',end:'2026-10-01T11:30:00Z'};
+  fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({revision:0,slots:[next]})});
+  await click('Reschedule booking');
+  await act(async()=>{(container.querySelector('input[name=new-time]') as HTMLInputElement).click();});
+  fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'rescheduling',revision:1,...slot,desiredStart:next.start,desiredEnd:next.end}})});
+  await click('Request new time');
+  expect(container.textContent).toContain('Confirming your new time');expect(container.textContent).toContain('Current time:');expect(container.textContent).toContain('Requested new time:');
+  const sent=fetchMock.mock.calls.find(([url,init])=>url.endsWith('/times')&&init?.method==='POST');expect(JSON.parse(sent![1].body)).toEqual({...next,revision:0});
+});
+test("stale reschedule options cannot be submitted",async()=>{
+  query=new URLSearchParams('reservation_id=reservation');await act(async()=>root.render(createElement(Page)));
+  fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({revision:1,slots:[slot]})});await click('Reschedule booking');
+  expect(container.querySelector('[role=alert]')?.textContent).toContain('booking changed');
+  expect(container.querySelector('input[name=new-time]')).toBeNull();
+});

@@ -8,6 +8,14 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google rescheduling UI checkpoint
+
+The buyer page now exposes a rescheduling picker with weekly navigation, explicit time selection and the saved booking revision. A stale options response cannot be submitted. Closing the picker retains the current booking and refreshes status. Pending rescheduling displays both the current and requested times; the current time is not replaced until the provider-backed reservation becomes confirmed. The status projection includes the requested interval. New reschedule controls are hidden after the original start time.
+
+Validation: the buyer UI and service suites passed 13 tests, including old/new time display and stale-revision rejection. TypeScript passed after the final UI change; the six buyer-page tests also passed on the final code. This remains local implementation; real browser/provider behavior and deployed worker execution are unverified.
+
+Next priority: include native Google bookings in Bookings, then finish background watch reconciliation/renewal/cleanup, concrete service integration and permanent-error recovery. Complete live scheduling/payment/later-sale acceptance, ranking calibration pilot, representative performance, PR review and production rollout. The full goal remains active and incomplete.
+
 ### Google rescheduling API checkpoint
 
 Rescheduling now has owner-scoped availability and submission APIs under /api/scheduling/google/reservations/[reservation]/times. Availability reads the current event and rejects external version changes, excludes only the saved event ID, retains other overlapping events through all result pages, and resolves all-day boundaries in the calendar’s timezone (including DST). It preserves the original appointment duration and buffers while using current weekly hours. Purchased calls recheck their paid entitlement. An already accepted matching move returns its current status instead of queueing another operation.

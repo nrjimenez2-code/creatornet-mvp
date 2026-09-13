@@ -1,10 +1,11 @@
 "use client";
 import {Suspense,useCallback,useEffect,useRef,useState} from "react";
 import {useParams,useSearchParams} from "next/navigation";
+import GoogleReschedulePicker from "@/components/GoogleReschedulePicker";
 import {useUser} from "@/lib/useUser";
 
 type Slot={start:string;end:string};
-type Reservation=Slot & {id:string;status:string;revision:number};
+type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null};
 type Options={title:string;timeZone:string;durationMinutes:number;slots:Slot[];reservation:Reservation|null};
 function BookingEntry() {
   const params=useParams<{connection:string}>();const query=useSearchParams();const {userId,session,loading}=useUser();
@@ -15,7 +16,7 @@ function BookingEntry() {
 function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId,token,loading}:{connection:string;attributionId?:string;purchaseId?:string;reservationId?:string;userId:string|null;token?:string;loading:boolean}) {
   const [options,setOptions]=useState<Options|null>(null);const [reservation,setReservation]=useState<Reservation|null>(null);
   const [week,setWeek]=useState(0);const [selected,setSelected]=useState("");const [error,setError]=useState<string|null>(null);
-  const [busy,setBusy]=useState(false);const [cancelPrompt,setCancelPrompt]=useState(false);const [checking,setChecking]=useState(false);
+  const [busy,setBusy]=useState(false);const [cancelPrompt,setCancelPrompt]=useState(false);const [rescheduling,setRescheduling]=useState(false);const [checking,setChecking]=useState(false);
   const [base]=useState(()=>Date.now());const request=useRef(0);const statusInFlight=useRef(false);
   const headers=useCallback(():Record<string,string>=>token?{Authorization:`Bearer ${token}`}:{},[token]);
   const fetchOptions=useCallback(async()=>{
@@ -84,8 +85,10 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
     {error&&<p role="alert" className="rounded border border-red-300/40 p-3">{error}</p>}
     {reservation&&!["held","failed"].includes(reservation.status)?<section className="space-y-3 rounded-xl border border-white/20 p-4">
       <h2 className="text-lg font-semibold">{reservation.status==="confirmed"?"Booking confirmed":reservation.status==="canceled"?"Booking canceled":reservation.status==="canceling"?"Confirming cancellation":reservation.status==="rescheduling"?"Confirming your new time":"Confirming with Google Calendar"}</h2>
-      <p>{format(reservation.start)}</p><p className="text-sm text-white/70">Time zone: {zone}</p>
-      {reservation.status==="confirmed" && (cancelPrompt?<div className="space-y-3"><p>Cancel this booking? The creator will receive the cancellation.</p><button type="button" disabled={busy} className="rounded border border-red-300 px-3 py-2" onClick={()=>void cancelBooking()}>{busy?"Requesting cancellation…":"Confirm cancellation"}</button><button type="button" disabled={busy} className="ml-3 underline" onClick={()=>setCancelPrompt(false)}>Keep booking</button></div>:<button type="button" className="underline" onClick={()=>setCancelPrompt(true)}>Cancel booking</button>)}
+      <p>{reservation.status==="rescheduling"?"Current time: ":""}{format(reservation.start)}</p>
+      {reservation.status==="rescheduling"&&reservation.desiredStart&&<p>Requested new time: {format(reservation.desiredStart)}</p>}<p className="text-sm text-white/70">Time zone: {zone}</p>
+      {reservation.status==="confirmed"&&!rescheduling && (cancelPrompt?<div className="space-y-3"><p>Cancel this booking? The creator will receive the cancellation.</p><button type="button" disabled={busy} className="rounded border border-red-300 px-3 py-2" onClick={()=>void cancelBooking()}>{busy?"Requesting cancellation…":"Confirm cancellation"}</button><button type="button" disabled={busy} className="ml-3 underline" onClick={()=>setCancelPrompt(false)}>Keep booking</button></div>:<button type="button" className="underline" onClick={()=>setCancelPrompt(true)}>Cancel booking</button>)}
+      {reservation.status==="confirmed"&&Date.parse(reservation.start)>Date.now()&&!cancelPrompt&&(rescheduling?<GoogleReschedulePicker id={reservation.id} revision={reservation.revision} token={token} onClose={()=>{setRescheduling(false);void checkReservation();}} onChanged={next=>{setReservation(next);setRescheduling(false);}}/>:<button type="button" className="ml-3 underline" onClick={()=>setRescheduling(true)}>Reschedule booking</button>)}
       {pending&&<><p role="status">Your request is saved. This page updates when Google confirms it. You can safely return to this booking link.</p><button type="button" className="underline" onClick={()=>void checkReservation()}>Check status</button></>}
     </section>:<>
       {checking?<p role="status">Checking available times…</p>:options&&<>
