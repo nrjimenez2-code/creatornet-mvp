@@ -8,6 +8,14 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google reservation lifecycle checkpoint
+
+CLI-generated migration `20260913222716_google_calendar_reservations.sql` now allows Google in connection/OAuth-state database constraints and adds private Google settings, notification watches, reservations and durable operation jobs. Service-only SQL functions reserve times under a connection-scoped transaction lock, enqueue creation once, reserve old/new times during rescheduling, retain times during cancellation, claim jobs with leases and finalize only the current leased revision. Never-attempted holds can expire; ambiguous external creation does not release its reservation. Original video and attribution identifiers remain on the reservation.
+
+Ten real local PostgreSQL tests pass for idempotent requests, ownership, overlapping times, expired versus attempted holds, disconnect admission, private permissions, reschedule/cancel occupancy and stale-worker exclusion. These are not a multi-session production concurrency benchmark. Neither this migration nor the earlier connection migration is applied remotely.
+
+Next: implement the Google job processor, wire Google OAuth/config/status UI and the creator availability form, and add the buyer booking/reschedule/cancel routes/screens with verified source/purchase checks. Enforce availability against both current Google data and these reservation rows. SQL expects the authenticated route to verify buyer/source/purchase ownership and the creator's full availability policy before reserving. Background watch reconciliation/renewal and live provider acceptance are still missing. The Google adapter and availability engine from the preceding checkpoint are available for these integrations.
+
 ### Google Calendar adapter checkpoint
 
 `lib/googleCalendarProvider.ts` now implements Google OAuth offline/PKCE authorization, permission validation, refresh-token retention, verified account lookup, calendar listing, fail-closed free/busy reads, deterministic event IDs, attributed event creation, conditional rescheduling/cancellation, watch creation/removal/notification validation, and paginated incremental synchronization reads including cancellation tombstones. `lib/bookingAvailability.ts` implements creator-defined weekly availability, duration/steps, lead time/horizon, buffers and busy/reservation exclusions using actual UTC instants with timezone/DST handling.
