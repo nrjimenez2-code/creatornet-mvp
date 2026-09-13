@@ -30,6 +30,13 @@ test("only processor metadata for the exact allowlisted source can award complet
   ])
     expect(await verifiedVideoDuration(raw)).toBeNull();
   expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(await verifiedVideoDuration("https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/test.mp4")).toBe(12);
+  for (const raw of [
+    "https://pub-unrelated.r2.dev/videos/test.mp4",
+    "https://user:password@media.creatornet.net/videos/test.mp4",
+    "https://media.creatornet.net/videos/test.mp4#duration=1",
+  ]) expect(await verifiedVideoDuration(raw)).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(2);
   fetcher.mockResolvedValue({
     ok: true,
     json: async () => ({

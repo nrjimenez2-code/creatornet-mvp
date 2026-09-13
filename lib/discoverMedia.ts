@@ -1,4 +1,5 @@
 import "server-only";
+import { FEED_MEDIA_ORIGIN, ORIGINAL_FEED_MEDIA_ORIGIN } from "./feedMedia";
 
 // Only the media processor can publish duration; browser-controlled metadata is
 // insufficient to award completion. Unknown and legacy sources keep view tracking.
@@ -9,10 +10,10 @@ export async function verifiedVideoDuration(
   try {
     const source = new URL(raw);
     if (
-      source.origin !== "https://media.creatornet.net" ||
+      ![FEED_MEDIA_ORIGIN, ORIGINAL_FEED_MEDIA_ORIGIN].includes(source.origin) ||
       source.username ||
       source.password ||
-      source.search
+      source.search || source.hash
     )
       return null;
     const key = source.pathname.replace(/^\/(?:auto\/)?/, "");

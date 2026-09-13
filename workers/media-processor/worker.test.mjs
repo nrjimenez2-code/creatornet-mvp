@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
 import worker,{processMessage,validKey} from './worker.mjs';
 
 class Bucket {
@@ -33,4 +34,19 @@ test('duration metadata is returned only for the current processed source',async
  f.env.MEDIA.objects.set('videos/test.mp4',{etag:'replacement',size:4});
  response=await worker.fetch(request,f.env);assert.equal(response.status,404);
  assert.equal(response.headers.get('location'),null);
+});
+
+test('legacy processed video recovers duration only from its matching Stream job',async()=>{
+ const f=fixture(),key='ready/videos/test.mp4.json';
+ const id=createHash('sha256').update('videos/test.mp4\nsource').digest('hex');
+ await f.env.STATE.put(key,JSON.stringify({etag:'source',outputKey:'feed-auto/'+id+'.mp4'}));
+ await f.env.STATE.put('jobs/'+id+'.json',JSON.stringify({streamId:'legacy-video'}));
+ let reads=0,matching=false;
+ f.env.STREAM.video=streamId=>({details:async()=>{assert.equal(streamId,'legacy-video');reads++;return {meta:{creatornetJob:matching?id:'foreign'},duration:15};}});
+ const request=new Request('https://media.creatornet.net/auto/metadata/videos/test.mp4');
+ assert.equal((await worker.fetch(request,f.env)).status,404);
+ matching=true;
+ assert.equal((await (await worker.fetch(request,f.env)).json()).durationSeconds,15);
+ assert.equal((await (await worker.fetch(request,f.env)).json()).durationSeconds,15);
+ assert.equal(reads,2);
 });
