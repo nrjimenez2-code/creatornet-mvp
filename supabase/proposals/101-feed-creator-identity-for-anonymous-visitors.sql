@@ -1,7 +1,26 @@
 -- 101 — show creator name, @handle and avatar to SIGNED-OUT feed visitors.
 --
 -- ============================================================================
--- NOT APPLIED. Needs Landon's explicit OK before it touches production.
+-- ✅ APPLIED TO PRODUCTION 2026-09-13 ~00:10Z (project rvkqxgghqitkwzdsuclz),
+--    with Landon's explicit approval. Verified after apply:
+--      · 1 overload, SECURITY DEFINER, search_path pinned to public, 27 args
+--        (3 in + 24 out) — 023's creator_verified and 025's purchase_count
+--        both survived, no column regression
+--      · EXECUTE still granted to anon, authenticated, postgres, service_role
+--      · anon RPC now returns creator_name / creator_username /
+--        creator_avatar_url populated on every row
+--      · www.creatornet.net/dashboard SIGNED OUT now renders "luis", "luis",
+--        "Noah Jimenez" — the generic "Creator" placeholder is gone
+--    ROLLBACK: re-run 023 (see ROLLBACK below), or restore the pre-apply
+--    definition captured at apply time.
+--
+-- ⚠️ ONE CHANGE WAS MADE AT APPLY TIME, and it matters:
+--    this file said `create function public.get_feed_v3(` — but the function
+--    already existed with the identical (text, integer, integer) signature, so
+--    that fails with 42723 "function already exists" and the whole transaction
+--    rolls back. It could never have applied as written. It was applied as
+--    `create or replace function`, which also fails closed if the 24-column
+--    return type ever drifts. The line below is corrected to what actually ran.
 -- It widens what an anonymous caller can read, so it is a security-posture
 -- decision, not a bug fix. (Note: in this repo a "-STAGED"/"UNAPPLIED" marker
 -- is NOT reliable — 023 is named STAGED and IS live. Verify with a probe, not
@@ -70,7 +89,7 @@ begin
 end;
 $preflight$;
 
-create function public.get_feed_v3(
+create or replace function public.get_feed_v3(
   p_tab text default 'discover',
   p_limit integer default 20,
   p_offset integer default 0
