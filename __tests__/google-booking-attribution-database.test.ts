@@ -40,6 +40,7 @@ beforeAll(async () => {
     "20260913222716_google_calendar_reservations.sql",
     "20260913223807_google_booking_attribution.sql",
     "20260913224148_google_calendar_setup.sql",
+    "20260913232056_google_calendar_reconciliation.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -127,4 +128,32 @@ test("browser roles cannot award Google scheduling credit or complete worker job
       await expect(db.query("select complete_google_booking_job_v1($1,$2,null,null)",[reservation,worker])).rejects.toThrow(/permission denied/);
     } finally { await db.exec('reset role'); }
   }
+});
+
+
+const watchId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+async function claimSweep(){
+ await db.query("insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status) values($1,$2,'primary','resource','encrypted',now()+interval '1 day','active')",[watchId,connection]);
+ await db.query("select * from claim_google_calendar_sweep_v1($1)",[worker]);
+}
+test("external moves and cancellations update reservation and attribution under a sweep lease",async()=>{
+ await create();await claimSweep();
+ const move=await db.query("select reconcile_google_calendar_booking_v1($1,$2,r.id,r.revision,'google-event','external-etag',r.starts_at+interval '1 hour',r.ends_at+interval '1 hour',false) applied from google_booking_reservations_v1 r where id=$3",[watchId,worker,reservation]);
+ expect(move.rows).toEqual([{applied:true}]);
+ expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+ await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,1,'google-event',null,null,null,true)",[watchId,worker,reservation]);
+ expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:false}]);
+});
+test("stale sweep leases and in-flight booking operations cannot be overwritten",async()=>{
+ await create();await claimSweep();
+ await db.query("update google_calendar_watches_v1 set lease_until=now()-interval '1 minute'");
+ expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,0,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
+ await db.query("select * from claim_google_calendar_sweep_v1($1)",[worker]);await db.query("select request_google_booking_change_v1($1,$2,0,'cancel')",[reservation,viewer]);
+ expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,1,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
+});
+test("a notification arriving during a sweep remains pending after that sweep finishes",async()=>{
+ await create();await claimSweep();await db.query("select request_google_calendar_sync_v1($1)",[watchId]);
+ await db.query("select finish_google_calendar_sweep_v1($1,$2,null)",[watchId,worker]);
+ expect((await db.query("select sync_generation>swept_generation pending from google_calendar_watches_v1 where id=$1",[watchId])).rows).toEqual([{pending:true}]);
+ expect((await db.query("select id from claim_google_calendar_sweep_v1($1)",[worker])).rows).toEqual([{id:watchId}]);
 });

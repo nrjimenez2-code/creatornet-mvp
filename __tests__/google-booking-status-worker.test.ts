@@ -4,6 +4,7 @@ jest.mock("@/lib/supabaseConnectAuth",()=>({getAuthenticatedUser:()=>user()}));
 jest.mock("@/lib/googleBuyerBookings",()=>({readGoogleBuyerReservation:(...args:unknown[])=>read(...args),cancelGoogleBuyerBooking:(...args:unknown[])=>cancel(...args)}));
 jest.mock("@/lib/googleBookingJobs",()=>({processNextGoogleBookingJob:()=>processJob()}));
 jest.mock("@/lib/schedulingConfig",()=>({googleCalendarAvailable:()=>available(),schedulingOrigin:()=>"https://creatornet.example"}));
+jest.mock("@/lib/googleCalendarReconciliation",()=>({maintainGoogleCalendarWatches:async()=>{},processGoogleCalendarSweep:async()=>({processed:false})}));
 import {GET as status,DELETE as cancelRoute} from "@/app/api/scheduling/google/reservations/[reservation]/route";
 import {GET as worker} from "@/app/api/scheduling/google/jobs/route";
 const id="11111111-1111-4111-8111-111111111111",secret="a".repeat(32);

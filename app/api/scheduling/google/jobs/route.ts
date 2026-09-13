@@ -1,6 +1,7 @@
 import {createHash,timingSafeEqual} from "node:crypto";
 import {NextResponse} from "next/server";
 import {processNextGoogleBookingJob} from "@/lib/googleBookingJobs";
+import {maintainGoogleCalendarWatches,processGoogleCalendarSweep} from "@/lib/googleCalendarReconciliation";
 import {googleCalendarAvailable} from "@/lib/schedulingConfig";
 export const runtime="nodejs";
 export const dynamic="force-dynamic";
@@ -20,6 +21,10 @@ export async function GET(req:Request) {
       if(!result.processed)break;
       processed++;if(result.retry)retries++;
     }
+    let maintenanceFailed=false;
+    try{await maintainGoogleCalendarWatches();}catch{maintenanceFailed=true;}
+    try{await processGoogleCalendarSweep();}catch{maintenanceFailed=true;}
+    if(maintenanceFailed)return NextResponse.json({processed,retries,error:"Calendar maintenance needs retry"},{status:503,headers});
     return NextResponse.json({processed,retries},{headers});
   }catch{return NextResponse.json({error:"Google booking processing needs retry"},{status:503,headers});}
 }

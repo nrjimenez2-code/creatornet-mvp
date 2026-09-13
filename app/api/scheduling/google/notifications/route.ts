@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
     if(owner.error) throw owner.error;
     const token=openSchedulingSecret(watch.token_ciphertext,`${owner.data.creator_id}:google:watch:${watch.id}`);
     if(!verifyGoogleCalendarNotification(req.headers,{id:watch.id,resourceId:watch.resource_id,expiration:String(Date.parse(watch.expires_at)),token})) return new NextResponse(null,{status:401});
-    const saved=await db.from("google_calendar_watches_v1").update({sync_requested_at:new Date().toISOString()}).eq("id",watch.id).in("status",["active","retiring"]);
+    const saved=await db.rpc("request_google_calendar_sync_v1",{p_watch:watch.id});
     if(saved.error) throw saved.error;
     // The reconciliation worker fetches authoritative events; notification headers never award credit.
     return new NextResponse(null,{status:204});

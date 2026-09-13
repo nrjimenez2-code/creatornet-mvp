@@ -8,6 +8,14 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google calendar reconciliation checkpoint
+
+Added service-only leased reconciliation of persisted Google bookings, authoritative event reads for external moves/deletions, atomic attribution changes and notification generations that retain changes received during a sweep. The worker processes ten bookings per page with five concurrent provider reads and resumes its cursor only after a successful page. Watch maintenance renews connected channels within 24 hours of expiry and retires known or expired channels.
+
+Validation: four selected suites passed 25 tests, including local PostgreSQL attribution/lease/generation checks, notification/worker routes and reconciliation orchestration. TypeScript passed. These changes remain local and undeployed; no remote migrations or live OAuth acceptance ran.
+
+Remaining: maintenance failure/recovery coverage, permanent booking error recovery, final transaction lease review and representative throughput testing (full history scans are a baseline, not proven scalable). Live Google/Cal.com/Calendly OAuth setup, full booking/payment/later-sale acceptance, ranking pilot, PR review and production rollout remain incomplete.
+
 ### Google Bookings dashboard checkpoint
 
 Native Google bookings now appear in the Bookings dashboard with separate buyer and creator views, participant display names, local times, pending statuses and requested reschedule times. Buyers reopen the owner-scoped management page; creators can open Google Calendar for their incoming calls. The creator view does not impersonate buyer permissions for native API mutations.

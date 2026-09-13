@@ -6,7 +6,7 @@ const secret="ab".repeat(32);
 const originalEnv={...process.env};
 jest.mock("@/lib/supabaseConnectAuth",()=>({getAuthenticatedUser:()=>getUser()}));
 jest.mock("@/lib/googleCalendarConnection",()=>({getGoogleCalendarSetup:(...args:unknown[])=>load(...args),saveGoogleCalendarSetup:(...args:unknown[])=>save(...args)}));
-jest.mock("@/lib/supabaseAdmin",()=>({supabaseAdmin:{from:(table:string)=>{
+jest.mock("@/lib/supabaseAdmin",()=>({supabaseAdmin:{rpc:async(name:string,args:unknown)=>{update(name,args);return {error:null};},from:(table:string)=>{
   const chain:any={select:()=>chain,eq:()=>chain,in:async()=>({error:null}),single:async()=>({data:{creator_id:"creator"},error:null}),maybeSingle:async()=>({data:watch,error:null}),update:(values:unknown)=>{update(table,values);return chain;}};
   return chain;
 }}}));
@@ -33,7 +33,7 @@ test("settings are saved for the authenticated creator, never a browser supplied
 const notification=(token=secret)=>new NextRequest("https://creatornet.example/api/scheduling/google/notifications",{method:"POST",headers:{"x-goog-channel-id":watchId,"x-goog-resource-id":"resource","x-goog-channel-token":token,"x-goog-resource-state":"exists"}});
 test("verified Google notifications only request an authoritative calendar fetch",async()=>{
   expect((await notify(notification())).status).toBe(204);
-  expect(update).toHaveBeenCalledWith("google_calendar_watches_v1",{sync_requested_at:expect.any(String)});
+  expect(update).toHaveBeenCalledWith("request_google_calendar_sync_v1",{p_watch:watchId});
   expect(update).toHaveBeenCalledTimes(1);
 });
 test("forged notifications cannot change state and pending registration asks Google to retry",async()=>{

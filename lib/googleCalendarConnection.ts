@@ -88,7 +88,7 @@ async function configureCalendar(row:Connection,input:GoogleCalendarSetup) {
     const calendars = await listGoogleCalendars(token);
     if (!input.conflictCalendarIds.every(id => calendars.some(calendar => calendar.id === id))) throw new Error("Choose calendars owned by your connected Google account");
     const watches = await db.from("google_calendar_watches_v1").select("id,resource_id,expires_at,token_ciphertext")
-      .eq("connection_id", row.id).eq("calendar_id", input.calendarId).eq("status", "active").gt("expires_at", new Date(Date.now()+300_000).toISOString()).order("expires_at", { ascending: false }).limit(1);
+      .eq("connection_id", row.id).eq("calendar_id", input.calendarId).eq("status", "active").gt("expires_at", new Date(Date.now()+86400_000).toISOString()).order("expires_at", { ascending: false }).limit(1);
     if (watches.error) throw new Error("Could not check calendar notifications");
     let watch = watches.data?.[0];
     if (!watch) {
