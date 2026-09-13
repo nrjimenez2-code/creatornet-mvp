@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google buyer page and recurring worker checkpoint
+
+The native /scheduling/book/[connection] page now loads authenticated availability, accepts an explicit time selection, submits the stable booking intent and polls an owner-scoped reservation endpoint. The saved URL includes the reservation ID so reopening a confirmed booking does not repeat Stripe/setup checks or depend on the source video remaining public. Sign-in uses the existing /auth return-path mechanism. The UI distinguishes pending requests from Google-confirmed bookings and supports an explicit cancellation confirmation; cancellation queues the existing durable operation and retains pending status until provider confirmation. Status reads never release credentials, provider event IDs or another buyer’s booking.
+
+Connected Google settings now supply a selectable native event URL in the composer. A CRON_SECRET-protected, default-off Google worker route processes a bounded batch of up to four jobs. vercel.json schedules it every minute; no deployment has occurred. Verify the target plan’s frequency support, configured secret, actual duration/throughput and live cron execution during rollout. Preview verification must explicitly invoke the authenticated worker because Vercel’s recurring schedule runs in production. Reference: https://vercel.com/docs/cron-jobs/manage-cron-jobs .
+
+Validation: four selected suites passed 21 tests covering buyer booking/status/cancellation UI, ownership, worker authentication/batch bounds, admission service and existing connection UI. TypeScript passed after the final UI tests. No real browser visual review, live Google event or deployed worker was verified.
+
+Next priority: implement buyer rescheduling (including availability that excludes its own event), expose native bookings in the Bookings list, and implement background Google watch change reconciliation/renewal/retired-channel cleanup. Complete concrete service integration tests, timeout/permanent-error recovery, live OAuth accounts and full booking/purchase/later-sale acceptance, controlled ranking pilot, representative performance, PR review and production rollout. The goal remains active and incomplete.
+
 ### Google buyer admission checkpoint
 
 The native booking URL recognizer now binds CreatorNet’s Google booking route to the configured origin. Verified sales-call setup attribution survives that redirect, including when Google is enabled separately from Discover ranking. Paid-call redirects carry a purchase ID only for this native route. The buyer access service validates the connected creator, signed-in buyer, original post and verified setup intent, or the existing paid-call capture/access checks and original purchase post. Paid-call intent creation does not emit a setup or scheduling milestone.

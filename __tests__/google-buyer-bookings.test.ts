@@ -5,7 +5,7 @@ jest.mock("@/lib/supabaseAdmin",()=>({get supabaseAdmin(){return db;}}));
 jest.mock("@/lib/googleBookingAccess",()=>({authorizeGoogleBooking:(...args:unknown[])=>authorize(...args)}));
 jest.mock("@/lib/googleCalendarConnection",()=>({googleConnectionAccessToken:async()=>"token"}));
 jest.mock("@/lib/googleCalendarProvider",()=>({getGoogleBusyIntervals:(...args:unknown[])=>busy(...args)}));
-import {submitGoogleBooking,getGoogleBookingOptions} from "@/lib/googleBuyerBookings";
+import {submitGoogleBooking,getGoogleBookingOptions,cancelGoogleBuyerBooking} from "@/lib/googleBuyerBookings";
 const start="2026-10-01T10:00:00.000Z",end="2026-10-01T10:30:00.000Z";
 const policy={timeZone:"UTC",durationMinutes:30,stepMinutes:30,leadMinutes:0,horizonDays:30,bufferBeforeMinutes:0,bufferAfterMinutes:0,windows:[{weekday:4,startMinute:540,endMinute:1020}]};
 beforeEach(()=>{
@@ -39,4 +39,11 @@ test("repeating an accepted booking does not enqueue a second mutation",async()=
   reservation={id:'reservation',status:'creating',starts_at:start,ends_at:end,revision:0};
   await submitGoogleBooking('connection','buyer',{attributionId:'attribution'},start,end);
   expect(db.opsFor('enqueue_google_booking_create_v1')).toHaveLength(0);expect(busy).not.toHaveBeenCalled();
+});
+
+
+test("a missing or another buyer's booking cannot enqueue cancellation",async()=>{
+  await expect(cancelGoogleBuyerBooking('reservation','buyer',0)).rejects.toThrow(/not found/);
+  expect(db.opsFor('request_google_booking_change_v1')).toHaveLength(0);
+  expect(db.opsFor('google_booking_reservations_v1')[0].filters).toEqual({id:'reservation',buyer_id:'buyer'});
 });

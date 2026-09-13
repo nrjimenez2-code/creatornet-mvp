@@ -51,3 +51,11 @@ export async function submitGoogleBooking(connectionId:string,buyer:string,inten
   if(queued.error)throw new Error("Could not queue your booking. Check its status before trying again.");
   return readGoogleBuyerReservation(access.reservationId,buyer);
 }
+export async function cancelGoogleBuyerBooking(id:string,buyer:string,revision:number) {
+  if(!Number.isSafeInteger(revision)||revision<0)throw new Error("Refresh your booking before canceling");
+  const reservation=await readGoogleBuyerReservation(id,buyer);
+  if(!reservation)throw new Error("Booking not found");
+  const queued=await db.rpc("request_google_booking_change_v1",{p_id:id,p_buyer:buyer,p_revision:revision,p_action:"cancel"});
+  if(queued.error)throw new Error("Could not request cancellation. Refresh your booking and try again.");
+  return readGoogleBuyerReservation(id,buyer);
+}

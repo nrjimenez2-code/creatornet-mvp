@@ -100,12 +100,12 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
           {item.available && <button type="button" className="underline" onClick={() => connect(item.provider)}>Reconnect {name}</button>}
           <button type="button" className="underline" disabled={busy === item.provider} onClick={() => void disconnect(item.provider)}>{busy === item.provider ? "Disconnecting…" : `Disconnect ${name}`}</button>
         </div>}
-        {connected && onSelect && item.provider !== "google" && <label className="block text-sm">{purpose === "session" ? "Session" : "Sales call"} event
+        {connected && item.available && onSelect && <label className="block text-sm">{purpose === "session" ? "Session" : "Sales call"} event
           <select className="mt-1 block w-full rounded border border-white/20 bg-black p-2" value={item.eventTypes.some(event => event.bookingUrl === value) ? value : ""} onChange={event => onSelect(event.target.value)}>
             <option value="">Choose an event</option>
             {item.eventTypes.map(event => <option key={event.id} value={event.bookingUrl}>{event.title}</option>)}
           </select>
-          {!item.eventTypes.length && <span>Create an event in {name}, then check again.</span>}
+          {!item.eventTypes.length && <span>{item.provider === "google" ? "Set up your calendar and booking hours, then check again." : `Create an event in ${name}, then check again.`}</span>}
         </label>}
       </div>;
     })}

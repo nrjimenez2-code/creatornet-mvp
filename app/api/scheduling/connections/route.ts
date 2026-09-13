@@ -51,6 +51,11 @@ export async function GET(req: NextRequest) {
         if (result.error) throw result.error;
         eventTypes = (result.data ?? []).map(event => ({ id: event.provider_event_id, title: event.title, bookingUrl: event.booking_url }));
       }
+      if (row?.status === "connected" && provider === "google") {
+        const result = await db.from("google_booking_settings_v1").select("title").eq("connection_id",row.id).eq("active",true).maybeSingle();
+        if(result.error)throw result.error;
+        if(result.data)eventTypes=[{id:row.id,title:result.data.title,bookingUrl:schedulingOrigin()+"/scheduling/book/"+row.id}];
+      }
       connections.push({ provider, available: provider === "google" ? googleCalendarAvailable() : schedulingAvailable(provider), status: row?.status ?? "disconnected", accountName: row?.account_name ?? null, eventTypes });
     }
     return NextResponse.json({ connections }, { headers });
