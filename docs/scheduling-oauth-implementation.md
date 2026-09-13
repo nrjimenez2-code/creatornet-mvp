@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google buyer admission checkpoint
+
+The native booking URL recognizer now binds CreatorNet’s Google booking route to the configured origin. Verified sales-call setup attribution survives that redirect, including when Google is enabled separately from Discover ranking. Paid-call redirects carry a purchase ID only for this native route. The buyer access service validates the connected creator, signed-in buyer, original post and verified setup intent, or the existing paid-call capture/access checks and original purchase post. Paid-call intent creation does not emit a setup or scheduling milestone.
+
+The new Google booking API can return available times and submit a reservation. Availability combines current Google busy intervals and one JSON aggregate of local occupied ranges. Admission passes its calendar/policy snapshot to migration `20260913225146_google_booking_admission.sql`, which rejects changed settings/expired watches, prevents duplicate purchased sessions and allows a never-attempted expired hold to be retried. Reservation IDs are stable per verified intent. Accepted retries do not enqueue a second operation. Before new paid calendar mutations, the worker rechecks purchase entitlement; it still reconciles an already-completed remote operation first.
+
+Validation: six selected suites passed 64 tests across access, availability/admission, local PostgreSQL reservations, attribution URLs, existing paid-call access and processor logic. TypeScript passed after the final service tests. These are local/mock tests, not a live payment/calendar acceptance run. No migration or application deployment occurred.
+
+Next: implement the buyer calendar page at /scheduling/book/[connection], reservation status/management endpoints and reschedule/cancel UI; expose the finished Google URL in the composer; connect the durable job worker and background watch synchronization/renewal/retired-channel cleanup. The new API queues work but no recurring worker is wired yet. Still verify concrete service integration, paid revocation/permanent-error recovery, browser draft retention, real providers, full commercial flows, ranking pilot, performance, PR review and production rollout. The goal remains active and incomplete.
+
 ### Google connection and calendar setup checkpoint
 
 Google is now a supported OAuth start/callback and Bookings connection option. Authorization saves encrypted tokens under a lease and continues in the separate window to owned-calendar selection, conflict calendars, weekly hours, timezone, call duration, lead time, horizon and buffers. The creator explicitly saves these settings. The new setup RPC atomically marks the connection ready only with an active notification channel and current lease. Google notifications validate the stored channel token/resource and request authoritative reconciliation; headers never award attribution. Stale connection reads recheck calendar ownership and renew an expiring watch under the same connection lease. Account switches clear the prior setup form.

@@ -29,3 +29,5 @@ test("opaque attribution survives both providers and the internal booking router
     "https://cal.com/creator/call",
   );
 });
+
+test("verified intent reaches the native Google booking route",()=>{const id="11111111-1111-4111-8111-111111111111";expect(new URL(attributedBookingUrl('/scheduling/book/'+id,id)).searchParams.get('cn_attribution')).toBe(id);});

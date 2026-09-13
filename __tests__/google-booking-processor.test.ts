@@ -8,7 +8,7 @@ function event(): GoogleBookingEvent { return { id: googleBookingEventId(id), et
   start: { dateTime: reservation.desiredStart ?? reservation.start }, end: { dateTime: reservation.desiredEnd ?? reservation.end },
   extendedProperties: { private: { cn_booking_id: id, cn_creator_id: "creator", cn_attribution: "attribution" } } }; }
 beforeEach(() => {
-  reservation = { id, revision: 0, creatorId: "creator", buyerId: "buyer", originalPostId: "video", attributionId: "attribution", calendarId: "primary", status: "creating",
+  reservation = { id, revision: 0, creatorId: "creator", buyerId: "buyer", originalPostId: "video", attributionId: "attribution", purchaseId: null, calendarId: "primary", status: "creating",
     start: "2026-10-01T10:00:00Z", end: "2026-10-01T10:30:00Z", desiredStart: null, desiredEnd: null, bufferBeforeMinutes: 5, bufferAfterMinutes: 10, eventId: null, eventEtag: null };
   job = { id: "job", reservationId: id, revision: 0, action: "create", leaseId: "worker", leaseUntil: "2026-10-01T09:30:00Z" };
   ports = { now: () => Date.parse("2026-10-01T09:00:00Z"), loadReservation: jest.fn(async () => reservation),

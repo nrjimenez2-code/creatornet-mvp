@@ -5,6 +5,7 @@ import { googleConnectionAccessToken } from "@/lib/googleCalendarConnection";
 import { processGoogleBookingOperation, type GoogleBookingOperation, type GoogleReservation } from "@/lib/googleBookingProcessor";
 import { getGoogleBookingEvent, createGoogleBookingEvent, changeGoogleBookingEvent, cancelGoogleBookingEvent,
   assertGoogleBookingTimeAvailable, GoogleCalendarError } from "@/lib/googleCalendarProvider";
+import { authorizeGoogleBooking } from "@/lib/googleBookingAccess";
 import type { BookingAvailability } from "@/lib/bookingAvailability";
 
 /** One job per invocation keeps the external operation inside its five-minute lease. */
@@ -45,12 +46,17 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
           buyerEmail = buyer.data.user.email;
         }
         return { id: r.id, revision: r.revision, creatorId: connection.data.creator_id, buyerId: r.buyer_id,
-          originalPostId: r.original_post_id, attributionId: r.attribution_id, calendarId: r.calendar_id, status: r.status,
+          originalPostId: r.original_post_id, attributionId: r.attribution_id, purchaseId: r.purchase_id, calendarId: r.calendar_id, status: r.status,
           start: r.starts_at, end: r.ends_at, desiredStart: r.desired_starts_at, desiredEnd: r.desired_ends_at,
           bufferBeforeMinutes: r.buffer_before_minutes, bufferAfterMinutes: r.buffer_after_minutes,
           eventId: r.event_id, eventEtag: r.event_etag } satisfies GoogleReservation;
       },
       assertAvailable: async (reservation, start, end) => {
+        if (reservation.purchaseId) {
+          const access = await authorizeGoogleBooking(connectionId, reservation.buyerId, { purchaseId: reservation.purchaseId });
+          if (access.attributionId !== reservation.attributionId || access.postId !== reservation.originalPostId || access.reservationId !== reservation.id)
+            throw new Error("Paid booking access changed");
+        }
         const interval = { start: new Date(Date.parse(start) - reservation.bufferBeforeMinutes * 60000).toISOString(),
           end: new Date(Date.parse(end) + reservation.bufferAfterMinutes * 60000).toISOString() };
         await assertGoogleBookingTimeAvailable(token, reservation.calendarId, settings.conflict_calendar_ids, interval, reservation.eventId);

@@ -11,7 +11,7 @@ beforeAll(async () => {
   db = createLocalPostgres();
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     create table profiles(id uuid primary key); insert into profiles values('${creator}'),('${buyer}');`);
-  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql"])
+  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql", "20260913225146_google_booking_admission.sql"])
     await db.exec(readFileSync("supabase/migrations/" + migration, "utf8"));
   await db.query(`insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,
     webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','account','encrypted','channel','encrypted',now()+interval '1 hour')`, [connection, creator]);
@@ -144,4 +144,27 @@ test("disconnect waits for ambiguous mutations and cannot orphan an in-flight jo
   await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[booking,buyer]);await setupLease();await configure();
   await expect(db.query("select begin_google_calendar_disconnect_v1($1,$2,$3)",[connection,creator,worker])).rejects.toThrow(/pending booking changes/);
   expect((await db.query("select status from scheduling_connections_v1 where id=$1",[connection])).rows).toEqual([{status:'connected'}]);
+});
+
+const reserveChecked=(minutes=0)=>db.query("select reserve_google_booking_checked_v1($1,$2,$3,$4,date_trunc('day',now())+interval '2 days 10 hours'+make_interval(mins=>$5),date_trunc('day',now())+interval '2 days 10 hours 30 minutes'+make_interval(mins=>$5),null,null,'primary',availability) from google_booking_settings_v1 where connection_id=$2",[booking,connection,buyer,post,minutes]);
+test("checked admission rejects a stale policy or an expired calendar watch",async()=>{
+  await setupLease();await configure();
+  await expect(db.query("select reserve_google_booking_checked_v1($1,$2,$3,$4,now()+interval '1 day',now()+interval '1 day 30 minutes',null,null,'primary','{}')",[booking,connection,buyer,post])).rejects.toThrow(/settings changed/);
+  await db.query("update google_calendar_watches_v1 set expires_at=now()-interval '1 minute'");
+  await expect(reserveChecked()).rejects.toThrow(/settings changed/);
+});
+test("an expired never-attempted intent can choose another time without creating a second reservation",async()=>{
+  await setupLease();await configure();await reserveChecked();
+  await db.query("update google_booking_reservations_v1 set hold_expires_at=now()-interval '1 minute'");
+  await reserveChecked(60);
+  expect((await db.query("select count(*)::int n from google_booking_reservations_v1")).rows).toEqual([{n:1}]);
+  await db.query("select enqueue_google_booking_create_v1($1,$2)",[booking,buyer]);
+  await expect(reserveChecked(90)).rejects.toThrow(/does not match/);
+});
+test("occupied intervals include pending moves and arrive in a single JSON value",async()=>{
+  await confirmInitial();
+  await db.query("select request_google_booking_change_v1($1,$2,0,'reschedule',starts_at+interval '1 hour',ends_at+interval '1 hour') from google_booking_reservations_v1 where id=$1",[booking,buyer]);
+  const result=await db.query<{ranges:unknown[]}>("select google_reserved_intervals_v1($1,now(),now()+interval '4 days') ranges",[connection]);
+  expect(result.rows[0].ranges).toHaveLength(2);
+  expect((await db.query<{ranges:unknown[]}>("select google_reserved_intervals_v1($1,now(),now()+interval '4 days',$2) ranges",[connection,booking])).rows[0].ranges).toHaveLength(0);
 });

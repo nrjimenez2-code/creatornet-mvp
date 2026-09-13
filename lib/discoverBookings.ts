@@ -2,11 +2,12 @@ import "server-only";
 import type Stripe from "stripe";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import { discoverEnabled, recordDiscoverEvent } from "@/lib/discoverServer";
+import { googleBookingConnectionFromUrl } from "@/lib/googleBookingUrl";
 import { getSiteUrl } from "@/lib/siteUrl";
 export async function recordBookingSetup(
   session: Stripe.Checkout.Session,
 ): Promise<string | null> {
-  if (!discoverEnabled()) return null;
+  if (!discoverEnabled() && process.env.GOOGLE_CALENDAR_ENABLED !== "true") return null;
   if (
     session.mode !== "setup" ||
     session.status !== "complete" ||
@@ -63,7 +64,7 @@ export function attributedBookingUrl(
     url.searchParams.set("utm_content", "cn_" + attributionId);
   if (url.hostname === "cal.com" || url.hostname.endsWith(".cal.com"))
     url.searchParams.set("metadata[cn_attribution]", attributionId);
-  if (url.origin === origin && url.pathname === "/api/book")
+  if (url.origin === origin && (url.pathname === "/api/book" || googleBookingConnectionFromUrl(url.toString(), origin)))
     url.searchParams.set("cn_attribution", attributionId);
   return url.toString();
 }

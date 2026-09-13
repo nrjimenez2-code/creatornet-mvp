@@ -7,7 +7,7 @@ export type GoogleBookingOperation = {
 };
 export type GoogleReservation = {
   id: string; revision: number; creatorId: string; buyerId: string; originalPostId: string;
-  attributionId: string | null; calendarId: string; status: string;
+  attributionId: string | null; purchaseId: string | null; calendarId: string; status: string;
   start: string; end: string; desiredStart: string | null; desiredEnd: string | null;
   bufferBeforeMinutes: number; bufferAfterMinutes: number;
   eventId: string | null; eventEtag: string | null;
