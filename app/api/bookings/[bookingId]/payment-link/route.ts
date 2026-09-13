@@ -8,6 +8,7 @@ import { getStripe } from "@/lib/stripeClient";
 import { randomUUID } from "crypto";
 import { getSiteUrl } from "@/lib/siteUrl";
 import { handoffExactCheckoutLink } from "@/lib/installments/checkoutLink";
+import { withBuyerCheckoutLink } from "@/lib/discoverCheckoutLinks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -104,7 +105,7 @@ export async function POST(
     // ownership verification, but BEFORE the legacy equal-price/percent gates.
     const exact = await handoffExactCheckoutLink({ bookingId: booking.id, actorId: user.id, body,
       origin: req.headers.get("origin"), admin, stripe: getStripe, env: process.env });
-    if (exact) return NextResponse.json(exact.body, { status: exact.status, headers: {
+    if (exact) return NextResponse.json(await withBuyerCheckoutLink(exact.body,booking), { status: exact.status, headers: {
       "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
 
     if (booking.status === "completed") {
@@ -324,7 +325,7 @@ export async function POST(
             );
           }
         }
-        return NextResponse.json({ url: payment.link_url, payment, reused: true });
+        return NextResponse.json(await withBuyerCheckoutLink({ url: payment.link_url, payment, reused: true },booking));
       }
       return null;
     };
@@ -477,10 +478,10 @@ export async function POST(
       throw updateError || new Error("Failed to save the generated payment link");
     }
 
-    return NextResponse.json({
+    return NextResponse.json(await withBuyerCheckoutLink({
       url: session.url,
       payment: updated,
-    });
+    },booking));
   } catch (error: any) {
     console.error("[payment-link] error:", error?.message || error);
     return NextResponse.json(

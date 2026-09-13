@@ -1,3 +1,4 @@
+import { discoverEnabled, recordDiscoverEvent, linkDiscoverHistory } from "@/lib/discoverServer";
 // app/api/checkout/route.ts
 import { publicMessage } from "@/lib/apiError";
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
@@ -168,6 +169,7 @@ export async function POST(req: NextRequest) {
   // The browser does send buyer_id (components/VideoCard.tsx:735); it is now
   // ignored, and for a legitimate user it was already equal to the session id.
   const resolvedBuyerId = authUser?.id ?? null;
+  if (resolvedBuyerId && discoverEnabled()) await linkDiscoverHistory(req,resolvedBuyerId);
   if ((body.type === "product" || body.type === "installments") && !resolvedBuyerId) {
     return Response.json({ error: "Sign in required to checkout." }, { status: 401 });
   }
@@ -752,6 +754,10 @@ export async function POST(req: NextRequest) {
               priorPurchase?.session_id || null
             );
             if (!pendingWon) throw new Error("Another checkout attempt became authoritative.");
+            if (discoverEnabled() && postId) {
+              await recordDiscoverEvent({actor:"user:"+resolvedBuyerId,userId:resolvedBuyerId,postId,
+                kind:"checkout_start",entityKey:existingSession.id});
+            }
             return Response.json({
               url: existingSession.url,
               session_id: existingSession.id,
@@ -946,6 +952,10 @@ export async function POST(req: NextRequest) {
         (e: unknown) => console.warn("[checkout] updatePostMetrics failed:", e)
       );
 
+      if (discoverEnabled() && resolvedBuyerId && postId) {
+        await recordDiscoverEvent({actor: "user:" + resolvedBuyerId, userId: resolvedBuyerId, postId,
+          kind: "checkout_start", entityKey: session.id});
+      }
       return Response.json({
         url: session.url,
         session_id: session.id,

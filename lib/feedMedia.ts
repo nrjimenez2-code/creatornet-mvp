@@ -1,7 +1,8 @@
 import manifest from "./feedMediaManifest.json";
 import adaptiveManifest from "./feedAdaptiveManifest.json";
 
-const originalOrigin = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev";
+export const ORIGINAL_FEED_MEDIA_ORIGIN = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev";
+const originalOrigin = ORIGINAL_FEED_MEDIA_ORIGIN;
 export const FEED_MEDIA_ORIGIN = "https://media.creatornet.net";
 
 /** Only explicitly provisioned public renditions opt into adaptive playback. */

@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { assertExactInstallmentEnvironment } from "@/lib/installments/checkoutPreparation";
 import { readContextCheckoutPayments } from "@/lib/installments/contextCheckoutApp";
+import { getSiteUrl } from "@/lib/siteUrl";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -158,6 +159,14 @@ export async function GET(req: NextRequest) {
     const pendingContextLinks = await readContextCheckoutPayments(admin, user.id, bookingIds, process.env);
     // A captured accounting row always replaces its earlier link projection.
     const allPayments = [...(payments || []), ...pendingContextLinks.filter(link => !(payments || []).some(p => p.booking_id === link.booking_id))];
+    const buyerLinks=new Map<string,string>();
+    const providerSessions=unique(allPayments.map(p=>p.stripe_checkout_session_id as string|null));
+    if(process.env.DISCOVER_V4_ENABLED==='true'&&providerSessions.length){
+      const {data:links,error:linkError}=await admin.from('discover_checkout_links_v1').select('id,provider_session_id')
+        .eq('creator_id',user.id).in('provider_session_id',providerSessions);
+      if(linkError)throw linkError;
+      for(const link of links??[])buyerLinks.set(link.provider_session_id,new URL('/api/checkout-link/'+link.id,getSiteUrl()).toString());
+    }
     const closerIds = unique(allPayments.map((p: any) => p?.closer_user_id));
     const { data: closerProfiles, error: closersError } = closerIds.length
       ? await admin
@@ -186,6 +195,7 @@ export async function GET(req: NextRequest) {
       const list = paymentsByBooking.get(payment.booking_id) || [];
       list.push({
         ...payment,
+        ...(buyerLinks.has(payment.stripe_checkout_session_id as string)?{buyer_checkout_url:buyerLinks.get(payment.stripe_checkout_session_id as string)}:{}),
         closer_profile: payment.closer_user_id ? closerMap.get(payment.closer_user_id) ?? null : null,
       });
       paymentsByBooking.set(payment.booking_id, list);
