@@ -691,6 +691,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
                 {isMounted ? (
                   <VideoCard
+                    activeTab={activeTab}
                     onInteractionChange={handleInteractionChange}
                     onFirstFrame={!desktop ? handleFirstFrame : undefined}
                     prepareFrame={!desktop && pageVisible && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1 && readyPostId === activePostId)}
