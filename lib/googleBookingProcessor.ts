@@ -82,6 +82,7 @@ export async function processGoogleBookingOperation(job: GoogleBookingOperation,
   if (job.action === "create" && existing) throw new Error("Existing event differs from the reservation");
   if (job.action === "reschedule" && (!existing || !reservation.eventEtag || existing.etag !== reservation.eventEtag))
     throw new Error("Calendar booking changed externally; reconcile before rescheduling");
+  if (Date.parse(start) <= ports.now()) throw new Error("Reserved time has already passed; choose a new time");
   await ports.assertAvailable(reservation, start, end);
   await guard();
   const result = job.action === "create" ? await ports.createEvent(reservation) : await ports.rescheduleEvent(reservation, start, end);

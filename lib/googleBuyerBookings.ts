@@ -2,7 +2,7 @@ import "server-only";
 import { supabaseAdmin as db } from "@/lib/supabaseAdmin";
 import { authorizeGoogleBooking, type GoogleBookingIntent, type GoogleBookingAccess } from "@/lib/googleBookingAccess";
 import { googleConnectionAccessToken } from "@/lib/googleCalendarConnection";
-import { getGoogleBusyIntervals } from "@/lib/googleCalendarProvider";
+import { getGoogleBusyIntervals,getGoogleBusyIntervalsExcludingEvent,getGoogleBookingEvent } from "@/lib/googleCalendarProvider";
 import { availableBookingSlots, validateBookingAvailability, type BookingAvailability, type BookingInterval } from "@/lib/bookingAvailability";
 
 type Settings = { calendar_id:string; conflict_calendar_ids:string[]; availability:BookingAvailability; title:string };
@@ -57,5 +57,44 @@ export async function cancelGoogleBuyerBooking(id:string,buyer:string,revision:n
   if(!reservation)throw new Error("Booking not found");
   const queued=await db.rpc("request_google_booking_change_v1",{p_id:id,p_buyer:buyer,p_revision:revision,p_action:"cancel"});
   if(queued.error)throw new Error("Could not request cancellation. Refresh your booking and try again.");
+  return readGoogleBuyerReservation(id,buyer);
+}
+
+async function rescheduleOptions(id:string,buyer:string,range:BookingInterval) {
+  const from=Date.parse(range.start),to=Date.parse(range.end);
+  if(!Number.isFinite(from)||!Number.isFinite(to)||to<=from||to-from>7*86400000)throw new Error("Choose up to seven days of availability");
+  const result=await db.from("google_booking_reservations_v1").select("*").eq("id",id).eq("buyer_id",buyer).maybeSingle();
+  const row=result.data;
+  if(result.error||!row||row.status!=="confirmed"||Date.parse(row.starts_at)<=Date.now())throw new Error("This booking cannot be rescheduled");
+  if(row.purchase_id)await authorizeGoogleBooking(row.connection_id,buyer,{purchaseId:row.purchase_id});
+  const config=await settings(row.connection_id);
+  if(config.calendar_id!==row.calendar_id)throw new Error("The booking calendar changed");
+  const token=await googleConnectionAccessToken(row.connection_id);
+  const event=await getGoogleBookingEvent(token,row.calendar_id,id);
+  if(event.id!==row.event_id||event.etag!==row.event_etag||event.status!=="confirmed")throw new Error("The booking changed in Google Calendar. Refresh it before rescheduling.");
+  const expanded={start:new Date(from-4*3600000).toISOString(),end:new Date(to+4*3600000).toISOString()};
+  const local=await db.rpc("google_reserved_intervals_v1",{p_connection:row.connection_id,p_start:expanded.start,p_end:expanded.end,p_exclude:id});
+  if(local.error||!Array.isArray(local.data))throw new Error("Could not check reserved times");
+  const busy=await getGoogleBusyIntervalsExcludingEvent(token,row.calendar_id,config.conflict_calendar_ids,expanded,row.event_id);
+  const policy={...config.availability,durationMinutes:(Date.parse(row.ends_at)-Date.parse(row.starts_at))/60000,
+    bufferBeforeMinutes:row.buffer_before_minutes,bufferAfterMinutes:row.buffer_after_minutes};
+  return {config,row,slots:availableBookingSlots(policy,range,[...local.data,...busy])};
+}
+export async function getGoogleRescheduleOptions(id:string,buyer:string,range:BookingInterval) {
+  const result=await rescheduleOptions(id,buyer,range);
+  return {title:result.config.title,timeZone:result.config.availability.timeZone,revision:Number(result.row.revision),slots:result.slots};
+}
+export async function rescheduleGoogleBuyerBooking(id:string,buyer:string,revision:number,start:string,end:string) {
+  if(!Number.isSafeInteger(revision)||revision<0)throw new Error("Refresh the booking before rescheduling");
+  const prior=await db.from("google_booking_reservations_v1").select("status,revision,starts_at,ends_at,desired_starts_at,desired_ends_at").eq("id",id).eq("buyer_id",buyer).maybeSingle();
+  if(prior.error||!prior.data)throw new Error("Booking not found");
+  const r=prior.data;
+  if(Number(r.revision)===revision+1 &&
+    ((r.status==='rescheduling'&&Date.parse(r.desired_starts_at)===Date.parse(start)&&Date.parse(r.desired_ends_at)===Date.parse(end))||
+     (r.status==='confirmed'&&Date.parse(r.starts_at)===Date.parse(start)&&Date.parse(r.ends_at)===Date.parse(end))))return readGoogleBuyerReservation(id,buyer);
+  const result=await rescheduleOptions(id,buyer,{start,end});
+  if(Number(result.row.revision)!==revision||!result.slots.some(slot=>Date.parse(slot.start)===Date.parse(start)&&Date.parse(slot.end)===Date.parse(end)))throw new Error("That booking or time changed. Refresh available times.");
+  const queued=await db.rpc("reschedule_google_booking_checked_v1",{p_id:id,p_buyer:buyer,p_revision:revision,p_start:start,p_end:end,p_policy:result.config.availability});
+  if(queued.error)throw new Error("Could not request the new time. Refresh your booking and try again.");
   return readGoogleBuyerReservation(id,buyer);
 }

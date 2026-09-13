@@ -1,7 +1,7 @@
 import { GoogleCalendarError, GOOGLE_CALENDAR_SCOPES, googleCalendarAuthorizationUrl, exchangeGoogleCalendarToken,
   getGoogleBusyIntervals, googleBookingEventId, createGoogleBookingEvent, changeGoogleBookingEvent,
   cancelGoogleBookingEvent, verifyGoogleCalendarNotification, startGoogleCalendarWatch, listGoogleCalendars,
-  readGoogleCalendarChanges, getGoogleBookingEvent, assertGoogleBookingTimeAvailable,
+  getGoogleBusyIntervalsExcludingEvent, readGoogleCalendarChanges, getGoogleBookingEvent, assertGoogleBookingTimeAvailable,
 } from "@/lib/googleCalendarProvider";
 const originalFetch = global.fetch;
 const fetchMock = jest.fn();
@@ -160,4 +160,20 @@ test("an event edited after processor inspection cannot be overwritten", async (
   reply({ ...booking(), etag: "new-version" });
   await expect(changeGoogleBookingEvent("token", "primary", bookingId, { ...interval, timeZone: "UTC" }, "old-version")).rejects.toMatchObject({ status: 412 });
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+
+test("rescheduling excludes only its own event and retains overlaps on later pages",async()=>{
+  reply({timeZone:'UTC',items:[{id:'own',start:{dateTime:interval.start},end:{dateTime:interval.end}}],nextPageToken:'next'});
+  reply({timeZone:'UTC',items:[{id:'other',start:{dateTime:interval.start},end:{dateTime:interval.end}}]});
+  expect(await getGoogleBusyIntervalsExcludingEvent('token','primary',['primary'],interval,'own')).toEqual([interval]);
+});
+test("all-day conflicts use the calendar's 25-hour fall-back day",async()=>{
+  reply({timeZone:'America/New_York',items:[{id:'holiday',start:{date:'2026-11-01'},end:{date:'2026-11-02'}}]});
+  expect(await getGoogleBusyIntervalsExcludingEvent('token','primary',['primary'],{start:'2026-11-01T00:00:00Z',end:'2026-11-03T00:00:00Z'},'own'))
+    .toEqual([{start:'2026-11-01T04:00:00.000Z',end:'2026-11-02T05:00:00.000Z'}]);
+});
+test("unreadable event intervals cannot be treated as free time",async()=>{
+  reply({timeZone:'UTC',items:[{id:'hidden'}]});
+  await expect(getGoogleBusyIntervalsExcludingEvent('token','primary',['primary'],interval,'own')).rejects.toThrow(/Invalid calendar interval/);
 });

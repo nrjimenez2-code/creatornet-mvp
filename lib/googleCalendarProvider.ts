@@ -236,3 +236,36 @@ export function verifyGoogleCalendarNotification(headers: Headers, watch: Google
     headers.get("x-goog-channel-id") === watch.id && headers.get("x-goog-resource-id") === watch.resourceId &&
     Number(watch.expiration) > now && ["sync", "exists", "not_exists"].includes(headers.get("x-goog-resource-state") ?? "");
 }
+/** Resolve an all-day boundary in the calendar's zone, including 23/25-hour days. */
+function calendarDateStart(date:string,timeZone:string):string {
+  const approximate=Date.parse(`${date}T00:00:00Z`);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(approximate)||new Date(approximate).toISOString().slice(0,10)!==date)throw new Error("Invalid calendar date");
+  const formatter=new Intl.DateTimeFormat("en-US",{timeZone,calendar:"gregory",year:"numeric",month:"2-digit",day:"2-digit"});
+  const day=(instant:number)=>{const p=Object.fromEntries(formatter.formatToParts(instant).map(value=>[value.type,value.value]));return `${p.year}-${p.month}-${p.day}`;};
+  let low=approximate-36*3600000,high=approximate+36*3600000;
+  while(low<high){const mid=Math.floor((low+high)/2);if(day(mid)<date)low=mid+1;else high=mid;}
+  if(day(low)!==date)throw new Error("Calendar date does not exist in this time zone");
+  return new Date(low).toISOString();
+}
+export async function getGoogleBusyIntervalsExcludingEvent(token:string,calendar:string,calendars:string[],interval:CalendarInterval,ownEventId:string):Promise<CalendarInterval[]> {
+  validateInterval(interval);
+  if(!ownEventId||!calendars.includes(calendar))throw new Error("Invalid booking calendar");
+  const others=calendars.filter(id=>id!==calendar);
+  const busy=others.length?await getGoogleBusyIntervals(token,others,interval):[];
+  let cursor="",zone="";const seen=new Set<string>();const deadline=Date.now()+40000;
+  for(let page=0;page<100;page++){
+    if(Date.now()>deadline)throw new Error("Calendar availability check timed out");
+    const query=new URLSearchParams({timeMin:interval.start,timeMax:interval.end,singleEvents:"true",showDeleted:"false",maxResults:"250",...(cursor?{pageToken:cursor}:{})});
+    const result=await calendarRequest<{timeZone:string;nextPageToken?:string;items?:{id:string;status?:string;transparency?:string;start?:{dateTime?:string;date?:string};end?:{dateTime?:string;date?:string}}[]}>(token,`/calendars/${encodeURIComponent(calendar)}/events?${query}`);
+    if(!result.timeZone||(zone&&zone!==result.timeZone))throw new Error("Calendar time zone changed");zone=result.timeZone;
+    for(const event of result.items??[]){
+      if(event.id===ownEventId||event.status==="cancelled"||event.transparency==="transparent")continue;
+      const start=event.start?.dateTime??(event.start?.date?calendarDateStart(event.start.date,zone):"");
+      const end=event.end?.dateTime??(event.end?.date?calendarDateStart(event.end.date,zone):"");
+      validateInterval({start,end});busy.push({start,end});
+    }
+    cursor=result.nextPageToken??"";if(!cursor)return busy;
+    if(seen.has(cursor))throw new Error("Repeated calendar cursor");seen.add(cursor);
+  }
+  throw new Error("Calendar availability response too large");
+}

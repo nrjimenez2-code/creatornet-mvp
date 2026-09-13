@@ -1,11 +1,11 @@
 import {createMockClient,type MockClient} from "./__mocks__/supabaseQueryMock";
 let db:MockClient, local:unknown[], reservation:Record<string,unknown>|null;
-const authorize=jest.fn(),busy=jest.fn();
+const authorize=jest.fn(),busy=jest.fn(),event=jest.fn(),excluding=jest.fn();
 jest.mock("@/lib/supabaseAdmin",()=>({get supabaseAdmin(){return db;}}));
 jest.mock("@/lib/googleBookingAccess",()=>({authorizeGoogleBooking:(...args:unknown[])=>authorize(...args)}));
 jest.mock("@/lib/googleCalendarConnection",()=>({googleConnectionAccessToken:async()=>"token"}));
-jest.mock("@/lib/googleCalendarProvider",()=>({getGoogleBusyIntervals:(...args:unknown[])=>busy(...args)}));
-import {submitGoogleBooking,getGoogleBookingOptions,cancelGoogleBuyerBooking} from "@/lib/googleBuyerBookings";
+jest.mock("@/lib/googleCalendarProvider",()=>({getGoogleBusyIntervals:(...args:unknown[])=>busy(...args),getGoogleBookingEvent:()=>event(),getGoogleBusyIntervalsExcludingEvent:(...args:unknown[])=>excluding(...args)}));
+import {submitGoogleBooking,getGoogleBookingOptions,cancelGoogleBuyerBooking,getGoogleRescheduleOptions,rescheduleGoogleBuyerBooking} from "@/lib/googleBuyerBookings";
 const start="2026-10-01T10:00:00.000Z",end="2026-10-01T10:30:00.000Z";
 const policy={timeZone:"UTC",durationMinutes:30,stepMinutes:30,leadMinutes:0,horizonDays:30,bufferBeforeMinutes:0,bufferAfterMinutes:0,windows:[{weekday:4,startMinute:540,endMinute:1020}]};
 beforeEach(()=>{
@@ -46,4 +46,19 @@ test("a missing or another buyer's booking cannot enqueue cancellation",async()=
   await expect(cancelGoogleBuyerBooking('reservation','buyer',0)).rejects.toThrow(/not found/);
   expect(db.opsFor('request_google_booking_change_v1')).toHaveLength(0);
   expect(db.opsFor('google_booking_reservations_v1')[0].filters).toEqual({id:'reservation',buyer_id:'buyer'});
+});
+
+
+test("reschedule options exclude the saved event while preserving its original duration",async()=>{
+  reservation={id:'reservation',connection_id:'connection',calendar_id:'primary',status:'confirmed',starts_at:start,ends_at:end,revision:0,event_id:'event',event_etag:'etag',purchase_id:null,buffer_before_minutes:0,buffer_after_minutes:0};
+  event.mockResolvedValue({id:'event',etag:'etag',status:'confirmed'});excluding.mockResolvedValue([]);
+  const result=await getGoogleRescheduleOptions('reservation','buyer',{start,end});
+  expect(result.slots).toEqual([{start,end}]);expect(excluding).toHaveBeenCalledWith('token','primary',['primary'],expect.anything(),'event');
+  event.mockResolvedValue({id:'event',etag:'changed',status:'confirmed'});
+  await expect(getGoogleRescheduleOptions('reservation','buyer',{start,end})).rejects.toThrow(/changed in Google/);
+});
+test("retry of an accepted move returns its current state without a second calendar read",async()=>{
+  reservation={id:'reservation',status:'rescheduling',revision:1,starts_at:start,ends_at:end,desired_starts_at:'2026-10-01T11:00:00Z',desired_ends_at:'2026-10-01T11:30:00Z'};
+  await rescheduleGoogleBuyerBooking('reservation','buyer',0,'2026-10-01T11:00:00Z','2026-10-01T11:30:00Z');
+  expect(event).not.toHaveBeenCalled();expect(db.opsFor('reschedule_google_booking_checked_v1')).toHaveLength(0);
 });

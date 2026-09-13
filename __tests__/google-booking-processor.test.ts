@@ -63,3 +63,5 @@ test("already deleted event completes cancellation without sending another reque
   await processGoogleBookingOperation(job, ports);
   expect(ports.cancelEvent).not.toHaveBeenCalled(); expect(ports.complete).toHaveBeenCalledWith(job, null);
 });
+
+test("delayed work cannot create a new event for a time that has already passed",async()=>{ports.now=()=>Date.parse('2026-10-01T11:00:00Z');job.leaseUntil='2026-10-01T11:30:00Z';await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow(/already passed/);expect(ports.createEvent).not.toHaveBeenCalled();});

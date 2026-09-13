@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google rescheduling API checkpoint
+
+Rescheduling now has owner-scoped availability and submission APIs under /api/scheduling/google/reservations/[reservation]/times. Availability reads the current event and rejects external version changes, excludes only the saved event ID, retains other overlapping events through all result pages, and resolves all-day boundaries in the calendar’s timezone (including DST). It preserves the original appointment duration and buffers while using current weekly hours. Purchased calls recheck their paid entitlement. An already accepted matching move returns its current status instead of queueing another operation.
+
+Migration `20260913230334_google_booking_reschedule_admission.sql` rejects changed policies/expired watches and already-started bookings, then delegates to the existing atomic old/new-time reservation lifecycle. The generic processor also refuses new calendar mutations whose target time passed while queued; already-applied remote operations can still be reconciled. Permanent failures and expired operation recovery still need a complete resolution flow, not indefinite retries.
+
+Validation: four selected suites passed 56 tests covering provider availability, PostgreSQL reservations, buyer service and processor decisions. TypeScript passed after the final passed-time guard. Official event-list behavior was checked at https://developers.google.com/workspace/calendar/api/v3/reference/events/list . No live provider, browser or deployment was tested.
+
+Next: connect these rescheduling APIs to the buyer UI and include native Google bookings in the Bookings list; then complete background calendar-change reconciliation, renewals and retired/unknown channel cleanup. Remaining acceptance includes concrete service/route integration, ambiguous/permanent failures, live account configuration and calendar/payment workflows, ranking pilot, representative performance, PR review and production rollout. Keep the full goal active.
+
 ### Google buyer page and recurring worker checkpoint
 
 The native /scheduling/book/[connection] page now loads authenticated availability, accepts an explicit time selection, submits the stable booking intent and polls an owner-scoped reservation endpoint. The saved URL includes the reservation ID so reopening a confirmed booking does not repeat Stripe/setup checks or depend on the source video remaining public. Sign-in uses the existing /auth return-path mechanism. The UI distinguishes pending requests from Google-confirmed bookings and supports an explicit cancellation confirmation; cancellation queues the existing durable operation and retains pending status until provider confirmation. Status reads never release credentials, provider event IDs or another buyer’s booking.

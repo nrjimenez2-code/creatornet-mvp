@@ -11,7 +11,7 @@ beforeAll(async () => {
   db = createLocalPostgres();
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     create table profiles(id uuid primary key); insert into profiles values('${creator}'),('${buyer}');`);
-  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql", "20260913225146_google_booking_admission.sql"])
+  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql", "20260913225146_google_booking_admission.sql", "20260913230334_google_booking_reschedule_admission.sql"])
     await db.exec(readFileSync("supabase/migrations/" + migration, "utf8"));
   await db.query(`insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,
     webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','account','encrypted','channel','encrypted',now()+interval '1 hour')`, [connection, creator]);
@@ -167,4 +167,12 @@ test("occupied intervals include pending moves and arrive in a single JSON value
   const result=await db.query<{ranges:unknown[]}>("select google_reserved_intervals_v1($1,now(),now()+interval '4 days') ranges",[connection]);
   expect(result.rows[0].ranges).toHaveLength(2);
   expect((await db.query<{ranges:unknown[]}>("select google_reserved_intervals_v1($1,now(),now()+interval '4 days',$2) ranges",[connection,booking])).rows[0].ranges).toHaveLength(0);
+});
+
+
+test("reschedule admission rejects changed settings and keeps the old time until confirmation",async()=>{
+  await confirmInitial();await setupLease();await configure();
+  await expect(db.query("select reschedule_google_booking_checked_v1($1,$2,0,starts_at+interval '1 hour',ends_at+interval '1 hour','{}') from google_booking_reservations_v1 where id=$1",[booking,buyer])).rejects.toThrow(/settings changed/);
+  await db.query("select reschedule_google_booking_checked_v1($1,$2,0,r.starts_at+interval '1 hour',r.ends_at+interval '1 hour',s.availability) from google_booking_reservations_v1 r join google_booking_settings_v1 s on s.connection_id=r.connection_id where r.id=$1",[booking,buyer]);
+  await expect(reserve(another,0)).rejects.toThrow(/no longer available/);await expect(reserve(another,60)).rejects.toThrow(/no longer available/);
 });
