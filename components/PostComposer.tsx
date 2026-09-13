@@ -3,6 +3,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { normalizeTopics } from "@/lib/interestTopics";
+import { INTEREST_LABELS, normalizeInterests } from "@/lib/interestCategories";
 import { useUser } from "@/lib/useUser";
 import { extractHashtags } from "@/lib/hashtags";
 import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
@@ -14,16 +16,7 @@ import { MONTHLY_MENTORSHIP_VERSION, MAX_MEMBERSHIP_MINIMUM_MONTHS, describeMont
 /* Constants / types                                                  */
 /* ------------------------------------------------------------------ */
 
-const FALLBACK_TAGS = [
-  "Entrepreneurship",
-  "Money & Investing",
-  "Social Media Growth",
-  "Content Creation",
-  "Online Skills",
-  "Health & Fitness",
-  "Self Improvement",
-  "Tech & AI Automation",
-] as const;
+const FALLBACK_TAGS = INTEREST_LABELS;
 
 type Tag = (typeof FALLBACK_TAGS)[number];
 
@@ -329,7 +322,8 @@ export default function PostComposer({ onPosted }: Props) {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [priceDollars, setPriceDollars] = useState<string>("");
-  const [selectedTag, setSelectedTag] = useState<Tag | null>(null);
+  const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
+  const [topicInput, setTopicInput] = useState("");
 
   // Product attach
   const [products, setProducts] = useState<Product[]>([]);
@@ -361,7 +355,7 @@ export default function PostComposer({ onPosted }: Props) {
   const [premiumFile, setPremiumFile] = useState<File | null>(null); // private
 
   // UI state
-  const [myTags, setMyTags] = useState<Tag[]>([]);
+  const myTags = FALLBACK_TAGS;
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -373,22 +367,6 @@ export default function PostComposer({ onPosted }: Props) {
 
   // Derived: hashtags from caption (kept up to date as you type)
   const hashtags = useMemo(() => extractHashtags(caption), [caption]);
-
-  // Load interests (identity comes from the useUser context)
-  useEffect(() => {
-    (async () => {
-      const { data: prof, error } = await supabase
-        .from("profiles")
-        .select("interests")
-        .limit(1);
-
-      const interests =
-        !error && Array.isArray(prof?.[0]?.interests)
-          ? (prof![0]!.interests as Tag[])
-          : [];
-      setMyTags(interests.length ? interests : [...FALLBACK_TAGS]);
-    })();
-  }, [supabase]);
 
   // Fetch creator products once user is available (session ready)
   useEffect(() => {
@@ -448,11 +426,11 @@ export default function PostComposer({ onPosted }: Props) {
     () =>
       !!userId &&
       !!videoFile &&
-      !!selectedTag &&
+      selectedTags.length > 0 &&
       chars > 0 &&
       chars <= 300 &&
       (!attachBooking || bookingRaw === "" || !!bookingNormalized),
-    [userId, videoFile, selectedTag, chars, attachBooking, bookingRaw, bookingNormalized]
+    [userId, videoFile, selectedTags, chars, attachBooking, bookingRaw, bookingNormalized]
   );
 
   async function handleCreateProduct() {
@@ -504,7 +482,7 @@ export default function PostComposer({ onPosted }: Props) {
   }
 
   async function handlePost() {
-    if (!userId || !videoFile || !selectedTag) return;
+    if (!userId || !videoFile || selectedTags.length === 0) return;
 
     // If a non-empty URL is provided but invalid, block with an inline error.
     if (attachBooking && bookingRaw !== "" && !bookingNormalized) {
@@ -572,7 +550,8 @@ export default function PostComposer({ onPosted }: Props) {
           video_url,
           poster_url,
           premium_path,
-          interests: [selectedTag],
+          interests: normalizeInterests(selectedTags),
+          topics: normalizeTopics(topicInput.split(",")),
           product_id: postProductId,
           price_cents,
           allow_booking: !!attachBooking,
@@ -599,7 +578,8 @@ export default function PostComposer({ onPosted }: Props) {
       setVideoFile(null);
       setThumbFile(null);
       setPremiumFile(null);
-      setSelectedTag(null);
+      setSelectedTags([]);
+      setTopicInput("");
       setProductId(null);
       setAttachBuy(false);
       setAttachBooking(false);
@@ -865,12 +845,13 @@ export default function PostComposer({ onPosted }: Props) {
       {/* Tags */}
       <div className="mt-4 flex flex-wrap gap-2">
         {myTags.map((t) => {
-          const active = t === selectedTag;
+          const active = selectedTags.includes(t);
           return (
             <button
               key={t}
               type="button"
-              onClick={() => setSelectedTag((prev) => (prev === t ? null : t))}
+              aria-pressed={active}
+              onClick={() => setSelectedTags(prev => prev.includes(t) ? prev.filter(tag => tag !== t) : [...prev, t])}
               className={`px-3 py-1.5 rounded-full text-sm border transition ${
                 active
                   ? "bg-[#4A35C7] text-white border-[#4A35C7]"
@@ -882,6 +863,13 @@ export default function PostComposer({ onPosted }: Props) {
           );
         })}
       </div>
+
+      <label className="mt-4 block text-sm text-white/80">
+        Specific topics (optional, separated by commas)
+        <input value={topicInput} onChange={e => setTopicInput(e.target.value)} maxLength={400}
+          placeholder="ecommerce, Shopify, mentorship"
+          className="mt-2 w-full rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-white" />
+      </label>
 
       {/* Uploaders */}
       <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">

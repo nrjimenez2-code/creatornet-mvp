@@ -3,6 +3,12 @@ import posthog from "posthog-js";
 
 const CATEGORY_MAP: Record<string, string> = {
   // onboarding display names
+  "business & entrepreneurship": "business",
+  "content creation & marketing": "content_creation",
+  "technology & ai": "tech",
+  "personal growth & relationships": "self_improvement",
+  "arts, design & hobbies": "creative",
+  "education & career skills": "skills",
   entrepreneurship: "business",
   "money & investing": "money",
   "social media growth": "content_creation",

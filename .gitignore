@@ -62,3 +62,11 @@ supabase/*
 # Keep the committed schema snapshot. Before it, the schema existed only in the live
 # database, with no migration history and nothing to diff a proposed change against.
 !supabase/schema/
+
+# Reviewed Discover migration package; generated CLI state stays ignored.
+!supabase/migrations/
+supabase/migrations/*
+!supabase/migrations/20260913004646_discover_taxonomy.sql
+!supabase/migrations/20260913005126_discover_events_and_sessions.sql
+!supabase/migrations/20260913010141_discover_verified_sales.sql
+!supabase/migrations/20260913011108_discover_eligibility_and_measurement.sql

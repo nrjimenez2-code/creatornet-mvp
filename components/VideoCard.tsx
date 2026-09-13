@@ -21,7 +21,8 @@ import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { feedMediaUrl, feedPosterUrl, feedAdaptiveUrl } from "@/lib/feedMedia";
 import { usePageVisible, useDesktopViewport } from "@/lib/browserVisibility";
-import { scheduleFeedTelemetry } from "@/lib/feedBackground";
+import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
+import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 
 type VideoCardProps = {
@@ -364,7 +365,7 @@ function VideoCard(props: VideoCardProps) {
   // Declare stable analytics callbacks before the effects/handlers that use them.
   const scoreInterest = useCallback((delta: number) => {
     const pid = postIdRef.current;
-    if (!pid) return;
+    if (!pid || hasDiscoverSession(pid)) return;
     fetch("/api/interest-score", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -556,72 +557,59 @@ function VideoCard(props: VideoCardProps) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-
-    const handleTimeUpdate = () => {
-      if (activeRef.current === false) return;
-      if (!video.duration) return;
-      const pct = (video.currentTime / video.duration) * 100;
-      if (progressBarRef.current) progressBarRef.current.style.transform = `scaleX(${pct / 100})`;
-      if (pct >= 50 && !hasTracked50Ref.current) {
-        hasTracked50Ref.current = true;
-        scoreInterest(2);
-      }
-      if (pct >= 90 && !hasTrackedCompleteRef.current) {
-        hasTrackedCompleteRef.current = true;
-        trackEvent("video_completed", {
-          post_id: postIdRef.current,
-          creator_id: creatorIdRef.current,
-          category: categoryRef.current,
-          percent_watched: Math.round(pct),
-          watch_time_seconds: Math.round(video.currentTime),
-        });
-        scoreInterest(3);
-        trackMetric("completions", Math.round(video.currentTime));
+    const watch = new QualifiedWatch();
+    const pid = postIdRef.current;
+    let lastSent = 0;
+    let started = false;
+    const flush = () => {
+      if (pid && watch.seconds > lastSent) {
+        sendDiscoverEvent(pid, "watch", watch.seconds - lastSent);
+        lastSent = watch.seconds;
       }
     };
-
+    const handleTimeUpdate = () => {
+      const eligible = activeRef.current !== false && !document.hidden && !video.paused && !video.seeking && video.readyState >= 2;
+      const seconds = watch.sample(performance.now(), video.currentTime, eligible, video.playbackRate);
+      if (!eligible || !Number.isFinite(video.duration) || video.duration <= 0) return;
+      if (progressBarRef.current) progressBarRef.current.style.transform = `scaleX(${video.currentTime / video.duration})`;
+      if (!hasTrackedViewRef.current && seconds >= qualifiedThreshold(video.duration)) {
+        hasTrackedViewRef.current = true;
+        trackEvent("video_viewed", {post_id:pid,creator_id:creatorIdRef.current,watch_time_seconds:seconds,qualified:true});
+        if (!pid || !hasDiscoverSession(pid)) { scoreInterest(1); trackMetric("views", seconds); }
+      }
+      if (!hasTrackedCompleteRef.current && seconds >= video.duration * 0.9) {
+        hasTrackedCompleteRef.current = true;
+        trackEvent("video_completed", {post_id:pid,creator_id:creatorIdRef.current,watch_time_seconds:seconds});
+        if (!pid || !hasDiscoverSession(pid)) { scoreInterest(3); trackMetric("completions", seconds); }
+      }
+      if (seconds-lastSent >= 5) flush();
+    };
     const handlePlay = () => {
       if (activeRef.current === false) return;
-      setIsPaused(false);
-      setPlaybackFeedback(resumeFeedbackRef.current);
-      resumeFeedbackRef.current = false;
-      if (!hasTrackedViewRef.current) {
-        hasTrackedViewRef.current = true;
-        const event = {
-          post_id: postIdRef.current,
-          creator_id: creatorIdRef.current,
-          category: categoryRef.current,
-          watch_time_seconds: Math.round(video.currentTime ?? 0),
-          percent_watched: video.duration > 0 ? Math.round((video.currentTime / video.duration) * 100) : 0,
-        };
-        const record = () => {
-          trackEvent("video_viewed", event);
-          if (!event.post_id) return;
-          // Snapshot the post before deferring: a swipe may recycle this card.
-          for (const [url, body] of [
-            ["/api/interest-score", { post_id: event.post_id, delta: 1 }],
-            ["/api/post-metrics", { post_id: event.post_id, field: "views" }],
-          ] as const) {
-            fetch(url, { method: "POST", keepalive: true,
-              headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).catch(() => {});
-          }
-        };
-        if (desktopRef.current) record();
-        else scheduleFeedTelemetry(record, video);
-      }
+      setIsPaused(false);setPlaybackFeedback(resumeFeedbackRef.current);resumeFeedbackRef.current=false;
+      if (!started && pid) { started=true;sendDiscoverEvent(pid,"exposure"); }
+      watch.resetSample();
     };
-    const handlePause = () => setIsPaused(true);
-    playbackStartedRef.current = handlePlay;
-
-    video.addEventListener("timeupdate", handleTimeUpdate);
-    video.addEventListener("play", handlePlay);
-    video.addEventListener("pause", handlePause);
-
+    const handlePause = () => {
+      setIsPaused(true);watch.resetSample();flush();
+      if(started && pid && activeRef.current===false && watch.seconds<2)sendDiscoverEvent(pid,"quick_skip");
+    };
+    const resetSample = () => {watch.resetSample();};
+    playbackStartedRef.current=handlePlay;
+    video.addEventListener("timeupdate",handleTimeUpdate);
+    video.addEventListener("play",handlePlay);
+    video.addEventListener("pause",handlePause);
+    video.addEventListener("seeking",resetSample);
+    document.addEventListener("visibilitychange",resetSample);
     return () => {
-      playbackStartedRef.current = null;
-      video.removeEventListener("timeupdate", handleTimeUpdate);
-      video.removeEventListener("play", handlePlay);
-      video.removeEventListener("pause", handlePause);
+      flush();
+      if (started && pid && watch.seconds < 2) sendDiscoverEvent(pid,"quick_skip");
+      playbackStartedRef.current=null;
+      video.removeEventListener("timeupdate",handleTimeUpdate);
+      video.removeEventListener("play",handlePlay);
+      video.removeEventListener("pause",handlePause);
+      video.removeEventListener("seeking",resetSample);
+      document.removeEventListener("visibilitychange",resetSample);
     };
   }, [scoreInterest, trackMetric, retryVersion, src]);
 
@@ -1168,6 +1156,7 @@ function VideoCard(props: VideoCardProps) {
       category: postCategory ? normalizeCategory(postCategory) : null,
     });
     scoreInterest(10);
+    if (postId) sendDiscoverEvent(postId, "product_tap");
     trackMetric("buy_clicks");
 
     if (monthlyTerms) {
@@ -1248,6 +1237,7 @@ function VideoCard(props: VideoCardProps) {
   const handleBook = useCallback(async () => {
     if (checkoutState !== "idle") return;
 
+    if (postId) sendDiscoverEvent(postId, "booking_tap");
     trackEvent("call_booking_started", {
       post_id: postIdRef.current,
       creator_id: creatorIdRef.current,
@@ -1405,6 +1395,12 @@ function VideoCard(props: VideoCardProps) {
         tabIndex={0}
       >
 
+      {postId && props.activeTab === "discover" && hasDiscoverSession(postId) && (
+        <button type="button" className="absolute right-3 top-14 z-30 rounded-full bg-black/60 px-3 py-2 text-xs text-white"
+          onClick={() => { sendDiscoverEvent(postId, "not_interested"); props.onFeedDeleted?.(postId); }}>
+          Not interested
+        </button>
+      )}
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
       <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]" style={{ borderRadius: "16px 16px 0 0" }}>
 

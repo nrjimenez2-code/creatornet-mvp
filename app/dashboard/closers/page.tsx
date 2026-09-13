@@ -27,6 +27,7 @@ type BookingPayment = {
   installment_months: number | null;
   status: string;
   link_url: string | null;
+  buyer_checkout_url?: string | null;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
   stripe_subscription_id: string | null;
@@ -676,13 +677,13 @@ export default function ClosersManagerPage() {
                                 {payment.link_url ? (
                                   <>
                                     <button
-                                      onClick={() => copyToClipboard(payment.link_url)}
+                                      onClick={() => copyToClipboard(payment.buyer_checkout_url || payment.link_url)}
                                       className="rounded-full border border-white/40 px-3 py-1 text-xs text-white"
                                     >
                                       Copy
                                     </button>
                                     <a
-                                      href={payment.link_url}
+                                      href={payment.buyer_checkout_url || payment.link_url}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-xs text-blue-200 underline"

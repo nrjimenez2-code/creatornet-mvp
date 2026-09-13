@@ -2,6 +2,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
+import { attributedBookingUrl } from "@/lib/discoverBookings";
 
 /**
  * Server-only Supabase credentials.
@@ -30,6 +31,14 @@ export async function GET(req: Request) {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
       auth: { persistSession: false },
     });
+    let attribution:string|null=null;
+    const token=searchParams.get('cn_attribution');
+    if(process.env.DISCOVER_V4_ENABLED==='true' && token && /^[a-f0-9-]{36}$/.test(token)){
+      const {data:a,error}=await admin.from('discover_booking_attribution_v1').select('id')
+        .eq('id',token).eq('creator_id',creatorId).eq('post_id',postId).maybeSingle();
+      if(!error&&a)attribution=a.id;
+    }
+    const redirect=(raw:string)=>NextResponse.redirect(attributedBookingUrl(raw,attribution),302);
 
     /** 1) If a specific post is provided, prefer its explicit booking_url */
     if (postId) {
@@ -40,7 +49,7 @@ export async function GET(req: Request) {
         .single();
 
       if (!postErr && isHttpUrl(post?.booking_url)) {
-        return NextResponse.redirect(post.booking_url, 302);
+        return redirect(post.booking_url);
       }
     }
 
@@ -55,7 +64,7 @@ export async function GET(req: Request) {
       const record = Array.isArray(rpcData) ? rpcData[0] : rpcData;
 
       if (!rpcErr && record && isHttpUrl(record.booking_url)) {
-        return NextResponse.redirect(record.booking_url, 302);
+        return redirect(record.booking_url);
       }
     } catch {
       // If the RPC doesn't exist yet or fails, fall through to the legacy path
@@ -73,7 +82,7 @@ export async function GET(req: Request) {
     if (!closerErr && closerRows?.length) {
       const url = closerRows[0]?.booking_url;
       if (isHttpUrl(url)) {
-        return NextResponse.redirect(url, 302);
+        return redirect(url);
       }
     }
 

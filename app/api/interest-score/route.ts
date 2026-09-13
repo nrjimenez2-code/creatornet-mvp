@@ -1,3 +1,4 @@
+import { discoverEnabled } from "@/lib/discoverServer";
 // app/api/interest-score/route.ts
 // Called from client components (VideoCard) to update user interest scores
 import { NextRequest, NextResponse } from "next/server";
@@ -21,6 +22,7 @@ function supabaseAdmin() {
 }
 
 export async function POST(req: NextRequest) {
+  if (discoverEnabled()) return NextResponse.json({ ok: true, ignored: true });
   try {
     const { post_id, delta, category: categoryOverride } = (await req.json()) as {
       post_id?: string;

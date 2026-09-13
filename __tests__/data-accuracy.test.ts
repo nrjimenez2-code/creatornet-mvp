@@ -18,21 +18,16 @@ import {
 describe("interest categories", () => {
   test("the eight onboarding interests, lowercased, are the whole list", () => {
     expect([...INTEREST_CATEGORIES]).toEqual([
-      "entrepreneurship",
-      "money & investing",
-      "social media growth",
-      "content creation",
-      "online skills",
-      "health & fitness",
-      "self improvement",
-      "tech & ai automation",
+      "business & entrepreneurship", "money & investing", "content creation & marketing",
+      "technology & ai", "health & fitness", "personal growth & relationships",
+      "arts, design & hobbies", "education & career skills",
     ]);
   });
 
   test("onboarding display names normalise to the stored form", () => {
     expect(toInterestCategory("Money & Investing")).toBe("money & investing");
-    expect(toInterestCategory("  Self Improvement ")).toBe("self improvement");
-    expect(toInterestCategory("TECH & AI   AUTOMATION")).toBe("tech & ai automation");
+    expect(toInterestCategory("  Self Improvement ")).toBe("personal growth & relationships");
+    expect(toInterestCategory("TECH & AI   AUTOMATION")).toBe("technology & ai");
   });
 
   test("anything else is rejected, not stored", () => {

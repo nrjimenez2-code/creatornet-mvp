@@ -11,6 +11,17 @@ jest.mock("@/lib/supabaseClient", () => ({ createClient: () => ({ rpc: (...args:
 jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: viewerId, loading: false }) }));
 jest.mock("@/lib/posthog", () => ({ trackEvent: jest.fn(), normalizeCategory: (v: unknown) => v }));
 jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: any) => { cardProps.set(props.postId, props); return createElement("div", { "data-card": props.postId, "data-props": JSON.stringify(props) }); } }));
+// Keep the existing UI fixtures while moving their transport to the session API.
+// Dedicated discover API tests verify real HTTP paging and session ownership.
+jest.mock("@/lib/discoverClient", () => ({
+  rememberDiscoverSession: jest.fn(),
+  fetchDiscoverPage: async (tab: string, offset: number, limit: number) => {
+    const { data, error } = await rpc("get_feed_v3", {p_tab:tab,p_offset:offset,p_limit:limit});
+    if (error) throw new Error(error.message);
+    const items = Array.isArray(data) ? data : [];
+    return {items,session:"test-session",nextOffset:offset+items.length,hasMore:items.length>=limit};
+  },
+}));
 import FeedList from "@/components/FeedList";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let observe: (entries: any[]) => void;

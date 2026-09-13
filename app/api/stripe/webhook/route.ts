@@ -1,3 +1,4 @@
+import { recordBookingSetup } from "@/lib/discoverBookings";
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
@@ -1523,6 +1524,7 @@ export async function POST(req: NextRequest) {
         // Free booking flow (setup mode)
         if (session.mode === "setup") {
           console.log("[webhook] 🎯 Processing setup session for booking");
+          await recordBookingSetup(session);
           await insertBookingFromSession(session);
           break;
         }
