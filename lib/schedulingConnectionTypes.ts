@@ -1,5 +1,5 @@
-export type BookingProvider = "calcom" | "calendly";
-export const BOOKING_PROVIDER_NAMES: Record<BookingProvider, string> = { calcom: "Cal.com", calendly: "Calendly" };
+export type BookingProvider = "calcom" | "calendly" | "google";
+export const BOOKING_PROVIDER_NAMES: Record<BookingProvider, string> = { calcom: "Cal.com", calendly: "Calendly", google: "Google Calendar" };
 export type BookingConnectionStatus = {
   provider: BookingProvider;
   available: boolean;
@@ -17,3 +17,5 @@ export function bookingProviderForUrl(value: string): BookingProvider | null {
   } catch { /* An incomplete URL has no provider yet. */ }
   return null;
 }
+
+export function isBookingProvider(value: unknown): value is BookingProvider { return value === "calcom" || value === "calendly" || value === "google"; }

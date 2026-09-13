@@ -23,3 +23,11 @@ export function schedulingConfig(provider: SchedulingProvider): SchedulingOAuthC
 export function schedulingAvailable(provider: SchedulingProvider): boolean {
   try { schedulingConfig(provider); return true; } catch { return false; }
 }
+
+export function googleCalendarConfig(): SchedulingOAuthConfig {
+  if (process.env.GOOGLE_CALENDAR_ENABLED !== "true" || !process.env.GOOGLE_CALENDAR_CLIENT_ID || !process.env.GOOGLE_CALENDAR_CLIENT_SECRET ||
+      !/^[a-f0-9]{64}$/i.test(process.env.SCHEDULING_TOKEN_ENCRYPTION_KEY ?? "")) throw new Error("Google Calendar is not configured");
+  return { clientId: process.env.GOOGLE_CALENDAR_CLIENT_ID, clientSecret: process.env.GOOGLE_CALENDAR_CLIENT_SECRET,
+    redirectUri: schedulingOrigin() + "/api/scheduling/oauth/callback/google" };
+}
+export function googleCalendarAvailable(): boolean { try { googleCalendarConfig(); return true; } catch { return false; } }

@@ -39,6 +39,7 @@ beforeAll(async () => {
     "20260913220917_scheduling_oauth_connections.sql",
     "20260913222716_google_calendar_reservations.sql",
     "20260913223807_google_booking_attribution.sql",
+    "20260913224148_google_calendar_setup.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });

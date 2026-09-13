@@ -3,7 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { supabaseAdmin as db } from "@/lib/supabaseAdmin";
 import { schedulingOrigin } from "@/lib/schedulingConfig";
-import { isSchedulingProvider } from "@/lib/schedulingProvider";
+import { isBookingProvider } from "@/lib/schedulingConnectionTypes";
+import { finishGoogleCalendarConnection } from "@/lib/googleCalendarConnection";
 import { openSchedulingSecret } from "@/lib/schedulingSecrets";
 import { finishSchedulingConnection } from "@/lib/schedulingConnections";
 
@@ -12,7 +13,7 @@ export const maxDuration = 60;
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ provider: string }> }) {
   const { provider } = await params;
-  if (!isSchedulingProvider(provider)) return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
+  if (!isBookingProvider(provider)) return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
   let outcome = "failed";
   try {
     const user = await getAuthenticatedUser(req);
@@ -29,11 +30,14 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ prov
     else {
       const code = req.nextUrl.searchParams.get("code");
       if (!code || code.length > 4096) throw new Error("Missing authorization code");
-      await finishSchedulingConnection(user.id, provider, code, openSchedulingSecret(attempt.verifier_ciphertext, `${user.id}:${provider}:${hash}`));
+      const verifier = openSchedulingSecret(attempt.verifier_ciphertext, `${user.id}:${provider}:${hash}`);
+      if (provider === "google") await finishGoogleCalendarConnection(user.id, code, verifier);
+      else await finishSchedulingConnection(user.id, provider, code, verifier);
       outcome = "connected";
     }
   } catch { /* No provider tokens, authorization codes or private response bodies are logged. */ }
-  const response = NextResponse.redirect(`${schedulingOrigin()}/scheduling/complete?result=${outcome}`, 303);
+  const destination = provider === "google" && outcome === "connected" ? "/scheduling/google" : `/scheduling/complete?result=${outcome}`;
+  const response = NextResponse.redirect(`${schedulingOrigin()}${destination}`, 303);
   response.cookies.set(`cn-scheduling-${provider}`, "", { httpOnly: true, secure: true, sameSite: "lax", path: "/api/scheduling/oauth", maxAge: 0 });
   response.headers.set("Cache-Control", "no-store");
   response.headers.set("Referrer-Policy", "no-referrer");

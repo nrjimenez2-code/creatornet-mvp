@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google connection and calendar setup checkpoint
+
+Google is now a supported OAuth start/callback and Bookings connection option. Authorization saves encrypted tokens under a lease and continues in the separate window to owned-calendar selection, conflict calendars, weekly hours, timezone, call duration, lead time, horizon and buffers. The creator explicitly saves these settings. The new setup RPC atomically marks the connection ready only with an active notification channel and current lease. Google notifications validate the stored channel token/resource and request authoritative reconciliation; headers never award attribution. Stale connection reads recheck calendar ownership and renew an expiring watch under the same connection lease. Account switches clear the prior setup form.
+
+Migration `20260913224148_google_calendar_setup.sql` also serializes disconnect with booking admission: outstanding mutations prevent disconnect, held times are invalidated, and no new creation/reschedule/cancel can be dispatched after disconnect starts. Remote known watches are stopped and local credentials cleared. Unknown watch creations after a timeout still need background expiry/reconciliation handling; retired channels still need routine cleanup.
+
+Validation: eight selected suites passed 66 tests across database setup/reservations/attribution, OAuth routes, notification/settings routes, setup/composer UI and Google adapters/processor. TypeScript passed after the final service refactor. No browser visual verification or live Google authorization was performed. The full Google connection service still needs database/provider integration tests, including ambiguous watch creation, token-refresh races and reconnect/disconnect recovery.
+
+Next priority is the buyer booking flow: Google intentionally has no selectable post booking URL yet because that destination does not exist. Implement authenticated slots/reserve/reschedule/cancel routes and screens, verify source/purchase ownership, and expose the finished URL through the composer. Connect the durable worker and complete background watch reconciliation/renewal/retired-channel cleanup. Then perform live provider acceptance, full commercial flows, ranking pilot, performance, PR review and rollout. All new migrations and app changes remain local; do not label the full goal complete.
+
 ### Google attribution transaction checkpoint
 
 Migration `20260913223807_google_booking_attribution.sql` adds Google to the verified scheduling provider set, binds each non-null attribution to one reservation, rejects mismatched buyer/creator/original-video identities, and completes reservations, Discover scheduling/cancellation signals and jobs in one transaction. An attribution failure rolls back completion so retry remains possible. Live lease checks guard completion, including after attribution reconciliation.

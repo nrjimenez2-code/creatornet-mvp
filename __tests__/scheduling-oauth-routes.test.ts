@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 const getUser = jest.fn();
 const insert = jest.fn();
 const finish = jest.fn();
+const finishGoogle = jest.fn();
 let attempt: { verifier_ciphertext: string } | null;
 const filters: [string, unknown][] = [];
 const chain: any = {
@@ -17,6 +18,7 @@ const chain: any = {
 jest.mock("@/lib/supabaseAdmin", () => ({ supabaseAdmin: { from: () => chain } }));
 jest.mock("@/lib/supabaseConnectAuth", () => ({ getAuthenticatedUser: (...args: unknown[]) => getUser(...args) }));
 jest.mock("@/lib/schedulingConnections", () => ({ finishSchedulingConnection: (...args: unknown[]) => finish(...args) }));
+jest.mock("@/lib/googleCalendarConnection", () => ({ finishGoogleCalendarConnection: (...args: unknown[]) => finishGoogle(...args) }));
 import { POST } from "@/app/api/scheduling/oauth/start/route";
 import { GET } from "@/app/api/scheduling/oauth/callback/[provider]/route";
 import { sealSchedulingSecret } from "@/lib/schedulingSecrets";
@@ -77,4 +79,16 @@ test("mismatched cookie and provider denial never provision a connection", async
   expect((await callback(state, "b".repeat(64))).headers.get("location")).toContain("result=failed");
   expect((await callback(state, state, true)).headers.get("location")).toContain("result=canceled");
   expect(finish).not.toHaveBeenCalled();
+});
+
+
+test("Google start requests offline authorization and callback continues to calendar setup",async()=>{
+  Object.assign(process.env,{GOOGLE_CALENDAR_ENABLED:'true',GOOGLE_CALENDAR_CLIENT_ID:'google-client',GOOGLE_CALENDAR_CLIENT_SECRET:'google-secret'});
+  const response=await start('https://staging.example','google');expect(response.status).toBe(200);
+  const url=new URL((await response.json()).url);expect(url.origin).toBe('https://accounts.google.com');expect(url.searchParams.get('access_type')).toBe('offline');
+  const state=url.searchParams.get('state')!;const hash=createHash('sha256').update(state).digest('hex');
+  attempt={verifier_ciphertext:sealSchedulingSecret('google-verifier',`creator:google:${hash}`)};
+  const callbackResponse=await GET(new NextRequest(`https://staging.example/api/scheduling/oauth/callback/google?state=${state}&code=google-code`,{headers:{cookie:`cn-scheduling-google=${state}`}}),{params:Promise.resolve({provider:'google'})});
+  expect(finishGoogle).toHaveBeenCalledWith('creator','google-code','google-verifier');
+  expect(finish).not.toHaveBeenCalled();expect(callbackResponse.headers.get('location')).toBe('https://staging.example/scheduling/google');
 });

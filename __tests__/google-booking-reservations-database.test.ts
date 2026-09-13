@@ -11,7 +11,7 @@ beforeAll(async () => {
   db = createLocalPostgres();
   await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
     create table profiles(id uuid primary key); insert into profiles values('${creator}'),('${buyer}');`);
-  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql"])
+  for (const migration of ["20260913220917_scheduling_oauth_connections.sql", "20260913222716_google_calendar_reservations.sql", "20260913224148_google_calendar_setup.sql"])
     await db.exec(readFileSync("supabase/migrations/" + migration, "utf8"));
   await db.query(`insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,
     webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','account','encrypted','channel','encrypted',now()+interval '1 hour')`, [connection, creator]);
@@ -20,8 +20,8 @@ beforeAll(async () => {
 });
 afterAll(async () => { await db.close(); });
 afterEach(async () => {
-  await db.exec("reset role; truncate google_booking_jobs_v1,google_booking_reservations_v1;");
-  await db.query("update scheduling_connections_v1 set status='connected' where id=$1", [connection]);
+  await db.exec("reset role; truncate google_booking_jobs_v1,google_booking_reservations_v1,google_calendar_watches_v1;");
+  await db.query("update scheduling_connections_v1 set status='connected',lease_id=null,lease_until=null where id=$1", [connection]);
 });
 const reserve = (id = booking, minutes = 0, owner = buyer) => db.query(
   "select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '2 days 10 hours'+make_interval(mins=>$5),date_trunc('day',now())+interval '2 days 10 hours 30 minutes'+make_interval(mins=>$5)) as id",
@@ -118,4 +118,30 @@ test("stale worker cannot finalize after another worker reclaims its job", async
   const next = await db.query<{ id: string; attempts: number }>("select * from claim_google_booking_job_v1($1)", [another]);
   expect(next.rows[0]).toMatchObject({ id: first.rows[0].id, attempts: 2 });
   await expect(db.query("select complete_google_booking_job_v1($1,$2,'event','etag',now(),now())", [first.rows[0].id, worker])).rejects.toThrow(/lease expired/);
+});
+
+async function setupLease() {
+  await db.query("update scheduling_connections_v1 set status='pending',lease_id=$2,lease_until=now()+interval '2 minutes' where id=$1",[connection,worker]);
+  await db.query("insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status) values($1,$2,'primary','resource','encrypted',now()+interval '1 day','active')",[another,connection]);
+}
+const configure=()=>db.query(`select configure_google_calendar_v1($1,$2,$3,'primary',array['primary'],'{"durationMinutes":30,"bufferBeforeMinutes":0,"bufferAfterMinutes":0}','Call',$4)`,[connection,creator,worker,another]);
+test("calendar setup commits settings and connected status only under a live lease and watch",async()=>{
+  await setupLease();await configure();
+  expect((await db.query("select status,webhook_id from scheduling_connections_v1 where id=$1",[connection])).rows).toEqual([{status:'connected',webhook_id:another}]);
+  await db.query("update google_calendar_watches_v1 set expires_at=now()-interval '1 minute'");
+  await expect(configure()).rejects.toThrow(/notifications are not ready/);
+  await db.query("update scheduling_connections_v1 set lease_until=now()-interval '1 minute' where id=$1",[connection]);
+  await expect(configure()).rejects.toThrow(/lease expired/);
+});
+test("disconnect invalidates holds and prevents dispatch or new reservations",async()=>{
+  await reserve();await setupLease();await configure();
+  await db.query("select begin_google_calendar_disconnect_v1($1,$2,$3)",[connection,creator,worker]);
+  await expect(db.query("select enqueue_google_booking_create_v1($1,$2)",[booking,buyer])).rejects.toThrow(/cannot be created/);
+  await expect(reserve(another)).rejects.toThrow(/not connected/);
+  expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[booking])).rows).toEqual([{status:'failed'}]);
+});
+test("disconnect waits for ambiguous mutations and cannot orphan an in-flight job",async()=>{
+  await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[booking,buyer]);await setupLease();await configure();
+  await expect(db.query("select begin_google_calendar_disconnect_v1($1,$2,$3)",[connection,creator,worker])).rejects.toThrow(/pending booking changes/);
+  expect((await db.query("select status from scheduling_connections_v1 where id=$1",[connection])).rows).toEqual([{status:'connected'}]);
 });

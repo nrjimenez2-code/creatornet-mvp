@@ -94,3 +94,12 @@ test("account switch never displays previous creator's saved account", async () 
   await act(async () => root.render(createElement(SchedulingConnections)));
   expect(container.textContent).not.toContain("Private account");
 });
+
+
+test("Google authorization pending offers calendar setup without repeating authorization",async()=>{
+  connections=[{provider:'google',available:true,status:'pending',accountName:'creator@example.test',eventTypes:[]}];
+  const open=jest.spyOn(window,'open').mockReturnValue({closed:false} as Window);
+  await act(async()=>root.render(createElement(SchedulingConnections,{purpose:'session'})));
+  expect(container.textContent).toContain('Google Calendar needs booking settings');
+  await click('Set up Google Calendar');expect(open).toHaveBeenCalledWith('/scheduling/google','_blank','popup,width=600,height=760');
+});

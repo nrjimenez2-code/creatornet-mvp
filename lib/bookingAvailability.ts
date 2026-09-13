@@ -12,6 +12,7 @@ export type BookingAvailability = {
 export type BookingInterval = { start: string; end: string };
 
 export function validateBookingAvailability(policy: BookingAvailability): void {
+  if (!policy || typeof policy.timeZone !== "string" || !policy.timeZone.trim()) throw new Error("Choose a valid time zone");
   new Intl.DateTimeFormat("en-US", { timeZone: policy.timeZone });
   for (const [value, min, max] of [
     [policy.durationMinutes, 5, 240], [policy.stepMinutes, 5, 60], [policy.leadMinutes, 0, 43200],

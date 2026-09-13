@@ -11,7 +11,7 @@ function Connect() {
   useEffect(() => {
     if (loading || started.current) return;
     if (!userId) { setError("Sign in to CreatorNet in your original window, then try connecting again."); return; }
-    if (provider !== "calcom" && provider !== "calendly") { setError("Choose a supported booking provider."); return; }
+    if (provider !== "calcom" && provider !== "calendly" && provider !== "google") { setError("Choose a supported booking provider."); return; }
     started.current = true;
     void (async () => {
       try {
@@ -23,7 +23,7 @@ function Connect() {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Could not begin connection");
         const url = new URL(result.url);
-        if (url.origin !== (provider === "calcom" ? "https://app.cal.com" : "https://auth.calendly.com")) throw new Error("Invalid provider destination");
+        if (url.origin !== (provider === "google" ? "https://accounts.google.com" : provider === "calcom" ? "https://app.cal.com" : "https://auth.calendly.com")) throw new Error("Invalid provider destination");
         window.opener = null;
         window.location.replace(url.toString());
       } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not begin connection"); }

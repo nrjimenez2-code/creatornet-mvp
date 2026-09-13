@@ -2,8 +2,10 @@ import { createHash, randomBytes } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { supabaseAdmin as db } from "@/lib/supabaseAdmin";
-import { schedulingConfig, schedulingOrigin } from "@/lib/schedulingConfig";
-import { isSchedulingProvider, schedulingAuthorizationUrl } from "@/lib/schedulingProvider";
+import { schedulingConfig, schedulingOrigin, googleCalendarConfig } from "@/lib/schedulingConfig";
+import { schedulingAuthorizationUrl } from "@/lib/schedulingProvider";
+import { isBookingProvider } from "@/lib/schedulingConnectionTypes";
+import { googleCalendarAuthorizationUrl } from "@/lib/googleCalendarProvider";
 import { sealSchedulingSecret } from "@/lib/schedulingSecrets";
 import { allowRequest } from "@/lib/rateLimit";
 
@@ -14,8 +16,8 @@ export async function POST(req: NextRequest) {
   try {
     if (req.headers.get("origin") !== schedulingOrigin()) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
     const { provider } = await req.json();
-    if (!isSchedulingProvider(provider)) return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
-    const config = schedulingConfig(provider);
+    if (!isBookingProvider(provider)) return NextResponse.json({ error: "Invalid provider" }, { status: 400 });
+    const config = provider === "google" ? googleCalendarConfig() : schedulingConfig(provider);
     const state = randomBytes(32).toString("hex");
     const hash = createHash("sha256").update(state).digest("hex");
     const verifier = randomBytes(48).toString("base64url");
@@ -28,7 +30,7 @@ export async function POST(req: NextRequest) {
       expires_at: new Date(Date.now() + 10 * 60_000).toISOString(),
     });
     if (error) throw error;
-    const response = NextResponse.json({ url: schedulingAuthorizationUrl(provider, config, state, verifier) }, { headers: { "Cache-Control": "no-store" } });
+    const response = NextResponse.json({ url: provider === "google" ? googleCalendarAuthorizationUrl(config, state, verifier) : schedulingAuthorizationUrl(provider, config, state, verifier) }, { headers: { "Cache-Control": "no-store" } });
     response.cookies.set(`cn-scheduling-${provider}`, state, { httpOnly: true, secure: true, sameSite: "lax", path: "/api/scheduling/oauth", maxAge: 600 });
     return response;
   } catch { return NextResponse.json({ error: "Booking connection setup is unavailable. Your draft is preserved." }, { status: 503 }); }
