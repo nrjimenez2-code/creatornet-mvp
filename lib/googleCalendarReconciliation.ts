@@ -38,6 +38,8 @@ export async function processGoogleCalendarSweep(){
  }
 }
 export async function maintainGoogleCalendarWatches(){
+ let failed=false;
+ try{
  const due=await db.from("google_calendar_watches_v1").select("connection_id,scheduling_connections_v1!inner(status)").eq("scheduling_connections_v1.status","connected").eq("status","active").lt("expires_at",new Date(Date.now()+86400000).toISOString()).order("expires_at").limit(1);
  if(due.error)throw new Error("Could not check notification expiry");
  if(due.data?.[0]){
@@ -45,14 +47,18 @@ export async function maintainGoogleCalendarWatches(){
   if(owner.error)throw new Error("Calendar owner unavailable");
   if(owner.data.status==='connected')await refreshGoogleCalendarConnection(owner.data.creator_id);
  }
+ }catch{failed=true;}
  const retired=await db.from("google_calendar_watches_v1").select("id,connection_id,resource_id,expires_at,status").in("status",["retiring","pending","error"]).or(`status.eq.retiring,expires_at.lt.${new Date().toISOString()}`).order("expires_at").limit(5);
  if(retired.error)throw new Error("Could not read retired notification channels");
  for(const watch of retired.data??[]){
+  try{
   if(Date.parse(watch.expires_at)<=Date.now()){
    const stopped=await db.from("google_calendar_watches_v1").update({status:"stopped"}).eq("id",watch.id).eq("status",watch.status);if(stopped.error)throw new Error("Could not retire expired channel");continue;
   }
   if(watch.status!=='retiring'||!watch.resource_id)continue;
   await stopGoogleCalendarWatch(await googleConnectionAccessToken(watch.connection_id),{id:watch.id,resourceId:watch.resource_id,expiration:String(Date.parse(watch.expires_at))});
   const stopped=await db.from("google_calendar_watches_v1").update({status:"stopped"}).eq("id",watch.id).eq("status","retiring");if(stopped.error)throw new Error("Could not retire channel");
+  }catch{failed=true;}
  }
+ if(failed)throw new Error("Calendar notification maintenance needs retry");
 }

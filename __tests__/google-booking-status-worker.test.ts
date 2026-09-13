@@ -1,15 +1,15 @@
 import {NextRequest} from "next/server";
-const user=jest.fn(),read=jest.fn(),processJob=jest.fn(),available=jest.fn(),cancel=jest.fn();
+const user=jest.fn(),read=jest.fn(),processJob=jest.fn(),available=jest.fn(),cancel=jest.fn(),maintain=jest.fn(),sweep=jest.fn();
 jest.mock("@/lib/supabaseConnectAuth",()=>({getAuthenticatedUser:()=>user()}));
 jest.mock("@/lib/googleBuyerBookings",()=>({readGoogleBuyerReservation:(...args:unknown[])=>read(...args),cancelGoogleBuyerBooking:(...args:unknown[])=>cancel(...args)}));
 jest.mock("@/lib/googleBookingJobs",()=>({processNextGoogleBookingJob:()=>processJob()}));
 jest.mock("@/lib/schedulingConfig",()=>({googleCalendarAvailable:()=>available(),schedulingOrigin:()=>"https://creatornet.example"}));
-jest.mock("@/lib/googleCalendarReconciliation",()=>({maintainGoogleCalendarWatches:async()=>{},processGoogleCalendarSweep:async()=>({processed:false})}));
+jest.mock("@/lib/googleCalendarReconciliation",()=>({maintainGoogleCalendarWatches:()=>maintain(),processGoogleCalendarSweep:()=>sweep()}));
 import {GET as status,DELETE as cancelRoute} from "@/app/api/scheduling/google/reservations/[reservation]/route";
 import {GET as worker} from "@/app/api/scheduling/google/jobs/route";
 const id="11111111-1111-4111-8111-111111111111",secret="a".repeat(32);
 const originalEnv={...process.env};
-beforeEach(()=>{jest.clearAllMocks();user.mockResolvedValue({id:'buyer'});read.mockResolvedValue(null);available.mockReturnValue(true);process.env.CRON_SECRET=secret;processJob.mockResolvedValue({processed:false});});
+beforeEach(()=>{jest.clearAllMocks();maintain.mockResolvedValue(undefined);sweep.mockResolvedValue({processed:false});user.mockResolvedValue({id:'buyer'});read.mockResolvedValue(null);available.mockReturnValue(true);process.env.CRON_SECRET=secret;processJob.mockResolvedValue({processed:false});});
 afterAll(()=>{process.env=originalEnv;});
 const request=()=>new NextRequest('https://creatornet.example/api/scheduling/google/reservations/'+id);
 test("status checks bind the reservation to the signed-in buyer",async()=>{
@@ -41,4 +41,12 @@ test("cancellation requires the same origin and uses the authenticated buyer",as
   expect(cancel).not.toHaveBeenCalled();cancel.mockResolvedValue({id,status:'canceling'});
   expect((await cancelRoute(req('https://creatornet.example'),{params:Promise.resolve({reservation:id})})).status).toBe(202);
   expect(cancel).toHaveBeenCalledWith(id,'buyer',2);
+});
+
+
+test("worker continues reconciliation after renewal failure and reports the incomplete run",async()=>{
+ maintain.mockRejectedValueOnce(new Error('renewal unavailable'));
+ const response=await cron('Bearer '+secret);
+ expect(response.status).toBe(503);expect(sweep).toHaveBeenCalledTimes(1);
+ expect(await response.json()).toEqual({processed:0,retries:0,error:'Calendar maintenance needs retry'});
 });

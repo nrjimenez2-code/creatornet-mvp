@@ -32,12 +32,14 @@ begin
 end $$;
 create function public.reconcile_google_calendar_booking_v1(p_watch uuid,p_worker uuid,p_id uuid,p_revision bigint,p_event text,p_etag text,p_start timestamptz,p_end timestamptz,p_canceled boolean)
 returns boolean language plpgsql security invoker set search_path='' as $$
-declare r public.google_booking_reservations_v1;
+declare r public.google_booking_reservations_v1; w public.google_calendar_watches_v1;
 begin
+ select * into w from public.google_calendar_watches_v1 where id=p_watch for update;
+ if not found or w.lease_id is distinct from p_worker or w.lease_until is null or w.lease_until<=clock_timestamp() or w.status<>'active' then return false; end if;
  select * into r from public.google_booking_reservations_v1 where id=p_id for update;
- if not found or not exists(select 1 from public.google_calendar_watches_v1 w where w.id=p_watch and w.connection_id=r.connection_id and w.calendar_id=r.calendar_id and w.lease_id=p_worker and w.lease_until>clock_timestamp() and w.status='active') or r.revision<>p_revision or r.status not in ('confirmed','canceled') or r.event_id is distinct from p_event then return false; end if;
+ if not found or w.connection_id is distinct from r.connection_id or w.calendar_id is distinct from r.calendar_id or w.lease_until<=clock_timestamp() or p_revision is null or r.revision<>p_revision or r.status not in ('confirmed','canceled') or r.event_id is distinct from p_event then return false; end if;
  if p_canceled is null then raise exception 'Calendar status is required'; end if;
- if not p_canceled and (p_start is null or p_end is null or p_end<=p_start or p_etag is null) then raise exception 'Invalid calendar booking'; end if;
+ if not p_canceled and (p_start is null or p_end is null or p_end<=p_start or p_etag is null or length(p_etag)=0) then raise exception 'Invalid calendar booking'; end if;
  if (p_canceled and r.status='canceled') or (not p_canceled and r.status='confirmed' and r.event_etag is not distinct from p_etag
    and r.starts_at is not distinct from p_start and r.ends_at is not distinct from p_end) then return true; end if;
  update public.google_booking_reservations_v1 set status=case when p_canceled then 'canceled' else 'confirmed' end,
@@ -45,6 +47,7 @@ begin
   event_etag=coalesce(p_etag,event_etag),revision=revision+1,updated_at=clock_timestamp() where id=r.id;
  if r.attribution_id is not null and not public.confirm_discover_booking_v1(r.attribution_id,'google',r.event_id,clock_timestamp(),
   case when p_canceled then r.starts_at else p_start end,p_canceled) then raise exception 'Could not reconcile booking attribution'; end if;
+ if not exists(select 1 from public.google_calendar_watches_v1 where id=p_watch and lease_id=p_worker and lease_until>clock_timestamp() and status='active') then raise exception 'Calendar sweep lease expired'; end if;
  return true;
 end $$;
 revoke all on function public.request_google_calendar_sync_v1(uuid),public.claim_google_calendar_sweep_v1(uuid),

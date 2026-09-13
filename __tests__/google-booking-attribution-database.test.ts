@@ -157,3 +157,31 @@ test("a notification arriving during a sweep remains pending after that sweep fi
  expect((await db.query("select sync_generation>swept_generation pending from google_calendar_watches_v1 where id=$1",[watchId])).rows).toEqual([{pending:true}]);
  expect((await db.query("select id from claim_google_calendar_sweep_v1($1)",[worker])).rows).toEqual([{id:watchId}]);
 });
+
+test("lease expiry during attribution processing rolls back the entire external change",async()=>{
+ await create();await claimSweep();
+ await db.exec(`create function test_expire_sweep() returns trigger language plpgsql as $$ begin
+ update public.google_calendar_watches_v1 set lease_until=clock_timestamp()-interval '1 second';return new;end $$;
+ create trigger test_expire_sweep after update on google_booking_reservations_v1 for each row execute function test_expire_sweep();`);
+ try{
+  await expect(db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,0,'google-event',null,null,null,true)",[watchId,worker,reservation])).rejects.toThrow(/sweep lease expired/);
+  expect((await db.query("select status,revision from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed',revision:0}]);
+  expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:true}]);
+ }finally{await db.exec('drop trigger test_expire_sweep on google_booking_reservations_v1;drop function test_expire_sweep();');}
+});
+test("browser roles cannot request or commit calendar reconciliation",async()=>{
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  try{
+   await expect(db.query('select request_google_calendar_sync_v1($1)',[watchId])).rejects.toThrow(/permission denied/);
+   await expect(db.query('select * from claim_google_calendar_sweep_v1($1)',[worker])).rejects.toThrow(/permission denied/);
+   await expect(db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,0,'google-event',null,null,null,true)",[watchId,worker,reservation])).rejects.toThrow(/permission denied/);
+  }finally{await db.exec('reset role');}
+ }
+});
+
+test("a missing revision cannot bypass optimistic concurrency during reconciliation",async()=>{
+ await create();await claimSweep();
+ expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,null,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed'}]);
+});

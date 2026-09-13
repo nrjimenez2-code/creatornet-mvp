@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Google sync reliability review
+
+Reconciliation now locks the notification lease through the booking/attribution transaction, checks expiry again before commit, and rejects missing booking revisions. A PostgreSQL trigger test expires the lease during the update and verifies that both reservation changes and scheduling-credit changes roll back. Browser roles cannot invoke the service-only reconciliation functions.
+
+Notification maintenance continues cleanup after a failed renewal or individual channel stop, then reports the run incomplete for retry. The cron route also continues reconciliation after maintenance failure. Focused maintenance and worker tests cover these failure paths.
+
+Validation: the broader scheduling selection passed 21 suites / 149 tests. Two subsequent regression additions passed in the affected suites (14 attribution tests and 7 status/worker tests). TypeScript passed. No remote migration, push, deployment or real provider acceptance occurred.
+
+Next priority: permanent booking failure recovery (the current runner retries indefinitely), followed by representative sync throughput and live OAuth/payment/scheduling acceptance. Ranking calibration/pilot, full performance testing, PR review and production rollout remain incomplete. Existing reconciliation migration was amended because it has never been applied remotely.
+
 ### Google calendar reconciliation checkpoint
 
 Added service-only leased reconciliation of persisted Google bookings, authoritative event reads for external moves/deletions, atomic attribution changes and notification generations that retain changes received during a sweep. The worker processes ten bookings per page with five concurrent provider reads and resumes its cursor only after a successful page. Watch maintenance renews connected channels within 24 hours of expiry and retires known or expired channels.
