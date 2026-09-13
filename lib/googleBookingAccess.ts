@@ -6,7 +6,7 @@ import { googleBookingConnectionFromUrl, isBookingId } from "@/lib/googleBooking
 import { paidCallsReady, readPaidCallAccess, verifyPaidCallCapture } from "@/lib/paidCalls";
 import { getStripe } from "@/lib/stripeClient";
 
-export type GoogleBookingIntent = { attributionId?: string; purchaseId?: string };
+export type GoogleBookingIntent = { attributionId?: string; purchaseId?: string; reservationId?: string };
 export type GoogleBookingAccess = { connectionId: string; creatorId: string; buyerId: string; postId: string;
   attributionId: string; purchaseId: string | null; reservationId: string };
 function reservationId(attribution: string): string {
@@ -16,7 +16,15 @@ function reservationId(attribution: string): string {
 /** Every booking starts from a verified setup intent or a captured paid-call purchase. */
 export async function authorizeGoogleBooking(connectionId: string, buyerId: string, intent: GoogleBookingIntent): Promise<GoogleBookingAccess> {
   googleCalendarConfig();
-  if (!isBookingId(connectionId) || (!!intent.attributionId === !!intent.purchaseId)) throw new Error("Open this calendar from your booking or purchase");
+  if (!isBookingId(connectionId) || [intent.attributionId,intent.purchaseId,intent.reservationId].filter(Boolean).length!==1) throw new Error("Open this calendar from your booking or purchase");
+  if(intent.reservationId){
+    if(!isBookingId(intent.reservationId))throw new Error("Booking not found");
+    const stored=await db.from("google_booking_reservations_v1").select("attribution_id,purchase_id").eq("id",intent.reservationId).eq("buyer_id",buyerId).eq("connection_id",connectionId).maybeSingle();
+    if(stored.error||!stored.data)throw new Error("Booking not found");
+    const access=await authorizeGoogleBooking(connectionId,buyerId,stored.data.purchase_id?{purchaseId:stored.data.purchase_id}:{attributionId:stored.data.attribution_id});
+    if(access.reservationId!==intent.reservationId)throw new Error("Booking attribution changed");
+    return access;
+  }
   const connection = await db.from("scheduling_connections_v1").select("creator_id,status").eq("id",connectionId).eq("provider","google").maybeSingle();
   if (connection.error || !connection.data || connection.data.status !== "connected" || connection.data.creator_id === buyerId) throw new Error("This creator's calendar is unavailable");
   const creatorId = connection.data.creator_id;

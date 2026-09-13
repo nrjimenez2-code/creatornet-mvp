@@ -15,7 +15,7 @@ export async function GET(req:NextRequest,{params}:Context) {
   try {
     const query=req.nextUrl.searchParams;
     const now=Date.now();
-    const result=await getGoogleBookingOptions((await params).connection,user.id,{attributionId:query.get("cn_attribution")??undefined,purchaseId:query.get("purchase_id")??undefined},
+    const result=await getGoogleBookingOptions((await params).connection,user.id,{attributionId:query.get("cn_attribution")??undefined,purchaseId:query.get("purchase_id")??undefined,reservationId:query.get("reservation_id")??undefined},
       {start:query.get("start")??new Date(now).toISOString(),end:query.get("end")??new Date(now+7*86400000).toISOString()});
     return NextResponse.json(result,{headers});
   }catch{return NextResponse.json({error:"Could not load booking times. Open this calendar from your booking or eligible purchase and try again."},{status:409,headers});}
@@ -28,7 +28,7 @@ export async function POST(req:NextRequest,{params}:Context) {
   if(!allowRequest(`google-reserve:${user.id}`,{limit:10,windowMs:60000}))return NextResponse.json({error:"Please wait before trying again"},{status:429,headers});
   try {
     const body=await req.json();
-    const reservation=await submitGoogleBooking((await params).connection,user.id,{attributionId:body.attributionId,purchaseId:body.purchaseId},body.start,body.end);
+    const reservation=await submitGoogleBooking((await params).connection,user.id,{attributionId:body.attributionId,purchaseId:body.purchaseId,reservationId:body.reservationId},body.start,body.end);
     return NextResponse.json({reservation},{status:202,headers});
   }catch{return NextResponse.json({error:"Could not reserve that time. Check your booking status and choose an available time again."},{status:409,headers});}
 }

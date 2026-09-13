@@ -17,3 +17,10 @@ test("account changes remove the previous account's bookings before the next res
  await act(async()=>root.render(createElement(GoogleBookingsList)));userId='other';fetchMock.mockImplementation(()=>new Promise(()=>{}));
  await act(async()=>root.render(createElement(GoogleBookingsList)));expect(container.textContent).not.toContain('Person');
 });
+
+test("failed bookings retain their buyer recovery link and do not appear confirmed",async()=>{
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({bookings:[{id:'booking',connection_id:'calendar',title:'Call',counterparty_name:'Person',status:'failed',starts_at:'2026-10-01T10:00:00Z'}],next:null})});
+ await act(async()=>root.render(createElement(GoogleBookingsList)));
+ expect(container.textContent).toContain('Not booked');expect(container.textContent).toContain('Previous requested time:');
+ expect(container.querySelector('a')?.getAttribute('href')).toBe('/scheduling/book/calendar?reservation_id=booking');
+});

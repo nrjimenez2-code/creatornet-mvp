@@ -42,6 +42,7 @@ beforeAll(async () => {
     "20260913224148_google_calendar_setup.sql",
     "20260913232056_google_calendar_reconciliation.sql",
     "20260913233649_google_reschedule_recovery.sql",
+    "20260913234159_google_unattempted_booking_recovery.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -222,4 +223,23 @@ test("recovery is unavailable to browser roles or expired workers",async()=>{
  await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[job]);
  await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow('lease expired');
  expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling'}]);
+});
+
+
+test("an unattempted failed creation can reserve another time without losing source attribution",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);const job=await claim();
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_unavailable') released",[job,worker])).rows).toEqual([{released:true}]);
+ await db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes',$5)",[reservation,connection,viewer,post,attribution]);
+ await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);
+ expect((await db.query('select revision,status from google_booking_jobs_v1 order by revision')).rows).toEqual([{revision:0,status:'failed'},{revision:1,status:'pending'}]);
+ await expect(db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker])).rejects.toThrow('lease expired');
+ await finish(await claim());expect((await db.query("select post_id,valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{post_id:post,valid:true}]);
+});
+test("a possibly delivered mutation cannot release a reservation even after retry",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);const job=await claim();
+ await db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker]);
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') released",[job,worker])).rows).toEqual([{released:false}]);
+ await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[job]);await claim();
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') released",[job,worker])).rows).toEqual([{released:false}]);
+ expect((await db.query('select status from google_booking_reservations_v1')).rows).toEqual([{status:'creating'}]);
 });

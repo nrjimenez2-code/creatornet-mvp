@@ -1,5 +1,5 @@
 import { processGoogleBookingOperation, type GoogleBookingOperation, type GoogleReservation, type GoogleProcessorPorts } from "@/lib/googleBookingProcessor";
-import { googleBookingEventId, type GoogleBookingEvent } from "@/lib/googleCalendarProvider";
+import { GoogleBookingTimeUnavailable, googleBookingEventId, type GoogleBookingEvent } from "@/lib/googleCalendarProvider";
 const id = "11111111-1111-4111-8111-111111111111";
 let reservation: GoogleReservation;
 let job: GoogleBookingOperation;
@@ -13,7 +13,7 @@ beforeEach(() => {
   job = { id: "job", reservationId: id, revision: 0, action: "create", leaseId: "worker", leaseUntil: "2026-10-01T09:30:00Z" };
   ports = { now: () => Date.parse("2026-10-01T09:00:00Z"), loadReservation: jest.fn(async () => reservation),
     verifyLease: jest.fn(async () => {}), assertAvailable: jest.fn(async () => {}), findEvent: jest.fn(async () => null),
-    createEvent: jest.fn(async () => event()), rescheduleEvent: jest.fn(async () => event()), cancelEvent: jest.fn(async () => {}), recoverReschedule: jest.fn(async () => {}), complete: jest.fn(async () => {}) };
+    createEvent: jest.fn(async () => event()), rescheduleEvent: jest.fn(async () => event()), cancelEvent: jest.fn(async () => {}), beginMutation: jest.fn(async()=>{}), failUnattempted: jest.fn(async()=>false), recoverReschedule: jest.fn(async () => {}), complete: jest.fn(async () => {}) };
 });
 test("creation requires current availability and a matching attributed provider confirmation", async () => {
   await processGoogleBookingOperation(job, ports);
@@ -79,4 +79,18 @@ test("unverifiable provider state remains pending instead of releasing a reserva
  reservation.desiredStart='2026-10-01T11:00:00Z';reservation.desiredEnd='2026-10-01T11:30:00Z';
  ports.findEvent=jest.fn(async()=>({...event(),etag:'changed',start:{dateTime:'invalid'}}));
  await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow('safely recovered');expect(ports.recoverReschedule).not.toHaveBeenCalled();
+});
+
+
+test("a proven unattempted expired creation terminates without a remote mutation",async()=>{
+ ports.now=()=>Date.parse('2026-10-01T11:00:00Z');job.leaseUntil='2026-10-01T11:30:00Z';ports.failUnattempted=jest.fn(async()=>true);
+ await processGoogleBookingOperation(job,ports);expect(ports.failUnattempted).toHaveBeenCalledWith(job,'google_booking_time_passed');expect(ports.beginMutation).not.toHaveBeenCalled();
+});
+test("busy time is recoverable only when the store proves no mutation was attempted",async()=>{
+ ports.assertAvailable=jest.fn(async()=>{throw new GoogleBookingTimeUnavailable();});ports.failUnattempted=jest.fn(async()=>true);
+ await processGoogleBookingOperation(job,ports);expect(ports.failUnattempted).toHaveBeenCalledWith(job,'google_booking_time_unavailable');expect(ports.beginMutation).not.toHaveBeenCalled();
+ ports.failUnattempted=jest.fn(async()=>false);await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow('no longer available');
+});
+test("remote work cannot start when the durable mutation guard fails",async()=>{
+ ports.beginMutation=jest.fn(async()=>{throw new Error('lease lost');});await expect(processGoogleBookingOperation(job,ports)).rejects.toThrow('lease lost');expect(ports.createEvent).not.toHaveBeenCalled();
 });

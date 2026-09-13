@@ -70,3 +70,15 @@ test("recovered external changes show the actual booking and allow another resch
  expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(true);
  expect(container.textContent).not.toContain('Confirming your new time');
 });
+
+test("an unattempted failed booking can choose again from its saved reservation link",async()=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ const failed={id:'reservation',status:'failed',revision:0,...slot,recoveryCode:'google_booking_time_unavailable'};
+ fetchMock.mockImplementation(async(url:string,init?:RequestInit)=>({ok:true,json:async()=>url.includes('/reservations/')?{reservation:failed}:init?.method==='POST'?{reservation:{...failed,status:'creating',revision:1,recoveryCode:null}}:{title:'Call',durationMinutes:30,timeZone:'UTC',slots:[slot],reservation:failed}}));
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.textContent).toContain('No event was created in Google Calendar');
+ expect(fetchMock.mock.calls.some(([url])=>url.includes('/book/')&&url.includes('reservation_id=reservation'))).toBe(true);
+ await act(async()=>{(container.querySelector('input[type=radio]') as HTMLInputElement).click();});await click('Book this time');
+ const body=JSON.parse(fetchMock.mock.calls.find(([,init])=>init?.method==='POST')![1].body);
+ expect(body.reservationId).toBe('reservation');expect(container.textContent).toContain('Confirming with Google Calendar');
+});

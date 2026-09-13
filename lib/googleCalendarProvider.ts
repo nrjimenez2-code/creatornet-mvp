@@ -170,14 +170,17 @@ export async function changeGoogleBookingEvent(token: string, calendar: string, 
   }, event.etag);
 }
 
+export class GoogleBookingTimeUnavailable extends Error {
+ constructor(){super("That time is no longer available");this.name="GoogleBookingTimeUnavailable";}
+}
 export async function assertGoogleBookingTimeAvailable(token: string, calendar: string, conflictCalendars: string[],
   interval: CalendarInterval, ownEventId: string | null): Promise<void> {
   validateInterval(interval);
   const otherCalendars = conflictCalendars.filter(id => id !== calendar);
   if (otherCalendars.length && (await getGoogleBusyIntervals(token, otherCalendars, interval)).length)
-    throw new Error("That time is no longer available");
+    throw new GoogleBookingTimeUnavailable();
   if (!ownEventId) {
-    if ((await getGoogleBusyIntervals(token, [calendar], interval)).length) throw new Error("That time is no longer available");
+    if ((await getGoogleBusyIntervals(token, [calendar], interval)).length) throw new GoogleBookingTimeUnavailable();
     return;
   }
   // freeBusy merges overlapping events, so subtracting the old event's interval
@@ -192,7 +195,7 @@ export async function assertGoogleBookingTimeAvailable(token: string, calendar: 
     const result = await calendarRequest<{ items?: { id: string; status?: string; transparency?: string }[]; nextPageToken?: string }>(
       token, `/calendars/${encodeURIComponent(calendar)}/events?${query}`);
     if (result.items?.some(event => event.id !== ownEventId && event.status !== "cancelled" && event.transparency !== "transparent"))
-      throw new Error("That time is no longer available");
+      throw new GoogleBookingTimeUnavailable();
     pageToken = result.nextPageToken ?? "";
     if (!pageToken) return;
     if (seen.has(pageToken)) throw new Error("Repeated calendar cursor");

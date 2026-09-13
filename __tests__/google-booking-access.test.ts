@@ -1,5 +1,5 @@
 import {createMockClient,type MockClient} from "./__mocks__/supabaseQueryMock";
-let db:MockClient;
+let db:MockClient;let storedReservation:Record<string,unknown>|null=null;
 const readPaid=jest.fn(),verifyPaid=jest.fn();
 jest.mock("@/lib/supabaseAdmin",()=>({get supabaseAdmin(){return db;}}));
 jest.mock("@/lib/paidCalls",()=>({paidCallsReady:()=>true,readPaidCallAccess:(...args:unknown[])=>readPaid(...args),verifyPaidCallCapture:(...args:unknown[])=>verifyPaid(...args)}));
@@ -12,9 +12,11 @@ const url=origin+"/scheduling/book/"+connection;
 const originalEnv={...process.env};
 const paid=()=>({purchase_id:purchase,buyer_id:"buyer",creator_id:"creator",scheduling_url:url});
 beforeEach(()=>{
+  storedReservation=null;
   jest.clearAllMocks();Object.assign(process.env,{GOOGLE_CALENDAR_ENABLED:"true",GOOGLE_CALENDAR_CLIENT_ID:"id",GOOGLE_CALENDAR_CLIENT_SECRET:"secret",SCHEDULING_OAUTH_ORIGIN:origin,SCHEDULING_TOKEN_ENCRYPTION_KEY:"ab".repeat(32)});
   readPaid.mockResolvedValue(paid());verifyPaid.mockResolvedValue(true);
   db=createMockClient(op=>{
+    if(op.table==='google_booking_reservations_v1')return {data:op.filters.buyer_id==='buyer'?storedReservation:null,error:null};
     if(op.table==='scheduling_connections_v1')return {data:{creator_id:'creator',status:'connected'},error:null};
     if(op.table==='discover_booking_attribution_v1'&&op.kind==='select')return {data:op.filters.user_id&&op.filters.user_id!=='buyer'?null:{id:attribution,user_id:'buyer',creator_id:'creator',post_id:post,setup_session_id:'cs_verified'},error:null};
     if(op.table==='posts')return {data:{creator_id:'creator',booking_url:url,allow_booking:true,active:true,hidden_at:null,removed_at:null},error:null};
@@ -57,4 +59,15 @@ test("native booking URL recognition is bound to the expected origin and route",
   expect(googleBookingConnectionFromUrl('/scheduling/book/'+connection,origin)).toBe(connection);
   for(const raw of ['https://attacker.example/scheduling/book/'+connection,'https://user:pass@creatornet.example/scheduling/book/'+connection,origin+'/scheduling/book/not-a-uuid'])
     expect(googleBookingConnectionFromUrl(raw,origin)).toBeNull();
+});
+
+
+test("saved reservation recovery rechecks original authorization and rejects other buyers",async()=>{
+ const original=await authorizeGoogleBooking(connection,'buyer',{attributionId:attribution});
+ storedReservation={attribution_id:attribution,purchase_id:null};
+ expect(await authorizeGoogleBooking(connection,'buyer',{reservationId:original.reservationId})).toEqual(original);
+ expect(db.opsFor('google_booking_reservations_v1')[0].filters).toEqual({id:original.reservationId,buyer_id:'buyer',connection_id:connection});
+ await expect(authorizeGoogleBooking(connection,'other',{reservationId:original.reservationId})).rejects.toThrow('Booking not found');
+ storedReservation={attribution_id:attribution,purchase_id:purchase};verifyPaid.mockResolvedValue(false);
+ await expect(authorizeGoogleBooking(connection,'buyer',{reservationId:original.reservationId})).rejects.toThrow('eligible payment');
 });

@@ -73,6 +73,15 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
       rescheduleEvent: (reservation, start, end) => changeGoogleBookingEvent(token, reservation.calendarId, reservation.id,
         { start, end, timeZone: settings.availability.timeZone }, reservation.eventEtag ?? undefined),
       cancelEvent: reservation => cancelGoogleBookingEvent(token, reservation.calendarId, reservation.id),
+      beginMutation: async current => {
+        const result=await db.rpc("begin_google_booking_mutation_v1",{p_job:current.id,p_worker:worker});
+        if(result.error)throw new Error("Could not start calendar mutation");
+      },
+      failUnattempted: async (current,reason) => {
+        const result=await db.rpc("fail_unattempted_google_booking_v1",{p_job:current.id,p_worker:worker,p_reason:reason});
+        if(result.error)throw new Error("Could not recover unavailable booking time");
+        return result.data===true;
+      },
       recoverReschedule: async (current, reservation, event) => {
         const recovered = await db.rpc("recover_google_reschedule_v1", {p_job:current.id,p_worker:worker,
           p_event:reservation.eventId,p_etag:event?.etag??null,p_start:event?.start?.dateTime??null,

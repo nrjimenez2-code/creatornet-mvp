@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Recovery before a Google creation attempt
+
+Migration `20260913234159_google_unattempted_booking_recovery.sql` adds a durable mutation-start marker written under the job lease before external mutations. An unavailable or elapsed create time can become a failed, recoverable reservation only when no mutation was started. Prior attempts predating the marker are conservatively backfilled as possibly delivered. Ambiguous remote outcomes remain reserved for reconciliation.
+
+The buyer can reselect a time using the same reservation, source attribution and purchase. Rearming verifies the original identity and all prior jobs, preserves failed-job history, increments the reservation revision and queues a fresh create job. Stale workers cannot begin work on the retired job. Saved reservation links resolve their owner-scoped original intent and recheck current setup or paid eligibility. Failed bookings remain listed with a recovery link and clear wording that the previous requested time was not booked. The original dashboard migration was amended locally; it has never been applied remotely.
+
+Validation: the scheduling selection passed 21 suites / 166 tests, followed by the added dashboard regressions (20 reservation/database tests and 3 dashboard UI tests passed). TypeScript and diff checks passed. No remote migrations, live provider acceptance, push or deployment occurred.
+
+Remaining: recovery/visibility for revoked connections and ambiguous mutations, stale reschedules whose desired time passes without an external version change, representative worker/sync throughput, live OAuth and full payment/scheduling/later-sale acceptance, ranking pilot/calibration, PR review and production rollout. The full goal remains active and incomplete.
+
 ### Externally changed reschedule recovery
 
 Added recovery for a pending Google reschedule when authoritative provider reads show a changed event version or deletion. A changed version prevents the stale conditional PATCH from succeeding; the worker restores the actual provider time and marks the superseded job failed. Deletions become canceled bookings. Matching desired times still complete normally, and unverifiable provider responses remain reserved for retry.

@@ -9,7 +9,7 @@ language sql security invoker set search_path='' as $$
  left join public.google_booking_settings_v1 s on s.connection_id=c.id
  left join public.profiles p on p.id=case when p_role='buyer' then c.creator_id else r.buyer_id end
  where ((p_role='buyer' and r.buyer_id=p_actor) or (p_role='creator' and c.creator_id=p_actor))
- and r.status not in ('held','failed')
+ and r.status<>'held'
  and ((p_before is null and p_before_id is null) or (p_before is not null and p_before_id is not null and (r.created_at,r.id)<(p_before,p_before_id)))
  order by r.created_at desc,r.id desc limit 21;
 $$;

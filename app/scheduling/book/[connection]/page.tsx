@@ -29,7 +29,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
         if(!["held","failed"].includes(body.reservation.status))return;
       }
       const start=base+week*7*86400000;
-      const query=new URLSearchParams({start:new Date(start).toISOString(),end:new Date(start+7*86400000).toISOString(),...(attributionId?{cn_attribution:attributionId}:{}),...(purchaseId?{purchase_id:purchaseId}:{})});
+      const query=new URLSearchParams({start:new Date(start).toISOString(),end:new Date(start+7*86400000).toISOString(),...(attributionId?{cn_attribution:attributionId}:{}),...(purchaseId?{purchase_id:purchaseId}:{}),...(!attributionId&&!purchaseId&&reservationId?{reservation_id:reservationId}:{})});
       const response=await fetch(`/api/scheduling/google/book/${connection}?${query}`,{cache:"no-store",credentials:"include",headers:headers()});
       const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not load available times");
       if(id===request.current){setOptions(body);setReservation(body.reservation);setError(null);}
@@ -48,9 +48,10 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
       const response=await fetch(`/api/scheduling/google/reservations/${reservation.id}`,{cache:"no-store",credentials:"include",headers:headers()});
       const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not check booking status");
       setReservation(body.reservation);setError(null);
+      if(body.reservation.status==="failed")void fetchOptions();
     }catch(cause){setError(cause instanceof Error?cause.message:"Could not check booking status");}
     finally{statusInFlight.current=false;}
-  },[reservation,headers]);
+  },[reservation,headers,fetchOptions]);
   useEffect(()=>{
     if(!pending)return;
     const interval=window.setInterval(()=>{if(document.visibilityState!=="hidden")void checkReservation();},10000);
@@ -60,7 +61,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
     const slot=options?.slots.find(value=>value.start===selected);if(!slot)return;
     setBusy(true);setError(null);
     try {
-      const response=await fetch(`/api/scheduling/google/book/${connection}`,{method:"POST",credentials:"include",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({...slot,attributionId,purchaseId})});
+      const response=await fetch(`/api/scheduling/google/book/${connection}`,{method:"POST",credentials:"include",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({...slot,attributionId,purchaseId,...(!attributionId&&!purchaseId&&reservationId?{reservationId}:{})})});
       const body=await response.json();if(!response.ok||!body.reservation)throw new Error(body.error||"Could not reserve that time");
       setReservation(body.reservation);setSelected("");
     }catch(cause){setError(cause instanceof Error?cause.message:"Could not reserve that time. Check availability before trying again.");}
@@ -83,6 +84,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
   return <main className="mx-auto max-w-2xl space-y-5 p-6 text-white">
     <h1 className="text-2xl font-semibold">{options?.title??"Book your call"}</h1>
     {error&&<p role="alert" className="rounded border border-red-300/40 p-3">{error}</p>}
+    {reservation?.status==="failed"&&["google_booking_time_passed","google_booking_time_unavailable"].includes(reservation.recoveryCode??"")&&<p role="status">Your previous time could not be booked. No event was created in Google Calendar. Choose another available time.</p>}
     {reservation&&!["held","failed"].includes(reservation.status)?<section className="space-y-3 rounded-xl border border-white/20 p-4">
       <h2 className="text-lg font-semibold">{reservation.status==="confirmed"?"Booking confirmed":reservation.status==="canceled"?"Booking canceled":reservation.status==="canceling"?"Confirming cancellation":reservation.status==="rescheduling"?"Confirming your new time":"Confirming with Google Calendar"}</h2>
       {reservation.recoveryCode==="google_booking_changed_externally"&&<p role="status">This booking changed in Google Calendar before your reschedule finished. The booking shown here reflects Google Calendar. {reservation.status==="confirmed"?"You can choose another time using Reschedule booking.":"The booking was canceled."}</p>}

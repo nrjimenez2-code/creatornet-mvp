@@ -193,3 +193,9 @@ test("dashboard pagination uses immutable creation time and ID without losing eq
   const cursor=first.rows[19];const next=await db.query<{id:string}>("select id from list_google_bookings_v1($1,'buyer',$2,$3)",[buyer,cursor.created_at,cursor.id]);
   expect(next.rows).toHaveLength(5);expect(new Set([...first.rows.slice(0,20),...next.rows].map(row=>row.id)).size).toBe(25);
 });
+
+test("failed bookings remain discoverable for buyer recovery",async()=>{
+ await reserve(booking,0,buyer);
+ await db.query("update google_booking_reservations_v1 set status='failed' where id=$1",[booking]);
+ expect((await db.query("select id,status from list_google_bookings_v1($1,'buyer')",[buyer])).rows).toEqual([{id:booking,status:'failed'}]);
+});

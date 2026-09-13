@@ -3,7 +3,7 @@ import {useEffect,useState} from "react";
 import {useUser} from "@/lib/useUser";
 type Booking={id:string;connection_id:string;title:string;counterparty_name:string;status:string;starts_at:string;desired_starts_at:string|null};
 type Cursor={before:string;before_id:string};
-const statusNames:Record<string,string>={creating:"Confirming booking",confirmed:"Confirmed",rescheduling:"Confirming new time",canceling:"Confirming cancellation",canceled:"Canceled"};
+const statusNames:Record<string,string>={failed:"Not booked — choose another time",creating:"Confirming booking",confirmed:"Confirmed",rescheduling:"Confirming new time",canceling:"Confirming cancellation",canceled:"Canceled"};
 export default function GoogleBookingsList(){const {userId,session}=useUser();return userId?<Bookings key={userId} token={session?.access_token}/>:null;}
 function Bookings({token}:{token?:string}){
  const [role,setRole]=useState<'buyer'|'creator'>('buyer');
@@ -28,7 +28,7 @@ function BookingRows({role,token}:{role:'buyer'|'creator';token?:string}){
  const time=(value:string)=>new Intl.DateTimeFormat(undefined,{dateStyle:"medium",timeStyle:"short"}).format(new Date(value));
  return <div className="space-y-3">
   {error&&<p role="alert">{error}</p>}
-  {rows.map(row=><article key={row.id} className="space-y-1 rounded-lg border border-white/10 p-3"><h3 className="font-medium">{row.title}</h3><p>{role==='buyer'?'With':'Booked by'} {row.counterparty_name}</p><p>{time(row.starts_at)}</p><p>{statusNames[row.status]??'Check booking status'}</p>{row.status==='rescheduling'&&row.desired_starts_at&&<p>Requested new time: {time(row.desired_starts_at)}</p>}
+  {rows.map(row=><article key={row.id} className="space-y-1 rounded-lg border border-white/10 p-3"><h3 className="font-medium">{row.title}</h3><p>{role==='buyer'?'With':'Booked by'} {row.counterparty_name}</p><p>{row.status==="failed"?"Previous requested time: ":""}{time(row.starts_at)}</p><p>{statusNames[row.status]??'Check booking status'}</p>{row.status==='rescheduling'&&row.desired_starts_at&&<p>Requested new time: {time(row.desired_starts_at)}</p>}
    {role==='buyer'?<a className="text-sm underline" href={`/scheduling/book/${row.connection_id}?reservation_id=${row.id}`}>View or manage booking</a>:<a className="text-sm underline" href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>}
   </article>)}
   {!busy&&!error&&!rows.length&&<p className="text-sm text-white/70">No Google Calendar bookings yet.</p>}

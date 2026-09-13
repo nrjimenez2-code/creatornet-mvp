@@ -1,5 +1,5 @@
 import "server-only";
-import { googleBookingEventId, type GoogleBookingEvent } from "@/lib/googleCalendarProvider";
+import { GoogleBookingTimeUnavailable, googleBookingEventId, type GoogleBookingEvent } from "@/lib/googleCalendarProvider";
 
 export type GoogleBookingOperation = {
   id: string; reservationId: string; revision: number; action: "create" | "reschedule" | "cancel";
@@ -21,6 +21,8 @@ export type GoogleProcessorPorts = {
   createEvent: (reservation: GoogleReservation) => Promise<GoogleBookingEvent>;
   rescheduleEvent: (reservation: GoogleReservation, start: string, end: string) => Promise<GoogleBookingEvent>;
   cancelEvent: (reservation: GoogleReservation) => Promise<void>;
+  beginMutation: (job: GoogleBookingOperation) => Promise<void>;
+  failUnattempted: (job: GoogleBookingOperation, reason: "google_booking_time_passed" | "google_booking_time_unavailable") => Promise<boolean>;
   recoverReschedule: (job: GoogleBookingOperation, reservation: GoogleReservation, event: GoogleBookingEvent | null) => Promise<void>;
   complete: (job: GoogleBookingOperation, event: GoogleBookingEvent | null) => Promise<void>;
 };
@@ -61,6 +63,7 @@ export async function processGoogleBookingOperation(job: GoogleBookingOperation,
     if (!reservation.eventId) throw new Error("Cancellation has no confirmed event");
     if (existing && existing.status !== "cancelled") {
       await guard();
+      await ports.beginMutation(job);
       await ports.cancelEvent(reservation);
     }
     await guard();
@@ -96,9 +99,18 @@ export async function processGoogleBookingOperation(job: GoogleBookingOperation,
   if (job.action === "create" && existing) throw new Error("Existing event differs from the reservation");
   if (job.action === "reschedule" && (!existing || !reservation.eventEtag || existing.etag !== reservation.eventEtag))
     throw new Error("Calendar booking changed externally; reconcile before rescheduling");
-  if (Date.parse(start) <= ports.now()) throw new Error("Reserved time has already passed; choose a new time");
-  await ports.assertAvailable(reservation, start, end);
+  if (Date.parse(start) <= ports.now()) {
+    if(job.action==='create' && !existing && await ports.failUnattempted(job,'google_booking_time_passed'))return;
+    throw new Error("Reserved time has already passed; choose a new time");
+  }
+  try {await ports.assertAvailable(reservation, start, end);}
+  catch(cause){
+    if(cause instanceof GoogleBookingTimeUnavailable && job.action==='create' && !existing &&
+       await ports.failUnattempted(job,'google_booking_time_unavailable'))return;
+    throw cause;
+  }
   await guard();
+  await ports.beginMutation(job);
   const result = job.action === "create" ? await ports.createEvent(reservation) : await ports.rescheduleEvent(reservation, start, end);
   if (!matches(result, reservation, start, end)) throw new Error("Calendar response does not confirm this reservation");
   await guard();
