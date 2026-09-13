@@ -1,8 +1,24 @@
 # Automatic scheduling connections — implementation checkpoint
 
+## Additional user requirement
+
+The user requested Google Calendar as an additional provider on 2026-09-13. Include this in the full completion scope. Implement direct Google Calendar connection with availability, event creation/update/cancellation, calendar-change reconciliation, automatic watch-channel renewal, and the same original-video attribution and Bookings connection controls. Do not mark the goal complete with only Cal.com/Calendly, or label ordinary Calendar sync as a completed direct booking provider. Google Calendar work is not implemented yet. Official API references: https://developers.google.com/workspace/calendar/api/v3/reference and https://developers.google.com/workspace/calendar/api/guides/push .
+
 Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media processor deployment and three-video production duration backfill are complete; do not repeat them.
 
 ## Current work (2026-09-13)
+
+### Second checkpoint
+
+The composer now mounts `SchedulingConnections` when creating or attaching a one-off call and when adding a sales-call booking option. It opens a separate authorization window, retains the mounted draft (including selected File objects), rechecks on return, and reuses saved event selections. The same component adds Bookings status/manage/reconnect/disconnect controls. It clears stale status after failed reads and hides prior-account state on an account switch.
+
+Authenticated start/callback/status/disconnect routes and `lib/schedulingConnections.ts` are implemented locally. OAuth state is hashed, creator/provider scoped, cookie bound, encrypted where needed, expiring, and consumed once. Stored credential refresh is protected by a database lease. Webhook provisioning reconciles subscriptions using the exact connection callback URL; event types are loaded through the provider account. The scheduling receiver now resolves persisted connections and requests retries while a connection is being restored. Calendly string event references are hydrated through its authenticated API and checked against the connected account.
+
+These changes have not been deployed and the migration remains local only. External OAuth apps are still unconfigured/unverified. Google Calendar is not implemented. Do not treat the source implementation as full acceptance evidence.
+
+Validation for this checkpoint: eight selected suites / 47 tests passed, including five new route tests and five UI tests. TypeScript passed during implementation and is rerun before committing. Tests do not yet cover the complete connection service against a real provider or all ambiguous failure/lease-recovery paths. Browser visual verification, event pagination beyond database response limits, lease timing/concurrent reads, webhook secret rotation, reconnect/disconnect recovery, provider event deletion/reschedule chains, paid-call attribution, and real scheduling acceptance still need review and testing. The remaining original ranking pilot, commercial/performance tests and production rollout remain required.
+
+The earlier foundation-only description below is historical; use the second checkpoint above for current wiring status and the next-work list as an acceptance checklist, not a claim that every listed file is absent.
 
 The first-time composer connection flow is in progress. `lib/schedulingProvider.ts` implements provider authorization URLs, code exchange, refresh-token exchange, authenticated account reads, webhook creation, and webhook removal. `lib/schedulingSecrets.ts` implements AES-256-GCM encryption with creator/provider/purpose context binding. Neither module is wired into the application yet.
 

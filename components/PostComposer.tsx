@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabaseClient";
 import { normalizeTopics } from "@/lib/interestTopics";
 import { INTEREST_LABELS, normalizeInterests } from "@/lib/interestCategories";
 import { useUser } from "@/lib/useUser";
+import SchedulingConnections from "@/components/SchedulingConnections";
 import { extractHashtags } from "@/lib/hashtags";
 import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
 import { readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
@@ -710,6 +711,7 @@ export default function PostComposer({ onPosted }: Props) {
               </button>
             </div>
 
+            {!newProdOpen && products.find(product => product.id === productId)?.type === "call" && <SchedulingConnections purpose="session" />}
             {newProdOpen && (
               <div className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3">
                 <input
@@ -770,6 +772,7 @@ export default function PostComposer({ onPosted }: Props) {
                   </div>
                 )}
                 {newProdType === "call" && <div className="space-y-2 text-sm">
+                  <SchedulingConnections purpose="session" value={newProdSchedulingUrl} onSelect={setNewProdSchedulingUrl} />
                   <label className="block">Private paid-call scheduling link
                     <input type="url" value={newProdSchedulingUrl} onChange={e => setNewProdSchedulingUrl(e.target.value)} placeholder="https://your-scheduler.com/paid-call"
                       className="mt-1 w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-white" />
@@ -827,6 +830,7 @@ export default function PostComposer({ onPosted }: Props) {
 
         {attachBooking && (
           <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
+            <SchedulingConnections purpose="sales-call" value={bookingUrl} onSelect={setBookingUrl} />
             <label className="text-sm font-semibold text-white/80">Booking URL</label>
             <input
               value={bookingUrl}

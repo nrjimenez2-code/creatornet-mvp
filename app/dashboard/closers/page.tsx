@@ -5,6 +5,7 @@ import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import SchedulingConnections from "@/components/SchedulingConnections";
 import styles from "./bookings.module.css";
 import InstallmentLinkForm from "@/components/InstallmentLinkForm";
 import { platformFeeCents as legacyPlatformFeeCents } from "@/lib/money";
@@ -406,6 +407,7 @@ export default function ClosersManagerPage() {
         <h1>Booking destinations</h1>
         <p>Route calls to your sales team, one booking at a time.</p>
       </header>
+      <SchedulingConnections />
       <section className={styles.panel} aria-labelledby="add-destination-title">
         <h2 id="add-destination-title">Add a destination</h2>
         <p className={styles.subtitle}>Choose where your next bookings go.</p>

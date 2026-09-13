@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { bookingProviderForUrl } from "@/lib/schedulingConnectionTypes";
 
 export type SchedulingProvider = "calcom" | "calendly";
 export type SchedulingOAuthConfig = {
@@ -98,12 +99,13 @@ export async function schedulingApi(
     throw new Error("Invalid scheduling API path");
   return request(endpoints[provider].api + path, {
     method,
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json",
+      ...(provider === "calcom" && path.startsWith("/event-types") ? { "cal-api-version": "2024-06-14" } : {}) },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
 
-export type SchedulingAccount = { id: string; name: string; organization?: string };
+export type SchedulingAccount = { id: string; name: string; organization?: string; username?: string };
 export async function getSchedulingAccount(provider: SchedulingProvider, token: string): Promise<SchedulingAccount> {
   const result = await schedulingApi(provider, token, provider === "calcom" ? "/me" : "/users/me");
   const account = provider === "calcom" ? result.data : result.resource;
@@ -113,7 +115,71 @@ export async function getSchedulingAccount(provider: SchedulingProvider, token: 
   if (provider === "calendly" && typeof account.current_organization !== "string")
     throw new Error("Missing scheduling organization");
   return { id: String(id), name: String(account.name ?? ""),
-    ...(provider === "calendly" ? { organization: account.current_organization } : {}) };
+    ...(provider === "calendly" ? { organization: account.current_organization } : { username: account.username }) };
+}
+
+export type ProviderEventType = { id: string; title: string; bookingUrl: string };
+export async function listSchedulingEventTypes(provider: SchedulingProvider, token: string, account: SchedulingAccount): Promise<ProviderEventType[]> {
+  const events: ProviderEventType[] = [];
+  const deadline = Date.now() + 40_000;
+  if (provider === "calcom") {
+    if (!account.username) throw new Error("Missing scheduling username");
+    const result = await schedulingApi(provider, token, `/event-types?username=${encodeURIComponent(account.username)}`);
+    if (!Array.isArray(result.data)) throw new Error("Invalid event type response");
+    for (const event of result.data) {
+      if (!Number.isInteger(event.id) || event.id <= 0 || typeof event.title !== "string") throw new Error("Invalid event type response");
+      if (String(event.ownerId) !== account.id && !event.users?.some((user: { id: number }) => String(user.id) === account.id)) continue;
+      if (bookingProviderForUrl(event.bookingUrl) !== provider) continue;
+      events.push({ id: String(event.id), title: String(event.title), bookingUrl: event.bookingUrl });
+    }
+    return events;
+  }
+  let cursor = "";
+  const seen = new Set<string>();
+  for (let page = 0; page < 100; page++) {
+    if (Date.now() > deadline) throw new Error("Scheduling event listing timed out");
+    const query = new URLSearchParams({ user: account.id, active: "true", count: "100", ...(cursor ? { page_token: cursor } : {}) });
+    const result = await schedulingApi(provider, token, `/event_types?${query}`);
+    if (!Array.isArray(result.collection)) throw new Error("Invalid event type response");
+    for (const event of result.collection) {
+      if (typeof event.uri !== "string" || !/^https:\/\/api\.calendly\.com\/event_types\/[a-zA-Z0-9-]+$/.test(event.uri) || typeof event.name !== "string") throw new Error("Invalid event type response");
+      if (event.active !== true || bookingProviderForUrl(event.scheduling_url) !== provider) continue;
+      events.push({ id: event.uri, title: event.name, bookingUrl: event.scheduling_url });
+    }
+    cursor = result.pagination?.next_page_token ?? "";
+    if (!cursor) return events;
+    if (seen.has(cursor)) throw new Error("Repeated scheduling cursor");
+    seen.add(cursor);
+  }
+  throw new Error("Scheduling event list too large");
+}
+
+export type ProviderWebhook = { id: string; callbackUrl: string; active: boolean; events: string[]; secret?: string };
+export async function listSchedulingWebhooks(provider: SchedulingProvider, token: string, account: SchedulingAccount): Promise<ProviderWebhook[]> {
+  const hooks: ProviderWebhook[] = [];
+  const deadline = Date.now() + 40_000;
+  let cursor = "";
+  const seen = new Set<string>();
+  for (let page = 0; page < 100; page++) {
+    if (Date.now() > deadline) throw new Error("Scheduling webhook listing timed out");
+    const query = provider === "calcom" ? new URLSearchParams({ take: "250", skip: String(page * 250) })
+      : new URLSearchParams({ organization: account.organization!, user: account.id, scope: "user", count: "100", ...(cursor ? { page_token: cursor } : {}) });
+    const result = await schedulingApi(provider, token, `${provider === "calcom" ? "/webhooks" : "/webhook_subscriptions"}?${query}`);
+    const rows = provider === "calcom" ? result.data : result.collection;
+    if (!Array.isArray(rows)) throw new Error("Invalid webhook list response");
+    for (const hook of rows) {
+      hooks.push(provider === "calcom" ? { id: String(hook.id), callbackUrl: hook.subscriberUrl, active: hook.active === true, events: hook.triggers ?? [], secret: hook.secret }
+        : { id: hook.uri, callbackUrl: hook.callback_url, active: hook.state === "active", events: hook.events ?? [] });
+    }
+    if (provider === "calcom") { if (rows.length < 250) return hooks; }
+    else {
+      cursor = result.pagination?.next_page_token ?? "";
+      if (!cursor) return hooks;
+      if (seen.has(cursor)) throw new Error("Repeated scheduling cursor");
+      seen.add(cursor);
+    }
+  }
+  throw new Error("Scheduling webhook list too large");
 }
 
 export async function createSchedulingWebhook(

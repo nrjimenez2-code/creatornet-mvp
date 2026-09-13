@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifySchedulingSignature } from "@/lib/schedulingWebhook";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import { discoverEnabled } from "@/lib/discoverServer";
+import { openSchedulingSecret } from "@/lib/schedulingSecrets";
+import { hydrateCalendlyEvent } from "@/lib/schedulingConnections";
 type Connection = {
   id: string;
   provider: "calendly" | "calcom";
   creatorId: string;
   eventType: string;
   secret: string;
+  eventTypes?: string[];
+  persisted?: boolean;
 };
 export async function POST(
   req: NextRequest,
@@ -20,7 +24,22 @@ export async function POST(
     const configurations = JSON.parse(
       process.env.DISCOVER_SCHEDULING_CONNECTIONS ?? "[]",
     ) as Connection[];
-    const config = configurations.find((c) => c.id === connection);
+    let config = configurations.find((c) => c.id === connection);
+    if (process.env.SCHEDULING_OAUTH_ENABLED === "true" && /^[a-f0-9-]{36}$/i.test(connection)) {
+      const { data: saved, error } = await admin.from("scheduling_connections_v1")
+        .select("id,provider,creator_id,status,webhook_secret_ciphertext").eq("id", connection).maybeSingle();
+      if (error) throw error;
+      if (saved) {
+        if (["disconnected", "disconnecting"].includes(saved.status)) return NextResponse.json({ ok: true, disconnected: true });
+        if (saved.status !== "connected") return NextResponse.json({ error: "Connection is being restored" }, { status: 503 });
+        const events = await admin.from("scheduling_event_types_v1").select("provider_event_id")
+          .eq("connection_id", saved.id).eq("active", true);
+        if (events.error) throw events.error;
+        config = { id: saved.id, provider: saved.provider, creatorId: saved.creator_id, eventType: "", persisted: true,
+          eventTypes: (events.data ?? []).map(event => event.provider_event_id),
+          secret: openSchedulingSecret(saved.webhook_secret_ciphertext, `${saved.creator_id}:${saved.provider}:webhook`) };
+      }
+    }
     if (!config)
       return NextResponse.json(
         { error: "Unknown connection" },
@@ -41,6 +60,9 @@ export async function POST(
     const p = event.payload;
     if (!p) return NextResponse.json({ ok: true, ignored: true });
     const isCalendly = config.provider === "calendly";
+    if (isCalendly && config.persisted && typeof p.scheduled_event === "string") {
+      p.scheduled_event = await hydrateCalendlyEvent(config.creatorId, p.scheduled_event);
+    }
     const kind = isCalendly ? event.event : event.triggerEvent;
     const canceled =
       kind === (isCalendly ? "invitee.canceled" : "BOOKING_CANCELLED");
@@ -53,7 +75,7 @@ export async function POST(
     const eventType = isCalendly
       ? p.scheduled_event?.event_type
       : String(p.eventTypeId);
-    if (eventType !== config.eventType)
+    if (config.eventTypes ? !config.eventTypes.includes(eventType) : eventType !== config.eventType)
       return NextResponse.json({ ok: true, ignored: true });
     if (!isCalendly && !canceled && p.status !== "ACCEPTED")
       return NextResponse.json({ ok: true, ignored: true });
