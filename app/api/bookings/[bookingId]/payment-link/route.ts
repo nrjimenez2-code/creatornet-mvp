@@ -147,6 +147,26 @@ export async function POST(
 
     const productIdForPayload = product.id ?? product.product_id ?? post.product_id;
 
+    // Standard product checkout rejects a second charge against a fulfilled or
+    // refunded purchase. Booking links must enforce the same admission rule:
+    // purchase uniqueness and terminal refund guards cannot fulfill that charge.
+    // Check both identities, since another post may sell the same product.
+    const { data: priorPurchases, error: priorPurchaseError } = await admin
+      .from("purchases")
+      .select("id,status,access_granted")
+      .eq("buyer_id", booking.buyer_id)
+      .or(`post_id.eq.${post.id},product_id.eq.${productIdForPayload}`)
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
+      .limit(2);
+    if (priorPurchaseError) throw priorPurchaseError;
+    if (priorPurchases?.some((purchase) => purchase.access_granted ||
+        !["pending", "processing", "failed"].includes(purchase.status))) {
+      return NextResponse.json({
+        error: "This buyer already has a purchase for this product. A new payment link cannot be created automatically. Contact support if you need help.",
+        code: "PURCHASE_ALREADY_EXISTS",
+      }, { status: 409 });
+    }
+
     const totalCents = Number(product.amount_cents ?? 0);
     if (!Number.isSafeInteger(totalCents) || totalCents < 50) {
       return NextResponse.json({ error: "Product amount must be at least 50 cents" }, { status: 400 });

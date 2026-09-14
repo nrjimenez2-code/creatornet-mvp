@@ -560,8 +560,13 @@ describe("booking payment links", () => {
     bookingStatus?: string;
     amountCents?: number;
     existingPayment?: Record<string, unknown> | null;
+    priorPurchases?: Record<string, unknown>[];
+    purchaseLookupError?: boolean;
   } = {}): MockClient {
     const client = createMockClient((op: Op) => {
+      if (op.table === "purchases" && op.kind === "select") {
+        return { data: options.priorPurchases ?? [], error: options.purchaseLookupError ? { message: "lookup unavailable" } : null };
+      }
       if (op.table === "bookings" && op.kind === "select") {
         return {
           data: {
@@ -626,6 +631,35 @@ describe("booking payment links", () => {
     expect(params.metadata.post_id).toBe("post_1");
     expect(params.payment_intent_data.metadata.post_id).toBe("post_1");
     expect(checkoutCreate.mock.calls[0][1]?.idempotencyKey).toMatch(/^booking-payment:/);
+  });
+
+  it.each(["full", "installment"])("rejects %s links for refunded purchases before any payment mutation", async (plan) => {
+    db = bookingDb({ priorPurchases: [{ id: "original_refunded", status: "refunded", access_granted: false }] });
+    const { POST } = await import("@/app/api/bookings/[bookingId]/payment-link/route");
+    const response = await POST(new Request("https://www.creatornet.net/api/bookings/booking_1/payment-link", {
+      method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" },
+      body: JSON.stringify({ plan_type: plan, installment_months: 2 }),
+    }) as any, { params: Promise.resolve({ bookingId: "booking_1" }) });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ code: "PURCHASE_ALREADY_EXISTS" });
+    expect(checkoutCreate).not.toHaveBeenCalled();
+    expect(db.ops.filter(op => op.kind !== "select")).toEqual([]);
+    expect(db.opsFor("purchases")[0]).toMatchObject({ filters: { buyer_id: "buyer_1" },
+      orFilters: ["post_id.eq.post_1,product_id.eq.product_row_1",
+        "kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled"] });
+  });
+
+  it.each(["paid", "active", "completed", "canceled", "lookup-error"])("does not charge against %s purchase state", async (status) => {
+    db = bookingDb({ priorPurchases: [{ id: "existing", status, access_granted: status === "active" }],
+      purchaseLookupError: status === "lookup-error" });
+    const { POST } = await import("@/app/api/bookings/[bookingId]/payment-link/route");
+    const response = await POST(new Request("https://www.creatornet.net/api/bookings/booking_1/payment-link", {
+      method: "POST", headers: { authorization: "Bearer token", "content-type": "application/json" },
+      body: JSON.stringify({ plan_type: "full" }),
+    }) as any, { params: Promise.resolve({ bookingId: "booking_1" }) });
+    expect(response.status).toBe(status === "lookup-error" ? 500 : 409);
+    expect(checkoutCreate).not.toHaveBeenCalled();
+    expect(db.ops.filter(op => op.kind !== "select")).toEqual([]);
   });
 
   it("reuses an existing live link instead of creating a second Stripe payment path", async () => {
