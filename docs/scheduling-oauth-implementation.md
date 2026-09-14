@@ -1,6 +1,10 @@
 # Automatic scheduling connections — implementation checkpoint
 
-Latest state (2026-09-14 UTC): code 2220bf7 is pushed and its Vercel Preview deployment succeeded. All twelve scheduling migrations are now installed and permission-checked on staging nwqfofezfzljhxolkycz. See the final Scheduling staging migration section for exact version mapping. Earlier local-only/no-migration notes below are historical. OAuth enablement, live acceptance and production rollout remain incomplete.
+Latest state (2026-09-14 UTC): code e493b64 is pushed. Preview deployment FhKg2eKeaRBXEUk9c1QXHmvzRwq9 is Ready. Google OAuth, calendar selection, saved hours, an active watch, connected/manage controls and composer connection reuse are verified on staging nwqfofezfzljhxolkycz. Authenticated booking jobs, sync and maintenance returned HTTP 200; jobs without the worker secret returned 401. No real booking creation, rescheduling, cancellation or sales attribution is claimed yet. Cal.com awaits provider approval and Calendly has not completed creator connection. Production rollout remains incomplete. The dated sections below preserve earlier checkpoints and are historical where superseded here.
+
+The watch-renewal fairness migration maps local `20260914012650` to staging `20260914014216`. Its claim function is security invoker with execution restricted to service_role. Failed renewals yield to other calendars before external I/O.
+
+Live acceptance uncovered a storage configuration mismatch: this Preview branch inherits `R2_BUCKET_NAME=creatornet-media`, while the existing staging bucket is `creatornet-media-staging`. The current branch origin was added to the staging bucket's CORS allowlist and its PUT/content-type preflight returns 204, but the composer still targets inherited storage settings. Branch-specific staging storage configuration is awaiting approval. The labeled QA offer remains an unpublished draft after upload failure; database verification found no posts for its creator. Do not bypass this by fabricating successful booking or attribution records.
 
 ## Additional user requirement
 
