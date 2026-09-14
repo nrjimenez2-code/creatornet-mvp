@@ -155,7 +155,7 @@ export async function POST(
       .from("purchases")
       .select("id,status,access_granted")
       .eq("buyer_id", booking.buyer_id)
-      .or(`post_id.eq.${post.id},product_id.eq.${productIdForPayload}`)
+      .or(eitherIdFilter(["post_id", "product_id"], post.id, productIdForPayload))
       .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
       .limit(2);
     if (priorPurchaseError) throw priorPurchaseError;

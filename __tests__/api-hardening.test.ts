@@ -42,6 +42,15 @@ describe("ids in PostgREST filters", () => {
       expect(read(file)).toMatch(/eitherIdFilter\(/);
     }
   });
+
+  test("different post and product ids are both validated before building the filter", () => {
+    expect(eitherIdFilter(["post_id", "product_id"], "post-1", "product-2"))
+      .toBe("post_id.eq.post-1,product_id.eq.product-2");
+    expect(() => eitherIdFilter(["post_id", "product_id"], "post-1", "x,buyer_id.eq.other"))
+      .toThrow("Invalid id");
+    expect(() => eitherIdFilter(["post_id", "product_id"], "x)", "product-2"))
+      .toThrow("Invalid id");
+  });
 });
 
 describe("booking link rules", () => {
