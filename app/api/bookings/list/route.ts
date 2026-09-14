@@ -5,6 +5,7 @@ import { createServerSupabase } from "@/lib/supabaseClient";
 import { assertExactInstallmentEnvironment } from "@/lib/installments/checkoutPreparation";
 import { readContextCheckoutPayments } from "@/lib/installments/contextCheckoutApp";
 import { getSiteUrl } from "@/lib/siteUrl";
+import { readBookingSchedulingStatus } from "@/lib/bookingSchedulingStatus";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -201,6 +202,8 @@ export async function GET(req: NextRequest) {
       paymentsByBooking.set(payment.booking_id, list);
     }
 
+    const scheduling = process.env.DISCOVER_V4_ENABLED === 'true' || process.env.GOOGLE_CALENDAR_ENABLED === 'true'
+      ? await readBookingSchedulingStatus(admin, user.id, bookings) : new Map();
     const result = bookings.map((booking) => {
       const post = postMap.get(booking.post_id) ?? null;
       const product =
@@ -208,6 +211,7 @@ export async function GET(req: NextRequest) {
 
       return {
         booking,
+        scheduling: scheduling.get(booking.id) ?? [],
         post,
         product,
         buyer: buyerMap.get(booking.buyer_id) ?? null,
