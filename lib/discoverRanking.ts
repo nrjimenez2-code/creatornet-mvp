@@ -379,18 +379,23 @@ export function rankDiscover(
       // Alternate a relevant cold-start/retest with a proven related-audience trial.
       const relatedSlot =
         Math.floor(out.length / DISCOVER_POLICY.explorationEvery) % 2 === 1;
-      const trials = pending
-        .map((p, index) => ({ p, index }))
-        .filter(
-          ({ p }) =>
-            p.post.creator_id !== lastCreator &&
-            (!unseen || !p.seen) &&
-            (relatedSlot
-              ? p.related && !p.topicMatch && p.relevance === 0
-              : eligible(p) && p.explore),
-        );
-      trials.sort((a, b) => a.p.rotation - b.p.rotation);
-      index = trials[0]?.index ?? -1;
+      // Only the lowest rotation is needed; retaining the first tie matches
+      // the stable ordering of the pending queues without sorting each slot.
+      let lowestRotation = Infinity;
+      for (let candidateIndex = 0; candidateIndex < pending.length; candidateIndex++) {
+        const p = pending[candidateIndex];
+        if (
+          p.post.creator_id !== lastCreator &&
+          (!unseen || !p.seen) &&
+          (relatedSlot
+            ? p.related && !p.topicMatch && p.relevance === 0
+            : eligible(p) && p.explore) &&
+          p.rotation < lowestRotation
+        ) {
+          lowestRotation = p.rotation;
+          index = candidateIndex;
+        }
+      }
       relatedTrial = relatedSlot && index >= 0;
     }
     if (index < 0)
