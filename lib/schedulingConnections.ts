@@ -142,10 +142,13 @@ export async function disconnectSchedulingConnection(creator: string, provider: 
     // Immediately stop accepting callbacks, even if remote cleanup needs a retry.
     await save(row, { status: "disconnecting" });
     if (row.credentials_ciphertext && row.account_id) {
-      const token = await accessToken(row);
       const callback = `${schedulingOrigin()}/api/scheduling/${row.id}`;
-      const hooks = await listSchedulingWebhooks(provider, token, accountFromRow(row));
-      for (const hook of hooks) if (hook.callbackUrl === callback) await deleteSchedulingWebhook(provider, token, hook.id);
+      await withSchedulingAccess(row, async token => {
+        // Re-list on retry: a previous attempt may already have removed some
+        // hooks before authorization failed. Only remove this connection's hooks.
+        const hooks = await listSchedulingWebhooks(provider, token, accountFromRow(row));
+        for (const hook of hooks) if (hook.callbackUrl === callback) await deleteSchedulingWebhook(provider, token, hook.id);
+      });
     }
     await checked(await db.from("scheduling_event_types_v1").update({ active: false }).eq("connection_id", row.id));
     await save(row, { status: "disconnected", credentials_ciphertext: null, webhook_id: null,

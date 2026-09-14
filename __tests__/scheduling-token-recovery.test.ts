@@ -1,6 +1,6 @@
 import { createMockClient, type MockClient } from './__mocks__/supabaseQueryMock';
 let db: MockClient;
-const api = jest.fn(), exchange = jest.fn();
+const api = jest.fn(), exchange = jest.fn(), listHooks = jest.fn(), deleteHook = jest.fn();
 jest.mock('@/lib/supabaseAdmin',()=>({get supabaseAdmin(){return db;}}));
 jest.mock('@/lib/schedulingSecrets',()=>({openSchedulingSecret:(s:string)=>s,sealSchedulingSecret:(s:string)=>s}));
 jest.mock('@/lib/schedulingConfig',()=>({schedulingConfig:()=>({}),schedulingOrigin:()=> 'https://test.invalid'}));
@@ -8,12 +8,14 @@ jest.mock('@/lib/schedulingProvider',()=>({
  ...jest.requireActual('@/lib/schedulingProvider'),
  schedulingApi:(...args:unknown[])=>api(...args),
  exchangeSchedulingToken:(...args:unknown[])=>exchange(...args),
+ listSchedulingWebhooks:(...args:unknown[])=>listHooks(...args),
+ deleteSchedulingWebhook:(...args:unknown[])=>deleteHook(...args),
 }));
-import { hydrateCalendlyEvent } from '@/lib/schedulingConnections';
+import { hydrateCalendlyEvent, disconnectSchedulingConnection } from '@/lib/schedulingConnections';
 import { SchedulingProviderError } from '@/lib/schedulingProvider';
 let row: Record<string,any>;
 beforeEach(()=>{
- api.mockReset(); exchange.mockReset();
+ api.mockReset(); exchange.mockReset(); listHooks.mockReset(); deleteHook.mockReset();
  row={id:'connection',creator_id:'creator',provider:'calendly',status:'connected',account_id:'account',
  credentials_ciphertext:JSON.stringify({accessToken:'old',refreshToken:'refresh',expiresAt:Date.now()+3600000})};
  db=createMockClient(op=>{
@@ -58,4 +60,34 @@ test('refresh success never bypasses scheduled-event ownership',async()=>{
  api.mockRejectedValueOnce(new SchedulingProviderError(401)).mockResolvedValueOnce({resource:{event_memberships:[{user:'someone-else'}]}});
  await expect(run()).rejects.toThrow('Scheduled event owner mismatch');
  expect(exchange).toHaveBeenCalledTimes(1);expect(row.status).toBe('connected');
+});
+
+test('disconnect refreshes rejected authorization and deletes only its own hooks',async()=>{
+ listHooks.mockRejectedValueOnce(new SchedulingProviderError(401)).mockResolvedValueOnce([
+  {id:'own',callbackUrl:'https://test.invalid/api/scheduling/connection'},
+  {id:'other',callbackUrl:'https://test.invalid/api/scheduling/other'},
+ ]);
+ await disconnectSchedulingConnection('creator','calendly');
+ expect(listHooks.mock.calls.map(args=>args[1])).toEqual(['old','fresh']);
+ expect(deleteHook).toHaveBeenCalledTimes(1);
+ expect(deleteHook).toHaveBeenCalledWith('calendly','fresh','own');
+ expect(row.status).toBe('disconnected'); expect(row.credentials_ciphertext).toBeNull();
+ expect(row.lease_id).toBeNull();
+});
+
+test('disconnect re-lists after a deletion rejects the old token',async()=>{
+ listHooks.mockResolvedValue([{id:'own',callbackUrl:'https://test.invalid/api/scheduling/connection'}]);
+ deleteHook.mockRejectedValueOnce(new SchedulingProviderError(401)).mockResolvedValueOnce(undefined);
+ await disconnectSchedulingConnection('creator','calendly');
+ expect(exchange).toHaveBeenCalledTimes(1);expect(listHooks).toHaveBeenCalledTimes(2);
+ expect(deleteHook.mock.calls.map(args=>args[1])).toEqual(['old','fresh']);
+ expect(row.status).toBe('disconnected');
+});
+
+test('transient disconnect failure retains cleanup credentials and stops callbacks',async()=>{
+ listHooks.mockRejectedValue(new SchedulingProviderError(503));
+ await expect(disconnectSchedulingConnection('creator','calendly')).rejects.toThrow();
+ expect(row.status).toBe('disconnecting');expect(row.credentials_ciphertext).not.toBeNull();
+ expect(exchange).not.toHaveBeenCalled();expect(row.lease_id).toBeNull();
+ await expect(run()).rejects.toThrow('Booking provider is not connected');
 });
