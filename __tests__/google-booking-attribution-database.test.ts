@@ -45,6 +45,7 @@ beforeAll(async () => {
     "20260913234159_google_unattempted_booking_recovery.sql",
     "20260913235026_google_unattempted_reschedule_recovery.sql",
     "20260914000350_google_booking_worker_capacity.sql",
+    "20260914003852_google_reconnect_retry_wakeup.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -289,4 +290,27 @@ test("an active calendar job does not block a different creator's queue",async()
  await db.query('select enqueue_google_booking_create_v1($1,$2)',[booking,viewer]);
  expect((await db.query('select reservation_id from claim_google_booking_job_v1($1)',[watchId])).rows).toEqual([{reservation_id:booking}]);
  expect((await db.query("select count(*)::int n from google_booking_jobs_v1 where status='processing' and lease_until>clock_timestamp()")).rows).toEqual([{n:2}]);
+});
+
+test("reconnect wakes retained retry work without erasing mutation history",async()=>{
+ await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);
+ const id=await claim();
+ await db.query("update google_booking_jobs_v1 set status='retry',next_attempt_at=now()+interval '1 hour',mutation_started_at=now(),lease_id=null,lease_until=null where id=$1",[id]);
+ await db.query("update scheduling_connections_v1 set status='reconnect_required' where id=$1",[connection]);
+ await db.query("update scheduling_connections_v1 set status='pending' where id=$1",[connection]);
+ expect((await db.query("select next_attempt_at>now() as delayed from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{delayed:true}]);
+ await db.query("update scheduling_connections_v1 set status='connected' where id=$1",[connection]);
+ expect((await db.query("select next_attempt_at<=clock_timestamp() as due,mutation_started_at is not null as uncertain,attempts from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{due:true,uncertain:true,attempts:1}]);
+ expect(await claim()).toBe(id);
+});
+test("ordinary connection checks preserve retry backoff and reconnect leaves active leases alone",async()=>{
+ await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);
+ const id=await claim();
+ await db.query("update google_booking_jobs_v1 set next_attempt_at=now()+interval '1 hour' where id=$1",[id]);
+ await db.query("update scheduling_connections_v1 set status='pending' where id=$1",[connection]);
+ await db.query("update scheduling_connections_v1 set status='connected' where id=$1",[connection]);
+ expect((await db.query("select status,lease_id,next_attempt_at>now() as delayed from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{status:"processing",lease_id:worker,delayed:true}]);
+ await db.query("update google_booking_jobs_v1 set status='retry',lease_id=null,lease_until=null where id=$1",[id]);
+ await db.query("update scheduling_connections_v1 set status='connected' where id=$1",[connection]);
+ expect((await db.query("select next_attempt_at>now() as delayed from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{delayed:true}]);
 });
