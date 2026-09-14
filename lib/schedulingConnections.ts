@@ -47,10 +47,10 @@ async function saveTokens(row: Connection, tokens: SchedulingTokens) {
   await save(row, { credentials_ciphertext: sealSchedulingSecret(JSON.stringify(tokens), context(row, "tokens")), token_expires_at: new Date(tokens.expiresAt).toISOString() });
 }
 
-async function accessToken(row: Connection): Promise<string> {
+async function accessToken(row: Connection, forceRefresh = false): Promise<string> {
   if (!row.credentials_ciphertext) throw new Error("Connect your booking provider first");
   const stored = JSON.parse(openSchedulingSecret(row.credentials_ciphertext, context(row, "tokens"))) as SchedulingTokens;
-  if (stored.expiresAt > Date.now() + 60_000) return stored.accessToken;
+  if (!forceRefresh && stored.expiresAt > Date.now() + 60_000) return stored.accessToken;
   try {
     // The database lease serializes single-use refresh-token rotation across instances.
     const fresh = await exchangeSchedulingToken(row.provider, schedulingConfig(row.provider), { refreshToken: stored.refreshToken });
@@ -60,6 +60,23 @@ async function accessToken(row: Connection): Promise<string> {
     if (error instanceof SchedulingProviderError && (error.status === 400 || error.status === 401))
       await save(row, { status: "reconnect_required", last_error_code: "authorization_expired" });
     throw error;
+  }
+}
+
+async function withSchedulingAccess<T>(row: Connection, action: (token: string) => Promise<T>): Promise<T> {
+  const token = await accessToken(row);
+  try { return await action(token); }
+  catch (error) {
+    if (!(error instanceof SchedulingProviderError) || !error.requiresReconnect) throw error;
+    // Provider rejection can precede the saved expiry. Keep rotation under the
+    // existing connection lease and retry once before asking the creator to reconnect.
+    const fresh = await accessToken(row, true);
+    try { return await action(fresh); }
+    catch (retryError) {
+      if (retryError instanceof SchedulingProviderError && retryError.requiresReconnect)
+        await save(row, { status: "reconnect_required", last_error_code: "authorization_expired" });
+      throw retryError;
+    }
   }
 }
 
@@ -106,10 +123,11 @@ export async function refreshSchedulingConnection(creator: string, provider: Sch
   return withConnection(creator, provider, async row => {
     if (row.status === "disconnected" || row.status === "disconnecting" || row.status === "reconnect_required" || !row.credentials_ciphertext) return;
     try {
-      const token = await accessToken(row);
-      const account = await getSchedulingAccount(provider, token);
-      if (account.id !== row.account_id) throw new Error("Booking account changed");
-      await provision(row, token, account);
+      await withSchedulingAccess(row, async token => {
+        const account = await getSchedulingAccount(provider, token);
+        if (account.id !== row.account_id) throw new Error("Booking account changed");
+        await provision(row, token, account);
+      });
     } catch (error) {
       if (error instanceof SchedulingProviderError && error.requiresReconnect)
         await save(row, { status: "reconnect_required", last_error_code: "authorization_expired" });
@@ -141,7 +159,7 @@ export async function hydrateCalendlyEvent(creator: string, uri: string) {
       !/^\/scheduled_events\/[a-zA-Z0-9-]+$/.test(url.pathname)) throw new Error("Invalid scheduled event");
   return withConnection(creator, "calendly", async row => {
     if (row.status !== "connected") throw new Error("Booking provider is not connected");
-    const result = await schedulingApi("calendly", await accessToken(row), url.pathname);
+    const result = await withSchedulingAccess(row, token => schedulingApi("calendly", token, url.pathname));
     if (!result.resource?.event_memberships?.some((member: { user: string }) => member.user === row.account_id))
       throw new Error("Scheduled event owner mismatch");
     return result.resource;
