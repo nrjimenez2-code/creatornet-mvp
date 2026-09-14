@@ -158,7 +158,7 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
           setBookingUrl(redirect);
           setBookingState("ready");
           setStatus("ok");
-          setMessage(redirect ? "Booking confirmed! Redirecting..." : "Booking confirmed.");
+          setMessage(redirect ? "Payment method saved. Opening the calendar to choose a time..." : "Payment method saved. Choose a calendar time to finish booking.");
           if (redirect) {
             setTimeout(() => {
               window.location.assign(redirect);
@@ -214,7 +214,7 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
           setBookingUrl(redirect);
           setBookingState("ready");
           setStatus("ok");
-          setMessage(redirect ? "Booking confirmed! Redirecting..." : "Booking confirmed.");
+          setMessage(redirect ? "Payment method saved. Opening the calendar to choose a time..." : "Payment method saved. Choose a calendar time to finish booking.");
           if (redirect) {
             setTimeout(() => {
               window.location.assign(redirect);
@@ -450,9 +450,8 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
             under the error headline — a stuck loading indicator on top of an
             error. Guarding here fixes all of the error exits at once instead of
             adding a reset to each, which a future branch would forget.
-            The label is "Confirming your booking", not "Processing your
-            payment": booking checkout is `mode: "setup"`
-            (app/api/checkout/route.ts:908) and never charges the card. */}
+            Checkout uses mode: "setup" and never charges the card. Preparing
+            the calendar is not confirmation of a scheduled time. */}
         {bookingState !== "idle" && status !== "error" && (
           <div className="mt-6 flex items-center justify-center">
             <button
@@ -462,7 +461,7 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
               className="px-4 py-2 text-sm rounded-lg bg-black text-white disabled:opacity-60"
               disabled={bookingState !== "ready" || !bookingUrl}
             >
-              {bookingState === "ready" ? (kindParam === "booking" ? "Book" : "Schedule call") : "Confirming your booking..."}
+              {bookingState === "ready" ? (kindParam === "booking" ? "Book" : "Schedule call") : "Preparing your calendar..."}
             </button>
           </div>
         )}

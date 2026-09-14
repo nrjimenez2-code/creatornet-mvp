@@ -332,7 +332,7 @@ describe("separate booking setup contract", () => {
     mockFetch.mockImplementationOnce(() => confirmation.promise).mockImplementationOnce(() => seeded.promise);
     await render();
     expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(button("Confirming your booking...")?.disabled).toBe(true);
+    expect(button("Preparing your calendar...")?.disabled).toBe(true);
     mockAuth = { session: { access_token: "synthetic-refreshed-token" }, loading: false };
     await render();
     await act(async () => { confirmation.resolve(response(200, {
@@ -345,7 +345,8 @@ describe("separate booking setup contract", () => {
     expect(container.textContent).toContain("Creating booking record");
     expect(container.querySelector("h1")?.textContent).not.toBe("Success");
     await act(async () => { seeded.resolve(response(200, { ok: true, booking_id: "synthetic-booking" })); });
-    expect(container.textContent).toContain("Booking confirmed.");
+    expect(container.textContent).toContain("Payment method saved. Choose a calendar time to finish booking.");
+    expect(container.textContent).not.toContain("Booking confirmed");
     expect(container.querySelector("h1")?.textContent).toBe("Success");
     expect(button("Book")).toBeDefined();
     expect(container.querySelector(".animate-pulse")).toBeNull();
@@ -363,7 +364,7 @@ describe("separate booking setup contract", () => {
     await render();
     expect(container.textContent).toContain("Failed to create booking: Synthetic booking seed failed");
     expect(container.querySelector("h1")?.textContent).toBe("Heads up");
-    expect(button("Confirming your booking...")).toBeUndefined();
+    expect(button("Preparing your calendar...")).toBeUndefined();
     expect(container.querySelector(".animate-pulse")).toBeNull();
     await advance(120_000);
     expect(window.location.hash).toBe("");
