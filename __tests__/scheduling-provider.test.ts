@@ -64,6 +64,23 @@ test("disconnect treats already removed webhook as success", async () => {
   await expect(deleteSchedulingWebhook("calcom", "token", "12")).resolves.toBeUndefined();
 });
 
+test("Cal.com disconnect deletes UUID webhook identifiers returned by the provider", async () => {
+  const id = "82249e26-637f-4ce2-bd77-69b2a222f919";
+  reply({ data: { id } });
+  const created = await createSchedulingWebhook("calcom", "token", { id: "42", name: "Creator" }, "https://example.test/callback", "signing");
+  reply(null, 204);
+  await expect(deleteSchedulingWebhook("calcom", "token", created)).resolves.toBeUndefined();
+  expect(fetchMock.mock.calls[1][0]).toBe(`https://api.cal.com/v2/webhooks/${id}`);
+  expect(fetchMock.mock.calls[1][1].method).toBe("DELETE");
+});
+
+test.each(["", "../me", "12/../me", "12?other=1", "12#fragment", "https://evil.test/12", "%2e%2e%2fme"])(
+  "Cal.com disconnect rejects unsafe webhook identifier %s before sending token", async id => {
+    await expect(deleteSchedulingWebhook("calcom", "token", id)).rejects.toThrow("Invalid webhook identifier");
+    expect(fetchMock).not.toHaveBeenCalled();
+  }
+);
+
 test("malformed token response cannot be persisted as connected", async () => {
   reply({ access_token: "access", expires_in: 1800 });
   await expect(exchangeSchedulingToken("calcom", config, { code: "code", verifier: "verifier" })).rejects.toThrow("Incomplete scheduling token response");

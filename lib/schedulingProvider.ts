@@ -208,7 +208,8 @@ export async function createSchedulingWebhook(
 export async function deleteSchedulingWebhook(provider: SchedulingProvider, token: string, id: string): Promise<void> {
   let path: string;
   if (provider === "calcom") {
-    if (!/^\d+$/.test(id)) throw new Error("Invalid webhook identifier");
+    if (!/^(?:\d+|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$/.test(id))
+      throw new Error("Invalid webhook identifier");
     path = `/webhooks/${id}`;
   } else {
     const url = new URL(id);
