@@ -23,8 +23,12 @@ import { POST } from "@/app/api/scheduling/oauth/start/route";
 import { GET } from "@/app/api/scheduling/oauth/callback/[provider]/route";
 import { sealSchedulingSecret } from "@/lib/schedulingSecrets";
 import { _resetRateLimits } from "@/lib/rateLimit";
+import { schedulingAvailable } from "@/lib/schedulingConfig";
 const originalEnv = { ...process.env };
 beforeEach(() => {
+  process.env = { ...originalEnv };
+  delete process.env.CALCOM_OAUTH_ENABLED;
+  delete process.env.CALENDLY_OAUTH_ENABLED;
   jest.clearAllMocks(); filters.length = 0; attempt = null; _resetRateLimits();
   getUser.mockResolvedValue({ id: "creator" }); insert.mockResolvedValue({ error: null }); finish.mockResolvedValue(undefined);
   Object.assign(process.env, { SCHEDULING_OAUTH_ENABLED: "true", SCHEDULING_OAUTH_ORIGIN: "https://staging.example",
@@ -38,6 +42,35 @@ test("start requires an authenticated creator and exact configured origin", asyn
   getUser.mockResolvedValueOnce(null);
   expect((await start()).status).toBe(401);
   expect((await start("https://attacker.example")).status).toBe(403);
+  expect(insert).not.toHaveBeenCalled();
+});
+
+test("Cal.com can remain unavailable while Calendly authorization starts", async () => {
+  Object.assign(process.env, { CALCOM_OAUTH_ENABLED: "false", CALENDLY_CLIENT_ID: "calendly-client",
+    CALENDLY_CLIENT_SECRET: "calendly-secret", CALENDLY_WEBHOOK_SIGNING_KEY: "webhook-secret" });
+  expect(schedulingAvailable("calcom")).toBe(false);
+  expect(schedulingAvailable("calendly")).toBe(true);
+  expect((await start()).status).toBe(503);
+  expect(insert).not.toHaveBeenCalled();
+  const response = await start("https://staging.example", "calendly");
+  expect(response.status).toBe(200);
+  expect(new URL((await response.json()).url).hostname).toBe("auth.calendly.com");
+  expect(insert.mock.calls[0][0].provider).toBe("calendly");
+});
+
+test("provider switches cannot override the global scheduling switch", async () => {
+  Object.assign(process.env, { SCHEDULING_OAUTH_ENABLED: "false", CALCOM_OAUTH_ENABLED: "true" });
+  expect(schedulingAvailable("calcom")).toBe(false);
+  expect((await start()).status).toBe(503);
+  expect(insert).not.toHaveBeenCalled();
+});
+
+test.each(["false", "", "TRUE"])("Calendly switch %j fails closed without disabling Cal.com", async value => {
+  Object.assign(process.env, { CALENDLY_OAUTH_ENABLED: value, CALENDLY_CLIENT_ID: "calendly-client",
+    CALENDLY_CLIENT_SECRET: "calendly-secret", CALENDLY_WEBHOOK_SIGNING_KEY: "webhook-secret" });
+  expect(schedulingAvailable("calcom")).toBe(true);
+  expect(schedulingAvailable("calendly")).toBe(false);
+  expect((await start("https://staging.example", "calendly")).status).toBe(503);
   expect(insert).not.toHaveBeenCalled();
 });
 test("start stores a hashed expiring state and encrypted verifier without exposing secrets", async () => {
