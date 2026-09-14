@@ -43,12 +43,10 @@ export async function processGoogleCalendarSweep(){
 export async function maintainGoogleCalendarWatches(){
  let failed=false;
  try{
- const due=await db.from("google_calendar_watches_v1").select("connection_id,scheduling_connections_v1!inner(status)").eq("scheduling_connections_v1.status","connected").eq("status","active").lt("expires_at",new Date(Date.now()+86400000).toISOString()).order("expires_at").limit(1);
+ const due=await db.rpc("claim_google_calendar_renewal_v1");
  if(due.error)throw new Error("Could not check notification expiry");
  if(due.data?.[0]){
-  const owner=await db.from("scheduling_connections_v1").select("creator_id,status").eq("id",due.data[0].connection_id).single();
-  if(owner.error)throw new Error("Calendar owner unavailable");
-  if(owner.data.status==='connected')await refreshGoogleCalendarConnection(owner.data.creator_id);
+  await refreshGoogleCalendarConnection(due.data[0].creator_id);
  }
  }catch{failed=true;}
  const retired=await db.from("google_calendar_watches_v1").select("id,connection_id,resource_id,expires_at,status").in("status",["retiring","pending","error"]).or(`status.eq.retiring,expires_at.lt.${new Date().toISOString()}`).order("expires_at").limit(5);

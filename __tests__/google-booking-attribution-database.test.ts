@@ -46,6 +46,7 @@ beforeAll(async () => {
     "20260913235026_google_unattempted_reschedule_recovery.sql",
     "20260914000350_google_booking_worker_capacity.sql",
     "20260914003852_google_reconnect_retry_wakeup.sql",
+    "20260914012650_google_watch_renewal_fairness.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -60,6 +61,40 @@ beforeEach(async () => {
   await db.query(`insert into google_booking_settings_v1(connection_id,calendar_id,conflict_calendar_ids,availability,title) values($1,'primary',array['primary'],'{"durationMinutes":30,"bufferBeforeMinutes":0,"bufferAfterMinutes":0}','Call')`,[connection]);
   await db.query("insert into discover_booking_attribution_v1(id,setup_session_id,user_id,creator_id,post_id,created_at) values($1,'setup',$2,$3,$4,now()-interval '1 hour')",[attribution,viewer,creator,post]);
 });
+test('failed or abandoned watch renewals yield to another creator and retry after cooldown',async()=>{
+  await db.query("insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','second-account','encrypted','second-watch','encrypted',now()+interval '1 hour')",[worker,viewer]);
+  await db.query(`insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status) values
+   ($1,$2,'primary','first','encrypted',now()-interval '1 hour','active'),
+   ($3,$4,'primary','second','encrypted',now()+interval '1 hour','active')`,[ledger,connection,attribution,worker]);
+  const claimRenewal=async()=>(await db.query<{creator_id:string}>('select * from claim_google_calendar_renewal_v1()')).rows;
+  expect(await claimRenewal()).toEqual([{creator_id:creator}]);
+  // No completion call: model a provider failure or a worker dying after claim.
+  expect(await claimRenewal()).toEqual([{creator_id:viewer}]);
+  expect(await claimRenewal()).toEqual([]);
+  await db.query("update google_calendar_watches_v1 set renewal_attempted_at=now()-interval '3 minutes' where id=$1",[ledger]);
+  expect(await claimRenewal()).toEqual([{creator_id:creator}]);
+  const state=(await db.query<{status:string,resource_id:string}>('select status,resource_id from google_calendar_watches_v1 order by resource_id')).rows;
+  expect(state).toEqual([{status:'active',resource_id:'first'},{status:'active',resource_id:'second'}]);
+});
+
+test('renewal claims skip disconnected, leased, healthy and retired channels and are server-only',async()=>{
+  await db.query(`insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status)
+   values($1,$2,'primary','resource','encrypted',now()+interval '1 hour','active')`,[ledger,connection]);
+  await db.query("update scheduling_connections_v1 set status='reconnect_required' where id=$1",[connection]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  await db.query("update scheduling_connections_v1 set status='connected',lease_id=$2,lease_until=now()+interval '1 minute' where id=$1",[connection,worker]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  await db.query("update scheduling_connections_v1 set lease_id=null,lease_until=null where id=$1",[connection]);
+  await db.query("update google_calendar_watches_v1 set expires_at=now()+interval '2 days' where id=$1",[ledger]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  await db.query("update google_calendar_watches_v1 set expires_at=now(),status='retiring' where id=$1",[ledger]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  const permissions=(await db.query(`select has_function_privilege('anon','claim_google_calendar_renewal_v1()','execute') as anon,
+   has_function_privilege('authenticated','claim_google_calendar_renewal_v1()','execute') as authenticated,
+   has_function_privilege('service_role','claim_google_calendar_renewal_v1()','execute') as service`)).rows[0];
+  expect(permissions).toEqual({anon:false,authenticated:false,service:true});
+});
+
 const reserve = (buyer=viewer, source=post) => db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '2 days 10 hours',date_trunc('day',now())+interval '2 days 10 hours 30 minutes',$5)",[reservation,connection,buyer,source,attribution]);
 async function claim() { return (await db.query<{id:string}>("select * from claim_google_booking_job_v1($1)",[worker])).rows[0].id; }
 async function finish(id:string) {
