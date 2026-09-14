@@ -8,6 +8,7 @@ import {
   type DiscoverCandidate,
   type DiscoverEvent,
   type DiscoverEvidence,
+  type DiscoverPlacement,
 } from "@/lib/discoverRanking";
 import { matchInterestTopics, normalizeTopics } from "@/lib/interestTopics";
 import { isUnreliableVideoUrl } from "@/lib/feedV3";
@@ -302,6 +303,7 @@ export async function createDiscoverSession(
       evidence.push(...(data as DiscoverEvidence[]));
     }
   const follows = new Set((following.data ?? []).map((f) => f.following_id));
+  const placements: Record<string, DiscoverPlacement> = {};
   const ids =
     tab === "following"
       ? inventory
@@ -321,7 +323,8 @@ export async function createDiscoverSession(
           Date.now(),
           (legacy.data ?? []).map((row) => row.original),
           evidence,
-          { commercialOrdering: pilot?.variant !== "control" },
+          { commercialOrdering: pilot?.variant !== "control",
+            ...(pilot ? { onPlacement: (id: string, value: DiscoverPlacement) => { placements[id] = value; } } : {}) },
         );
   const declared = profile.data?.interests ?? [];
   const declaredTopics = [
@@ -368,7 +371,7 @@ export async function createDiscoverSession(
   const { data, error } = await admin
     .from("discover_sessions_v1")
     .insert({ actor, user_id: userId, tab, post_ids: ids, audiences,
-      ...(pilot ? { pilot_id: pilot.experimentId, pilot_variant: pilot.variant } : {}) })
+      ...(pilot ? { pilot_id: pilot.experimentId, pilot_variant: pilot.variant, pilot_placements: placements } : {}) })
     .select("id")
     .single();
   if (error) throw error;

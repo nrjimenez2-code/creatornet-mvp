@@ -106,6 +106,12 @@ export type DiscoverEvidence = {
   commercial: number;
   last_exposure: string | null;
 };
+export type DiscoverPlacement = {
+  position: number;
+  placement: "standard" | "cold_start" | "retest" | "related_trial";
+  ageDays: number;
+  evidenceExposures: number;
+};
 export function rankDiscover(
   candidates: DiscoverCandidate[],
   events: DiscoverEvent[],
@@ -115,7 +121,7 @@ export function rankDiscover(
   now = Date.now(),
   legacy: { category: string; score: number; updated_at: string | null }[] = [],
   evidence?: DiscoverEvidence[],
-  options: { commercialOrdering?: boolean } = {},
+  options: { commercialOrdering?: boolean; onPlacement?: (postId: string, value: DiscoverPlacement) => void } = {},
 ): string[] {
   const summaries = new Map(
     (evidence ?? []).map((row) => [row.post_id + ":" + row.audience, row]),
@@ -306,6 +312,8 @@ export function rankDiscover(
         );
       return {
         post,
+        mature,
+        evidenceExposures: evidence !== undefined ? (summary?.exposures ?? 0) : exposed.size,
         dismissed,
         seen,
         related,
@@ -366,6 +374,7 @@ export function rankDiscover(
       (!unseen || !p.seen) && (!relevant || p.topicMatch || p.relevance > 0);
     const explore = out.length % DISCOVER_POLICY.explorationEvery === 0;
     let index = -1;
+    let relatedTrial = false;
     if (explore) {
       // Alternate a relevant cold-start/retest with a proven related-audience trial.
       const relatedSlot =
@@ -382,6 +391,7 @@ export function rankDiscover(
         );
       trials.sort((a, b) => a.p.rotation - b.p.rotation);
       index = trials[0]?.index ?? -1;
+      relatedTrial = relatedSlot && index >= 0;
     }
     if (index < 0)
       index = pending.findIndex(
@@ -401,6 +411,12 @@ export function rankDiscover(
     if (index < 0) index = pending.findIndex(eligible);
     if (index < 0) index = 0;
     const [next] = pending.splice(index, 1);
+    options.onPlacement?.(next.post.id, {
+      position: out.length,
+      placement: relatedTrial ? "related_trial" : explore && next.explore ? (next.mature ? "retest" : "cold_start") : "standard",
+      ageDays: next.age / DAY,
+      evidenceExposures: next.evidenceExposures,
+    });
     out.push(next.post.id);
     lastCreator = next.post.creator_id;
   }

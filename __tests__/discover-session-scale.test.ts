@@ -17,8 +17,10 @@ const posts = Array.from({ length: 2005 }, (_, i) => ({
   created_at: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString(),
   poster_url: "https://example.test/poster.jpg",
 }));
-let snapshot: { post_ids: string[] };
+let snapshot: { post_ids: string[]; pilot_id?: string; pilot_variant?: string; pilot_placements?: Record<string,{position:number}> };
 function respond(op: Op) {
+  if (op.table === "discover_pilots_v1") return {data:{id:"qa",enabled:true,policy_version:"commercial-order-v1",starts_at:"2000-01-01",ends_at:"2100-01-01",eligible_user_ids:["viewer"]},error:null};
+  if (op.table === "discover_pilot_assignments_v1") return {data:{variant:"control"},error:null};
   if (op.table === "posts")
     return {
       data: posts
@@ -56,6 +58,7 @@ beforeEach(() => {
     const source = original(table);
     return {
       ...source,
+      upsert: (payload: unknown) => source.insert(payload),
       select: (columns: string) => {
         const chain = source.select(columns);
         chain.gt = (column: string, value: unknown) =>
@@ -91,4 +94,16 @@ test("Discover fetches only personal history and batches all candidate summaries
   expect(batches).toHaveLength(11);
   expect(batches.every((ids) => ids.length <= 200)).toBe(true);
   expect(new Set(batches.flat()).size).toBe(2005);
+});
+test("enabled pilot persists all placement metadata and does not enroll Following",async()=>{
+ const previous=process.env.DISCOVER_PILOT_ID;
+ process.env.DISCOVER_PILOT_ID="qa";
+ try {
+  await createDiscoverSession("user:viewer","viewer","discover");
+  expect(snapshot.pilot_id).toBe("qa");expect(snapshot.pilot_variant).toBe("control");
+  expect(Object.keys(snapshot.pilot_placements!)).toHaveLength(2005);
+  snapshot.post_ids.forEach((id,index)=>expect(snapshot.pilot_placements![id].position).toBe(index));
+  await createDiscoverSession("user:viewer","viewer","following");
+  expect(snapshot.pilot_id).toBeUndefined();expect(snapshot.pilot_placements).toBeUndefined();
+ }finally{if(previous===undefined)delete process.env.DISCOVER_PILOT_ID;else process.env.DISCOVER_PILOT_ID=previous;}
 });

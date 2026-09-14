@@ -11,10 +11,11 @@ beforeAll(async()=>{
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
  create schema auth;create table auth.users(id uuid primary key);
  insert into auth.users values('${viewer}'),('${quiet}');
- create table discover_sessions_v1(id uuid,tab text,user_id uuid);
- create table discover_events_v1(id uuid default gen_random_uuid(),user_id uuid,post_id uuid,creator_id uuid,kind text,valid boolean default true,occurred_at timestamptz,amount_cents bigint default 0,currency text);
+ create table discover_sessions_v1(id uuid,tab text,user_id uuid,actor text,post_ids uuid[],expires_at timestamptz,audiences jsonb default '{}');
+ create table discover_events_v1(id uuid default gen_random_uuid(),user_id uuid,post_id uuid,creator_id uuid,kind text,valid boolean default true,occurred_at timestamptz,amount_cents bigint default 0,currency text,actor text,entity_key text,categories text[] default '{}',topics text[] default '{}',offer_type text default 'none');
  grant select on discover_events_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260914093000_discover_controlled_pilot.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/20260914094000_discover_pilot_exposures.sql','utf8'));
  await db.exec(`insert into discover_pilots_v1 values('trial','commercial-order-v1','2026-09-01','2026-09-15',true,30,'Test protocol',array['${viewer}','${quiet}']::uuid[]);
  insert into discover_pilot_assignments_v1 values('trial','${viewer}','commercial','2026-09-10'),('trial','${quiet}','control','2026-09-10');
  insert into discover_events_v1(user_id,kind,occurred_at,amount_cents,currency) values
@@ -35,7 +36,7 @@ test('measurement retains zero-event viewers and delayed receipts without curren
 test('client roles cannot read pilot data or enroll; service role cannot switch arms',async()=>{
  for(const role of ['anon','authenticated']){
   await db.exec('set role '+role);
-  try {for(const table of ['discover_pilots_v1','discover_pilot_assignments_v1','discover_pilot_outcomes_v1','discover_pilot_revenue_v1'])
+  try {for(const table of ['discover_pilots_v1','discover_pilot_assignments_v1','discover_pilot_outcomes_v1','discover_pilot_revenue_v1','discover_pilot_exposures_v1'])
    await expect(db.query('select * from '+table)).rejects.toThrow(/permission denied/);
   }finally{await db.exec('reset role');}
  }
@@ -45,6 +46,22 @@ test('client roles cannot read pilot data or enroll; service role cannot switch 
   await db.exec(`insert into discover_pilot_assignments_v1 values('trial','${viewer}','control',now()) on conflict(experiment_id,user_id) do nothing`);
   expect((await db.query(`select variant from discover_pilot_assignments_v1 where user_id='${viewer}'`)).rows).toEqual([{variant:'commercial'}]);
  }finally{await db.exec('reset role');}
+});
+test('actual pilot exposure survives session pruning and deduplicates retries',async()=>{
+ const session='44444444-4444-4444-8444-444444444444',post='55555555-5555-4555-8555-555555555555';
+ await db.exec(`insert into discover_sessions_v1(id,tab,user_id,actor,post_ids,expires_at,audiences,pilot_id,pilot_variant,pilot_placements)
+ values('${session}','discover','${viewer}','user:${viewer}',array['${post}']::uuid[],'2026-09-12','{"${post}":"niche"}','trial','commercial',
+ '{"${post}":{"position":99,"placement":"cold_start","ageDays":0.5,"evidenceExposures":0}}');`);
+ const record=(actor:string,kind:string)=>db.exec(`insert into discover_events_v1(user_id,actor,post_id,creator_id,kind,entity_key,occurred_at)
+ values('${viewer}','${actor}','${post}','${quiet}','${kind}','${session}:${post}','2026-09-11')`);
+ expect((await db.query('select * from discover_pilot_exposures_v1')).rows).toHaveLength(0);
+ await record('user:wrong','exposure');
+ await record('user:'+viewer,'qualified_view');
+ expect((await db.query('select * from discover_pilot_exposures_v1')).rows).toHaveLength(0);
+ await record('user:'+viewer,'exposure');await record('user:'+viewer,'exposure');
+ await db.exec(`delete from discover_sessions_v1 where id='${session}'`);
+ const result=await db.query('select position,placement,audience,age_days from discover_pilot_exposures_v1');
+ expect(result.rows).toEqual([{position:0,placement:'cold_start',audience:'niche',age_days:0.5}]);
 });
 test('enrolled protocol is frozen while emergency stop remains available',async()=>{
  await expect(db.exec(`update discover_pilots_v1 set followup_days=1 where id='trial'`)).rejects.toThrow(/immutable/);

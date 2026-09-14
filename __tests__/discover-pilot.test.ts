@@ -47,3 +47,14 @@ test("control removes commercial ordering while retaining the same inventory", (
   expect(ranked(false)).toEqual(['a','b','c']);
   expect([...ranked(true)].sort()).toEqual([...ranked(false)].sort());
 });
+test('placement diagnostics match the final order without changing it',()=>{
+ const now=Date.parse('2026-09-14');
+ const posts:DiscoverCandidate[]=Array.from({length:12},(_,i)=>({id:String(i),creator_id:String(i),created_at:new Date(now).toISOString(),interests:['technology & ai']}));
+ const placements:Record<string,{position:number,placement:string}>= {};
+ const expected=rankDiscover(posts,[],'viewer',['technology & ai'],[],now);
+ const actual=rankDiscover(posts,[],'viewer',['technology & ai'],[],now,[],undefined,{onPlacement:(id,value)=>{placements[id]=value;}});
+ expect(actual).toEqual(expected);
+ actual.forEach((id,index)=>expect(placements[id].position).toBe(index));
+ expect(placements[actual[0]].placement).toBe('cold_start');
+ expect(placements[actual[1]].placement).toBe('standard');
+});
