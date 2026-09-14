@@ -12,6 +12,8 @@ export function schedulingOrigin(): string {
 export function schedulingConfig(provider: SchedulingProvider): SchedulingOAuthConfig {
   if (process.env.SCHEDULING_OAUTH_ENABLED !== "true") throw new Error("Scheduling connections are not enabled");
   const prefix = provider === "calcom" ? "CALCOM" : "CALENDLY";
+  if ((process.env[`${prefix}_OAUTH_ENABLED`] ?? "true") !== "true")
+    throw new Error("Scheduling provider is not enabled");
   const clientId = process.env[`${prefix}_CLIENT_ID`];
   const clientSecret = process.env[`${prefix}_CLIENT_SECRET`];
   if (!clientId || !clientSecret || !/^[a-f0-9]{64}$/i.test(process.env.SCHEDULING_TOKEN_ENCRYPTION_KEY ?? "") ||
