@@ -114,6 +114,37 @@ test("failed refresh removes stale connected label and permits retry", async () 
   expect(container.textContent).toContain("Reconnect Cal.com");
 });
 
+test("failed disconnect shows persisted cleanup state and a successful retry clears the error", async () => {
+  connections[0] = { ...connections[0], status: "connected", accountName: "Creator" };
+  await act(async () => root.render(createElement(SchedulingConnections)));
+  await click("Manage Cal.com");
+  fetchMock.mockImplementationOnce(async () => {
+    connections = [{ ...connections[0], status: "disconnecting" }];
+    return { ok: false };
+  });
+  await click("Disconnect Cal.com");
+  expect(container.textContent).not.toContain("Cal.com connected");
+  expect(container.textContent).toContain("Cal.com disconnecting");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not finish disconnecting");
+  fetchMock.mockImplementationOnce(async () => {
+    connections = [{ ...connections[0], status: "disconnected", accountName: null }];
+    return { ok: true };
+  });
+  await click("Disconnect Cal.com");
+  expect(container.textContent).toContain("Cal.com not connected");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+test("failed disconnect and failed status refresh do not retain a stale connected label", async () => {
+  connections[0] = { ...connections[0], status: "connected" };
+  await act(async () => root.render(createElement(SchedulingConnections)));
+  await click("Manage Cal.com");
+  fetchMock.mockRejectedValueOnce(new Error("offline")).mockRejectedValueOnce(new Error("offline"));
+  await click("Disconnect Cal.com");
+  expect(container.textContent).not.toContain("Cal.com connected");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Could not finish disconnecting");
+});
+
 test("account switch never displays previous creator's saved account", async () => {
   connections[0] = { ...connections[0], status: "connected", accountName: "Private account" };
   await act(async () => root.render(createElement(SchedulingConnections)));

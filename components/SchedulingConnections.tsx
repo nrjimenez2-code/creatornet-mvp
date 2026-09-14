@@ -41,10 +41,12 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
   }, [userId, token]);
 
   useEffect(() => {
-    void refresh();
+    let active = true;
+    queueMicrotask(() => { if (active) void refresh(); });
     const onFocus = () => { if (windowRef.current?.closed) setWaiting(false); void refresh(); };
     window.addEventListener("focus", onFocus);
-    return () => { ++requestId.current; window.removeEventListener("focus", onFocus); };
+    const requests = requestId;
+    return () => { active = false; ++requests.current; window.removeEventListener("focus", onFocus); };
   }, [refresh]);
 
   function connect(provider: BookingProvider, setup = false) {
@@ -73,7 +75,12 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
       });
       if (!response.ok) throw new Error("Could not disconnect. Please try again.");
       await refresh();
-    } catch { setError("Could not finish disconnecting. Please try again."); }
+    } catch {
+      // Cleanup can stop callbacks before the provider request fails. Re-read
+      // that persisted state instead of leaving a stale connected label visible.
+      await refresh();
+      setError("Could not finish disconnecting. Please try again.");
+    }
     finally { setBusy(null); }
   }
 

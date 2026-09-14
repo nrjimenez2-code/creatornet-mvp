@@ -23,12 +23,16 @@ export default function PrivacyPolicyPage() {
       <h1 className="text-3xl font-bold">Privacy Policy</h1>
       <p className="mt-2 text-sm text-gray-500">Last updated: {LAST_UPDATED}</p>
 
-      {/* TODO(Noah): add the registered legal entity and mailing address here
-          before or at launch. */}
       <Section title="Who we are">
         <p>
           CreatorNet is a platform where creators share short videos and sell products,
-          courses, and 1-on-1 calls, operated by the CreatorNet team. For anything
+          courses, and 1-on-1 calls, operated by CREATORNET LLC NOAH RAY JIMENEZ SOLE MBR % NOAH RAY JIMENEZ SOLE MBR.
+        </p>
+        <p>
+          Business address: 21095 North 64th Avenue, Glendale, AZ 85308, United States.
+        </p>
+        <p>
+          For anything
           privacy-related, contact{" "}
           <a className="underline" href="mailto:privacy@creatornet.net">
             privacy@creatornet.net
