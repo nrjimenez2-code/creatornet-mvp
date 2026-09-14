@@ -5,7 +5,7 @@ import GoogleReschedulePicker from "@/components/GoogleReschedulePicker";
 import {useUser} from "@/lib/useUser";
 
 type Slot={start:string;end:string};
-type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null;recoveryCode?:string|null};
+type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null;recoveryCode?:string|null;connectionStatus?:string|null};
 type Options={title:string;timeZone:string;durationMinutes:number;slots:Slot[];reservation:Reservation|null};
 function BookingEntry() {
   const params=useParams<{connection:string}>();const query=useSearchParams();const {userId,session,loading}=useUser();
@@ -84,6 +84,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
   return <main className="mx-auto max-w-2xl space-y-5 p-6 text-white">
     <h1 className="text-2xl font-semibold">{options?.title??"Book your call"}</h1>
     {error&&<p role="alert" className="rounded border border-red-300/40 p-3">{error}</p>}
+    {reservation?.connectionStatus==="reconnect_required"&&<p role="status">The creator needs to reconnect Google Calendar. Your booking and any pending request are saved; updates can resume after reconnection.</p>}
     {reservation?.status==="failed"&&["google_booking_time_passed","google_booking_time_unavailable"].includes(reservation.recoveryCode??"")&&<p role="status">Your previous time could not be booked. No event was created in Google Calendar. Choose another available time.</p>}
     {reservation&&!["held","failed"].includes(reservation.status)?<section className="space-y-3 rounded-xl border border-white/20 p-4">
       <h2 className="text-lg font-semibold">{reservation.status==="confirmed"?"Booking confirmed":reservation.status==="canceled"?"Booking canceled":reservation.status==="canceling"?"Confirming cancellation":reservation.status==="rescheduling"?"Confirming your new time":"Confirming with Google Calendar"}</h2>

@@ -8,6 +8,14 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Rejected-token recovery and application build
+
+Google booking jobs now force a guarded token refresh after a provider 401 instead of waiting for the cached expiry. The helper takes the connection lease and compares the rejected token to the currently saved token; a delayed failure cannot invalidate a newer reconnect. A revoked refresh grant records reconnect_required, while transient refresh errors preserve connected status. Pending jobs remain reserved for reconciliation in either case. The owner-scoped buyer status projection includes only connection status, and the booking page explains when the creator must reconnect.
+
+Validation: four focused suites passed 24 tests covering token refresh/stale-token/revocation behavior, runner retry retention, status projection and buyer messaging. TypeScript and diff checks passed. A complete Next.js production build finished successfully using local-only placeholder Supabase URL/keys (127.0.0.1:54321), with telemetry and Sentry upload disabled. The first build without environment values failed at page-data collection because supabaseUrl was missing; compilation and TypeScript had passed. The placeholder build emitted the expected missing-database sitemap fallback and existing dynamic-cookie route diagnostics, but exited zero with all routes generated. It is packaging evidence only, not staging/live data acceptance. Never deploy the placeholder .next artifact as a prebuilt application.
+
+No real credentials were read, no remote schema changes were applied, and nothing was pushed or deployed. Remaining: live OAuth applications and provider/payment/later-sale acceptance, consistent 401 handling for availability/sweep reads, prompt retry wakeup after reconnect, ambiguity escalation, representative worker/sync throughput, ranking pilot/calibration, PR review and production rollout. The full goal remains active and incomplete.
+
 ### Recovery before a Google reschedule attempt
 
 Migration `20260913235026_google_unattempted_reschedule_recovery.sql` extends guarded unattempted failure recovery to reschedules. The processor first verifies the unchanged original event. If the new time has passed or becomes busy and the durable marker proves no mutation was started, the database retains the confirmed original interval, clears the requested interval, preserves attribution and finishes the unsuccessful job. A new buyer change uses the next revision. Potentially delivered updates remain reserved. The buyer page explicitly says the original booking is unchanged.

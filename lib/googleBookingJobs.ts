@@ -1,7 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { supabaseAdmin as db } from "@/lib/supabaseAdmin";
-import { googleConnectionAccessToken } from "@/lib/googleCalendarConnection";
+import { googleConnectionAccessToken,refreshRejectedGoogleAccessToken } from "@/lib/googleCalendarConnection";
 import { processGoogleBookingOperation, type GoogleBookingOperation, type GoogleReservation } from "@/lib/googleBookingProcessor";
 import { getGoogleBookingEvent, createGoogleBookingEvent, changeGoogleBookingEvent, cancelGoogleBookingEvent,
   assertGoogleBookingTimeAvailable, GoogleCalendarError } from "@/lib/googleCalendarProvider";
@@ -95,7 +95,10 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
       },
     });
     return { processed: true };
-  } catch {
+  } catch (cause) {
+    if(cause instanceof GoogleCalendarError && cause.requiresReconnect && connectionId && token){
+      try{await refreshRejectedGoogleAccessToken(connectionId,token);}catch{/* The connection helper records a revoked grant; keep the job reserved. */}
+    }
     // Do not release the reservation when the remote outcome is uncertain. The
     // next attempt reads the deterministic event ID before any new mutation.
     const retry = await db.from("google_booking_jobs_v1").update({ status: "retry", lease_id: null, lease_until: null,

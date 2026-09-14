@@ -69,3 +69,8 @@ test("buyer status exposes the recovery notice with the restored booking version
  expect(await readGoogleBuyerReservation('reservation','buyer')).toMatchObject({status:'confirmed',revision:1,recoveryCode:'google_booking_changed_externally'});
  expect(db.opsFor('google_booking_reservations_v1')[0].filters).toEqual({id:'reservation',buyer_id:'buyer'});
 });
+
+test("buyer status exposes only the connection state needed to explain a pending request",async()=>{
+ reservation={id:'reservation',status:'creating',starts_at:start,ends_at:end,revision:0,scheduling_connections_v1:{status:'reconnect_required'}};
+ expect(await readGoogleBuyerReservation('reservation','buyer')).toMatchObject({status:'creating',connectionStatus:'reconnect_required'});
+});

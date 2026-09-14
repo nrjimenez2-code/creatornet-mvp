@@ -91,3 +91,10 @@ test("a failed unattempted reschedule clearly retains the original booking",asyn
  expect(container.textContent).toContain('Your original booking is unchanged');expect(container.textContent).toContain('Booking confirmed');
  expect(container.textContent).not.toContain('No event was created');expect(container.textContent).not.toContain('Requested new time:');
 });
+
+test("a revoked creator connection explains why a saved booking request is pending",async()=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'creating',revision:0,...slot,connectionStatus:'reconnect_required'}})});
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.textContent).toContain('creator needs to reconnect Google Calendar');expect(container.textContent).toContain('pending request are saved');expect(container.textContent).not.toContain('Booking confirmed');
+});

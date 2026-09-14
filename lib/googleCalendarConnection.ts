@@ -34,10 +34,10 @@ async function withConnection<T>(filter: { creator: string } | { id: string }, a
   }
   finally { await db.from("scheduling_connections_v1").update({ lease_id: null, lease_until: null }).eq("id", row.id).eq("lease_id", lease); }
 }
-async function accessToken(row: Connection): Promise<string> {
+async function accessToken(row: Connection, forceRefresh=false): Promise<string> {
   if (!["connected", "pending", "disconnecting"].includes(row.status) || !row.credentials_ciphertext) throw new Error("Reconnect Google Calendar first");
   const stored = JSON.parse(openSchedulingSecret(row.credentials_ciphertext, secretContext(row))) as SchedulingTokens;
-  if (stored.expiresAt > Date.now() + 60_000) return stored.accessToken;
+  if (!forceRefresh && stored.expiresAt > Date.now() + 60_000) return stored.accessToken;
   try {
     const fresh = await exchangeGoogleCalendarToken(googleCalendarConfig(), { refreshToken: stored.refreshToken });
     await save(row, { credentials_ciphertext: sealSchedulingSecret(JSON.stringify(fresh), secretContext(row)), token_expires_at: new Date(fresh.expiresAt).toISOString() });
@@ -50,6 +50,15 @@ async function accessToken(row: Connection): Promise<string> {
 export async function googleConnectionAccessToken(connectionId: string) {
   googleCalendarConfig();
   return withConnection({ id: connectionId }, accessToken);
+}
+/** A late 401 must not invalidate credentials replaced by a concurrent reconnect. */
+export async function refreshRejectedGoogleAccessToken(connectionId:string,rejectedToken:string){
+  return withConnection({id:connectionId},async row=>{
+    if(!row.credentials_ciphertext || !["connected","disconnecting"].includes(row.status))return;
+    const stored=JSON.parse(openSchedulingSecret(row.credentials_ciphertext,secretContext(row))) as SchedulingTokens;
+    if(stored.accessToken!==rejectedToken)return;
+    await accessToken(row,true);
+  });
 }
 export async function finishGoogleCalendarConnection(creator: string, code: string, verifier: string) {
   const config = googleCalendarConfig();
