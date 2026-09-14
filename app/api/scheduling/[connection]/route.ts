@@ -57,8 +57,13 @@ export async function POST(
     if (!verifySchedulingSignature(config.provider, raw, header, config.secret))
       return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
     const event = JSON.parse(raw);
+    // Only fixed reason codes are logged: never provider payloads, tokens or attendee data.
+    const skip = (reason: string, unattributed = false) => {
+      console.info("scheduling_webhook_skipped", { provider: config.provider, reason });
+      return NextResponse.json(unattributed ? { ok: true, unattributed: true } : { ok: true, ignored: true });
+    };
     const p = event.payload;
-    if (!p) return NextResponse.json({ ok: true, ignored: true });
+    if (!p) return skip("missing_payload");
     const isCalendly = config.provider === "calendly";
     if (isCalendly && config.persisted && typeof p.scheduled_event === "string") {
       p.scheduled_event = await hydrateCalendlyEvent(config.creatorId, p.scheduled_event);
@@ -71,21 +76,21 @@ export async function POST(
       kind !== (isCalendly ? "invitee.created" : "BOOKING_CREATED") &&
       kind !== "BOOKING_RESCHEDULED"
     )
-      return NextResponse.json({ ok: true, ignored: true });
+      return skip("unsupported_event");
     const eventType = isCalendly
       ? p.scheduled_event?.event_type
       : String(p.eventTypeId);
     if (config.eventTypes ? !config.eventTypes.includes(eventType) : eventType !== config.eventType)
-      return NextResponse.json({ ok: true, ignored: true });
+      return skip("event_type_not_connected");
     if (!isCalendly && !canceled && p.status !== "ACCEPTED")
-      return NextResponse.json({ ok: true, ignored: true });
+      return skip("booking_not_accepted");
     const token = isCalendly
       ? p.tracking?.utm_content
       : p.metadata?.cn_attribution;
     const attributionId =
       typeof token === "string" ? token.replace(/^cn_/, "") : "";
     if (!/^[a-f0-9-]{36}$/.test(attributionId))
-      return NextResponse.json({ ok: true, unattributed: true });
+      return skip("missing_attribution", true);
     const { data: a, error } = await admin
       .from("discover_booking_attribution_v1")
       .select("user_id,creator_id")
@@ -111,7 +116,7 @@ export async function POST(
           email.toLowerCase() === user.user.email!.toLowerCase(),
       )
     )
-      return NextResponse.json({ ok: true, unattributed: true });
+      return skip("attendee_mismatch", true);
     const booking = isCalendly ? p.uri : p.uid;
     const eventAt = isCalendly ? event.created_at : event.createdAt;
     const start = isCalendly ? p.scheduled_event?.start_time : p.startTime;
