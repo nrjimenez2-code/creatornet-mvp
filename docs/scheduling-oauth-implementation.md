@@ -8,6 +8,16 @@ Continue draft PR #169 on `feat/discover-conversion-ranking`. The existing media
 
 ## Current work (2026-09-13)
 
+### Bounded worker capacity and independent maintenance
+
+Booking processing now starts at most 40 operations per invocation with four concurrent lanes and a 60-second budget for new claims. Migration `20260914000350_google_booking_worker_capacity.sql` serializes active booking operations per connection while allowing other creators to proceed. It takes a connection row lock, rechecks active jobs with a fresh statement snapshot, preserves expired-lease recovery, and skips connections waiting for reconnection or already holding a connection lease.
+
+Calendar sync and notification maintenance now use separate authenticated endpoints and minute schedules. Sync processes at most 20 ten-booking pages with two concurrent lanes. All started work is awaited; failures are reported while independent lanes finish. This prevents long notification maintenance from consuming the booking run's duration. Existing search enrichment scheduling remains unchanged. Cron duration/plan eligibility and actual deployed execution still require verification. Official lifecycle/authentication reference: https://vercel.com/docs/cron-jobs/manage-cron-jobs .
+
+Validation: all 25 scheduling-related suites passed 187 tests and TypeScript passed. A controlled scheduler simulation clears 120 fast requests in three 40-operation batches, with a maximum of four concurrent operations; simulated 10-second operations process 24 within the 60-second start budget. Database tests verify same-connection exclusion, expired lease recovery, independent creator progress and reconnect-required exclusion. These are algorithm/local PostgreSQL checks, not multi-session remote load or provider-quota measurements.
+
+The remote draft branch was verified at 9af3b9a531a550077f3433b197aa85413dc360e6 before publishing. No remote migrations or production provider enablement were applied. Remaining: preview/deployed validation, live OAuth/provider/payment/later-sale acceptance, remaining auth/ambiguity recovery, full representative performance, ranking pilot/calibration, PR review and production rollout. The full goal remains active and incomplete.
+
 ### Rejected-token recovery and application build
 
 Google booking jobs now force a guarded token refresh after a provider 401 instead of waiting for the cached expiry. The helper takes the connection lease and compares the rejected token to the currently saved token; a delayed failure cannot invalidate a newer reconnect. A revoked refresh grant records reconnect_required, while transient refresh errors preserve connected status. Pending jobs remain reserved for reconciliation in either case. The owner-scoped buyer status projection includes only connection status, and the booking page explains when the creator must reconnect.

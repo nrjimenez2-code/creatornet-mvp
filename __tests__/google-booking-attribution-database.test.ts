@@ -44,6 +44,7 @@ beforeAll(async () => {
     "20260913233649_google_reschedule_recovery.sql",
     "20260913234159_google_unattempted_booking_recovery.sql",
     "20260913235026_google_unattempted_reschedule_recovery.sql",
+    "20260914000350_google_booking_worker_capacity.sql",
   ])
     try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
 });
@@ -259,4 +260,33 @@ test("an attempted reschedule cannot discard its desired interval during recover
  const job=await queuedMove();await db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker]);
  expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') recovered",[job,worker])).rows).toEqual([{recovered:false}]);
  expect((await db.query("select status,desired_starts_at is not null retained from google_booking_reservations_v1")).rows).toEqual([{status:'rescheduling',retained:true}]);
+});
+
+test("parallel workers exclude another active job on the same connection and recover expired leases",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);
+ const second='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ await db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes')",[second,connection,viewer,post]);
+ await db.query('select enqueue_google_booking_create_v1($1,$2)',[second,viewer]);
+ const first=await claim();
+ expect((await db.query('select id from claim_google_booking_job_v1($1)',[watchId])).rows).toHaveLength(0);
+ await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[first]);
+ expect((await db.query('select id from claim_google_booking_job_v1($1)',[watchId])).rows).toEqual([{id:first}]);
+ expect((await db.query("select count(*)::int n from google_booking_jobs_v1 where status='processing' and lease_until>clock_timestamp()")).rows).toEqual([{n:1}]);
+});
+test("connections requiring reconnection do not consume job attempts",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);await db.query("update scheduling_connections_v1 set status='reconnect_required' where id=$1",[connection]);
+ expect((await db.query('select id from claim_google_booking_job_v1($1)',[worker])).rows).toHaveLength(0);
+ expect((await db.query('select attempts,status from google_booking_jobs_v1')).rows).toEqual([{attempts:0,status:'pending'}]);
+});
+
+test("an active calendar job does not block a different creator's queue",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);await claim();
+ const owner='dddddddd-dddd-4ddd-8ddd-dddddddddddd',calendar='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',booking='ffffffff-ffff-4fff-8fff-ffffffffffff';
+ await db.query('insert into profiles(id,interests) values($1,\'[]\')',[owner]);
+ await db.query("insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','other-account','encrypted','other-watch','encrypted',now()+interval '1 hour')",[calendar,owner]);
+ await db.query("insert into google_booking_settings_v1(connection_id,calendar_id,conflict_calendar_ids,availability,title) select $1,calendar_id,conflict_calendar_ids,availability,title from google_booking_settings_v1 where connection_id=$2",[calendar,connection]);
+ await db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes')",[booking,calendar,viewer,post]);
+ await db.query('select enqueue_google_booking_create_v1($1,$2)',[booking,viewer]);
+ expect((await db.query('select reservation_id from claim_google_booking_job_v1($1)',[watchId])).rows).toEqual([{reservation_id:booking}]);
+ expect((await db.query("select count(*)::int n from google_booking_jobs_v1 where status='processing' and lease_until>clock_timestamp()")).rows).toEqual([{n:2}]);
 });

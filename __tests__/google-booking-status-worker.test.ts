@@ -28,10 +28,10 @@ test("worker rejects missing, incorrect and unconfigured cron credentials",async
 test("disabled Google never processes jobs and enabled worker stops at an empty queue",async()=>{
   available.mockReturnValueOnce(false);expect(await (await cron('Bearer '+secret)).json()).toEqual({processed:0,enabled:false});expect(processJob).not.toHaveBeenCalled();
   processJob.mockResolvedValueOnce({processed:true,retry:true}).mockResolvedValueOnce({processed:false});
-  expect(await (await cron('Bearer '+secret)).json()).toEqual({processed:1,retries:1});expect(processJob).toHaveBeenCalledTimes(2);
+  expect(await (await cron('Bearer '+secret)).json()).toEqual({processed:1,retries:1});expect(processJob).toHaveBeenCalledTimes(5);
 });
 test("worker bounds each batch even with a continuously busy queue",async()=>{
-  processJob.mockResolvedValue({processed:true});expect(await (await cron('Bearer '+secret)).json()).toEqual({processed:4,retries:0});expect(processJob).toHaveBeenCalledTimes(4);
+  processJob.mockResolvedValue({processed:true});expect(await (await cron('Bearer '+secret)).json()).toEqual({processed:40,retries:0});expect(processJob).toHaveBeenCalledTimes(40);
 });
 
 
@@ -41,12 +41,4 @@ test("cancellation requires the same origin and uses the authenticated buyer",as
   expect(cancel).not.toHaveBeenCalled();cancel.mockResolvedValue({id,status:'canceling'});
   expect((await cancelRoute(req('https://creatornet.example'),{params:Promise.resolve({reservation:id})})).status).toBe(202);
   expect(cancel).toHaveBeenCalledWith(id,'buyer',2);
-});
-
-
-test("worker continues reconciliation after renewal failure and reports the incomplete run",async()=>{
- maintain.mockRejectedValueOnce(new Error('renewal unavailable'));
- const response=await cron('Bearer '+secret);
- expect(response.status).toBe(503);expect(sweep).toHaveBeenCalledTimes(1);
- expect(await response.json()).toEqual({processed:0,retries:0,error:'Calendar maintenance needs retry'});
 });

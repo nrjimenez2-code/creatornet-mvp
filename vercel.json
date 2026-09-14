@@ -7,6 +7,14 @@
     {
       "path": "/api/scheduling/google/jobs",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/scheduling/google/sync",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/scheduling/google/maintenance",
+      "schedule": "* * * * *"
     }
   ]
 }
