@@ -11,7 +11,7 @@ type Props = {
 };
 
 export default function SchedulingConnections({ purpose, value, onSelect }: Props) {
-  const { userId, session } = useUser();
+  const { userId, session, loading } = useUser();
   const token = session?.access_token;
   const [state, setState] = useState<{ userId: string; items: BookingConnectionStatus[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +23,7 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
 
   const refresh = useCallback(async () => {
     const current = ++requestId.current;
-    if (!userId) { setState(null); return; }
+    if (!userId) { setState(null); setError(null); return; }
     try {
       const response = await fetch("/api/scheduling/connections", {
         credentials: "include", cache: "no-store",
@@ -81,7 +81,8 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
     <h2 className="text-sm font-semibold">{title}</h2>
     {purpose && !hasConnection && <p className="text-sm text-white/70">Connect once to confirm bookings automatically. Your draft stays here while you authorize your account.</p>}
     {error && <p role="alert" className="text-sm text-red-300">{error} <button type="button" onClick={() => void refresh()} className="underline">Check again</button></p>}
-    {!items && !error && <p role="status">Checking connections…</p>}
+    {!loading && !userId ? <p className="text-sm"><a href="/auth" target="_blank" rel="noopener noreferrer" className="underline">Sign in to CreatorNet</a> to manage your booking connections, then return here.</p>
+      : !items && !error && <p role="status">Checking connections…</p>}
     {waiting && <p role="status" className="text-sm">Finish connecting in the other window, then return here. <button type="button" className="underline" onClick={() => { setWaiting(false); void refresh(); }}>I’m back</button></p>}
     {items?.map(item => {
       const name = BOOKING_PROVIDER_NAMES[item.provider];

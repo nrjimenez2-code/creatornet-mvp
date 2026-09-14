@@ -2,8 +2,9 @@
 import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { BookingConnectionStatus } from "@/lib/schedulingConnectionTypes";
-let userId = "creator";
-jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId, session: { access_token: "token" } }) }));
+let userId: string | null = "creator";
+let authLoading = false;
+jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId, loading: authLoading, session: { access_token: "token" } }) }));
 import SchedulingConnections from "@/components/SchedulingConnections";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const originalFetch = global.fetch;
@@ -14,6 +15,7 @@ let connections: BookingConnectionStatus[];
 const response = () => ({ ok: true, json: async () => ({ connections }) });
 beforeEach(() => {
   userId = "creator";
+  authLoading = false;
   connections = [{ provider: "calcom", available: true, status: "disconnected", accountName: null, eventTypes: [] }];
   fetchMock.mockReset().mockImplementation(async () => response());
   global.fetch = fetchMock;
@@ -25,6 +27,22 @@ const click = async (name: string) => { await act(async () => {
   if (!button) throw new Error(`Missing ${name}`);
   button.click();
 }); };
+
+test("signed-out visitors get a sign-in action after auth resolves without abandoning their draft", async () => {
+  userId = null; authLoading = true;
+  await act(async () => root.render(createElement(SchedulingConnections, { purpose: "session" })));
+  expect(container.textContent).toContain("Checking connections");
+  expect(container.querySelector('a[href="/auth"]')).toBeNull();
+  authLoading = false;
+  await act(async () => root.render(createElement(SchedulingConnections, { purpose: "session" })));
+  expect(container.textContent).not.toContain("Checking connections");
+  expect(container.querySelector('a[href="/auth"]')?.getAttribute("target")).toBe("_blank");
+  expect(fetchMock).not.toHaveBeenCalled();
+  userId = "creator";
+  await act(async () => root.render(createElement(SchedulingConnections, { purpose: "session" })));
+  expect(container.querySelector('a[href="/auth"]')).toBeNull();
+  expect(container.textContent).toContain("Connect Cal.com");
+});
 
 test("authorization window leaves draft text and selected file mounted", async () => {
   const video = new File(["video"], "draft.mp4", { type: "video/mp4" });
