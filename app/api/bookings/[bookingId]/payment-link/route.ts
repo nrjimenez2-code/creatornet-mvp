@@ -6,7 +6,7 @@ import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { randomUUID } from "crypto";
-import { getSiteUrl } from "@/lib/siteUrl";
+import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 import { handoffExactCheckoutLink } from "@/lib/installments/checkoutLink";
 import { withBuyerCheckoutLink } from "@/lib/discoverCheckoutLinks";
 
@@ -28,10 +28,6 @@ const SUPABASE_URL: string =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-// See the note in app/api/stripe/connect/onboard/route.ts: a local fallback
-// to localhost poisons success/cancel URLs on the Vercel projects that do not
-// set NEXT_PUBLIC_SITE_URL.
-const SITE_URL = getSiteUrl();
 
 export async function POST(
   req: NextRequest,
@@ -418,8 +414,8 @@ export async function POST(
             metadata: metadataBase,
           },
           metadata: metadataBase,
-          success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${SITE_URL}/dashboard`,
+          success_url: `${getCheckoutSiteUrl()}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${getCheckoutSiteUrl()}/dashboard`,
         },
         { idempotencyKey: `booking-payment:${paymentId}` }
       );
@@ -454,8 +450,8 @@ export async function POST(
             metadata: metadataBase,
           },
           metadata: metadataBase,
-          success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${SITE_URL}/dashboard`,
+          success_url: `${getCheckoutSiteUrl()}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${getCheckoutSiteUrl()}/dashboard`,
         },
         { idempotencyKey: `booking-payment:${paymentId}` }
       );

@@ -1,5 +1,5 @@
 import "server-only";
-import { getSiteUrl } from "@/lib/siteUrl";
+import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 
 // The creator publishes a link; only the buyer opening the verified provider
 // session records checkout_start. Stored provider URLs remain unchanged.
@@ -37,6 +37,6 @@ export async function withBuyerCheckoutLink<T extends Record<string, unknown>>(
     .eq("creator_id", booking.creator_id)
     .single();
   if (readError) throw readError;
-  const url = new URL("/api/checkout-link/" + link.id, getSiteUrl()).toString();
+  const url = new URL("/api/checkout-link/" + link.id, getCheckoutSiteUrl()).toString();
   return { ...body, url, payment: { ...payment, buyer_checkout_url: url } };
 }

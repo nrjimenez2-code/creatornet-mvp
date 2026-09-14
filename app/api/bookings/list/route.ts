@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { assertExactInstallmentEnvironment } from "@/lib/installments/checkoutPreparation";
 import { readContextCheckoutPayments } from "@/lib/installments/contextCheckoutApp";
-import { getSiteUrl } from "@/lib/siteUrl";
+import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 import { readBookingSchedulingStatus } from "@/lib/bookingSchedulingStatus";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -166,7 +166,7 @@ export async function GET(req: NextRequest) {
       const {data:links,error:linkError}=await admin.from('discover_checkout_links_v1').select('id,provider_session_id')
         .eq('creator_id',user.id).in('provider_session_id',providerSessions);
       if(linkError)throw linkError;
-      for(const link of links??[])buyerLinks.set(link.provider_session_id,new URL('/api/checkout-link/'+link.id,getSiteUrl()).toString());
+      for(const link of links??[])buyerLinks.set(link.provider_session_id,new URL('/api/checkout-link/'+link.id,getCheckoutSiteUrl()).toString());
     }
     const closerIds = unique(allPayments.map((p: any) => p?.closer_user_id));
     const { data: closerProfiles, error: closersError } = closerIds.length
