@@ -6,11 +6,11 @@ export const metadata: Metadata = {
     "What CreatorNet collects, how it's used, who processes it, and the choices you have.",
 };
 
-const LAST_UPDATED = "August 30, 2026";
+const LAST_UPDATED = "September 14, 2026";
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
   return (
-    <section className="mt-8">
+    <section id={id} className="mt-8">
       <h2 className="text-xl font-semibold">{title}</h2>
       <div className="mt-3 space-y-3 text-gray-700 leading-relaxed">{children}</div>
     </section>
@@ -74,6 +74,58 @@ export default function PrivacyPolicyPage() {
           <li>Understand what&apos;s working and fix what isn&apos;t (analytics, error reports).</li>
         </ul>
         <p>We do not sell personal data.</p>
+      </Section>
+
+      <Section id="connected-calendars" title="Connected calendars and scheduling accounts">
+        <p>
+          Connecting Google Calendar, Cal.com or Calendly is optional. We receive the
+          connected account identity and the permissions you approve so you can offer
+          and manage calls through CreatorNet.
+        </p>
+        <p>
+          For Google Calendar, we access your account email, calendar list, selected
+          calendars&apos; availability and events needed to check conflicts and synchronize
+          bookings. You choose the booking calendar, conflict calendars and available hours.
+          We create, reschedule and cancel CreatorNet booking events in your selected calendar.
+          Google may send invitations and updates to the attendee&apos;s booking email.
+          The granted permission includes events on calendars you own, including unrelated
+          events. Synchronization can return other events in the booking calendar; we match
+          events to CreatorNet booking records when reconciling changes.
+        </p>
+        <p>
+          For Cal.com and Calendly, we access account identity, booking event types and
+          scheduled-event information. We configure provider notifications to reflect
+          scheduled, rescheduled and canceled calls. A scheduled call or saved payment
+          method does not establish that a call took place.
+        </p>
+        <p>
+          We store encrypted authorization tokens, scheduling settings, and identifiers
+          and status information needed to maintain bookings. Our hosting and database
+          providers process this information to operate scheduling. Booking participants
+          receive the information needed to arrange and manage their call.
+        </p>
+        <p>
+          CreatorNet links verified bookings and, where applicable, later purchases to
+          the video that led to them. These milestones support creator reporting and feed
+          recommendations. Calendar availability and unrelated event content are not
+          feed-ranking signals.
+        </p>
+        <p>
+          You can disconnect in Bookings and manage CreatorNet&apos;s access in your
+          provider&apos;s account settings. A completed disconnect removes stored authorization
+          tokens and stops the connection. Disconnecting does not cancel existing appointments
+          or delete historical booking and purchase records. If disconnecting cannot finish,
+          we display that status so you can retry. Retained records are subject to the
+          retention terms and deletion choices below.
+        </p>
+        <p>
+          CreatorNet&apos;s use and transfer of information received from Google APIs will
+          adhere to the <a className="underline" href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data Policy</a>,
+          including its Limited Use requirements. Google data is used only for disclosed
+          user-facing features. Transfers and human access are limited to the circumstances
+          permitted by that policy. We do not sell this data or use it for advertising,
+          credit decisions or lending.
+        </p>
       </Section>
 
       <Section title="Who processes it for us">
