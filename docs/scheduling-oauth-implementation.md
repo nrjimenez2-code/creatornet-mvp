@@ -1,5 +1,7 @@
 # Automatic scheduling connections — implementation checkpoint
 
+Latest state (2026-09-14 UTC): code 2220bf7 is pushed and its Vercel Preview deployment succeeded. All twelve scheduling migrations are now installed and permission-checked on staging nwqfofezfzljhxolkycz. See the final Scheduling staging migration section for exact version mapping. Earlier local-only/no-migration notes below are historical. OAuth enablement, live acceptance and production rollout remain incomplete.
+
 ## Additional user requirement
 
 The user requested Google Calendar as an additional provider on 2026-09-13. Include this in the full completion scope. Implement direct Google Calendar connection with availability, event creation/update/cancellation, calendar-change reconciliation, automatic watch-channel renewal, and the same original-video attribution and Bookings connection controls. Do not mark the goal complete with only Cal.com/Calendly, or label ordinary Calendar sync as a completed direct booking provider. Google Calendar implementation is in progress; see the latest checkpoint. Official API references: https://developers.google.com/workspace/calendar/api/v3/reference and https://developers.google.com/workspace/calendar/api/guides/push .
@@ -210,3 +212,30 @@ Primary references checked:
 - https://developer.calendly.com/api-docs/overview/webhooks/webhook-signatures
 
 Full goal remains unchanged and incomplete. The user says “COMPLETE 1-8” but supplied seven numbered entries; do not silently invent an eighth requirement or drop any supplied entry.
+
+## Scheduling staging migration — 2026-09-14 UTC
+
+All twelve scheduling migrations from code head 2220bf7 applied successfully to existing staging project nwqfofezfzljhxolkycz. Production is unchanged. The pre-change confirm_discover_booking_v1 definition and grants were backed up in the task workspace before replacement. No existing Discover migration was replayed.
+
+Seven scheduling tables have RLS enabled, no anon/authenticated table privileges, and service-role access. All 21 Google/booking-confirmation functions were checked: browser roles cannot execute them and service_role can. Original profile/post counts remain 3/13; connections, reservations and jobs remain empty. Empty worker calls completed without database errors. This does not verify live providers or concurrent workload.
+
+The security advisor reports only expected no-policy INFO notices for these server-only scheduling tables. Broader existing schema/auth advisories require separate review before production; the raw report is saved in the task workspace. Do not add permissive browser policies to suppress the private-table notices.
+
+Connector versions differ from local filenames. Match these exact records before any CLI deployment; do not replay the migrations under local timestamps.
+
+| Local version | Applied staging version | Name |
+| --- | --- | --- |
+| 20260913220917 | 20260914001943 | scheduling_oauth_connections |
+| 20260913222716 | 20260914002051 | google_calendar_reservations |
+| 20260913223807 | 20260914002058 | google_booking_attribution |
+| 20260913224148 | 20260914002104 | google_calendar_setup |
+| 20260913225146 | 20260914002117 | google_booking_admission |
+| 20260913230334 | 20260914002123 | google_booking_reschedule_admission |
+| 20260913231348 | 20260914002128 | google_booking_dashboard |
+| 20260913232056 | 20260914002133 | google_calendar_reconciliation |
+| 20260913233649 | 20260914002145 | google_reschedule_recovery |
+| 20260913234159 | 20260914002152 | google_unattempted_booking_recovery |
+| 20260913235026 | 20260914002157 | google_unattempted_reschedule_recovery |
+| 20260914000350 | 20260914002202 | google_booking_worker_capacity |
+
+OAuth application configuration, provider enablement, live booking/payment/later-sale acceptance, ambiguity/auth recovery, representative load, ranking pilot and production review remain outstanding.
