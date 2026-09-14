@@ -1562,7 +1562,7 @@ function VideoCard(props: VideoCardProps) {
               )}
             </div>
           </div>
-          {(showCTA || onBuy || onBook || (productId && priceCents)) && (
+          {(showCTA || allowBooking || onBuy || onBook || (productId && priceCents)) && (
             <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"}`} ref={wrapperRef}>
               <BuyButton
                 ref={buyButtonRef}
