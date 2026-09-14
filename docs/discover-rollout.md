@@ -1,6 +1,6 @@
 # Discover conversion ranking — rollout record
 
-Status: implementation enabled on the existing staging Preview branch, disabled by default elsewhere. The shared media worker update is deployed. Production application/database rollout and the full 21-item acceptance remain incomplete.
+Current release instructions and verified evidence are in [discover-production-release.md](discover-production-release.md). That document supersedes the historical checkpoint lists below. The release contains **21 migrations**, not just the original four. The implementation remains on staging; production privacy disclosure is published, while feature deployment and database migration remain pending.
 
 ## Behavior implemented
 
@@ -14,7 +14,7 @@ Status: implementation enabled on the existing staging Preview branch, disabled 
 | 19–20 | Actor-owned two-hour ranking snapshots, uncapped v4 pagination, live moderation rechecks, correct legacy cap termination and bans in existing feed functions. Following remains newest-first. |
 | 21 | Private funnel, revenue-by-currency and viewer/day variety views; SQL, ranking, routing, watch, scheduling and regression tests. |
 
-## Remaining work before production
+## Historical initial acceptance checklist
 
 1. Exercise buyer-link redirects through the full authenticated installment flow. The implementation now issues opaque redirect links without changing the stored Stripe URL. Only the matching signed-in buyer opening a currently active, matching Stripe session records intent; creator previews and anonymous opens do not. Previously distributed raw Stripe URLs cannot retroactively report checkout starts, but captured ledger receipts still reconcile sales.
 2. Connect each real scheduling account and event type, then exercise genuine create/cancel/reschedule callbacks in a non-production environment. Cal.com and Calendly adapters exist; arbitrary providers require their own authenticated adapter. Existing unsupported booking links continue working without scheduled-call credit.
@@ -25,7 +25,7 @@ Status: implementation enabled on the existing staging Preview branch, disabled 
 
 ## Configuration
 
-Apply the four CLI-generated migrations in filename order before serving the new taxonomy/application combination. They were applied to CreatorNet Staging after the user-authorized local backup; production remains unchanged. Back up the installed schema/data first and compare taxonomy row counts, alias merges and original-value archives after migration.
+The original four taxonomy/ranking migrations were followed by scheduling, Google recovery and pilot migrations. Use the complete 21-file manifest in [discover-production-release.md](discover-production-release.md), apply in filename order, and reconcile installed migration history before deployment. Back up the installed schema/data first and compare taxonomy row counts, alias merges and original-value archives afterward.
 
 Keep `DISCOVER_V4_ENABLED` unset or `false` until integration acceptance. It gates v4 ranking/client telemetry and booking adapters, but migration-installed ledger/like triggers collect facts independently. Reverting the application flag does not undo the taxonomy migration or delete its archive.
 
@@ -55,7 +55,7 @@ The media worker exposes `/auto/metadata/videos/...` under its existing route. I
 - Compare `discover_measurement_v1`, `discover_revenue_v1` and `discover_variety_v1` by topic and offer type. Do not compare free-call bookings directly with paid purchases as one conversion type.
 - Pre-register a minimum detectable improvement and sample size, and allow conversion follow-up before judging a variant. Report confidence intervals, category coverage, creator concentration and repeated exposure alongside paid conversion. Fit/tune on one sample and validate on a held-out period/group; do not promote the ordinal pilot controls as calibrated weights.
 
-## Verification performed so far
+## Historical initial verification
 
 - Final selected regression run: **61 suites / 855 tests passed**, including existing feed/payment/installment contracts and new attribution tests.
 - PostgreSQL tests cover deletion/refund preservation, private checkout-link access and late payment-to-purchase binding. Provider link, signature and buyer-only redirect tests pass.
