@@ -1,3 +1,4 @@
+import { recordBookingSetup, attributedBookingUrl } from "@/lib/discoverBookings";
 // app/api/confirm-purchase/route.ts
 import { publicMessage } from "@/lib/apiError";
 import { paidCallsReady, readPaidCallAccess } from "@/lib/paidCalls";
@@ -348,6 +349,9 @@ export async function POST(req: Request) {
       session.mode === "setup" ||
       session.metadata?.kind === "booking"
     ) {
+      if (process.env.DISCOVER_V4_ENABLED === "true" && session.status !== "complete") {
+        return NextResponse.json({ok:false,error:"Booking setup is not complete"},{status:409});
+      }
       const redirectUrl =
         (session.metadata?.booking_redirect_url as string) ||
         (session.metadata?.bookingRedirectUrl as string) ||
@@ -378,7 +382,7 @@ export async function POST(req: Request) {
           ok: true,
           session_id,
           kind: "booking",
-          booking_redirect_url: redirectUrl,
+          booking_redirect_url: attributedBookingUrl(redirectUrl, await recordBookingSetup(session)),
           post_id: postId,
           creator_id: creatorId,
         },

@@ -1,0 +1,91 @@
+{
+  "productionBaseline": "57720a9cfcdbbdd8881f73983dd18822fc19a75f",
+  "applicationCandidate": "27fae591cebe77edd466d7d6cfcca35c28f5195e",
+  "hashEncoding": "SHA-256 of committed Git blob bytes (LF); checkout line endings may differ",
+  "migrations": [
+    {
+      "file": "supabase/migrations/20260913004646_discover_taxonomy.sql",
+      "sha256": "95929a1d0468664e2892406835883d83d4cc040073a5712a616c98e7d85f7f73"
+    },
+    {
+      "file": "supabase/migrations/20260913005126_discover_events_and_sessions.sql",
+      "sha256": "682a9d63d8d940eefad160d1e4edee5ddea99a07b40c21cadf225c5ad5bf7cd8"
+    },
+    {
+      "file": "supabase/migrations/20260913010141_discover_verified_sales.sql",
+      "sha256": "809404d48e9c18d5232c44ba6554aaac03a7c3e95d42fdbf5241aa5f56714156"
+    },
+    {
+      "file": "supabase/migrations/20260913011108_discover_eligibility_and_measurement.sql",
+      "sha256": "45a2f8884fb3d6745847bd608c77b0b9e8766deff070ee1cb999c5f9d1f971c0"
+    },
+    {
+      "file": "supabase/migrations/20260913220917_scheduling_oauth_connections.sql",
+      "sha256": "ba26cc6f4393a9f74fb1fb91f16bb7d1d93dc11877ba8193f85db027d39d4d3d"
+    },
+    {
+      "file": "supabase/migrations/20260913222716_google_calendar_reservations.sql",
+      "sha256": "c00a892b6404f0c260d363569e5021800ee3ac31de25c32cc685bd8cbafba4a7"
+    },
+    {
+      "file": "supabase/migrations/20260913223807_google_booking_attribution.sql",
+      "sha256": "8f887657b8b40a5fcb632aaa5876782753b6e314fcb7192ae460e5010096de6d"
+    },
+    {
+      "file": "supabase/migrations/20260913224148_google_calendar_setup.sql",
+      "sha256": "5640f7289653ad695dec0d9ff92f44db3ac7e7ce923274307dc70393f93fc587"
+    },
+    {
+      "file": "supabase/migrations/20260913225146_google_booking_admission.sql",
+      "sha256": "3b4d875f09b32e559d874180b3953ff7f1b2ed6f3faadf6cb899b9b38bf6dadb"
+    },
+    {
+      "file": "supabase/migrations/20260913230334_google_booking_reschedule_admission.sql",
+      "sha256": "4658d0cccb8dfafe3d5199bfcccff04b9e3bc345a943c3a49d83bb5692c54372"
+    },
+    {
+      "file": "supabase/migrations/20260913231348_google_booking_dashboard.sql",
+      "sha256": "11d08b8858ad98fbb2263cd30eec3b3254a32fd0a5be42ec2556160c7d4a26b7"
+    },
+    {
+      "file": "supabase/migrations/20260913232056_google_calendar_reconciliation.sql",
+      "sha256": "781cac0879bb6a3d0c9adbcafd053fdb6ee0638dc5c630f39f06bb20db308feb"
+    },
+    {
+      "file": "supabase/migrations/20260913233649_google_reschedule_recovery.sql",
+      "sha256": "6900c2c7f79c5bafe6746a147523651167b4a7104191f22371790106ae58da61"
+    },
+    {
+      "file": "supabase/migrations/20260913234159_google_unattempted_booking_recovery.sql",
+      "sha256": "0a943482eaeb9150eb6746b65144d2e0d263d23f3b1971eb2076237182438af6"
+    },
+    {
+      "file": "supabase/migrations/20260913235026_google_unattempted_reschedule_recovery.sql",
+      "sha256": "4d2941cec6464420142059dab013ff4528cfcee82f7857ae84660096aa0f6348"
+    },
+    {
+      "file": "supabase/migrations/20260914000350_google_booking_worker_capacity.sql",
+      "sha256": "bc74ab46099cb36a0362113a98739ddb25acc35d377e40c932582160a2073718"
+    },
+    {
+      "file": "supabase/migrations/20260914002844_restrict_legacy_ranking_mutations.sql",
+      "sha256": "677965d41d4743536165bc2ed2227ddcae668d1fd96be17e1d87afe4b3e02cb2"
+    },
+    {
+      "file": "supabase/migrations/20260914003852_google_reconnect_retry_wakeup.sql",
+      "sha256": "41bdaf49b4c17d56e732af9001e5f44ea45234b3c44495cda053527a2e79ac35"
+    },
+    {
+      "file": "supabase/migrations/20260914012650_google_watch_renewal_fairness.sql",
+      "sha256": "7112aefc69434f8c77afc561b404a6369e23b799fe73962c687748c613ee8e06"
+    },
+    {
+      "file": "supabase/migrations/20260914093000_discover_controlled_pilot.sql",
+      "sha256": "6473c12ff4555588b321e88484dff2fff0bab3aa5afcf2553417703b0c9560a0"
+    },
+    {
+      "file": "supabase/migrations/20260914094000_discover_pilot_exposures.sql",
+      "sha256": "261c264b863a07cad06e491e32f47af150ece57c6e80cd67418c366de1408c93"
+    }
+  ]
+}

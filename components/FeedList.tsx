@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { fetchDiscoverPage, rememberDiscoverSession } from "@/lib/discoverClient";
 import FeedVideoCard from "./VideoCard";
 const VideoCard = memo(FeedVideoCard);
 import FeedEmptyState from "./FeedEmptyState";
@@ -54,6 +55,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [refreshKey, setRefreshKey] = useState(0);
   const [pendingPosts, setPendingPosts] = useState<string[]>([]);
   const offsetRef = useRef(0);
+  const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const activeTabRef = useRef<Tab>(activeTab);
@@ -170,6 +172,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     // Reset pagination on every tab change / reload; invalidate stale loadMores.
     fetchGenRef.current += 1;
     offsetRef.current = 0;
+    sessionRef.current = null;
     hasMoreRef.current = false;
     loadingMoreRef.current = false;
     setLoadingMore(false);
@@ -198,22 +201,13 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
         // Ranked posts + creator profile + product meta + viewer
         // is_liked / is_following. The viewer is auth.uid() server-side.
-        const { data, error } = await supabase.rpc("get_feed_v3", {
-          p_tab: activeTab,
-          p_limit: PAGE_SIZE,
-          p_offset: 0,
-        });
-
-        if (error) {
-          console.error("Feed RPC error:", error);
-          if (!cancelled) {
-            setFeedError(error.message || "Failed to load feed");
-            setLoading(false);
-          }
-          return;
+        const page = await fetchDiscoverPage(activeTab, 0, PAGE_SIZE, null);
+        const data = page.items;
+        if (!cancelled) {
+          sessionRef.current = page.session;
+          rememberDiscoverSession((data as {post_id:string}[]).map(p=>p.post_id), page.session);
         }
 
-        const rawCount = Array.isArray(data) ? data.length : 0;
         const mapped = mapFeedV3Rows(data).map(post => ({ ...post, monthlyTerms: null, purchaseOptionsReady: false }));
 
         if (!cancelled) {
@@ -223,8 +217,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           setLoading(false);
           // Offset advances by RPC rows consumed, not by post-filter length,
           // so a dropped media-less row can never shift later pages.
-          offsetRef.current = rawCount;
-          hasMoreRef.current = rawCount >= PAGE_SIZE;
+          offsetRef.current = page.nextOffset;
+          hasMoreRef.current = page.hasMore;
           if (mapped.length) {
             setActivePostId(mapped[0]?.id ?? null);
             feedScrollRef.current?.scrollTo?.({ top: 0, behavior: "instant" });
@@ -561,33 +555,16 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     const currentOffset = offsetRef.current;
 
     try {
-      const { data, error } = await supabase.rpc("get_feed_v3", {
-        p_tab: activeTabRef.current,
-        p_limit: PAGE_SIZE,
-        p_offset: currentOffset,
-      });
-
-      // The tab changed (or the feed reloaded) while this request was in
-      // flight — its rows belong to a dead generation. Touch nothing.
+      const page = await fetchDiscoverPage(activeTabRef.current, currentOffset, PAGE_SIZE, sessionRef.current);
       if (gen !== fetchGenRef.current) return;
-
-      if (error) {
-        console.error("[Feed] loadMore error:", error);
-        setMoreError(true);
-        return;
-      }
-
-      const rawCount = Array.isArray(data) ? data.length : 0;
-      if (!rawCount) {
-        hasMoreRef.current = false;
-        return;
-      }
+      const data = page.items;
+      rememberDiscoverSession((data as {post_id:string}[]).map(p=>p.post_id), page.session);
 
       const mapped = mapFeedV3Rows(data).map(post => ({ ...post, monthlyTerms: null, purchaseOptionsReady: false }));
       if (gen !== fetchGenRef.current) return;
 
-      offsetRef.current = currentOffset + rawCount;
-      hasMoreRef.current = rawCount >= PAGE_SIZE;
+      offsetRef.current = page.nextOffset;
+      hasMoreRef.current = page.hasMore;
 
       // Deduplicate and append
       setItems((prev) => {
@@ -714,6 +691,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
                 {isMounted ? (
                   <VideoCard
+                    activeTab={activeTab}
                     onInteractionChange={handleInteractionChange}
                     onFirstFrame={!desktop ? handleFirstFrame : undefined}
                     prepareFrame={!desktop && pageVisible && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1 && readyPostId === activePostId)}

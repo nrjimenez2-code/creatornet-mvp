@@ -1,0 +1,351 @@
+/** @jest-environment ./test-support/pglite-environment.cjs */
+import type { PGlite } from "@electric-sql/pglite";
+import { readFileSync } from "node:fs";
+declare const createLocalPostgres: () => PGlite;
+let db: PGlite;
+const viewer = "11111111-1111-4111-8111-111111111111",
+  creator = "22222222-2222-4222-8222-222222222222";
+const post = "33333333-3333-4333-8333-333333333333",
+  product = "44444444-4444-4444-8444-444444444444";
+const purchase = "55555555-5555-4555-8555-555555555555",
+  ledger = "66666666-6666-4666-8666-666666666666";
+jest.setTimeout(90000);
+beforeAll(async () => {
+  db = createLocalPostgres();
+  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;
+ create schema auth;create table auth.users(id uuid primary key);insert into auth.users values('${viewer}'),('${creator}');
+ create table profiles(id uuid primary key,interests jsonb,banned_at timestamptz);
+ create table posts(id uuid primary key,creator_id uuid,interests text[],topics text[],product_id uuid,hidden_at timestamptz);
+ create table likes(user_id uuid,post_id uuid,primary key(user_id,post_id));
+ create table user_interest_scores(user_id uuid,category text,score int,updated_at timestamptz,primary key(user_id,category));
+ create table purchases(id uuid primary key,buyer_user_id uuid,buyer_id uuid,post_id uuid,product_id uuid,booking_id uuid);
+ create table products(id uuid primary key,product_id uuid,type text);
+ create table bookings(id uuid primary key,post_id uuid,buyer_id uuid,creator_id uuid);
+ create table booking_payments(id uuid primary key,booking_id uuid,product_id uuid);
+ create table payment_fee_ledger(id uuid primary key,creator_id uuid,purchase_id uuid,booking_payment_id uuid,
+ gross_amount_cents bigint,refunded_amount_cents bigint default 0,disputed_amount_cents bigint default 0,
+ status text,currency text,created_at timestamptz default now());
+ insert into profiles(id,interests) values('${viewer}',to_jsonb(array['Entrepreneurship'])),('${creator}',to_jsonb(array['Entrepreneurship']));
+ insert into posts(id,creator_id,interests,topics,product_id) values('${post}','${creator}',array['Entrepreneurship'],array['ecommerce'],'${product}');
+ insert into products values('${product}',null,'mentorship');
+ insert into purchases values('${purchase}','${viewer}',null,'${post}','${product}',null);`);
+  await db.exec(`create function public.get_feed_v3(p_tab text default 'discover',p_limit int default 20,p_offset int default 0)
+ returns table(post_id uuid) language sql as 'select p.id from public.posts p where p.hidden_at is null order by p.id limit p_limit offset p_offset';`);
+  for (const file of [
+    "20260913004646_discover_taxonomy.sql",
+    "20260913005126_discover_events_and_sessions.sql",
+    "20260913010141_discover_verified_sales.sql",
+    "20260913011108_discover_eligibility_and_measurement.sql",
+    "20260913220917_scheduling_oauth_connections.sql",
+    "20260913222716_google_calendar_reservations.sql",
+    "20260913223807_google_booking_attribution.sql",
+    "20260913224148_google_calendar_setup.sql",
+    "20260913232056_google_calendar_reconciliation.sql",
+    "20260913233649_google_reschedule_recovery.sql",
+    "20260913234159_google_unattempted_booking_recovery.sql",
+    "20260913235026_google_unattempted_reschedule_recovery.sql",
+    "20260914000350_google_booking_worker_capacity.sql",
+    "20260914003852_google_reconnect_retry_wakeup.sql",
+    "20260914012650_google_watch_renewal_fairness.sql",
+  ])
+    try { await db.exec(readFileSync("supabase/migrations/" + file, "utf8")); } catch (error) { throw new Error(file + ": " + JSON.stringify(error)); }
+});
+
+afterAll(async () => { await db.close(); });
+const connection = "77777777-7777-4777-8777-777777777777", reservation = "88888888-8888-4888-8888-888888888888";
+const attribution = "99999999-9999-4999-8999-999999999999", worker = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+beforeEach(async () => {
+  await db.exec("truncate google_booking_jobs_v1,google_booking_reservations_v1,google_booking_settings_v1,scheduling_event_types_v1,scheduling_oauth_attempts_v1,google_calendar_watches_v1,scheduling_connections_v1,discover_booking_attribution_v1,discover_events_v1,payment_fee_ledger");
+  await db.query("update purchases set post_id=$1 where id=$2", [post,purchase]);
+  await db.query("insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','account','encrypted','watch','encrypted',now()+interval '1 hour')",[connection,creator]);
+  await db.query(`insert into google_booking_settings_v1(connection_id,calendar_id,conflict_calendar_ids,availability,title) values($1,'primary',array['primary'],'{"durationMinutes":30,"bufferBeforeMinutes":0,"bufferAfterMinutes":0}','Call')`,[connection]);
+  await db.query("insert into discover_booking_attribution_v1(id,setup_session_id,user_id,creator_id,post_id,created_at) values($1,'setup',$2,$3,$4,now()-interval '1 hour')",[attribution,viewer,creator,post]);
+});
+test('failed or abandoned watch renewals yield to another creator and retry after cooldown',async()=>{
+  await db.query("insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','second-account','encrypted','second-watch','encrypted',now()+interval '1 hour')",[worker,viewer]);
+  await db.query(`insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status) values
+   ($1,$2,'primary','first','encrypted',now()-interval '1 hour','active'),
+   ($3,$4,'primary','second','encrypted',now()+interval '1 hour','active')`,[ledger,connection,attribution,worker]);
+  const claimRenewal=async()=>(await db.query<{creator_id:string}>('select * from claim_google_calendar_renewal_v1()')).rows;
+  expect(await claimRenewal()).toEqual([{creator_id:creator}]);
+  // No completion call: model a provider failure or a worker dying after claim.
+  expect(await claimRenewal()).toEqual([{creator_id:viewer}]);
+  expect(await claimRenewal()).toEqual([]);
+  await db.query("update google_calendar_watches_v1 set renewal_attempted_at=now()-interval '3 minutes' where id=$1",[ledger]);
+  expect(await claimRenewal()).toEqual([{creator_id:creator}]);
+  const state=(await db.query<{status:string,resource_id:string}>('select status,resource_id from google_calendar_watches_v1 order by resource_id')).rows;
+  expect(state).toEqual([{status:'active',resource_id:'first'},{status:'active',resource_id:'second'}]);
+});
+
+test('renewal claims skip disconnected, leased, healthy and retired channels and are server-only',async()=>{
+  await db.query(`insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status)
+   values($1,$2,'primary','resource','encrypted',now()+interval '1 hour','active')`,[ledger,connection]);
+  await db.query("update scheduling_connections_v1 set status='reconnect_required' where id=$1",[connection]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  await db.query("update scheduling_connections_v1 set status='connected',lease_id=$2,lease_until=now()+interval '1 minute' where id=$1",[connection,worker]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  await db.query("update scheduling_connections_v1 set lease_id=null,lease_until=null where id=$1",[connection]);
+  await db.query("update google_calendar_watches_v1 set expires_at=now()+interval '2 days' where id=$1",[ledger]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  await db.query("update google_calendar_watches_v1 set expires_at=now(),status='retiring' where id=$1",[ledger]);
+  expect((await db.query('select * from claim_google_calendar_renewal_v1()')).rows).toEqual([]);
+  const permissions=(await db.query(`select has_function_privilege('anon','claim_google_calendar_renewal_v1()','execute') as anon,
+   has_function_privilege('authenticated','claim_google_calendar_renewal_v1()','execute') as authenticated,
+   has_function_privilege('service_role','claim_google_calendar_renewal_v1()','execute') as service`)).rows[0];
+  expect(permissions).toEqual({anon:false,authenticated:false,service:true});
+});
+
+const reserve = (buyer=viewer, source=post) => db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '2 days 10 hours',date_trunc('day',now())+interval '2 days 10 hours 30 minutes',$5)",[reservation,connection,buyer,source,attribution]);
+async function claim() { return (await db.query<{id:string}>("select * from claim_google_booking_job_v1($1)",[worker])).rows[0].id; }
+async function finish(id:string) {
+  return db.query("select complete_google_booking_job_v1($1,$2,'google-event','etag',coalesce(r.desired_starts_at,r.starts_at),coalesce(r.desired_ends_at,r.ends_at)) from google_booking_reservations_v1 r where r.id=$3",[id,worker,reservation]);
+}
+async function create() { await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);const id=await claim();await finish(id);return id; }
+
+test("setup and queued work earn no scheduling credit; confirmation commits one attributed milestone", async () => {
+  await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);
+  expect((await db.query("select count(*)::int n from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{n:0}]);
+  const id=await claim();await finish(id);
+  expect((await db.query("select provider,provider_booking_id,post_id from discover_booking_attribution_v1")).rows).toEqual([{provider:'google',provider_booking_id:'google-event',post_id:post}]);
+  expect((await db.query("select post_id,valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{post_id:post,valid:true}]);
+  await expect(finish(id)).rejects.toThrow(/lease expired/);
+  expect((await db.query("select count(*)::int n from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{n:1}]);
+});
+
+test("another buyer or source video cannot claim an attribution", async () => {
+  await expect(reserve(creator)).rejects.toThrow(/attribution mismatch/);
+  await expect(reserve(viewer,product)).rejects.toThrow(/attribution mismatch/);
+  expect((await db.query("select count(*)::int n from google_booking_reservations_v1")).rows).toEqual([{n:0}]);
+});
+
+test("attribution failure rolls back reservation and job completion together", async () => {
+  await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);const id=await claim();
+  await db.query("update discover_booking_attribution_v1 set provider_event_at=now()+interval '1 day' where id=$1",[attribution]);
+  await expect(finish(id)).rejects.toThrow(/Could not commit/);
+  expect((await db.query("select status from google_booking_reservations_v1")).rows).toEqual([{status:'creating'}]);
+  expect((await db.query("select status from google_booking_jobs_v1")).rows).toEqual([{status:'processing'}]);
+  expect((await db.query("select count(*)::int n from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{n:0}]);
+});
+
+test("rescheduling keeps one original-video milestone and cancellation retracts it atomically", async () => {
+  await create();
+  await db.query("select request_google_booking_change_v1($1,$2,0,'reschedule',starts_at+interval '1 hour',ends_at+interval '1 hour') from google_booking_reservations_v1 where id=$1",[reservation,viewer]);
+  await finish(await claim());
+  expect((await db.query("select count(*)::int n from discover_events_v1 where kind='booking_scheduled' and valid")).rows).toEqual([{n:1}]);
+  expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+  await db.query("select request_google_booking_change_v1($1,$2,1,'cancel')",[reservation,viewer]);
+  await db.query("select complete_google_booking_job_v1($1,$2,null,null)",[await claim(),worker]);
+  expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:false}]);
+  expect((await db.query("select status from google_booking_reservations_v1")).rows).toEqual([{status:'canceled'}]);
+});
+
+test("a later mentorship purchase retains the Google call's original video", async () => {
+  await create();
+  await db.query("update purchases set post_id=$1 where id=$2",[product,purchase]);
+  await db.query("insert into payment_fee_ledger(id,creator_id,purchase_id,gross_amount_cents,status,currency) values($1,$2,$3,10000,'paid','usd')",[ledger,creator,purchase]);
+  expect((await db.query("select kind,post_id,valid from discover_events_v1 where kind in ('purchase','mentorship_purchase')")).rows).toEqual([{kind:'mentorship_purchase',post_id:post,valid:true}]);
+});
+
+
+test("an attribution cannot be attached to a second reservation", async () => {
+  await reserve();
+  await expect(db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes',$5)",[worker,connection,viewer,post,attribution])).rejects.toThrow(/unique constraint/);
+});
+
+test("delayed Google confirmation repairs a captured mentorship sale's origin", async () => {
+  await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);const id=await claim();
+  await db.query("insert into payment_fee_ledger(id,creator_id,purchase_id,gross_amount_cents,status,currency) values($1,$2,$3,10000,'paid','usd')",[ledger,creator,purchase]);
+  expect((await db.query("select kind from discover_events_v1 where kind in ('purchase','mentorship_purchase')")).rows).toEqual([{kind:'purchase'}]);
+  await finish(id);
+  expect((await db.query("select kind,post_id from discover_events_v1 where kind in ('purchase','mentorship_purchase')")).rows).toEqual([{kind:'mentorship_purchase',post_id:post}]);
+});
+
+test("browser roles cannot award Google scheduling credit or complete worker jobs", async () => {
+  for (const role of ['anon','authenticated']) {
+    await db.exec('set role '+role);
+    try {
+      await expect(db.query("select confirm_discover_booking_v1($1,'google','fake',now(),now(),false)",[attribution])).rejects.toThrow(/permission denied/);
+      await expect(db.query("select complete_google_booking_job_v1($1,$2,null,null)",[reservation,worker])).rejects.toThrow(/permission denied/);
+    } finally { await db.exec('reset role'); }
+  }
+});
+
+
+const watchId='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+async function claimSweep(){
+ await db.query("insert into google_calendar_watches_v1(id,connection_id,calendar_id,resource_id,token_ciphertext,expires_at,status) values($1,$2,'primary','resource','encrypted',now()+interval '1 day','active')",[watchId,connection]);
+ await db.query("select * from claim_google_calendar_sweep_v1($1)",[worker]);
+}
+test("external moves and cancellations update reservation and attribution under a sweep lease",async()=>{
+ await create();await claimSweep();
+ const move=await db.query("select reconcile_google_calendar_booking_v1($1,$2,r.id,r.revision,'google-event','external-etag',r.starts_at+interval '1 hour',r.ends_at+interval '1 hour',false) applied from google_booking_reservations_v1 r where id=$3",[watchId,worker,reservation]);
+ expect(move.rows).toEqual([{applied:true}]);
+ expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+ await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,1,'google-event',null,null,null,true)",[watchId,worker,reservation]);
+ expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:false}]);
+});
+test("stale sweep leases and in-flight booking operations cannot be overwritten",async()=>{
+ await create();await claimSweep();
+ await db.query("update google_calendar_watches_v1 set lease_until=now()-interval '1 minute'");
+ expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,0,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
+ await db.query("select * from claim_google_calendar_sweep_v1($1)",[worker]);await db.query("select request_google_booking_change_v1($1,$2,0,'cancel')",[reservation,viewer]);
+ expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,1,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
+});
+test("a notification arriving during a sweep remains pending after that sweep finishes",async()=>{
+ await create();await claimSweep();await db.query("select request_google_calendar_sync_v1($1)",[watchId]);
+ await db.query("select finish_google_calendar_sweep_v1($1,$2,null)",[watchId,worker]);
+ expect((await db.query("select sync_generation>swept_generation pending from google_calendar_watches_v1 where id=$1",[watchId])).rows).toEqual([{pending:true}]);
+ expect((await db.query("select id from claim_google_calendar_sweep_v1($1)",[worker])).rows).toEqual([{id:watchId}]);
+});
+
+test("lease expiry during attribution processing rolls back the entire external change",async()=>{
+ await create();await claimSweep();
+ await db.exec(`create function test_expire_sweep() returns trigger language plpgsql as $$ begin
+ update public.google_calendar_watches_v1 set lease_until=clock_timestamp()-interval '1 second';return new;end $$;
+ create trigger test_expire_sweep after update on google_booking_reservations_v1 for each row execute function test_expire_sweep();`);
+ try{
+  await expect(db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,0,'google-event',null,null,null,true)",[watchId,worker,reservation])).rejects.toThrow(/sweep lease expired/);
+  expect((await db.query("select status,revision from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed',revision:0}]);
+  expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:true}]);
+ }finally{await db.exec('drop trigger test_expire_sweep on google_booking_reservations_v1;drop function test_expire_sweep();');}
+});
+test("browser roles cannot request or commit calendar reconciliation",async()=>{
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  try{
+   await expect(db.query('select request_google_calendar_sync_v1($1)',[watchId])).rejects.toThrow(/permission denied/);
+   await expect(db.query('select * from claim_google_calendar_sweep_v1($1)',[worker])).rejects.toThrow(/permission denied/);
+   await expect(db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,0,'google-event',null,null,null,true)",[watchId,worker,reservation])).rejects.toThrow(/permission denied/);
+  }finally{await db.exec('reset role');}
+ }
+});
+
+test("a missing revision cannot bypass optimistic concurrency during reconciliation",async()=>{
+ await create();await claimSweep();
+ expect((await db.query("select reconcile_google_calendar_booking_v1($1,$2,$3,null,'google-event',null,null,null,true) applied",[watchId,worker,reservation])).rows).toEqual([{applied:false}]);
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed'}]);
+});
+
+
+async function queuedMove(){await create();await db.query("select request_google_booking_change_v1($1,$2,0,'reschedule',starts_at+interval '1 hour',ends_at+interval '1 hour') from google_booking_reservations_v1 where id=$1",[reservation,viewer]);return claim();}
+test("external reschedule recovery restores the actual time and allows a new buyer request",async()=>{
+ const job=await queuedMove();
+ await db.query("select recover_google_reschedule_v1($1,$2,'google-event','external',starts_at+interval '2 hours',ends_at+interval '2 hours',false) from google_booking_reservations_v1 where id=$3",[job,worker,reservation]);
+ expect((await db.query("select status,desired_starts_at,recovery_code from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed',desired_starts_at:null,recovery_code:'google_booking_changed_externally'}]);
+ expect((await db.query("select status from google_booking_jobs_v1 where id=$1",[job])).rows).toEqual([{status:'failed'}]);
+ expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+ await db.query("select request_google_booking_change_v1($1,$2,1,'reschedule',starts_at+interval '1 hour',ends_at+interval '1 hour') from google_booking_reservations_v1 where id=$1",[reservation,viewer]);
+ expect((await db.query("select status,revision,recovery_code from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling',revision:2,recovery_code:null}]);
+});
+test("external cancellation during rescheduling retracts scheduling credit",async()=>{
+ const job=await queuedMove();await db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker]);
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'canceled'}]);
+ expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:false}]);
+});
+test("recovery refuses unchanged event versions and rolls back if attribution cannot commit",async()=>{
+ const job=await queuedMove();
+ await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event','etag',starts_at,ends_at,false) from google_booking_reservations_v1 where id=$3",[job,worker,reservation])).rejects.toThrow('changed calendar event');
+ await db.query("update discover_booking_attribution_v1 set provider_event_at=now()+interval '1 day' where id=$1",[attribution]);
+ await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow('recover booking attribution');
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling'}]);
+ expect((await db.query("select status from google_booking_jobs_v1 where id=$1",[job])).rows).toEqual([{status:'processing'}]);
+});
+
+test("recovery is unavailable to browser roles or expired workers",async()=>{
+ const job=await queuedMove();
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  try{await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow(/permission denied/);}
+  finally{await db.exec('reset role');}
+ }
+ await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[job]);
+ await expect(db.query("select recover_google_reschedule_v1($1,$2,'google-event',null,null,null,true)",[job,worker])).rejects.toThrow('lease expired');
+ expect((await db.query("select status from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'rescheduling'}]);
+});
+
+
+test("an unattempted failed creation can reserve another time without losing source attribution",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);const job=await claim();
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_unavailable') released",[job,worker])).rows).toEqual([{released:true}]);
+ await db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes',$5)",[reservation,connection,viewer,post,attribution]);
+ await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);
+ expect((await db.query('select revision,status from google_booking_jobs_v1 order by revision')).rows).toEqual([{revision:0,status:'failed'},{revision:1,status:'pending'}]);
+ await expect(db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker])).rejects.toThrow('lease expired');
+ await finish(await claim());expect((await db.query("select post_id,valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{post_id:post,valid:true}]);
+});
+test("a possibly delivered mutation cannot release a reservation even after retry",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);const job=await claim();
+ await db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker]);
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') released",[job,worker])).rows).toEqual([{released:false}]);
+ await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[job]);await claim();
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') released",[job,worker])).rows).toEqual([{released:false}]);
+ expect((await db.query('select status from google_booking_reservations_v1')).rows).toEqual([{status:'creating'}]);
+});
+
+
+test("an unattempted unavailable reschedule retains the confirmed booking and its credit",async()=>{
+ const job=await queuedMove();
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_unavailable') recovered",[job,worker])).rows).toEqual([{recovered:true}]);
+ expect((await db.query("select status,desired_starts_at,recovery_code from google_booking_reservations_v1 where id=$1",[reservation])).rows).toEqual([{status:'confirmed',desired_starts_at:null,recovery_code:'google_booking_time_unavailable'}]);
+ expect((await db.query("select a.scheduled_at=r.starts_at matches from discover_booking_attribution_v1 a join google_booking_reservations_v1 r on r.attribution_id=a.id")).rows).toEqual([{matches:true}]);
+ expect((await db.query("select valid from discover_events_v1 where kind='booking_scheduled'")).rows).toEqual([{valid:true}]);
+ await db.query("select request_google_booking_change_v1($1,$2,1,'cancel')",[reservation,viewer]);
+ expect((await db.query('select revision,status,recovery_code from google_booking_reservations_v1')).rows).toEqual([{revision:2,status:'canceling',recovery_code:null}]);
+});
+test("an attempted reschedule cannot discard its desired interval during recovery",async()=>{
+ const job=await queuedMove();await db.query('select begin_google_booking_mutation_v1($1,$2)',[job,worker]);
+ expect((await db.query("select fail_unattempted_google_booking_v1($1,$2,'google_booking_time_passed') recovered",[job,worker])).rows).toEqual([{recovered:false}]);
+ expect((await db.query("select status,desired_starts_at is not null retained from google_booking_reservations_v1")).rows).toEqual([{status:'rescheduling',retained:true}]);
+});
+
+test("parallel workers exclude another active job on the same connection and recover expired leases",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);
+ const second='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+ await db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes')",[second,connection,viewer,post]);
+ await db.query('select enqueue_google_booking_create_v1($1,$2)',[second,viewer]);
+ const first=await claim();
+ expect((await db.query('select id from claim_google_booking_job_v1($1)',[watchId])).rows).toHaveLength(0);
+ await db.query("update google_booking_jobs_v1 set lease_until=clock_timestamp()-interval '1 second' where id=$1",[first]);
+ expect((await db.query('select id from claim_google_booking_job_v1($1)',[watchId])).rows).toEqual([{id:first}]);
+ expect((await db.query("select count(*)::int n from google_booking_jobs_v1 where status='processing' and lease_until>clock_timestamp()")).rows).toEqual([{n:1}]);
+});
+test("connections requiring reconnection do not consume job attempts",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);await db.query("update scheduling_connections_v1 set status='reconnect_required' where id=$1",[connection]);
+ expect((await db.query('select id from claim_google_booking_job_v1($1)',[worker])).rows).toHaveLength(0);
+ expect((await db.query('select attempts,status from google_booking_jobs_v1')).rows).toEqual([{attempts:0,status:'pending'}]);
+});
+
+test("an active calendar job does not block a different creator's queue",async()=>{
+ await reserve();await db.query('select enqueue_google_booking_create_v1($1,$2)',[reservation,viewer]);await claim();
+ const owner='dddddddd-dddd-4ddd-8ddd-dddddddddddd',calendar='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',booking='ffffffff-ffff-4fff-8fff-ffffffffffff';
+ await db.query('insert into profiles(id,interests) values($1,\'[]\')',[owner]);
+ await db.query("insert into scheduling_connections_v1(id,creator_id,provider,status,account_id,credentials_ciphertext,webhook_id,webhook_secret_ciphertext,token_expires_at) values($1,$2,'google','connected','other-account','encrypted','other-watch','encrypted',now()+interval '1 hour')",[calendar,owner]);
+ await db.query("insert into google_booking_settings_v1(connection_id,calendar_id,conflict_calendar_ids,availability,title) select $1,calendar_id,conflict_calendar_ids,availability,title from google_booking_settings_v1 where connection_id=$2",[calendar,connection]);
+ await db.query("select reserve_google_booking_v1($1,$2,$3,$4,date_trunc('day',now())+interval '3 days 10 hours',date_trunc('day',now())+interval '3 days 10 hours 30 minutes')",[booking,calendar,viewer,post]);
+ await db.query('select enqueue_google_booking_create_v1($1,$2)',[booking,viewer]);
+ expect((await db.query('select reservation_id from claim_google_booking_job_v1($1)',[watchId])).rows).toEqual([{reservation_id:booking}]);
+ expect((await db.query("select count(*)::int n from google_booking_jobs_v1 where status='processing' and lease_until>clock_timestamp()")).rows).toEqual([{n:2}]);
+});
+
+test("reconnect wakes retained retry work without erasing mutation history",async()=>{
+ await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);
+ const id=await claim();
+ await db.query("update google_booking_jobs_v1 set status='retry',next_attempt_at=now()+interval '1 hour',mutation_started_at=now(),lease_id=null,lease_until=null where id=$1",[id]);
+ await db.query("update scheduling_connections_v1 set status='reconnect_required' where id=$1",[connection]);
+ await db.query("update scheduling_connections_v1 set status='pending' where id=$1",[connection]);
+ expect((await db.query("select next_attempt_at>now() as delayed from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{delayed:true}]);
+ await db.query("update scheduling_connections_v1 set status='connected' where id=$1",[connection]);
+ expect((await db.query("select next_attempt_at<=clock_timestamp() as due,mutation_started_at is not null as uncertain,attempts from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{due:true,uncertain:true,attempts:1}]);
+ expect(await claim()).toBe(id);
+});
+test("ordinary connection checks preserve retry backoff and reconnect leaves active leases alone",async()=>{
+ await reserve();await db.query("select enqueue_google_booking_create_v1($1,$2)",[reservation,viewer]);
+ const id=await claim();
+ await db.query("update google_booking_jobs_v1 set next_attempt_at=now()+interval '1 hour' where id=$1",[id]);
+ await db.query("update scheduling_connections_v1 set status='pending' where id=$1",[connection]);
+ await db.query("update scheduling_connections_v1 set status='connected' where id=$1",[connection]);
+ expect((await db.query("select status,lease_id,next_attempt_at>now() as delayed from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{status:"processing",lease_id:worker,delayed:true}]);
+ await db.query("update google_booking_jobs_v1 set status='retry',lease_id=null,lease_until=null where id=$1",[id]);
+ await db.query("update scheduling_connections_v1 set status='connected' where id=$1",[connection]);
+ expect((await db.query("select next_attempt_at>now() as delayed from google_booking_jobs_v1 where id=$1",[id])).rows).toEqual([{delayed:true}]);
+});

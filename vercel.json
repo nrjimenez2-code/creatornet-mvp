@@ -1,5 +1,20 @@
 {
   "crons": [
-    { "path": "/api/search/enrich", "schedule": "*/10 * * * *" }
+    {
+      "path": "/api/search/enrich",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/scheduling/google/jobs",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/scheduling/google/sync",
+      "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/scheduling/google/maintenance",
+      "schedule": "* * * * *"
+    }
   ]
 }

@@ -54,6 +54,18 @@ test("unknown product terms disable paid purchase but preserve the separate free
   expect(JSON.parse(call[1].body)).toEqual({ type: "booking", post_id: post.id, creator_id: "creator", bookingRedirectUrl: post.booking_url });
   expect(router.push).not.toHaveBeenCalled();
 });
+test("a booking-only profile post exposes Book without a paid product", async () => {
+  await open({ product_id: null, product_type: null, price_cents: null, monthlyTerms: null, purchaseOptionsReady: false });
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+  expect(trigger).not.toBeNull();
+  await act(async () => trigger!.click());
+  const items = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+  expect(items.find(b => b.textContent!.includes("Purchase unavailable"))!.disabled).toBe(true);
+  const book = items.find(b => b.textContent!.includes("Book"))!;
+  await act(async () => book.click());
+  const call = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === "/api/checkout")!;
+  expect(JSON.parse(call[1].body)).toEqual({ type: "booking", post_id: post.id, creator_id: "creator", bookingRedirectUrl: post.booking_url });
+});
 test.each(["video", "course", "mentorship", "call"])("fixed/ordinary %s still uses its product flow", async productType => {
   await open({ monthlyTerms: null, product_type: productType });
   expect(container.textContent).not.toContain("/month");

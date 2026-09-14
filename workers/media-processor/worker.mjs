@@ -52,6 +52,7 @@ export async function processMessage(message, env) {
     if (details.meta?.creatornetJob !== id) throw new Error('Stream job identity mismatch');
     if (details.status?.state === 'error') {state.phase='failed';state.lastError='EncodingError';await persist();console.error(JSON.stringify({event:'media_failed',job:id,reason:'EncodingError'}));message.ack();return;}
     if (!details.readyToStream) {later();return;}
+    state.durationSeconds = Number.isFinite(details.duration) && details.duration > 0 ? details.duration : null;
     let downloads = await video.downloads.get();
     if (!downloads.default) downloads = await video.downloads.generate('default');
     const download=downloads.default;
@@ -74,7 +75,7 @@ export async function processMessage(message, env) {
   const current=await env.MEDIA.head(key);
   // An overwritten/deleted source must never receive a stale rendition pointer.
   if(!current || current.etag!==state.etag){state.phase='done';state.obsolete=true;await persist();message.ack();return;}
-  await save(env.STATE,'ready/'+key+'.json',{etag:state.etag,outputKey:state.outputKey});
+  await save(env.STATE,'ready/'+key+'.json',{etag:state.etag,outputKey:state.outputKey,durationSeconds:state.durationSeconds??null});
   state.phase='done';await persist();
   console.log(JSON.stringify({event:'media_ready',job:id,bytes:state.outputBytes}));
   message.ack();
@@ -88,16 +89,33 @@ export default {
     const url=new URL(request.url);
     if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
     if(url.pathname==='/auto/health')return Response.json({ok:true,version:1});
-    const key=url.pathname.startsWith('/auto/')?url.pathname.slice(6):'';
+    const metadata = url.pathname.startsWith('/auto/metadata/');
+    const key=metadata?url.pathname.slice('/auto/metadata/'.length):url.pathname.startsWith('/auto/')?url.pathname.slice(6):'';
     if(!validKey(key)||url.search)return new Response('Not found',{status:404});
     let target=ORIGIN+'/'+key;
     try{
       const ready=await json(env.STATE,'ready/'+key+'.json');
       if(ready && /^feed-auto\/[a-f0-9]{64}\.mp4$/.test(ready.outputKey)){
         const head=await env.MEDIA.head(key);
-        if(head?.etag===ready.etag)target=ORIGIN+'/'+ready.outputKey;
+        if(head?.etag===ready.etag){
+          if(metadata && !(Number.isFinite(ready.durationSeconds) && ready.durationSeconds>0)){
+            const id=await digest(key+'\n'+head.etag);
+            const job=await json(env.STATE,'jobs/'+id+'.json');
+            if(job?.streamId){
+              const details=await env.STREAM.video(job.streamId).details();
+              if(details.meta?.creatornetJob===id && Number.isFinite(details.duration) && details.duration>0){
+                ready.durationSeconds=details.duration;
+                await save(env.STATE,'ready/'+key+'.json',ready);
+              }
+            }
+          }
+          if(metadata && Number.isFinite(ready.durationSeconds) && ready.durationSeconds>0)
+            return Response.json({key,etag:ready.etag,durationSeconds:ready.durationSeconds},{headers:{'Cache-Control':'no-store'}});
+          target=ORIGIN+'/'+ready.outputKey;
+        }
       }
     }catch{ /* Original playback is available even if the state store is unavailable. */ }
+    if(metadata)return Response.json({error:'Verified metadata unavailable'},{status:404,headers:{'Cache-Control':'no-store'}});
     return new Response(null,{status:302,headers:{Location:target,'Cache-Control':'public, max-age=30','X-Content-Type-Options':'nosniff'}});
   }
 };

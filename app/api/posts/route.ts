@@ -1,3 +1,5 @@
+import { normalizeTopics } from "@/lib/interestTopics";
+import { normalizeInterests } from "@/lib/interestCategories";
 import { NextResponse } from "next/server";
 import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
 import { publicMessage } from "@/lib/apiError";
@@ -73,7 +75,7 @@ export async function POST(req: Request) {
       );
     }
     const premium_path = premiumRaw ? String(premiumRaw).trim() : null;
-    const interests = Array.isArray(body?.interests) ? body.interests : body?.interests != null ? [body.interests] : null;
+    const interests = normalizeInterests(body?.interests);
     const product_id: string | null =
       body?.product_id != null && String(body.product_id).trim()
         ? String(body.product_id).trim()
@@ -159,6 +161,7 @@ export async function POST(req: Request) {
       poster_url,
       premium_path,
       interests,
+      topics: normalizeTopics(body?.topics),
       product_id: finalProductId,
       price_cents,
       allow_booking,

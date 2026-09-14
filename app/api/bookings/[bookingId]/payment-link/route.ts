@@ -6,8 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { randomUUID } from "crypto";
-import { getSiteUrl } from "@/lib/siteUrl";
+import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 import { handoffExactCheckoutLink } from "@/lib/installments/checkoutLink";
+import { withBuyerCheckoutLink } from "@/lib/discoverCheckoutLinks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,10 +28,6 @@ const SUPABASE_URL: string =
   process.env.NEXT_PUBLIC_SUPABASE_URL ||
   (process.env as any).NEXT_PUBLIC_SUPABASE_UR;
 const SERVICE_ROLE_KEY: string = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-// See the note in app/api/stripe/connect/onboard/route.ts: a local fallback
-// to localhost poisons success/cancel URLs on the Vercel projects that do not
-// set NEXT_PUBLIC_SITE_URL.
-const SITE_URL = getSiteUrl();
 
 export async function POST(
   req: NextRequest,
@@ -104,7 +101,7 @@ export async function POST(
     // ownership verification, but BEFORE the legacy equal-price/percent gates.
     const exact = await handoffExactCheckoutLink({ bookingId: booking.id, actorId: user.id, body,
       origin: req.headers.get("origin"), admin, stripe: getStripe, env: process.env });
-    if (exact) return NextResponse.json(exact.body, { status: exact.status, headers: {
+    if (exact) return NextResponse.json(await withBuyerCheckoutLink(exact.body,booking), { status: exact.status, headers: {
       "Cache-Control": "private, no-store", "Referrer-Policy": "no-referrer" } });
 
     if (booking.status === "completed") {
@@ -149,6 +146,26 @@ export async function POST(
     }
 
     const productIdForPayload = product.id ?? product.product_id ?? post.product_id;
+
+    // Standard product checkout rejects a second charge against a fulfilled or
+    // refunded purchase. Booking links must enforce the same admission rule:
+    // purchase uniqueness and terminal refund guards cannot fulfill that charge.
+    // Check both identities, since another post may sell the same product.
+    const { data: priorPurchases, error: priorPurchaseError } = await admin
+      .from("purchases")
+      .select("id,status,access_granted")
+      .eq("buyer_id", booking.buyer_id)
+      .or(eitherIdFilter(["post_id", "product_id"], post.id, productIdForPayload))
+      .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
+      .limit(2);
+    if (priorPurchaseError) throw priorPurchaseError;
+    if (priorPurchases?.some((purchase) => purchase.access_granted ||
+        !["pending", "processing", "failed"].includes(purchase.status))) {
+      return NextResponse.json({
+        error: "This buyer already has a purchase for this product. A new payment link cannot be created automatically. Contact support if you need help.",
+        code: "PURCHASE_ALREADY_EXISTS",
+      }, { status: 409 });
+    }
 
     const totalCents = Number(product.amount_cents ?? 0);
     if (!Number.isSafeInteger(totalCents) || totalCents < 50) {
@@ -324,7 +341,7 @@ export async function POST(
             );
           }
         }
-        return NextResponse.json({ url: payment.link_url, payment, reused: true });
+        return NextResponse.json(await withBuyerCheckoutLink({ url: payment.link_url, payment, reused: true },booking));
       }
       return null;
     };
@@ -417,8 +434,8 @@ export async function POST(
             metadata: metadataBase,
           },
           metadata: metadataBase,
-          success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${SITE_URL}/dashboard`,
+          success_url: `${getCheckoutSiteUrl()}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${getCheckoutSiteUrl()}/dashboard`,
         },
         { idempotencyKey: `booking-payment:${paymentId}` }
       );
@@ -453,8 +470,8 @@ export async function POST(
             metadata: metadataBase,
           },
           metadata: metadataBase,
-          success_url: `${SITE_URL}/success?session_id={CHECKOUT_SESSION_ID}`,
-          cancel_url: `${SITE_URL}/dashboard`,
+          success_url: `${getCheckoutSiteUrl()}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${getCheckoutSiteUrl()}/dashboard`,
         },
         { idempotencyKey: `booking-payment:${paymentId}` }
       );
@@ -477,10 +494,10 @@ export async function POST(
       throw updateError || new Error("Failed to save the generated payment link");
     }
 
-    return NextResponse.json({
+    return NextResponse.json(await withBuyerCheckoutLink({
       url: session.url,
       payment: updated,
-    });
+    },booking));
   } catch (error: any) {
     console.error("[payment-link] error:", error?.message || error);
     return NextResponse.json(

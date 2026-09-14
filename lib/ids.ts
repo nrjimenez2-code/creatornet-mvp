@@ -11,8 +11,8 @@ export function isSafeId(value: unknown): value is string {
   return typeof value === "string" && SAFE_ID.test(value);
 }
 
-/** PostgREST `or` filter matching either column to a safe id. Throws on unsafe input. */
-export function eitherIdFilter(columns: [string, string], id: string): string {
-  if (!isSafeId(id)) throw new Error("Invalid id");
-  return `${columns[0]}.eq.${id},${columns[1]}.eq.${id}`;
+/** PostgREST `or` filter for two trusted columns and validated ids. */
+export function eitherIdFilter(columns: [string, string], id: string, secondId = id): string {
+  if (!isSafeId(id) || !isSafeId(secondId)) throw new Error("Invalid id");
+  return `${columns[0]}.eq.${id},${columns[1]}.eq.${secondId}`;
 }

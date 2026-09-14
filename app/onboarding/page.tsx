@@ -6,26 +6,10 @@ import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
 
-type Interest =
-  | "Entrepreneurship"
-  | "Money & Investing"
-  | "Social Media Growth"
-  | "Content Creation"
-  | "Online Skills"
-  | "Health & Fitness"
-  | "Self Improvement"
-  | "Tech & AI Automation";
+import { INTEREST_LABELS, normalizeInterests, type InterestLabel } from "@/lib/interestCategories";
 
-const OPTIONS: Interest[] = [
-  "Entrepreneurship",
-  "Money & Investing",
-  "Social Media Growth",
-  "Content Creation",
-  "Online Skills",
-  "Health & Fitness",
-  "Self Improvement",
-  "Tech & AI Automation",
-];
+type Interest = InterestLabel;
+const OPTIONS = INTEREST_LABELS;
 
 export default function Page() {
   const router = useRouter();
@@ -105,7 +89,7 @@ export default function Page() {
 
     const insertRes = await supabase
       .from("profiles")
-      .insert({ id: userId, username: lower, interests: selected });
+      .insert({ id: userId, username: lower, interests: normalizeInterests(selected) });
 
     if (insertRes.error) {
       const isDuplicate = insertRes.error.code === "23505";
@@ -117,7 +101,7 @@ export default function Page() {
         // profile editor / Stripe onboarding). Update the two columns we own.
         const updateRes = await supabase
           .from("profiles")
-          .update({ username: lower, interests: selected })
+          .update({ username: lower, interests: normalizeInterests(selected) })
           .eq("id", userId);
         saveError = updateRes.error;
       } else {
@@ -141,7 +125,7 @@ export default function Page() {
       return;
     }
 
-    trackEvent("onboarding_completed", { user_id: userId, interests: selected });
+    trackEvent("onboarding_completed", { user_id: userId, interests: normalizeInterests(selected) });
     router.replace("/dashboard");
   }
 
@@ -215,6 +199,7 @@ export default function Page() {
                 <button
                   key={opt}
                   type="button"
+                  aria-pressed={active}
                   onClick={() =>
                     setSelected((prev) =>
                       prev.includes(opt)

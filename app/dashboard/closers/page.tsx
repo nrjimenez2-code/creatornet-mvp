@@ -5,7 +5,10 @@ import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
+import GoogleBookingsList from "@/components/GoogleBookingsList";
+import SchedulingConnections from "@/components/SchedulingConnections";
 import styles from "./bookings.module.css";
+import { bookingLeadStatus, type BookingSchedulingActivity } from '@/lib/bookingSchedulingStatus';
 import InstallmentLinkForm from "@/components/InstallmentLinkForm";
 import { platformFeeCents as legacyPlatformFeeCents } from "@/lib/money";
 
@@ -27,6 +30,7 @@ type BookingPayment = {
   installment_months: number | null;
   status: string;
   link_url: string | null;
+  buyer_checkout_url?: string | null;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
   stripe_subscription_id: string | null;
@@ -52,6 +56,7 @@ type BookingPayment = {
 };
 
 type BookingBundle = {
+  scheduling?: BookingSchedulingActivity[];
   booking: {
     id: string;
     post_id: string;
@@ -405,6 +410,8 @@ export default function ClosersManagerPage() {
         <h1>Booking destinations</h1>
         <p>Route calls to your sales team, one booking at a time.</p>
       </header>
+      <SchedulingConnections />
+      <GoogleBookingsList />
       <section className={styles.panel} aria-labelledby="add-destination-title">
         <h2 id="add-destination-title">Add a destination</h2>
         <p className={styles.subtitle}>Choose where your next bookings go.</p>
@@ -512,7 +519,7 @@ export default function ClosersManagerPage() {
         ) : bookingsLoading ? (
           <div className="text-sm text-white/70">Loading bookings…</div>
         ) : bookings.length === 0 ? (
-          <EmptyState kind="calendar" title="No bookings yet" description="Scheduled calls will appear here." />
+          <EmptyState kind="calendar" title="No bookings yet" description="Saved booking leads will appear here with scheduling and payment status." />
         ) : (
           <div className="space-y-4">
             {bookings.map((bundle) => {
@@ -546,9 +553,9 @@ export default function ClosersManagerPage() {
                     </div>
                     <div className="flex items-center gap-2">
                       <div>
-                        <div className="text-xs uppercase text-white/60">Status</div>
+                        <div className="text-xs uppercase text-white/60">Lead / payment status</div>
                         <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs font-medium capitalize text-white">
-                          {bundle.booking.status.replace(/_/g, " ")}
+                          {bookingLeadStatus(bundle.booking.status)}
                         </span>
                       </div>
                       <button
@@ -561,6 +568,16 @@ export default function ClosersManagerPage() {
                         <TrashIcon className="h-4 w-4" />
                       </button>
                     </div>
+                  </div>
+                  <div className="mt-3 text-sm text-white/80">
+                    <div className="text-xs uppercase text-white/60">Scheduling activity for this buyer and video</div>
+                    {bundle.scheduling?.length ? bundle.scheduling.map(activity => (
+                      <div key={activity.id}>
+                        {activity.provider === 'calcom' ? 'Cal.com' : activity.provider === 'calendly' ? 'Calendly' : activity.provider === 'google' ? 'Google Calendar' : 'Booking provider'}
+                        {' · '}{activity.status === 'scheduled' ? 'Scheduled' : activity.status === 'canceled' ? 'Canceled' : 'Awaiting confirmation'}
+                        {activity.scheduledAt ? ` · ${new Date(activity.scheduledAt).toLocaleString()}` : ''}
+                      </div>
+                    )) : <div>Scheduling not verified here</div>}
                   </div>
 
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
@@ -676,13 +693,13 @@ export default function ClosersManagerPage() {
                                 {payment.link_url ? (
                                   <>
                                     <button
-                                      onClick={() => copyToClipboard(payment.link_url)}
+                                      onClick={() => copyToClipboard(payment.buyer_checkout_url || payment.link_url)}
                                       className="rounded-full border border-white/40 px-3 py-1 text-xs text-white"
                                     >
                                       Copy
                                     </button>
                                     <a
-                                      href={payment.link_url}
+                                      href={payment.buyer_checkout_url || payment.link_url}
                                       target="_blank"
                                       rel="noreferrer"
                                       className="text-xs text-blue-200 underline"

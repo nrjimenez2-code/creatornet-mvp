@@ -53,13 +53,24 @@ jest.mock("@/lib/posthog", () => ({
 }));
 // VideoCard is never mounted in these states; stub it so its imports
 // (Stripe-adjacent fetches, portals) stay out of the test.
-jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { postId: string; onFeedDeleted?: (id: string) => void }) => createElement("button", { onClick: () => props.onFeedDeleted?.(props.postId) }, "Simulate deletion") }));
+jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { postId: string; activeTab?: string; onFeedDeleted?: (id: string) => void }) => createElement("button", { "data-active-tab": props.activeTab, onClick: () => props.onFeedDeleted?.(props.postId) }, "Simulate deletion") }));
 jest.mock("next/link", () => ({
   __esModule: true,
   default: ({ href, children, className }: { href: string; children?: unknown; className?: string }) =>
     createElement("a", { href, className }, children as never),
 }));
 
+// Keep the existing UI fixtures while moving their transport to the session API.
+// Dedicated discover API tests verify real HTTP paging and session ownership.
+jest.mock("@/lib/discoverClient", () => ({
+  rememberDiscoverSession: jest.fn(),
+  fetchDiscoverPage: async (tab: string, offset: number, limit: number) => {
+    const { data, error } = await rpcSpy("get_feed_v3", {p_tab:tab,p_offset:offset,p_limit:limit});
+    if (error) throw new Error(error.message);
+    const items = Array.isArray(data) ? data : [];
+    return {items,session:"test-session",nextOffset:offset+items.length,hasMore:items.length>=limit};
+  },
+}));
 import FeedList from "@/components/FeedList";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -197,6 +208,15 @@ describe("FeedList states", () => {
     expect(text()).not.toContain("No posts yet");
   });
 });
+
+  test("cards receive the current feed tab so Discover controls follow tab switches", async () => {
+    mockUser = { userId: "u1", loading: false };
+    rpcImpl = async () => ({ data: [{ post_id: "p1", creator_id: "c1", video_url: "https://example.invalid/v.mp4", title: "A video" }], error: null });
+    await render({ activeTab: "discover" });
+    expect(buttonNamed("Simulate deletion")?.getAttribute("data-active-tab")).toBe("discover");
+    await render({ activeTab: "following" });
+    expect(buttonNamed("Simulate deletion")?.getAttribute("data-active-tab")).toBe("following");
+  });
 
   test("deleting the final feed video removes it immediately without a realtime event", async () => {
     mockUser = { userId: "u1", loading: false };

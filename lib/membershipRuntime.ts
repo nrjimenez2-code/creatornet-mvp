@@ -164,6 +164,10 @@ export function createMembershipRuntime(env: Record<string, string | undefined> 
         check(session.status === "open" && session.payment_status === "unpaid", "Monthly checkout expired and needs recovery");
         assertMembershipHeld(await checked(stripe.subscriptions.retrieve(a.stripe_subscription_id!)), a, a.stripe_customer_id!, await productId(a), true);
         check(session.url && new URL(session.url).origin === "https://checkout.stripe.com");
+        if (process.env.DISCOVER_V4_ENABLED === "true" && a.post_id) {
+          const { recordDiscoverEvent } = await import("./discoverServer");
+          await recordDiscoverEvent({actor: `user:${a.buyer_id}`, userId: a.buyer_id, postId: a.post_id, kind: "checkout_start", entityKey: session.id});
+        }
         return { membershipId: id, url: session.url };
       }
       check(Math.floor(Date.now() / 1000) < membershipBootstrapTimes(a).expiresAt - 31 * 60, "Monthly checkout acceptance needs recovery");
@@ -190,6 +194,10 @@ export function createMembershipRuntime(env: Record<string, string | undefined> 
         p_subscription_id: sub.id, p_session_id: session.id });
       check(!linked.error && typeof linked.data === "boolean", "Monthly payment link could not be published safely");
       check(session.url && new URL(session.url).origin === "https://checkout.stripe.com");
+      if (process.env.DISCOVER_V4_ENABLED === "true" && a.post_id) {
+        const { recordDiscoverEvent } = await import("./discoverServer");
+        await recordDiscoverEvent({actor: `user:${a.buyer_id}`, userId: a.buyer_id, postId: a.post_id, kind: "checkout_start", entityKey: session.id});
+      }
       return { membershipId: id, url: session.url };
     },
     async confirmFirst(id: string, buyerId: string) {

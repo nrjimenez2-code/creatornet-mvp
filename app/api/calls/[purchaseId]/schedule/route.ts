@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getStripe } from "@/lib/stripeClient";
+import { googleBookingConnectionFromUrl } from "@/lib/googleBookingUrl";
+import { schedulingOrigin } from "@/lib/schedulingConfig";
 import { paidCallsReady, readPaidCallAccess, verifyPaidCallCapture } from "@/lib/paidCalls";
 
 export const runtime = "nodejs";
@@ -25,7 +27,10 @@ export async function GET(_req: Request, context: { params: Promise<{ purchaseId
     if (!current || JSON.stringify(current) !== JSON.stringify(access)) {
       return NextResponse.json({ error: "Call access changed. Please check your purchase." }, { status: 409, headers });
     }
-    return new NextResponse(null, { status: 303, headers: { ...headers, Location: current.scheduling_url } });
+    const destination = new URL(current.scheduling_url);
+    if (process.env.GOOGLE_CALENDAR_ENABLED === "true" && googleBookingConnectionFromUrl(current.scheduling_url,schedulingOrigin()))
+      destination.searchParams.set("purchase_id",purchaseId);
+    return new NextResponse(null, { status: 303, headers: { ...headers, Location: destination.toString() } });
   } catch {
     return NextResponse.json({ error: "Unable to confirm scheduling access. Please try again or contact support." }, { status: 503, headers });
   }
