@@ -115,6 +115,7 @@ export function rankDiscover(
   now = Date.now(),
   legacy: { category: string; score: number; updated_at: string | null }[] = [],
   evidence?: DiscoverEvidence[],
+  options: { commercialOrdering?: boolean } = {},
 ): string[] {
   const summaries = new Map(
     (evidence ?? []).map((row) => [row.post_id + ":" + row.audience, row]),
@@ -314,10 +315,10 @@ export function rankDiscover(
         topicMatch: matching.topics.some((t) => topics.has(t)),
         relevance: relevance / (1 + skipped),
         // Compare offer types in separate queues below, so free calls never compete as paid sales.
-        sale: mature ? rate(["purchase", "mentorship_purchase"]) : 0,
-        booking: mature ? rate(["booking_scheduled"]) : 0,
-        intent: mature ? rate(["checkout_start"]) : 0,
-        tap: mature ? rate(["product_tap"]) : 0,
+        sale: mature && options.commercialOrdering !== false ? rate(["purchase", "mentorship_purchase"]) : 0,
+        booking: mature && options.commercialOrdering !== false ? rate(["booking_scheduled"]) : 0,
+        intent: mature && options.commercialOrdering !== false ? rate(["checkout_start"]) : 0,
+        tap: mature && options.commercialOrdering !== false ? rate(["product_tap"]) : 0,
         view: rate(["qualified_view"]),
         explore:
           !mature ||

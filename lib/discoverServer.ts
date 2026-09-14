@@ -12,6 +12,7 @@ import {
 import { matchInterestTopics, normalizeTopics } from "@/lib/interestTopics";
 import { isUnreliableVideoUrl } from "@/lib/feedV3";
 import { isSellReadyProfile } from "@/lib/sellReady";
+import { assignDiscoverPilot } from "@/lib/discoverPilot";
 export const discoverEnabled = () => process.env.DISCOVER_V4_ENABLED === "true";
 const COOKIE = "cn_discover_actor";
 function sign(value: string) {
@@ -256,6 +257,7 @@ export async function createDiscoverSession(
   userId: string | null,
   tab: string,
 ) {
+  const pilot = await assignDiscoverPilot(admin, userId, tab);
   const [inventory, events, profile, following, legacy] = await Promise.all([
     discoverInventory(),
     tab === "following"
@@ -319,6 +321,7 @@ export async function createDiscoverSession(
           Date.now(),
           (legacy.data ?? []).map((row) => row.original),
           evidence,
+          { commercialOrdering: pilot?.variant !== "control" },
         );
   const declared = profile.data?.interests ?? [];
   const declaredTopics = [
@@ -364,7 +367,8 @@ export async function createDiscoverSession(
   );
   const { data, error } = await admin
     .from("discover_sessions_v1")
-    .insert({ actor, user_id: userId, tab, post_ids: ids, audiences })
+    .insert({ actor, user_id: userId, tab, post_ids: ids, audiences,
+      ...(pilot ? { pilot_id: pilot.experimentId, pilot_variant: pilot.variant } : {}) })
     .select("id")
     .single();
   if (error) throw error;
