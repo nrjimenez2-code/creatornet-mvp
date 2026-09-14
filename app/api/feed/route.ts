@@ -2,6 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
 export async function GET(req:NextRequest){
+ const timings: string[] = [];
+ const started = performance.now();
+ const measured = async <T,>(name: string, work: () => Promise<T>): Promise<T> => {
+  const start = performance.now();
+  try { return await work(); }
+  finally { timings.push(`${name};dur=${(performance.now()-start).toFixed(1)}`); }
+ };
+ const finish = (response: NextResponse) => {
+  // Preview diagnostics contain durations only, never actor/session identifiers.
+  if(process.env.VERCEL_ENV==='preview') response.headers.set('Server-Timing',
+   [...timings,`total;dur=${(performance.now()-started).toFixed(1)}`].join(', '));
+  return response;
+ };
  const tab=req.nextUrl.searchParams.get('tab')==='following'?'following':'discover';
  const offset=Number(req.nextUrl.searchParams.get('offset')??0),limit=Number(req.nextUrl.searchParams.get('limit')??20);
  if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>50)return NextResponse.json({error:'Invalid page'},{status:400});
@@ -12,10 +25,10 @@ export async function GET(req:NextRequest){
    if(error)throw error;
    return NextResponse.json({items:data??[],nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
-  const identity=await discoverIdentity(req);
-  const session=req.nextUrl.searchParams.get('session')??await createDiscoverSession(identity.actor,identity.userId,tab);
-  const result=await readDiscoverPage(session,identity.actor,offset,limit,identity.userId);
-  return setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie);
+  const identity=await measured('identity',()=>discoverIdentity(req));
+  const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab));
+  const result=await measured('page',()=>readDiscoverPage(session,identity.actor,offset,limit,identity.userId));
+  return finish(setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie));
  }catch(error){console.error('[discover] feed unavailable',error instanceof Error?error.message:'database error');
-  return NextResponse.json({error:'Could not load this feed. Refresh to try again.'},{status:503});}
+  return finish(NextResponse.json({error:'Could not load this feed. Refresh to try again.'},{status:503}));}
 }
