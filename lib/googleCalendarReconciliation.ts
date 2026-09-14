@@ -1,7 +1,7 @@
 import "server-only";
 import {randomUUID} from "node:crypto";
 import {supabaseAdmin as db} from "@/lib/supabaseAdmin";
-import {googleConnectionAccessToken,refreshGoogleCalendarConnection} from "@/lib/googleCalendarConnection";
+import {googleConnectionAccessToken,refreshGoogleCalendarConnection,refreshRejectedGoogleAccessToken} from "@/lib/googleCalendarConnection";
 import {getGoogleBookingEvent,googleBookingEventId,GoogleCalendarError,stopGoogleCalendarWatch} from "@/lib/googleCalendarProvider";
 
 /** Scan persisted bookings using authoritative event reads, including deletions absent from a full event listing. */
@@ -28,6 +28,9 @@ export async function processGoogleCalendarSweep(){
       p_start:event?.start?.dateTime??null,p_end:event?.end?.dateTime??null,p_canceled:canceled});
     if(result.error)throw new Error("Could not reconcile calendar booking");
    }));
+   // Refresh once per batch after parallel reads settle. Keep the cursor for the next sweep.
+   if(results.some(result=>result.status==='rejected' && result.reason instanceof GoogleCalendarError && result.reason.status===401))
+    await refreshRejectedGoogleAccessToken(watch.connection_id,token);
    if(results.some(result=>result.status==='rejected'))throw new Error("Calendar reconciliation needs retry");
   }
   const saved=await db.rpc("finish_google_calendar_sweep_v1",{p_watch:watch.id,p_worker:worker,p_cursor:rows.length>10?page.at(-1)!.id:null});

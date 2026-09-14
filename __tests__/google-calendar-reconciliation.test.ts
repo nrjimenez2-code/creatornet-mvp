@@ -1,7 +1,7 @@
-const rpc=jest.fn(),from=jest.fn(),getEvent=jest.fn(),token=jest.fn();
+const rpc=jest.fn(),from=jest.fn(),getEvent=jest.fn(),token=jest.fn(),refresh=jest.fn();
 jest.mock('server-only',()=>({}));
 jest.mock('@/lib/supabaseAdmin',()=>({supabaseAdmin:{rpc:(...a:unknown[])=>rpc(...a),from:(...a:unknown[])=>from(...a)}}));
-jest.mock('@/lib/googleCalendarConnection',()=>({googleConnectionAccessToken:(...a:unknown[])=>token(...a),refreshGoogleCalendarConnection:jest.fn()}));
+jest.mock('@/lib/googleCalendarConnection',()=>({googleConnectionAccessToken:(...a:unknown[])=>token(...a),refreshGoogleCalendarConnection:jest.fn(),refreshRejectedGoogleAccessToken:(...a:unknown[])=>refresh(...a)}));
 jest.mock('@/lib/googleCalendarProvider',()=>({googleBookingEventId:(id:string)=>'event-'+id,getGoogleBookingEvent:(...a:unknown[])=>getEvent(...a),stopGoogleCalendarWatch:jest.fn(),GoogleCalendarError:class extends Error{status:number;constructor(status:number){super('provider error');this.status=status;}}}));
 import {processGoogleCalendarSweep} from '@/lib/googleCalendarReconciliation';
 import {GoogleCalendarError} from '@/lib/googleCalendarProvider';
@@ -13,3 +13,12 @@ test('authoritative events reconcile under the claimed worker and finish the pag
 test('deleted events retract confirmation while transient errors preserve cursor for retry',async()=>{getEvent.mockRejectedValueOnce(Object.assign(new Error('gone'),{status:404}));await expect(processGoogleCalendarSweep()).rejects.toThrow('retry');expect(rpc.mock.calls.some(([name])=>name==='finish_google_calendar_sweep_v1')).toBe(false);jest.clearAllMocks();getEvent.mockRejectedValueOnce(new (GoogleCalendarError as any)(404));await processGoogleCalendarSweep();expect(rpc).toHaveBeenCalledWith('reconcile_google_calendar_booking_v1',expect.objectContaining({p_canceled:true,p_etag:null}));});
 test('attribution mismatch does not advance the sweep',async()=>{getEvent.mockResolvedValue({status:'confirmed',extendedProperties:{private:{cn_creator_id:'different'}}});await expect(processGoogleCalendarSweep()).rejects.toThrow('retry');expect(rpc.mock.calls.map(([name])=>name)).toEqual(['claim_google_calendar_sweep_v1']);expect(release).toHaveBeenCalledWith({lease_id:null,lease_until:null});});
 test('pages process only ten bookings and save the last processed cursor',async()=>{rows=Array.from({length:11},(_,i)=>({...row,id:String(i),event_id:'event-'+i}));await processGoogleCalendarSweep();expect(getEvent).toHaveBeenCalledTimes(10);expect(rpc).toHaveBeenCalledWith('finish_google_calendar_sweep_v1',expect.objectContaining({p_cursor:'9'}));});
+
+test('parallel authorization failures refresh once and preserve the sweep cursor and confirmations',async()=>{
+ rows=Array.from({length:5},(_,i)=>({...row,id:String(i),event_id:'event-'+i}));
+ getEvent.mockRejectedValue(new GoogleCalendarError(401));
+ await expect(processGoogleCalendarSweep()).rejects.toThrow('retry');
+ expect(refresh).toHaveBeenCalledTimes(1);expect(refresh).toHaveBeenCalledWith('connection','token');
+ expect(rpc.mock.calls.map(([name])=>name)).toEqual(['claim_google_calendar_sweep_v1']);
+ expect(release).toHaveBeenCalledWith({lease_id:null,lease_until:null});
+});

@@ -1,15 +1,17 @@
 import {createMockClient,type MockClient} from "./__mocks__/supabaseQueryMock";
 let db:MockClient, local:unknown[], reservation:Record<string,unknown>|null;
-const authorize=jest.fn(),busy=jest.fn(),event=jest.fn(),excluding=jest.fn();
+const authorize=jest.fn(),busy=jest.fn(),event=jest.fn(),excluding=jest.fn(),token=jest.fn(),refresh=jest.fn();
 jest.mock("@/lib/supabaseAdmin",()=>({get supabaseAdmin(){return db;}}));
 jest.mock("@/lib/googleBookingAccess",()=>({authorizeGoogleBooking:(...args:unknown[])=>authorize(...args)}));
-jest.mock("@/lib/googleCalendarConnection",()=>({googleConnectionAccessToken:async()=>"token"}));
-jest.mock("@/lib/googleCalendarProvider",()=>({getGoogleBusyIntervals:(...args:unknown[])=>busy(...args),getGoogleBookingEvent:()=>event(),getGoogleBusyIntervalsExcludingEvent:(...args:unknown[])=>excluding(...args)}));
+jest.mock("@/lib/googleCalendarConnection",()=>({googleConnectionAccessToken:(...args:unknown[])=>token(...args),refreshRejectedGoogleAccessToken:(...args:unknown[])=>refresh(...args)}));
+jest.mock("@/lib/googleCalendarProvider",()=>({...jest.requireActual('@/lib/googleCalendarProvider'),getGoogleBusyIntervals:(...args:unknown[])=>busy(...args),getGoogleBookingEvent:()=>event(),getGoogleBusyIntervalsExcludingEvent:(...args:unknown[])=>excluding(...args)}));
+import {GoogleCalendarError} from '@/lib/googleCalendarProvider';
 import {readGoogleBuyerReservation,submitGoogleBooking,getGoogleBookingOptions,cancelGoogleBuyerBooking,getGoogleRescheduleOptions,rescheduleGoogleBuyerBooking} from "@/lib/googleBuyerBookings";
 const start="2026-10-01T10:00:00.000Z",end="2026-10-01T10:30:00.000Z";
 const policy={timeZone:"UTC",durationMinutes:30,stepMinutes:30,leadMinutes:0,horizonDays:30,bufferBeforeMinutes:0,bufferAfterMinutes:0,windows:[{weekday:4,startMinute:540,endMinute:1020}]};
 beforeEach(()=>{
   jest.useFakeTimers().setSystemTime(new Date("2026-10-01T08:00:00Z"));jest.clearAllMocks();local=[];reservation=null;
+  token.mockReset().mockResolvedValue('token');refresh.mockReset().mockResolvedValue(undefined);
   authorize.mockResolvedValue({connectionId:'connection',buyerId:'buyer',creatorId:'creator',postId:'video',attributionId:'attribution',purchaseId:null,reservationId:'reservation'});busy.mockResolvedValue([]);
   db=createMockClient(op=>{
     if(op.table==='google_booking_settings_v1')return {data:{calendar_id:'primary',conflict_calendar_ids:['primary'],availability:policy,title:'Call'},error:null};
@@ -20,6 +22,28 @@ beforeEach(()=>{
   });
 });
 afterEach(()=>jest.useRealTimers());
+
+test('availability recovers a rejected access token before offering times',async()=>{
+  token.mockResolvedValueOnce('rejected').mockResolvedValueOnce('replacement');
+  busy.mockRejectedValueOnce(new GoogleCalendarError(401));
+  const result=await getGoogleBookingOptions('connection','buyer',{attributionId:'attribution'},{start,end});
+  expect(result.slots).toEqual([{start,end}]);
+  expect(refresh).toHaveBeenCalledWith('connection','rejected');
+  expect(busy.mock.calls.map(call=>call[0])).toEqual(['rejected','replacement']);
+});
+
+test('repeated authorization rejection never admits a reservation or retries indefinitely',async()=>{
+  busy.mockRejectedValueOnce(new GoogleCalendarError(401)).mockRejectedValueOnce(new GoogleCalendarError(401));
+  await expect(submitGoogleBooking('connection','buyer',{attributionId:'attribution'},start,end)).rejects.toThrow('401');
+  expect(refresh).toHaveBeenCalledTimes(1);expect(busy).toHaveBeenCalledTimes(2);
+  expect(db.opsFor('reserve_google_booking_checked_v1')).toHaveLength(0);
+});
+
+test('a revoked refresh grant prevents availability from being treated as empty',async()=>{
+  busy.mockRejectedValueOnce(new GoogleCalendarError(401));refresh.mockRejectedValueOnce(new GoogleCalendarError(400));
+  await expect(submitGoogleBooking('connection','buyer',{attributionId:'attribution'},start,end)).rejects.toThrow('400');
+  expect(busy).toHaveBeenCalledTimes(1);expect(db.opsFor('reserve_google_booking_checked_v1')).toHaveLength(0);
+});
 test("offered slots exclude both Google busy time and local holds",async()=>{
   local=[{start,end}];busy.mockResolvedValue([{start:"2026-10-01T10:30:00Z",end:"2026-10-01T11:00:00Z"}]);
   const result=await getGoogleBookingOptions('connection','buyer',{attributionId:'attribution'},{start,end:"2026-10-01T11:30:00Z"});

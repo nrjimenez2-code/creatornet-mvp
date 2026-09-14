@@ -1,7 +1,7 @@
 import "server-only";
 import { supabaseAdmin as db } from "@/lib/supabaseAdmin";
 import { authorizeGoogleBooking, type GoogleBookingIntent, type GoogleBookingAccess } from "@/lib/googleBookingAccess";
-import { googleConnectionAccessToken } from "@/lib/googleCalendarConnection";
+import { readWithGoogleAccessToken } from "@/lib/googleCalendarRead";
 import { getGoogleBusyIntervals,getGoogleBusyIntervalsExcludingEvent,getGoogleBookingEvent } from "@/lib/googleCalendarProvider";
 import { availableBookingSlots, validateBookingAvailability, type BookingAvailability, type BookingInterval } from "@/lib/bookingAvailability";
 
@@ -26,7 +26,7 @@ async function slots(access:GoogleBookingAccess,config:Settings,range:BookingInt
   const expanded={start:new Date(from-4*3600000).toISOString(),end:new Date(to+4*3600000).toISOString()};
   const local=await db.rpc("google_reserved_intervals_v1",{p_connection:access.connectionId,p_start:expanded.start,p_end:expanded.end,p_exclude:access.reservationId});
   if(local.error||!Array.isArray(local.data))throw new Error("Could not check reserved times");
-  const busy=await getGoogleBusyIntervals(await googleConnectionAccessToken(access.connectionId),config.conflict_calendar_ids,expanded);
+  const busy=await readWithGoogleAccessToken(access.connectionId,token=>getGoogleBusyIntervals(token,config.conflict_calendar_ids,expanded));
   return availableBookingSlots(config.availability,range,[...local.data,...busy]);
 }
 export async function getGoogleBookingOptions(connectionId:string,buyer:string,intent:GoogleBookingIntent,range:BookingInterval) {
@@ -71,13 +71,12 @@ async function rescheduleOptions(id:string,buyer:string,range:BookingInterval) {
   if(row.purchase_id)await authorizeGoogleBooking(row.connection_id,buyer,{purchaseId:row.purchase_id});
   const config=await settings(row.connection_id);
   if(config.calendar_id!==row.calendar_id)throw new Error("The booking calendar changed");
-  const token=await googleConnectionAccessToken(row.connection_id);
-  const event=await getGoogleBookingEvent(token,row.calendar_id,id);
+  const event=await readWithGoogleAccessToken(row.connection_id,token=>getGoogleBookingEvent(token,row.calendar_id,id));
   if(event.id!==row.event_id||event.etag!==row.event_etag||event.status!=="confirmed")throw new Error("The booking changed in Google Calendar. Refresh it before rescheduling.");
   const expanded={start:new Date(from-4*3600000).toISOString(),end:new Date(to+4*3600000).toISOString()};
   const local=await db.rpc("google_reserved_intervals_v1",{p_connection:row.connection_id,p_start:expanded.start,p_end:expanded.end,p_exclude:id});
   if(local.error||!Array.isArray(local.data))throw new Error("Could not check reserved times");
-  const busy=await getGoogleBusyIntervalsExcludingEvent(token,row.calendar_id,config.conflict_calendar_ids,expanded,row.event_id);
+  const busy=await readWithGoogleAccessToken(row.connection_id,token=>getGoogleBusyIntervalsExcludingEvent(token,row.calendar_id,config.conflict_calendar_ids,expanded,row.event_id));
   const policy={...config.availability,durationMinutes:(Date.parse(row.ends_at)-Date.parse(row.starts_at))/60000,
     bufferBeforeMinutes:row.buffer_before_minutes,bufferAfterMinutes:row.buffer_after_minutes};
   return {config,row,slots:availableBookingSlots(policy,range,[...local.data,...busy])};
