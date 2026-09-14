@@ -4,6 +4,7 @@ import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import { discoverEnabled, recordDiscoverEvent } from "@/lib/discoverServer";
 import { googleBookingConnectionFromUrl } from "@/lib/googleBookingUrl";
 import { getSiteUrl } from "@/lib/siteUrl";
+import { schedulingOrigin } from "@/lib/schedulingConfig";
 export async function recordBookingSetup(
   session: Stripe.Checkout.Session,
 ): Promise<string | null> {
@@ -64,7 +65,16 @@ export function attributedBookingUrl(
     url.searchParams.set("utm_content", "cn_" + attributionId);
   if (url.hostname === "cal.com" || url.hostname.endsWith(".cal.com"))
     url.searchParams.set("metadata[cn_attribution]", attributionId);
-  if (url.origin === origin && (url.pathname === "/api/book" || googleBookingConnectionFromUrl(url.toString(), origin)))
+  let googleConnection = googleBookingConnectionFromUrl(url.toString(), origin);
+  if (!googleConnection) {
+    try {
+      // Native calendar links may use a separate, explicitly configured Preview origin.
+      googleConnection = googleBookingConnectionFromUrl(url.toString(), schedulingOrigin());
+    } catch {
+      // Optional scheduling configuration must not break other booking providers.
+    }
+  }
+  if ((url.origin === origin && url.pathname === "/api/book") || googleConnection)
     url.searchParams.set("cn_attribution", attributionId);
   return url.toString();
 }
