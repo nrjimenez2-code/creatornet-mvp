@@ -319,7 +319,7 @@ describe("NEW059 local migration safety", () => {
     for (const [name, hash] of manifest.sources) {
       expect(createHash("sha256").update(readFileSync(join(process.cwd(), "supabase/schema", name), "utf8").replace(/\r\n/g, "\n")).digest("hex")).toBe(hash);
     }
-    expect(createHash("sha256").update(sql058).digest("hex")).toBe("d3dee6fd5c5106f527797abe6a881dad1b9e9bbc96e43b005ee0ac15b6a8c1f9");
+    expect(createHash("sha256").update(sql058.replace(/\r\n/g, "\n")).digest("hex")).toBe("d3dee6fd5c5106f527797abe6a881dad1b9e9bbc96e43b005ee0ac15b6a8c1f9");
     expect(sql059).not.toMatch(/create\s+or\s+replace|alter\s+function|update\s+public\.(?:purchases|booking_payments|exact_installment_agreements)\b/i);
   });
   test("late unexpected grant rolls the whole proposal back without changing existing rows", async () => {
