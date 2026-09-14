@@ -7,6 +7,15 @@ import GoogleBookingsList from "@/components/GoogleBookingsList";
 const originalFetch=global.fetch,fetchMock=jest.fn();let root:Root,container:HTMLDivElement;
 beforeEach(()=>{userId='buyer';fetchMock.mockReset().mockImplementation(async()=>({ok:true,json:async()=>({bookings:[{id:'booking',connection_id:'calendar',title:'Consultation',counterparty_name:'Person',status:'rescheduling',starts_at:'2026-10-01T10:00:00Z',desired_starts_at:'2026-10-01T11:00:00Z'}],next:null})}));global.fetch=fetchMock;container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);});
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
+test.each([null,{}, {bookings:null}, {bookings:{}}])("malformed booking responses show a recoverable error: %j",async(body)=>{
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>body});
+ await act(async()=>root.render(createElement(GoogleBookingsList)));
+ expect(container.querySelector('[role="alert"]')?.textContent).toBe('Could not load bookings. Try again.');
+ expect(container.textContent).not.toContain('No Google Calendar bookings yet.');
+ await act(async()=>Array.from(container.querySelectorAll('button')).find(button=>button.textContent==='Refresh bookings')!.click());
+ expect(container.querySelector('[role="alert"]')).toBeNull();
+ expect(container.textContent).toContain('Consultation');
+});
 test("buyer bookings link to owner-scoped management while incoming calls use the creator view",async()=>{
  await act(async()=>root.render(createElement(GoogleBookingsList)));
  expect(container.querySelector('a')?.getAttribute('href')).toBe('/scheduling/book/calendar?reservation_id=booking');expect(container.textContent).toContain('Requested new time:');

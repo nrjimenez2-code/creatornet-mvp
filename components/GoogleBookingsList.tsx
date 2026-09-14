@@ -20,7 +20,8 @@ function BookingRows({role,token}:{role:'buyer'|'creator';token?:string}){
  useEffect(()=>{let active=true;setBusy(true);setError(null);
   void(async()=>{try{
    const query=new URLSearchParams({role,...cursor});const response=await fetch(`/api/scheduling/google/bookings?${query}`,{credentials:"include",cache:"no-store",headers:token?{Authorization:`Bearer ${token}`}:{}});
-   const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not load bookings");
+   const body=await response.json();if(!response.ok)throw new Error(body?.error||"Could not load bookings");
+   if(!Array.isArray(body?.bookings))throw new Error("Could not load bookings. Try again.");
    if(active){setRows(values=>cursor?[...values,...body.bookings.filter((item:Booking)=>!values.some(value=>value.id===item.id))]:body.bookings);setNext(body.next);}
   }catch(cause){if(active)setError(cause instanceof Error?cause.message:"Could not load bookings");}finally{if(active)setBusy(false);}})();
   return()=>{active=false;};

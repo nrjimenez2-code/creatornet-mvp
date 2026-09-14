@@ -147,6 +147,8 @@ const response = (data: unknown, ok = true) => ({ ok, status: ok ? 200 : 409, js
 const renderPage = async () => {
   const fetchMock = jest.fn(async (url: string) => url === "/api/bookings/list"
     ? response({ bookings: [bundle("one"), bundle("two")] })
+    : url.startsWith("/api/scheduling/google/bookings?")
+    ? response({ bookings: [], next: null })
     : response({ payment: { id: "test-payment", plan_type: "installment", status: "pending", installment_months: 3, installment_amount_cents: 4000, amount_total_cents: 12000, creator_net_cents: null, created_at: "2026-09-05T12:00:00Z" } }));
   global.fetch = fetchMock as unknown as typeof fetch;
   const { default: Page } = await import("@/app/dashboard/closers/page");
