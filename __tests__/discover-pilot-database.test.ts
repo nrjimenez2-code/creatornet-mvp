@@ -15,7 +15,7 @@ beforeAll(async()=>{
  create table discover_events_v1(id uuid default gen_random_uuid(),user_id uuid,post_id uuid,creator_id uuid,kind text,valid boolean default true,occurred_at timestamptz,amount_cents bigint default 0,currency text);
  grant select on discover_events_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260914093000_discover_controlled_pilot.sql','utf8'));
- await db.exec(`insert into discover_pilots_v1 values('trial','commercial-order-v1','2026-09-01','2026-09-15',true,30,'Test protocol');
+ await db.exec(`insert into discover_pilots_v1 values('trial','commercial-order-v1','2026-09-01','2026-09-15',true,30,'Test protocol',array['${viewer}','${quiet}']::uuid[]);
  insert into discover_pilot_assignments_v1 values('trial','${viewer}','commercial','2026-09-10'),('trial','${quiet}','control','2026-09-10');
  insert into discover_events_v1(user_id,kind,occurred_at,amount_cents,currency) values
  ('${viewer}','purchase','2026-09-09',999,'usd'),
@@ -48,6 +48,13 @@ test('client roles cannot read pilot data or enroll; service role cannot switch 
 });
 test('enrolled protocol is frozen while emergency stop remains available',async()=>{
  await expect(db.exec(`update discover_pilots_v1 set followup_days=1 where id='trial'`)).rejects.toThrow(/immutable/);
+ await expect(db.exec(`update discover_pilots_v1 set eligible_user_ids='{}' where id='trial'`)).rejects.toThrow(/immutable/);
  await db.exec(`update discover_pilots_v1 set enabled=false where id='trial'`);
  expect((await db.query(`select enabled from discover_pilots_v1 where id='trial'`)).rows).toEqual([{enabled:false}]);
+});
+test('an unlisted viewer cannot enroll even through the service role',async()=>{
+ await db.exec('set role service_role');
+ try {
+  await expect(db.exec(`insert into discover_pilot_assignments_v1 values('trial','33333333-3333-4333-8333-333333333333','control',now())`)).rejects.toThrow(/not eligible/);
+ }finally{await db.exec('reset role');}
 });

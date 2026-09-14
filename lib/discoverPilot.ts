@@ -20,10 +20,11 @@ export async function assignDiscoverPilot(
   if (!experimentId || !userId || tab !== "discover") return null;
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/.test(experimentId)) throw new Error("Invalid Discover pilot ID");
   const { data: experiment, error } = await admin.from("discover_pilots_v1")
-    .select("id,starts_at,ends_at,enabled,policy_version").eq("id", experimentId).single();
+    .select("id,starts_at,ends_at,enabled,policy_version,eligible_user_ids").eq("id", experimentId).single();
   if (error || !experiment || experiment.policy_version !== "commercial-order-v1")
     throw new Error("Discover pilot configuration unavailable");
   if (!experiment.enabled || now < Date.parse(experiment.starts_at) || now >= Date.parse(experiment.ends_at)) return null;
+  if (!Array.isArray(experiment.eligible_user_ids) || !experiment.eligible_user_ids.includes(userId)) return null;
   const assignment = { experiment_id: experimentId, user_id: userId, variant: pilotVariant(experimentId, userId) };
   const saved = await admin.from("discover_pilot_assignments_v1")
     .upsert(assignment, { onConflict: "experiment_id,user_id", ignoreDuplicates: true });

@@ -20,7 +20,7 @@ test("off, anonymous and Following never access experiment data", async () => {
 
 test("enrollment preserves stored arm and fails instead of silently changing treatment", async () => {
   const upsert = jest.fn().mockResolvedValue({error:null});
-  const experiment = {id:'trial',enabled:true,policy_version:'commercial-order-v1',starts_at:'2026-09-01',ends_at:'2026-10-01'};
+  const experiment = {id:'trial',enabled:true,policy_version:'commercial-order-v1',starts_at:'2026-09-01',ends_at:'2026-10-01',eligible_user_ids:['viewer']};
   let assigned: unknown = {variant:'control'};
   const from = jest.fn((table:string)=>{
     const chain = {select:()=>chain,eq:()=>chain,single:async()=>({data:table==='discover_pilots_v1'?experiment:assigned,error:null}),upsert};
@@ -28,6 +28,8 @@ test("enrollment preserves stored arm and fails instead of silently changing tre
   });
   const db = {from} as unknown as SupabaseClient;
   const now = Date.parse('2026-09-14');
+  expect(await assignDiscoverPilot(db,'excluded-viewer','discover','trial',now)).toBeNull();
+  expect(upsert).not.toHaveBeenCalled();
   expect(await assignDiscoverPilot(db,'viewer','discover','trial',now)).toEqual({experimentId:'trial',variant:'control'});
   expect(upsert).toHaveBeenCalledWith(expect.anything(),{onConflict:'experiment_id,user_id',ignoreDuplicates:true});
   assigned = null;

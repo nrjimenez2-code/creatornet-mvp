@@ -6,6 +6,7 @@ create table public.discover_pilots_v1 (
  enabled boolean not null default false,
  followup_days integer not null default 90 check(followup_days between 1 and 90),
  protocol text not null check(length(protocol)>0),
+ eligible_user_ids uuid[] not null default '{}',
  check(ends_at>starts_at)
 );
 create table public.discover_pilot_assignments_v1 (
@@ -31,8 +32,8 @@ grant select,insert on public.discover_pilot_assignments_v1 to service_role;
 -- emergency stop; a materially different experiment requires a new ID.
 create function public.freeze_discover_pilot_v1() returns trigger language plpgsql set search_path='' as $$
 begin
- if (new.id,new.policy_version,new.starts_at,new.ends_at,new.followup_days,new.protocol)
-   is distinct from (old.id,old.policy_version,old.starts_at,old.ends_at,old.followup_days,old.protocol)
+ if (new.id,new.policy_version,new.starts_at,new.ends_at,new.followup_days,new.protocol,new.eligible_user_ids)
+   is distinct from (old.id,old.policy_version,old.starts_at,old.ends_at,old.followup_days,old.protocol,old.eligible_user_ids)
    and exists(select 1 from public.discover_pilot_assignments_v1 where experiment_id=old.id)
  then raise exception 'Enrolled pilot protocol is immutable'; end if;
  return new;
@@ -40,6 +41,16 @@ end $$;
 create trigger freeze_discover_pilot_v1 before update on public.discover_pilots_v1
  for each row execute function public.freeze_discover_pilot_v1();
 revoke all on function public.freeze_discover_pilot_v1() from public,anon,authenticated;
+create function public.check_discover_pilot_eligibility_v1() returns trigger language plpgsql set search_path='' as $$
+begin
+ if not exists(select 1 from public.discover_pilots_v1
+   where id=new.experiment_id and new.user_id=any(eligible_user_ids))
+ then raise exception 'Viewer is not eligible for this pilot'; end if;
+ return new;
+end $$;
+create trigger check_discover_pilot_eligibility_v1 before insert on public.discover_pilot_assignments_v1
+ for each row execute function public.check_discover_pilot_eligibility_v1();
+revoke all on function public.check_discover_pilot_eligibility_v1() from public,anon,authenticated;
 
 -- Intention-to-treat outcomes include all channels after enrollment, including
 -- zero-event viewers. They are not claimed to be Discover-attributed exposures.
