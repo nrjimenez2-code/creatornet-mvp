@@ -239,3 +239,7 @@ Connector versions differ from local filenames. Match these exact records before
 | 20260914000350 | 20260914002202 | google_booking_worker_capacity |
 
 OAuth application configuration, provider enablement, live booking/payment/later-sale acceptance, ambiguity/auth recovery, representative load, ranking pilot and production review remain outstanding.
+
+## Staging booking lifecycle rehearsal — 2026-09-14 UTC
+
+A transaction executed as service_role against staging passed durable creation, rescheduling and cancellation, wrong-buyer attribution rejection, duplicate completion rejection, one original-video scheduling milestone, updated scheduled time and cancellation credit retraction. Three lifecycle jobs completed inside the transaction. All fixture records rolled back; follow-up counts confirmed zero connections, reservations, jobs, attributions and events. The reusable SQL is saved as work/staging-google-lifecycle-rehearsal.sql in the current task workspace. These calls simulate provider completion; they do not prove actual OAuth, Google delivery, payments/later-sale acceptance or concurrent load. PR #169 rollout metadata now records the installed staging schema and successful Preview. Goal remains active.
