@@ -17,6 +17,7 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<BookingProvider | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [connectionHref, setConnectionHref] = useState<string | null>(null);
   const [managed, setManaged] = useState<BookingProvider | null>(null);
   const requestId = useRef(0);
   const windowRef = useRef<Window | null>(null);
@@ -48,9 +49,12 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
 
   function connect(provider: BookingProvider, setup = false) {
     // The entire composer, including File objects, remains mounted in this window.
-    const popup = window.open(setup ? "/scheduling/google" : `/scheduling/connect?provider=${provider}`, "_blank", "popup,width=600,height=760");
+    const href = setup ? "/scheduling/google" : `/scheduling/connect?provider=${provider}`;
+    setConnectionHref(href);
+    setWaiting(true);
+    const popup = window.open(href, "_blank", "popup,width=600,height=760");
     if (!popup) {
-      setError("Your browser blocked the connection window. Allow popups for CreatorNet, then try again. Your draft is still here.");
+      setError("Your browser blocked the connection window. Use Open connection page below to continue in a new tab. Your draft is still here.");
       return;
     }
     windowRef.current = popup;
@@ -83,7 +87,7 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
     {error && <p role="alert" className="text-sm text-red-300">{error} <button type="button" onClick={() => void refresh()} className="underline">Check again</button></p>}
     {!loading && !userId ? <p className="text-sm"><a href="/auth" target="_blank" rel="noopener noreferrer" className="underline">Sign in to CreatorNet</a> to manage your booking connections, then return here.</p>
       : !items && !error && <p role="status">Checking connections…</p>}
-    {waiting && <p role="status" className="text-sm">Finish connecting in the other window, then return here. <button type="button" className="underline" onClick={() => { setWaiting(false); void refresh(); }}>I’m back</button></p>}
+    {waiting && <p role="status" className="text-sm">Finish connecting in the other window, then return here. {connectionHref && <><a href={connectionHref} target="_blank" rel="noopener noreferrer" className="underline">Open connection page</a>{" · "}</>}<button type="button" className="underline" onClick={() => { setWaiting(false); void refresh(); }}>I’m back</button></p>}
     {items?.map(item => {
       const name = BOOKING_PROVIDER_NAMES[item.provider];
       const connected = item.status === "connected";

@@ -63,6 +63,7 @@ test("authorization window leaves draft text and selected file mounted", async (
   expect(container.querySelector("input")).toBe(input);
   expect(input?.value).toBe("My session");
   expect(container.textContent).toContain("draft.mp4");
+  expect(container.querySelector('a[href="/scheduling/connect?provider=calcom"]')?.getAttribute("target")).toBe("_blank");
   connections = [{ provider: "calcom", available: true, status: "connected", accountName: "Creator", eventTypes: [] }];
   await click("I’m back");
   expect(container.textContent).toContain("Cal.com connected");
@@ -75,6 +76,15 @@ test("blocked popup retains the prompt and explains how to retry", async () => {
   await act(async () => root.render(createElement(SchedulingConnections, { purpose: "sales-call" })));
   await click("Connect Cal.com");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Your draft is still here");
+  const fallback = container.querySelector('a[href="/scheduling/connect?provider=calcom"]');
+  expect(fallback?.textContent).toBe("Open connection page");
+  expect(fallback?.getAttribute("target")).toBe("_blank");
+  expect(fallback?.getAttribute("rel")).toBe("noopener noreferrer");
+  connections[0].status = "connected";
+  await click("I’m back");
+  expect(container.textContent).toContain("Cal.com connected");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector('a[href="/scheduling/connect?provider=calcom"]')).toBeNull();
 });
 
 test("saved connection reuses verified event URLs and exposes manage/disconnect", async () => {
