@@ -91,3 +91,46 @@ test('transient disconnect failure retains cleanup credentials and stops callbac
  expect(exchange).not.toHaveBeenCalled();expect(row.lease_id).toBeNull();
  await expect(run()).rejects.toThrow('Booking provider is not connected');
 });
+
+test.each(['calcom','calendly'] as const)('disconnect %s clears credentials after a rejected refresh grant',async provider=>{
+ row.provider=provider;
+ listHooks.mockRejectedValue(new SchedulingProviderError(401));
+ exchange.mockRejectedValue(new SchedulingProviderError(400));
+ await expect(disconnectSchedulingConnection('creator',provider)).resolves.toBeUndefined();
+ expect(exchange).toHaveBeenCalledTimes(1);
+ expect(listHooks).toHaveBeenCalledTimes(1);
+ expect(deleteHook).not.toHaveBeenCalled();
+ expect(row.status).toBe('disconnected');expect(row.credentials_ciphertext).toBeNull();
+ expect(row.webhook_secret_ciphertext).toBeNull();expect(row.token_expires_at).toBeNull();
+ expect(row.lease_id).toBeNull();
+});
+
+test('expired revoked credentials can be disconnected before any webhook request',async()=>{
+ row.credentials_ciphertext=JSON.stringify({accessToken:'old',refreshToken:'revoked',expiresAt:0});
+ exchange.mockRejectedValue(new SchedulingProviderError(401));
+ await expect(disconnectSchedulingConnection('creator','calendly')).resolves.toBeUndefined();
+ expect(listHooks).not.toHaveBeenCalled();expect(row.status).toBe('disconnected');
+ expect(row.credentials_ciphertext).toBeNull();
+});
+
+test('disconnect clears credentials when the refreshed token is also rejected',async()=>{
+ listHooks.mockRejectedValue(new SchedulingProviderError(401));
+ await disconnectSchedulingConnection('creator','calendly');
+ expect(exchange).toHaveBeenCalledTimes(1);expect(listHooks).toHaveBeenCalledTimes(2);
+ expect(row.status).toBe('disconnected');expect(row.credentials_ciphertext).toBeNull();
+});
+
+test.each([400,403,429,503])('disconnect retains credentials for a non-authentication webhook failure (%s)',async status=>{
+ listHooks.mockRejectedValue(new SchedulingProviderError(status));
+ await expect(disconnectSchedulingConnection('creator','calendly')).rejects.toThrow();
+ expect(row.status).toBe('disconnecting');expect(row.credentials_ciphertext).not.toBeNull();
+ expect(exchange).not.toHaveBeenCalled();
+});
+
+test('transient refresh failure during disconnect preserves credentials for retry',async()=>{
+ listHooks.mockRejectedValue(new SchedulingProviderError(401));
+ exchange.mockRejectedValue(new SchedulingProviderError(503));
+ await expect(disconnectSchedulingConnection('creator','calendly')).rejects.toThrow();
+ expect(row.status).toBe('disconnecting');expect(row.credentials_ciphertext).not.toBeNull();
+ expect(row.lease_id).toBeNull();
+});

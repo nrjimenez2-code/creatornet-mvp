@@ -143,12 +143,21 @@ export async function disconnectSchedulingConnection(creator: string, provider: 
     await save(row, { status: "disconnecting" });
     if (row.credentials_ciphertext && row.account_id) {
       const callback = `${schedulingOrigin()}/api/scheduling/${row.id}`;
-      await withSchedulingAccess(row, async token => {
-        // Re-list on retry: a previous attempt may already have removed some
-        // hooks before authorization failed. Only remove this connection's hooks.
-        const hooks = await listSchedulingWebhooks(provider, token, accountFromRow(row));
-        for (const hook of hooks) if (hook.callbackUrl === callback) await deleteSchedulingWebhook(provider, token, hook.id);
-      });
+      try {
+        await withSchedulingAccess(row, async token => {
+          // Re-list on retry: a previous attempt may already have removed some
+          // hooks before authorization failed. Only remove this connection's hooks.
+          const hooks = await listSchedulingWebhooks(provider, token, accountFromRow(row));
+          for (const hook of hooks) if (hook.callbackUrl === callback) await deleteSchedulingWebhook(provider, token, hook.id);
+        });
+      } catch (error) {
+        // The access helper marks confirmed authorization failures. Revoked
+        // credentials cannot clean up remote hooks, but must remain removable.
+        // Clearing the local hook secret also makes any orphan callback unusable.
+        if (!(error instanceof SchedulingProviderError) ||
+            ![400, 401].includes(error.status) || row.status !== "reconnect_required") throw error;
+        await save(row, { status: "disconnecting" });
+      }
     }
     await checked(await db.from("scheduling_event_types_v1").update({ active: false }).eq("connection_id", row.id));
     await save(row, { status: "disconnected", credentials_ciphertext: null, webhook_id: null,
