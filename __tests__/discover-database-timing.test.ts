@@ -1,4 +1,5 @@
 import { withDiscoverDatabaseTiming, timedDatabaseFetch, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
+import { channel } from 'node:diagnostics_channel';
 
 const originalFetch = global.fetch;
 const originalEnv = process.env.VERCEL_ENV;
@@ -70,5 +71,31 @@ test('accepts only numeric upstream durations and distinguishes missing samples'
     expect(discoverDatabaseTimingHeader()).toContain('upstream;dur=12.5');
     expect(discoverDatabaseTimingHeader()).toContain('upstreamcount;dur=1');
     expect(discoverDatabaseTimingHeader().join(',')).not.toContain('private-detail');
+  });
+});
+
+test('reports matched database transport counts and omits unobserved durations',async()=>{
+  process.env.VERCEL_ENV='preview';
+  global.fetch=jest.fn(async()=>{
+    const request={};
+    for(const name of ['undici:request:create','undici:client:sendHeaders','undici:request:headers'])channel(name).publish({request});
+    return new Response('{}');
+  });
+  await withDiscoverDatabaseTiming(async()=>{
+    await timedDatabaseFetch('https://private.test',{headers:{Authorization:'synthetic-private-value'}});
+    const header=discoverDatabaseTimingHeader().join(',');
+    expect(header).toContain('dbtransportcount;dur=1');
+    expect(header).toContain('dbrequestcount;dur=1');
+    expect(header).toContain('dbsendcount;dur=1');
+    expect(header).toContain('dbresponsecount;dur=1');
+    expect(header).toMatch(/dbresponsemax;dur=\d+(?:\.\d+)?/);
+    expect(header).not.toMatch(/private|Authorization|https/);
+  });
+  global.fetch=jest.fn(async()=>new Response('{}'));
+  await withDiscoverDatabaseTiming(async()=>{
+    await timedDatabaseFetch('https://private.test');
+    const header=discoverDatabaseTimingHeader().join(',');
+    expect(header).toContain('dbtransportcount;dur=0');
+    expect(header).not.toMatch(/dbprepare;|dbdispatch;|dbresponse;|dbresponsemax;|dbresume;/);
   });
 });

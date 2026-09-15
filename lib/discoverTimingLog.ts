@@ -3,6 +3,8 @@ const MAX_WINDOW_MS = 2 * 60 * 60 * 1000;
 const ALLOWED_METRICS = new Set([
   'identity', 'session', 'page', 'context', 'sample', 'media', 'write',
   'dbtotal', 'dbmax', 'dbcount', 'upstream', 'upstreamcount',
+  'dbtransportcount', 'dbrequestcount', 'dbsendcount', 'dbresponsecount',
+  'dbprepare', 'dbdispatch', 'dbresponse', 'dbresponsemax', 'dbresume',
   'loopbusy', 'loopidle', 'invocation', 'routeage', 'uptime', 'total',
 ]);
 

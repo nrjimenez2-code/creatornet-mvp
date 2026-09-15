@@ -18,7 +18,9 @@ test('preview separates new-session work from pagination without exposing identi
  expect(first.status).toBe(200);
  const metrics=first.headers.get('server-timing')!.split(', ');
  expect(metrics.map(metric=>metric.split(';')[0])).toEqual([
-  'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount','loopbusy','loopidle','invocation','routeage','uptime','total',
+  'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount',
+  'dbtransportcount','dbrequestcount','dbsendcount','dbresponsecount',
+  'loopbusy','loopidle','invocation','routeage','uptime','total',
  ]);
  expect(metrics.every(metric=>/^[a-z]+;dur=\d+(?:\.\d+)?$/.test(metric))).toBe(true);
  expect(first.headers.get('server-timing')).not.toMatch(/private/);

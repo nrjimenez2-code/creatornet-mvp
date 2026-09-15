@@ -75,3 +75,18 @@ test('empty metrics or invalid status are ignored and logging failures cannot fa
   expect(info).not.toHaveBeenCalled();
   expect(() => log(200, ['total;dur=1'])).not.toThrow();
 });
+
+test('retains only numeric transport measurements inside the existing private log gate',()=>{
+  enable();
+  const info=jest.spyOn(console,'info').mockImplementation(()=>{});
+  createDiscoverTimingLogger('feed-events')(200,[
+    'dbtransportcount;dur=1','dbrequestcount;dur=1','dbsendcount;dur=1','dbresponsecount;dur=1',
+    'dbprepare;dur=2','dbdispatch;dur=3','dbresponse;dur=100','dbresponsemax;dur=100','dbresume;dur=4',
+    'dbresponse;dur=private-value',
+  ]);
+  expect(JSON.parse(info.mock.calls[0][1]).metrics).toEqual({
+    dbtransportcount:1,dbrequestcount:1,dbsendcount:1,dbresponsecount:1,
+    dbprepare:2,dbdispatch:3,dbresponse:100,dbresponsemax:100,dbresume:4,
+  });
+  expect(JSON.stringify(info.mock.calls)).not.toContain('private-value');
+});
