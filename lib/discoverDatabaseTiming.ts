@@ -1,11 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { performance as nodePerformance } from 'node:perf_hooks';
 
-type Timing = { count: number; totalMs: number; maxMs: number };
+type Timing = { count: number; totalMs: number; maxMs: number; loopStart: ReturnType<typeof nodePerformance.eventLoopUtilization> };
 const timing = new AsyncLocalStorage<Timing>();
 
 export function withDiscoverDatabaseTiming<T>(work: () => T): T {
   if (process.env.VERCEL_ENV !== 'preview') return work();
-  return timing.run({ count: 0, totalMs: 0, maxMs: 0 }, work);
+  return timing.run({ count: 0, totalMs: 0, maxMs: 0, loopStart: nodePerformance.eventLoopUtilization() }, work);
 }
 
 // Only numeric timings are retained. URLs, headers, bodies and credentials are
@@ -25,9 +26,14 @@ export const timedDatabaseFetch: typeof fetch = async (input, init) => {
 
 export function discoverDatabaseTimingHeader(): string[] {
   const current = timing.getStore();
+  // Process activity during this request includes work for overlapping requests.
+  // It distinguishes a busy JS process from idle network/service wait.
+  const loop = current ? nodePerformance.eventLoopUtilization(current.loopStart) : null;
   return current ? [
     `dbtotal;dur=${current.totalMs.toFixed(1)}`,
     `dbmax;dur=${current.maxMs.toFixed(1)}`,
     `dbcount;dur=${current.count}`,
+    `loopbusy;dur=${loop!.active.toFixed(1)}`,
+    `loopidle;dur=${loop!.idle.toFixed(1)}`,
   ] : [];
 }
