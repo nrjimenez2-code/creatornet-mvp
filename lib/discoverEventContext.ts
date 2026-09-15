@@ -6,21 +6,27 @@ type EventContext = {
   post: DiscoverEventPost & {video_url?: string};
   audience: string;
   offers?: DiscoverEventOffers;
+  watched?: number;
 };
 
-export async function loadDiscoverEventContext(sessionId:string, actor:string, postId:string):Promise<EventContext|null> {
+export async function loadDiscoverEventContext(sessionId:string, actor:string, postId:string, claimedSeconds?:number):Promise<EventContext|null> {
   if (process.env.DISCOVER_EVENT_CONTEXT_ENABLED === 'true') {
-    const {data,error} = await admin.rpc('discover_event_context_v1', {
+    const withWatch = claimedSeconds !== undefined;
+    const {data,error} = await admin.rpc(withWatch ? 'discover_watch_context_v1' : 'discover_event_context_v1', {
       p_session:sessionId,p_actor:actor,p_post:postId,
+      ...(withWatch ? {p_claimed:claimedSeconds} : {}),
     });
+    // The former direct table lookup also denied malformed UUIDs as invalid exposure.
+    if (error?.code === '22P02') return null;
     if (error) throw error;
     if (data === null) return null;
     if (!data?.post || data.post.id !== postId || !data.post.creator_id ||
-        typeof data.audience !== 'string' ||
+        typeof data.audience !== 'string' || (withWatch &&
+          (typeof data.watched !== 'number' || !Number.isFinite(data.watched) || data.watched < 0)) ||
         !['primaryProducts','legacyProducts','offerings'].every(key=>Array.isArray(data[key]))) {
       throw new Error('Invalid event context');
     }
-    return {post:data.post,audience:data.audience,offers:{
+    return {post:data.post,audience:data.audience,...(withWatch ? {watched:data.watched} : {}),offers:{
       primaryProducts:data.primaryProducts,legacyProducts:data.legacyProducts,offerings:data.offerings,
     }};
   }
