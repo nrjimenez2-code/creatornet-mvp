@@ -19,6 +19,9 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  // Drop the default `x-powered-by: Next.js` response header. It only tells an
+  // attacker which framework (and therefore which CVE list) to try.
+  poweredByHeader: false,
   images: {
     remotePatterns: [{ protocol: "https", hostname: "media.creatornet.net", pathname: "/thumbnails/**", search: "" }],
   },
