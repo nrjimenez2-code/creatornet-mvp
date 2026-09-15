@@ -98,8 +98,12 @@ describe("search moderation RPC boundary", () => {
 describe("/api/tag/[hashtag]", () => {
   it("all five posts reads exclude hidden and removed posts", async () => {
     const { GET } = await import("@/app/api/tag/[hashtag]/route");
-    // The handler only touches req.nextUrl.searchParams.
-    const req = { nextUrl: new URL("https://x/api/tag/yoga?limit=5") } as unknown as NextRequest;
+    // The handler touches req.nextUrl.searchParams, and req.headers for the
+    // rate-limit guard. A real NextRequest always carries both.
+    const req = {
+      nextUrl: new URL("https://x/api/tag/yoga?limit=5"),
+      headers: new Headers({ "x-forwarded-for": "5.5.5.5" }),
+    } as unknown as NextRequest;
     const res = await GET(req, { params: Promise.resolve({ hashtag: "yoga" }) });
     expect(res.status).toBe(200);
 
