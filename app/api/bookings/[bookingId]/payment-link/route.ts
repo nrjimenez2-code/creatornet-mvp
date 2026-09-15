@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { eitherIdFilter } from "@/lib/ids";
+import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 import { cookies } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
@@ -58,6 +59,13 @@ export async function POST(
   if (authError || !user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // This creates a Stripe Checkout Session, so it deserves a floor. 60 and not
+  // lower: a closer generating links down a 100-row list clicks as fast as each
+  // round trip completes, and being throttled mid-batch while a buyer waits on a
+  // sales call is worse than the abuse it prevents. Keyed by user so several
+  // closers behind one office IP do not share a bucket.
+  if (!allowRequest(`booking-payment-link:${user.id}`, { limit: 60, windowMs: 60_000 })) return tooManyRequests();
 
   let body: {
     plan_type: "full" | "installment";
