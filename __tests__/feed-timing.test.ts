@@ -16,7 +16,12 @@ test('preview separates new-session work from pagination without exposing identi
  process.env.VERCEL_ENV='preview';
  const first=await GET(new NextRequest('https://test.invalid/api/feed'));
  expect(first.status).toBe(200);
- expect(first.headers.get('server-timing')).toMatch(/^identity;dur=[\d.]+, session;dur=[\d.]+, page;dur=[\d.]+, total;dur=[\d.]+$/);
+ const metrics=first.headers.get('server-timing')!.split(', ');
+ expect(metrics.map(metric=>metric.split(';')[0])).toEqual([
+  'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount','loopbusy','loopidle','total',
+ ]);
+ expect(metrics.every(metric=>/^[a-z]+;dur=\d+(?:\.\d+)?$/.test(metric))).toBe(true);
+ expect(first.headers.get('server-timing')).not.toMatch(/private/);
  const next=await GET(new NextRequest('https://test.invalid/api/feed?session=private-session'));
  expect(next.headers.get('server-timing')).not.toMatch(/session;|private/);
  expect(create).toHaveBeenCalledTimes(1);

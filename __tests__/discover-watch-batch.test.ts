@@ -12,7 +12,7 @@ const originalVercelEnv=process.env.VERCEL_ENV;
 jest.mock('@/lib/supabaseAdmin',()=>({get supabaseAdmin(){return db;}}));
 jest.mock('@/lib/discoverServer',()=>({
  discoverEnabled:()=>true,
- discoverIdentity:async()=>({actor:'user:viewer',userId:'viewer'}),
+ discoverEventIdentity:async()=>({actorCandidate:'user:viewer',userId:'viewer',anonymousClaimCheck:process.env.DISCOVER_EVENT_CONTEXT_ENABLED==='true'?'context':'complete'}),
  recordDiscoverEvents:(...args:unknown[])=>recordMany(...args),
  recordDiscoverEvent:jest.fn(),
  DISCOVER_EVENT_POST_COLUMNS:'id,creator_id,caption',
@@ -24,7 +24,7 @@ beforeEach(()=>{
  delete process.env.DISCOVER_EVENT_CONTEXT_ENABLED;
  recordMany.mockReset();watched=0;duration=10;invalidSession=false;hidden=false;banned=false;recordedKinds=[];
  db=createMockClient(op=>{
-  if(op.table==='discover_watch_context_v1')return {data:{post:{id:'post',creator_id:'creator',video_url:'https://media.creatornet.net/videos/test.mp4'},audience:'photography',primaryProducts:[],legacyProducts:[],offerings:[],watched,recordedKinds},error:null};
+  if(op.table==='discover_watch_context_v1')return {data:{anonymousClaimChecked:true,post:{id:'post',creator_id:'creator',video_url:'https://media.creatornet.net/videos/test.mp4'},audience:'photography',primaryProducts:[],legacyProducts:[],offerings:[],watched,recordedKinds},error:null};
   if(op.table==='discover_sessions_v1')return {data:invalidSession?null:{post_ids:['post'],expires_at:new Date(Date.now()+3600000).toISOString(),audiences:{post:'photography'}},error:null};
   if(op.table==='posts')return {data:{id:'post',creator_id:'creator',active:true,hidden_at:hidden?'2026-09-15':null,caption:'Portrait photography',video_url:'https://media.creatornet.net/videos/test.mp4'},error:null};
   if(op.table==='profiles')return {data:{banned_at:banned?'2026-09-15':null},error:null};

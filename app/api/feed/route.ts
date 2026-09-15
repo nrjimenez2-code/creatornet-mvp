@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
 import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
+import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 export async function GET(req:NextRequest){
  return withDiscoverDatabaseTiming(() => feedResponse(req));
 }
@@ -36,6 +37,8 @@ async function feedResponse(req:NextRequest){
   const result=await measured('page',()=>readDiscoverPage(session,identity.actor,offset,limit,identity.userId));
   return finish(setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie));
  }catch(error){
+  if(error instanceof DiscoverSessionUnavailableError)
+   return finish(NextResponse.json({error:error.message,code:error.code},{status:410,headers:{'Cache-Control':'private, no-store'}}));
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;
   // SQLSTATE/PostgREST codes are enough to diagnose failures without logging
   // database messages, query details, credentials or actor identifiers.

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import {
   discoverEnabled,
-  discoverIdentity,
+  discoverEventIdentity,
   recordDiscoverEvent,
   recordDiscoverEvents,
 } from "@/lib/discoverServer";
@@ -45,9 +45,9 @@ async function eventResponse(req:NextRequest, measured:EventMeasure) {
       typeof body.session !== "string"
     )
       return NextResponse.json({ error: "Invalid event" }, { status: 400 });
-    const identity = await measured('identity',()=>discoverIdentity(req));
+    const identity = await measured('identity',()=>discoverEventIdentity(req));
     if (
-      !allowRequest("discover:" + identity.actor, {
+      !allowRequest("discover:" + identity.actorCandidate, {
         limit: 240,
         windowMs: 60000,
       })
@@ -57,12 +57,12 @@ async function eventResponse(req:NextRequest, measured:EventMeasure) {
     const seconds = body.kind === 'exposure' ? 0 : body.watchSeconds;
     if (isWatch && (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0))
       return NextResponse.json({error:'Invalid watch time'}, {status:400});
-    const context = await measured('context',()=>loadDiscoverEventContext(body.session, identity.actor, body.postId, isWatch ? seconds : undefined));
+    const context = await measured('context',()=>loadDiscoverEventContext(body.session, identity, body.postId, isWatch ? seconds : undefined));
     if (!context) return NextResponse.json({error:'Invalid exposure'}, {status:403});
     const {post, audience, offers} = context;
     const base = {
-      actor: identity.actor,
-      userId: identity.userId,
+      actor: context.actor,
+      userId: context.userId,
       postId: body.postId,
       audience,
     };
@@ -106,7 +106,7 @@ async function eventResponse(req:NextRequest, measured:EventMeasure) {
       await measured('write',()=>recordDiscoverEvent({
         ...base,
         kind: body.kind,
-        entityKey: identity.actor + ":" + body.postId + ":" + day,
+        entityKey: context.actor + ":" + body.postId + ":" + day,
       }));
     }
     return NextResponse.json({ ok: true });
