@@ -78,7 +78,11 @@ export async function POST(req: NextRequest) {
           kind: "completion",
           entityKey: sessionKey,
         });
-      await recordDiscoverEvents(base,events,post,offers);
+      const recorded = new Set(context.recordedKinds ?? []);
+      const missing = events.filter(event=>!recorded.has(event.kind));
+      // A concurrent request may still race this read; the unique upsert remains
+      // the final deduplication guard for newly reached milestones.
+      if (missing.length) await recordDiscoverEvents(base,missing,post,offers);
     } else {
       // Dedupe taps and negative feedback across remounts, refreshes and retries.
       const day = new Date().toISOString().slice(0, 10);
