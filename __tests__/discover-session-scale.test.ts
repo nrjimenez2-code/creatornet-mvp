@@ -95,6 +95,20 @@ test("Discover fetches only personal history and batches all candidate summaries
   expect(batches.every((ids) => ids.length <= 200)).toBe(true);
   expect(new Set(batches.flat()).size).toBe(2005);
 });
+test("overlapping sessions share global reads but keep histories and sessions separate", async () => {
+  await Promise.all([
+    createDiscoverSession("user:alice", "alice", "discover"),
+    createDiscoverSession("user:bob", "bob", "discover"),
+  ]);
+  expect(db.opsFor("posts")).toHaveLength(3);
+  expect(db.opsFor("discover_rank_evidence_v1")).toHaveLength(11);
+  expect(db.opsFor("discover_events_v1").map(op => op.filters.actor).sort())
+    .toEqual(["user:alice", "user:bob"]);
+  expect(db.opsFor("discover_sessions_v1")).toHaveLength(2);
+  await createDiscoverSession("user:alice", "alice", "discover");
+  expect(db.opsFor("posts")).toHaveLength(6);
+  expect(db.opsFor("discover_rank_evidence_v1")).toHaveLength(22);
+});
 test("enabled pilot persists all placement metadata and does not enroll Following",async()=>{
  const previous=process.env.DISCOVER_PILOT_ID;
  process.env.DISCOVER_PILOT_ID="qa";

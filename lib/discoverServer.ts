@@ -14,6 +14,9 @@ import { matchInterestTopics, normalizeTopics } from "@/lib/interestTopics";
 import { isUnreliableVideoUrl } from "@/lib/feedV3";
 import { isSellReadyProfile } from "@/lib/sellReady";
 import { assignDiscoverPilot } from "@/lib/discoverPilot";
+import { inFlightRead } from "@/lib/inFlightRead";
+const initialInventoryRead = inFlightRead<Record<string, any>[]>();
+const rankingEvidenceRead = inFlightRead<DiscoverEvidence[]>();
 export const discoverEnabled = () => process.env.DISCOVER_V4_ENABLED === "true";
 const COOKIE = "cn_discover_actor";
 function sign(value: string) {
@@ -260,7 +263,7 @@ export async function createDiscoverSession(
 ) {
   const pilot = await assignDiscoverPilot(admin, userId, tab);
   const [inventory, events, profile, following, legacy] = await Promise.all([
-    discoverInventory(),
+    initialInventoryRead('inventory', () => discoverInventory()),
     tab === "following"
       ? Promise.resolve([])
       : readAll(
@@ -295,12 +298,14 @@ export async function createDiscoverSession(
   const evidence: DiscoverEvidence[] = [];
   if (tab !== "following")
     for (let offset = 0; offset < inventory.length; offset += 200) {
-      const { data, error } = await admin.rpc("discover_rank_evidence_v1", {
-        p_posts: inventory.slice(offset, offset + 200).map((p) => p.id),
+      const postIds = inventory.slice(offset, offset + 200).map((p) => p.id);
+      const batch = await rankingEvidenceRead(JSON.stringify(postIds), async () => {
+        const { data, error } = await admin.rpc("discover_rank_evidence_v1", {p_posts: postIds});
+        if (error || !Array.isArray(data))
+          throw error ?? new Error("Ranking evidence unavailable");
+        return data as DiscoverEvidence[];
       });
-      if (error || !Array.isArray(data))
-        throw error ?? new Error("Ranking evidence unavailable");
-      evidence.push(...(data as DiscoverEvidence[]));
+      evidence.push(...batch);
     }
   const follows = new Set((following.data ?? []).map((f) => f.following_id));
   const placements: Record<string, DiscoverPlacement> = {};
