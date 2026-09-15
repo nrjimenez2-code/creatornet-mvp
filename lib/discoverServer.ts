@@ -494,22 +494,41 @@ type DiscoverEventInput = {
   amountCents?: number;
   currency?: string;
 };
+export const DISCOVER_EVENT_POST_COLUMNS =
+  "id,creator_id,interests,topics,title,content,caption,product_id,offering_id,allow_booking";
+type DiscoverEventPost = {
+  id: string;
+  creator_id: string;
+  interests?: string[] | null;
+  topics?: string[] | null;
+  title?: string | null;
+  content?: string | null;
+  caption?: string | null;
+  product_id?: string | null;
+  offering_id?: string | null;
+  allow_booking?: boolean | null;
+};
 export async function recordDiscoverEvent(input: DiscoverEventInput) {
   return recordDiscoverEvents(input, [{kind:input.kind,entityKey:input.entityKey}]);
 }
 export async function recordDiscoverEvents(
   input: Omit<DiscoverEventInput, 'kind' | 'entityKey'>,
   events: Array<Pick<DiscoverEventInput, 'kind' | 'entityKey'>>,
+  // Only server-loaded metadata from this request; never a browser payload or cache.
+  loadedPost?: DiscoverEventPost,
 ) {
   if (!events.length) return;
-  const { data: p, error } = await admin
-    .from("posts")
-    .select(
-      "id,creator_id,interests,topics,title,content,caption,product_id,offering_id,allow_booking",
-    )
-    .eq("id", input.postId)
-    .single();
-  if (error) throw error;
+  let p = loadedPost;
+  if (p && p.id !== input.postId) throw new Error("Event metadata post mismatch");
+  if (!p) {
+    const { data, error } = await admin
+      .from("posts")
+      .select(DISCOVER_EVENT_POST_COLUMNS)
+      .eq("id", input.postId)
+      .single();
+    if (error) throw error;
+    p = data;
+  }
   if (!p?.creator_id || p.creator_id === input.userId) return;
   const productColumns =
     "id,product_id,creator_id,title,description,type,active";

@@ -5,6 +5,7 @@ import {
   discoverIdentity,
   recordDiscoverEvent,
   recordDiscoverEvents,
+  DISCOVER_EVENT_POST_COLUMNS,
 } from "@/lib/discoverServer";
 import { allowRequest } from "@/lib/rateLimit";
 import { verifiedVideoDuration } from "@/lib/discoverMedia";
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid exposure" }, { status: 403 });
     const { data: post, error: postError } = await admin
       .from("posts")
-      .select("creator_id,active,hidden_at,removed_at,video_url")
+      .select(`${DISCOVER_EVENT_POST_COLUMNS},active,hidden_at,removed_at,video_url` as const)
       .eq("id", body.postId)
       .single();
     if (
@@ -86,16 +87,15 @@ export async function POST(req: NextRequest) {
           { error: "Invalid watch time" },
           { status: 400 },
         );
-      const { data: watched, error: watchError } = await admin.rpc(
-        "discover_watch_sample_v1",
-        { p_session: body.session, p_post: body.postId, p_claimed: seconds },
-      );
+      // Both reads depend on the completed eligibility checks, not each other.
+      const [{ data: watched, error: watchError }, duration] = await Promise.all([
+        admin.rpc("discover_watch_sample_v1", {
+          p_session: body.session, p_post: body.postId, p_claimed: seconds,
+        }),
+        body.kind === "watch" ? verifiedVideoDuration(post.video_url) : Promise.resolve(null),
+      ]);
       if (watchError) throw watchError;
       const events = [{kind:'exposure',entityKey:sessionKey}];
-      const duration =
-        body.kind === "watch"
-          ? await verifiedVideoDuration(post.video_url)
-          : null;
       const threshold =
         typeof duration === "number" && duration > 0
           ? Math.min(5, duration * 0.9)
@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
           kind: "completion",
           entityKey: sessionKey,
         });
-      await recordDiscoverEvents(base,events);
+      await recordDiscoverEvents(base,events,post);
     } else {
       // Dedupe taps and negative feedback across remounts, refreshes and retries.
       const day = new Date().toISOString().slice(0, 10);
