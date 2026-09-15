@@ -27,7 +27,7 @@ import { POST } from "@/app/api/feed-events/route";
 function respond(op: Op): {data: any; error: unknown} {
   if(op.table === 'discover_page_inventory_v1') {
     const args=op.payload as {p_actor:string;p_offset:number;p_limit:number};
-    if(args.p_actor!==actor || expired) return {data:null,error:{code:'22023'}};
+    if(args.p_actor!==actor || expired) return {data:null,error:{code:'CN001'}};
     const selected=ids.slice(args.p_offset,args.p_offset+args.p_limit);
     return {data:{post_ids:ids,expires_at:new Date(Date.now()+3600000).toISOString(),
       inventory:respond({...op,table:'discover_inventory_batch_v1',payload:{p_ids:selected}}).data},error:null};
@@ -122,10 +122,16 @@ test("sessions cannot be read by another viewer or after expiration", async () =
   const log = jest.spyOn(console, "error").mockImplementation(() => {});
   try {
     actor = "user:someone-else";
-    expect((await GET(request("offset=0"))).status).toBe(503);
+    const unavailable = await GET(request("offset=0"));
+    expect(unavailable.status).toBe(410);
+    const safeError = await unavailable.json();
+    expect(safeError).toEqual({ error: "This feed needs to be refreshed.", code: "DISCOVER_SESSION_UNAVAILABLE" });
+    expect(unavailable.headers.get("cache-control")).toBe("private, no-store");
     actor = "user:viewer";
     expired = true;
-    expect((await GET(request("offset=0"))).status).toBe(503);
+    const expiredResponse = await GET(request("offset=0"));
+    expect(expiredResponse.status).toBe(410);
+    expect(await expiredResponse.json()).toEqual(safeError);
   } finally {
     log.mockRestore();
   }
@@ -173,9 +179,27 @@ test('combined page path preserves moderation skipping, ownership and expiry',as
  const log=jest.spyOn(console,'error').mockImplementation(()=>{});
  try {
   actor='user:other';
-  expect((await GET(request('offset=0&limit=5'))).status).toBe(503);
+  const wrongOwner = await GET(request('offset=0&limit=5'));
+  expect(wrongOwner.status).toBe(410);
+  expect(await wrongOwner.json()).toEqual({error:'This feed needs to be refreshed.',code:'DISCOVER_SESSION_UNAVAILABLE'});
   actor='user:viewer'; expired=true;
-  expect((await GET(request('offset=0&limit=5'))).status).toBe(503);
+  const oldSession = await GET(request('offset=0&limit=5'));
+  expect(oldSession.status).toBe(410);
+  expect(await oldSession.json()).toEqual({error:'This feed needs to be refreshed.',code:'DISCOVER_SESSION_UNAVAILABLE'});
+ } finally {log.mockRestore();}
+});
+
+test.each([false,true])('temporary session reads preserve retryable failure semantics (combined=%s)',async(combined)=>{
+ process.env.DISCOVER_PAGE_INVENTORY_ENABLED=String(combined);
+ const table=combined?'discover_page_inventory_v1':'discover_sessions_v1';
+ const log=jest.spyOn(console,'error').mockImplementation(()=>{});
+ try {
+  for(const code of ['57014','22023']) {
+   db=createMockClient(op=>op.table===table?{data:null,error:{code,message:'private database detail'}}:respond(op));
+   const result=await GET(request('offset=20&limit=20'));
+   expect(result.status).toBe(503);
+   expect(await result.json()).toEqual({error:'Could not load this feed. Refresh to try again.'});
+  }
  } finally {log.mockRestore();}
 });
 test('batched inventory preserves pagination and fresh moderation without direct table reads',async()=>{

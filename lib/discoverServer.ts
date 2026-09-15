@@ -16,6 +16,7 @@ import { isSellReadyProfile } from "@/lib/sellReady";
 import { assignDiscoverPilot } from "@/lib/discoverPilot";
 import { inFlightRead } from "@/lib/inFlightRead";
 import { discoverSharedRead } from "@/lib/discoverSharedRead";
+import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 const initialInventoryRead = inFlightRead<Record<string, any>[]>();
 const rankingEvidenceRead = inFlightRead<DiscoverEvidence[]>();
 export const discoverEnabled = () => process.env.DISCOVER_V4_ENABLED === "true";
@@ -26,6 +27,21 @@ function sign(value: string) {
     .digest("hex");
 }
 export async function discoverIdentity(req: NextRequest) {
+  return resolveDiscoverIdentity(req, false);
+}
+// An event candidate cannot create/read feed sessions. Its anonymous claim check
+// is resolved by loadDiscoverEventContext before it becomes an event actor.
+export type DiscoverEventIdentity = {
+  actorCandidate: string;
+  userId: string | null;
+  anonymousClaimCheck: 'context' | 'complete';
+};
+export async function discoverEventIdentity(req: NextRequest): Promise<DiscoverEventIdentity> {
+  const deferred = process.env.DISCOVER_EVENT_CONTEXT_ENABLED === 'true';
+  const identity = await resolveDiscoverIdentity(req, deferred);
+  return { actorCandidate: identity.actor, userId: identity.userId, anonymousClaimCheck: deferred ? 'context' : 'complete' };
+}
+async function resolveDiscoverIdentity(req: NextRequest, deferAnonymousClaimCheck: boolean) {
   const { data, error } = await createServerClient().auth.getUser();
   if (error && error.name !== "AuthSessionMissingError")
     throw new Error("Could not verify feed identity");
@@ -41,6 +57,14 @@ export async function discoverIdentity(req: NextRequest) {
     };
   }
   if (anonymous) {
+    if (deferAnonymousClaimCheck)
+      return {
+        actor: "anon:" + anonymous.id,
+        newAnonymous: false,
+        userId: null,
+        cookie: null,
+        token: anonymous.token,
+      };
     const { data: linked, error: linkError } = await admin
       .from("discover_identity_links_v1")
       .select("anonymous_id")
@@ -415,10 +439,14 @@ export async function readDiscoverPage(
     .select("post_ids,expires_at")
     .eq("id", sessionId)
     .eq("actor", actor)
-    .single();
-  if (error || !session) throw new Error("Feed session unavailable");
+    .maybeSingle();
+  // The private page RPC uses a dedicated SQLSTATE for missing, expired and
+  // differently owned snapshots. Temporary database failures keep Retry semantics.
+  if (error?.code === "CN001") throw new DiscoverSessionUnavailableError();
+  if (error) throw error;
+  if (!session) throw new DiscoverSessionUnavailableError();
   if (Date.parse(session.expires_at) <= Date.now())
-    throw new Error("Feed session expired; refresh to continue");
+    throw new DiscoverSessionUnavailableError();
   const ids: string[] = session.post_ids;
   const selected = ids.slice(offset, offset + limit);
   if (!selected.length)

@@ -4,6 +4,7 @@ import {readFileSync} from 'node:fs';
 declare const createLocalPostgres:()=>PGlite;
 let db:PGlite;
 const post='11111111-1111-4111-8111-111111111111', creator='22222222-2222-4222-8222-222222222222';
+const owner='anon:'+post;
 jest.setTimeout(90000);
 beforeAll(async()=>{
  db=createLocalPostgres();
@@ -22,9 +23,10 @@ beforeAll(async()=>{
  grant select on posts,profiles,products,offerings to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260915052139_discover_inventory_batch.sql','utf8'));
  await db.exec(`create table discover_sessions_v1(id uuid primary key,actor text,post_ids uuid[],expires_at timestamptz);
- insert into discover_sessions_v1 values('${post}','anon:owner',array['${post}'::uuid],now()+interval '1 hour');
+ insert into discover_sessions_v1 values('${post}','${owner}',array['${post}'::uuid],now()+interval '1 hour');
  grant select on discover_sessions_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260915054818_discover_page_inventory.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/20260915082215_discover_page_session_error.sql','utf8'));
  await db.exec(`alter table discover_sessions_v1 add column audiences jsonb default '{}'::jsonb`);
  await db.exec(readFileSync('supabase/migrations/20260915065451_discover_event_context.sql','utf8'));
  await db.exec(`create table discover_watch_v1(session_id uuid references discover_sessions_v1(id),post_id uuid references posts(id),
@@ -39,27 +41,31 @@ beforeAll(async()=>{
  await db.exec(`create table discover_events_v1(actor text,post_id uuid,kind text,entity_key text,unique(kind,entity_key));
  grant select on discover_events_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260915073233_discover_watch_receipt_kinds.sql','utf8'));
+ await db.exec(`create table discover_identity_links_v1(anonymous_id uuid primary key,user_id uuid not null);
+ grant select on discover_identity_links_v1 to service_role;`);
+ await db.exec(readFileSync('supabase/migrations/20260915081427_discover_event_identity_check.sql','utf8'));
 });
 test('combined page query enforces ownership, expiry, role and page bounds',async()=>{
  const sql='select discover_page_inventory_v1($1::uuid,$2::text,$3::bigint,$4::integer) as data';
  await db.exec('set role service_role');
  try {
-  const {rows}=await db.query<{data:any}>(sql,[post,'anon:owner',0,5]);
+  const {rows}=await db.query<{data:any}>(sql,[post,owner,0,5]);
   expect(rows[0].data.post_ids).toEqual([post]);
   expect(rows[0].data.inventory.posts[0].id).toBe(post);
-  await expect(db.query(sql,[post,'anon:other',0,5])).rejects.toThrow('Feed session unavailable');
-  await expect(db.query(sql,[post,'anon:owner',-1,5])).rejects.toThrow('Invalid feed page');
-  await expect(db.query(sql,[post,'anon:owner',0,51])).rejects.toThrow('Invalid feed page');
-  const empty=await db.query<{data:any}>(sql,[post,'anon:owner',Number.MAX_SAFE_INTEGER,5]);
+  await expect(db.query(sql,[post,'anon:other',0,5])).rejects.toMatchObject({code:'CN001',message:'Feed session unavailable'});
+  await expect(db.query(sql,[creator,owner,0,5])).rejects.toMatchObject({code:'CN001',message:'Feed session unavailable'});
+  await expect(db.query(sql,[post,owner,-1,5])).rejects.toMatchObject({code:'22023',message:'Invalid feed page'});
+  await expect(db.query(sql,[post,owner,0,51])).rejects.toMatchObject({code:'22023',message:'Invalid feed page'});
+  const empty=await db.query<{data:any}>(sql,[post,owner,Number.MAX_SAFE_INTEGER,5]);
   expect(empty.rows[0].data.inventory.posts).toEqual([]);
  } finally {await db.exec('reset role');}
  for(const role of ['anon','authenticated']) {
   await db.exec('set role '+role);
-  try {await expect(db.query(sql,[post,'anon:owner',0,5])).rejects.toThrow(/permission denied/);}
+  try {await expect(db.query(sql,[post,owner,0,5])).rejects.toThrow(/permission denied/);}
   finally {await db.exec('reset role');}
  }
  await db.exec(`update discover_sessions_v1 set expires_at=now()-interval '1 second'`);
- await expect(db.query(sql,[post,'anon:owner',0,5])).rejects.toThrow('Feed session unavailable');
+ await expect(db.query(sql,[post,owner,0,5])).rejects.toMatchObject({code:'CN001',message:'Feed session unavailable'});
 });
 afterAll(async()=>{await db.close();});
 
@@ -72,26 +78,26 @@ test('combined watch context enforces eligibility before writes and preserves bo
   expect(await sample('anon:other',0)).toBeNull();
   expect((await db.query<{n:number}>('select count(*)::int as n from discover_watch_v1')).rows[0].n).toBe(0);
   await db.exec('set role service_role');
-  expect((await sample('anon:owner',0)).watched).toBe(0);
+  expect((await sample(owner,0)).watched).toBe(0);
   await db.exec('reset role');
   await db.exec(`update discover_watch_v1 set last_at=clock_timestamp()-interval '10 seconds'`);
   await db.exec('set role service_role');
-  expect((await sample('anon:owner',100)).watched).toBe(6);
-  expect((await sample('anon:owner',100)).watched).toBe(6);
+  expect((await sample(owner,100)).watched).toBe(6);
+  expect((await sample(owner,100)).watched).toBe(6);
   await db.exec('reset role');
   await db.exec(`insert into discover_events_v1 values
-   ('anon:owner','${post}','exposure','${post}:${post}'),
+   ('${owner}','${post}','exposure','${post}:${post}'),
    ('anon:other','${post}','completion','${post}:${post}'),
-   ('anon:owner','${post}','qualified_view','different-session:${post}');`);
+   ('${owner}','${post}','qualified_view','different-session:${post}');`);
   await db.exec('set role service_role');
-  expect((await sample('anon:owner',100)).recordedKinds).toEqual(['exposure']);
+  expect((await sample(owner,100)).recordedKinds).toEqual(['exposure']);
   await db.exec('reset role');
   await db.exec('update profiles set banned_at=now()');
-  expect(await sample('anon:owner',105)).toBeNull();
+  expect(await sample(owner,105)).toBeNull();
   expect((await db.query<{n:string}>('select claimed_seconds as n from discover_watch_v1')).rows[0].n).toBe('100');
   for(const role of ['anon','authenticated']) {
    await db.exec('savepoint denied');await db.exec('set role '+role);
-   await expect(sample('anon:owner',0)).rejects.toThrow(/permission denied/);
+   await expect(sample(owner,0)).rejects.toThrow(/permission denied/);
    await db.exec('rollback to denied');
   }
  }finally{await db.exec('rollback');}
@@ -100,13 +106,13 @@ test('combined watch context enforces eligibility before writes and preserves bo
 test('event context requires owned unexpired membership and fresh moderation, and is private',async()=>{
  await db.exec('begin');
  const sql='select discover_event_context_v1($1::uuid,$2::text,$3::uuid) as data';
- const context=async(actor='anon:owner',postId=post)=>(await db.query<{data:any}>(sql,[post,actor,postId])).rows[0].data;
+ const context=async(actor=owner,postId=post)=>(await db.query<{data:any}>(sql,[post,actor,postId])).rows[0].data;
  try {
   await db.exec(`update discover_sessions_v1 set expires_at=now()+interval '1 hour';update posts set active=true,hidden_at=null,removed_at=null;update profiles set banned_at=null;`);
   await db.exec('set role service_role');
   expect((await context()).post.id).toBe(post);
   expect(await context('anon:other')).toBeNull();
-  expect(await context('anon:owner',creator)).toBeNull();
+  expect(await context(owner,creator)).toBeNull();
   await db.exec('reset role');
   for(const change of [
    `update posts set active=false`, `update posts set hidden_at=now()`,
@@ -125,6 +131,38 @@ test('event context requires owned unexpired membership and fresh moderation, an
    // A failed SQL command aborts this transaction; roll back the role-test savepoint.
    await db.exec('rollback to roles');
   }
+ } finally {await db.exec('rollback');}
+});
+test('claiming an anonymous token immediately denies its stale session before watch writes, while its verified user can continue',async()=>{
+ await db.exec('begin');
+ const contextSql='select discover_event_context_v1($1::uuid,$2::text,$3::uuid) as data';
+ const watchSql='select discover_watch_context_v1($1::uuid,$2::text,$3::uuid,$4::numeric) as data';
+ const context=async(actor:string)=>(await db.query<{data:any}>(contextSql,[post,actor,post])).rows[0].data;
+ const sample=async(actor:string,claim:number)=>(await db.query<{data:any}>(watchSql,[post,actor,post,claim])).rows[0].data;
+ try {
+  await db.exec(`update discover_sessions_v1 set expires_at=now()+interval '1 hour';
+   update posts set active=true,hidden_at=null,removed_at=null;update profiles set banned_at=null;`);
+  await db.exec('set role service_role');
+  expect(await context(owner)).toEqual(expect.objectContaining({anonymousClaimChecked:true,post:expect.objectContaining({id:post})}));
+  expect(await sample(owner,0)).toEqual(expect.objectContaining({anonymousClaimChecked:true,watched:0}));
+  await db.exec('reset role');
+  await db.exec(`update discover_watch_v1 set last_at=clock_timestamp()-interval '10 seconds';
+   insert into discover_identity_links_v1 values('${post}','${creator}');`);
+  // Deliberately leave this session anonymous: ownership alone is insufficient
+  // after a claim, including a GET/claim race that created a stale session.
+  await db.exec('set role service_role');
+  expect(await context(owner)).toBeNull();
+  expect(await sample(owner,100)).toBeNull();
+  expect(await context('anon:malformed')).toBeNull();
+  await db.exec('reset role');
+  expect((await db.query<{claimed:string;watched:string}>('select claimed_seconds as claimed,watch_seconds as watched from discover_watch_v1')).rows[0]).toEqual({claimed:'0',watched:'0'});
+  // The real claim function transfers sessions to the authenticated owner.
+  await db.exec(`update discover_sessions_v1 set actor='user:${creator}'`);
+  await db.exec('set role service_role');
+  expect((await context('user:'+creator)).post.id).toBe(post);
+  expect((await sample('user:'+creator,5)).watched).toBe(5);
+  expect(await context('user:'+post)).toBeNull();
+  expect(await context(owner)).toBeNull();
  } finally {await db.exec('rollback');}
 });
 test('only requested post data and allowed profile columns are returned',async()=>{

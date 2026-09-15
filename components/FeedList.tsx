@@ -2,6 +2,7 @@
 
 import { memo, useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { fetchDiscoverPage, rememberDiscoverSession } from "@/lib/discoverClient";
+import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import FeedVideoCard from "./VideoCard";
 const VideoCard = memo(FeedVideoCard);
 import FeedEmptyState from "./FeedEmptyState";
@@ -51,7 +52,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     setFeedError(null);
   }
   const [loadingMore, setLoadingMore] = useState(false);
-  const [moreError, setMoreError] = useState(false);
+  const [moreError, setMoreError] = useState<"retry" | "refresh" | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [pendingPosts, setPendingPosts] = useState<string[]>([]);
   const offsetRef = useRef(0);
@@ -64,6 +65,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   // loadMore from a previous generation must throw its response away instead
   // of appending another tab's posts or clobbering the new pagination cursor.
   const fetchGenRef = useRef(0);
+  const fetchControllerRef = useRef<AbortController | null>(null);
 
   // Sync activeTab to ref so loadMore can read it without a stale closure
   useEffect(() => {
@@ -168,6 +170,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
 
     // Reset pagination on every tab change / reload; invalidate stale loadMores.
     fetchGenRef.current += 1;
@@ -176,13 +180,17 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     hasMoreRef.current = false;
     loadingMoreRef.current = false;
     setLoadingMore(false);
-    setMoreError(false);
+    setMoreError(null);
     setPendingPosts([]);
     setWarmingPostId(null);
     setReadyPostId(null);
 
     // Wait for the auth context to settle; the effect re-runs when it does.
-    if (authLoading) return;
+    if (authLoading) return () => {
+      cancelled = true;
+      controller.abort();
+      if (fetchControllerRef.current === controller) fetchControllerRef.current = null;
+    };
 
     (async () => {
       try {
@@ -201,7 +209,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
         // Ranked posts + creator profile + product meta + viewer
         // is_liked / is_following. The viewer is auth.uid() server-side.
-        const page = await fetchDiscoverPage(activeTab, 0, PAGE_SIZE, null);
+        const page = await fetchDiscoverPage(activeTab, 0, PAGE_SIZE, null, controller.signal);
         const data = page.items;
         if (!cancelled) {
           sessionRef.current = page.session;
@@ -225,6 +233,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           }
         }
       } catch (err) {
+        if (cancelled) return;
         console.error("[Feed] FeedList error:", err);
         if (!cancelled) {
           setFeedError(err instanceof Error ? err.message : "Failed to load feed");
@@ -376,6 +385,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     return () => {
       cancelled = true;
       fetchGenRef.current += 1;
+      controller.abort();
+      if (fetchControllerRef.current === controller) fetchControllerRef.current = null;
       supabase.removeChannel(channel);
     };
   }, [activeTab, supabase, authLoading, viewerId, enrichPosts, refreshKey]);
@@ -499,7 +510,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       if (!observedNodesRef.current.has(node)) observerRef.current.observe(node);
     }
     observedNodesRef.current = nodes;
-  }, [sectionMembership, feedError, desktop]);
+  }, [sectionMembership, feedError, desktop, loading]);
   useEffect(() => () => {
     observerRef.current?.disconnect();
     observerRef.current = null;
@@ -546,16 +557,17 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
   // Load the next page (both tabs — same single RPC, offset paginated)
   const loadMore = useCallback(async () => {
-    if (!hasMoreRef.current || loadingMoreRef.current) return;
+    const controller = fetchControllerRef.current;
+    if (!hasMoreRef.current || loadingMoreRef.current || !controller || controller.signal.aborted) return;
     loadingMoreRef.current = true;
     setLoadingMore(true);
-    setMoreError(false);
+    setMoreError(null);
 
     const gen = fetchGenRef.current;
     const currentOffset = offsetRef.current;
 
     try {
-      const page = await fetchDiscoverPage(activeTabRef.current, currentOffset, PAGE_SIZE, sessionRef.current);
+      const page = await fetchDiscoverPage(activeTabRef.current, currentOffset, PAGE_SIZE, sessionRef.current, controller.signal);
       if (gen !== fetchGenRef.current) return;
       const data = page.items;
       rememberDiscoverSession((data as {post_id:string}[]).map(p=>p.post_id), page.session);
@@ -574,8 +586,17 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       });
       enrichPosts(mapped, gen);
     } catch (err) {
-      console.error("[Feed] loadMore error:", err);
-      if (gen === fetchGenRef.current) setMoreError(true);
+      if (gen === fetchGenRef.current) {
+        if (err instanceof DiscoverSessionUnavailableError) {
+          // Keep this snapshot visible until the viewer explicitly replaces it.
+          // Scrolling must not repeatedly retry a snapshot the server rejected.
+          hasMoreRef.current = false;
+          setMoreError("refresh");
+        } else {
+          console.error("[Feed] loadMore error:", err);
+          setMoreError("retry");
+        }
+      }
     } finally {
       if (gen === fetchGenRef.current) {
         loadingMoreRef.current = false;
@@ -593,7 +614,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     }
   }, [activePostId, items.length, loadMore]);
 
-  if (loading && items.length === 0) {
+  // Previously loaded cards belong to the previous feed generation. Hide them
+  // while changing tabs/accounts or refreshing so they cannot play under the
+  // incoming tab's label and controls while its request is still pending.
+  if (loading) {
     return (
       <div className="w-full flex justify-center py-10 text-sm text-gray-500">
         Loading…
@@ -641,7 +665,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     <div className="relative h-full min-h-0 feed-mobile-viewport">
       {pendingPosts.length > 0 && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
-        {moreError ? <button type="button" onClick={() => void loadMore()}>Couldn’t load more · Retry</button> : "Loading more…"}
+        {moreError === "refresh" ? <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }}>Refresh feed to continue</button>
+          : moreError === "retry" ? <button type="button" onClick={() => void loadMore()}>Couldn’t load more · Retry</button> : "Loading more…"}
       </div>}
       <div
         ref={feedScrollRef}

@@ -1,4 +1,5 @@
 "use client";
+import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 const sessions = new Map<string, string>();
 const actorTokens = new Map<string, string>();
 const pendingEvents = new Map<string, Promise<unknown>>();
@@ -22,6 +23,7 @@ export async function fetchDiscoverPage(
   offset: number,
   limit: number,
   session: string | null,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
     tab,
@@ -31,12 +33,18 @@ export async function fetchDiscoverPage(
   if (session) params.set("session", session);
   const response = await fetch("/api/feed?" + params, {
     cache: "no-store",
+    signal,
     headers:
       session && actorTokens.has(session)
         ? { "x-cn-discover-actor": actorTokens.get(session)! }
         : {},
   });
   const result = await response.json();
+  // A superseded feed must not retain a token even if its body arrived while
+  // cancellation was propagating through the browser's transport.
+  signal?.throwIfAborted();
+  if (response.status === 410 && result.code === DISCOVER_SESSION_UNAVAILABLE)
+    throw new DiscoverSessionUnavailableError();
   if (!response.ok) throw new Error(result.error ?? "Could not load feed");
   if (result.session && result.actorToken)
     actorTokens.set(result.session, result.actorToken);
