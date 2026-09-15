@@ -575,4 +575,3 @@ export async function recordDiscoverEvent(input: {
   );
   if (writeError) throw writeError;
 }
-

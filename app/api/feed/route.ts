@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
+import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
 import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
 export async function GET(req:NextRequest){
+ return withDiscoverDatabaseTiming(() => feedResponse(req));
+}
+async function feedResponse(req:NextRequest){
  const timings: string[] = [];
  const started = performance.now();
  let phase = 'legacy';
@@ -14,7 +18,7 @@ export async function GET(req:NextRequest){
  const finish = (response: NextResponse) => {
   // Preview diagnostics contain durations only, never actor/session identifiers.
   if(process.env.VERCEL_ENV==='preview') response.headers.set('Server-Timing',
-   [...timings,`total;dur=${(performance.now()-started).toFixed(1)}`].join(', '));
+   [...timings,...discoverDatabaseTimingHeader(),`total;dur=${(performance.now()-started).toFixed(1)}`].join(', '));
   return response;
  };
  const tab=req.nextUrl.searchParams.get('tab')==='following'?'following':'discover';
