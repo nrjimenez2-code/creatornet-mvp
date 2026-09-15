@@ -15,6 +15,7 @@
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
 process.env.SUPABASE_SERVICE_ROLE_KEY = "service_role_fake";
 
+import { NextRequest } from "next/server";
 import { _resetRateLimits } from "@/lib/rateLimit";
 import { createMockClient, type MockClient } from "./__mocks__/supabaseQueryMock";
 
@@ -104,5 +105,46 @@ describe("/api/reviews is rate limited", () => {
     );
     expect(blocked.status).toBe(429);
     expect(db.ops.length).toBe(opsBefore);
+  });
+});
+
+/**
+ * A GET from a fixed address, so clientKey() is stable across calls.
+ * Must be a real NextRequest: the route reads req.nextUrl.searchParams, and a
+ * plain Request would throw there — which would make the "never reached the
+ * database" assertion below pass for the wrong reason.
+ */
+function getFrom(ip: string, url: string) {
+  return new NextRequest(url, { method: "GET", headers: { "x-forwarded-for": ip } });
+}
+
+describe("/api/tag/[hashtag] is rate limited", () => {
+  // Matches the limit in the route. This one is public and unauthenticated, and
+  // every call fans out into five parallel service-role queries against posts,
+  // so an unthrottled caller costs five times what it looks like.
+  const LIMIT = 90;
+
+  const call = async (ip: string) => {
+    const { GET } = await import("@/app/api/tag/[hashtag]/route");
+    return GET(getFrom(ip, "https://x/api/tag/fitness") as never, {
+      params: Promise.resolve({ hashtag: "fitness" }),
+    });
+  };
+
+  it("answers 429 past the limit, without touching the database", async () => {
+    for (let i = 0; i < LIMIT; i++) {
+      expect((await call("7.7.7.1")).status).not.toBe(429);
+    }
+
+    const opsBefore = db.ops.length;
+    const blocked = await call("7.7.7.1");
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get("Retry-After")).toBe("60");
+    expect(db.ops.length).toBe(opsBefore);
+  });
+
+  it("limits per address, so one abuser cannot lock out everyone else", async () => {
+    for (let i = 0; i < LIMIT + 1; i++) await call("7.7.7.2");
+    expect((await call("7.7.7.3")).status).not.toBe(429);
   });
 });

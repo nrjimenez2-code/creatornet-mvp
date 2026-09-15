@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
 
@@ -53,6 +54,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ hashtag: string }> }
 ) {
+  if (!allowRequest(`tag:${clientKey(req)}`, { limit: 90, windowMs: 60_000 })) return tooManyRequests();
   try {
     const { hashtag } = await params;
     const rawTag = decodeURIComponent(hashtag || "").trim();
