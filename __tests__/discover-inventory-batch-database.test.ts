@@ -36,6 +36,9 @@ beforeAll(async()=>{
  if(watchStart<0||watchEnd<0)throw new Error('Watch function not found');
  await db.exec(original.slice(watchStart,watchEnd));
  await db.exec(readFileSync('supabase/migrations/20260915070916_discover_watch_context.sql','utf8'));
+ await db.exec(`create table discover_events_v1(actor text,post_id uuid,kind text,entity_key text,unique(kind,entity_key));
+ grant select on discover_events_v1 to service_role;`);
+ await db.exec(readFileSync('supabase/migrations/20260915073233_discover_watch_receipt_kinds.sql','utf8'));
 });
 test('combined page query enforces ownership, expiry, role and page bounds',async()=>{
  const sql='select discover_page_inventory_v1($1::uuid,$2::text,$3::bigint,$4::integer) as data';
@@ -75,6 +78,13 @@ test('combined watch context enforces eligibility before writes and preserves bo
   await db.exec('set role service_role');
   expect((await sample('anon:owner',100)).watched).toBe(6);
   expect((await sample('anon:owner',100)).watched).toBe(6);
+  await db.exec('reset role');
+  await db.exec(`insert into discover_events_v1 values
+   ('anon:owner','${post}','exposure','${post}:${post}'),
+   ('anon:other','${post}','completion','${post}:${post}'),
+   ('anon:owner','${post}','qualified_view','different-session:${post}');`);
+  await db.exec('set role service_role');
+  expect((await sample('anon:owner',100)).recordedKinds).toEqual(['exposure']);
   await db.exec('reset role');
   await db.exec('update profiles set banned_at=now()');
   expect(await sample('anon:owner',105)).toBeNull();

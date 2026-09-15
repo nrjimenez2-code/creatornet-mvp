@@ -7,6 +7,7 @@ type EventContext = {
   audience: string;
   offers?: DiscoverEventOffers;
   watched?: number;
+  recordedKinds?: string[];
 };
 
 export async function loadDiscoverEventContext(sessionId:string, actor:string, postId:string, claimedSeconds?:number):Promise<EventContext|null> {
@@ -20,13 +21,16 @@ export async function loadDiscoverEventContext(sessionId:string, actor:string, p
     if (error?.code === '22P02') return null;
     if (error) throw error;
     if (data === null) return null;
+    if (data.recordedKinds !== undefined && (!Array.isArray(data.recordedKinds) ||
+        !data.recordedKinds.every((kind:unknown)=>['exposure','qualified_view','completion'].includes(kind as string))))
+      throw new Error('Invalid watch receipts');
     if (!data?.post || data.post.id !== postId || !data.post.creator_id ||
         typeof data.audience !== 'string' || (withWatch &&
           (typeof data.watched !== 'number' || !Number.isFinite(data.watched) || data.watched < 0)) ||
         !['primaryProducts','legacyProducts','offerings'].every(key=>Array.isArray(data[key]))) {
       throw new Error('Invalid event context');
     }
-    return {post:data.post,audience:data.audience,...(withWatch ? {watched:data.watched} : {}),offers:{
+    return {post:data.post,audience:data.audience,...(withWatch ? {watched:data.watched,recordedKinds:data.recordedKinds} : {}),offers:{
       primaryProducts:data.primaryProducts,legacyProducts:data.legacyProducts,offerings:data.offerings,
     }};
   }

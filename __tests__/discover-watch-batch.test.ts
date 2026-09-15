@@ -6,6 +6,7 @@ let duration:number|null=10;
 let invalidSession=false;
 let hidden=false;
 let banned=false;
+let recordedKinds:string[]=[];
 const recordMany=jest.fn();
 jest.mock('@/lib/supabaseAdmin',()=>({get supabaseAdmin(){return db;}}));
 jest.mock('@/lib/discoverServer',()=>({
@@ -20,9 +21,9 @@ jest.mock('@/lib/discoverMedia',()=>({verifiedVideoDuration:async()=>duration}))
 import {POST} from '@/app/api/feed-events/route';
 beforeEach(()=>{
  delete process.env.DISCOVER_EVENT_CONTEXT_ENABLED;
- recordMany.mockReset();watched=0;duration=10;invalidSession=false;hidden=false;banned=false;
+ recordMany.mockReset();watched=0;duration=10;invalidSession=false;hidden=false;banned=false;recordedKinds=[];
  db=createMockClient(op=>{
-  if(op.table==='discover_watch_context_v1')return {data:{post:{id:'post',creator_id:'creator',video_url:'https://media.creatornet.net/videos/test.mp4'},audience:'photography',primaryProducts:[],legacyProducts:[],offerings:[],watched},error:null};
+  if(op.table==='discover_watch_context_v1')return {data:{post:{id:'post',creator_id:'creator',video_url:'https://media.creatornet.net/videos/test.mp4'},audience:'photography',primaryProducts:[],legacyProducts:[],offerings:[],watched,recordedKinds},error:null};
   if(op.table==='discover_sessions_v1')return {data:invalidSession?null:{post_ids:['post'],expires_at:new Date(Date.now()+3600000).toISOString(),audiences:{post:'photography'}},error:null};
   if(op.table==='posts')return {data:{id:'post',creator_id:'creator',active:true,hidden_at:hidden?'2026-09-15':null,caption:'Portrait photography',video_url:'https://media.creatornet.net/videos/test.mp4'},error:null};
   if(op.table==='profiles')return {data:{banned_at:banned?'2026-09-15':null},error:null};
@@ -67,4 +68,15 @@ test('combined context does not advance watch time a second time in the route',a
  expect(db.opsFor('discover_watch_context_v1')).toHaveLength(1);
  expect(db.opsFor('discover_watch_sample_v1')).toHaveLength(0);
  expect(recordMany.mock.calls[0][1].map((e:{kind:string})=>e.kind)).toEqual(['exposure','qualified_view','completion']);
+});
+
+test('existing receipts skip duplicate writes while a new completion is still recorded',async()=>{
+ process.env.DISCOVER_EVENT_CONTEXT_ENABLED='true';watched=6;
+ recordedKinds=['exposure','qualified_view'];
+ expect((await POST(request())).status).toBe(200);
+ expect(db.opsFor('discover_watch_context_v1')).toHaveLength(1);
+ expect(recordMany).not.toHaveBeenCalled();
+ watched=9;
+ expect((await POST(request())).status).toBe(200);
+ expect(recordMany.mock.calls[0][1]).toEqual([{kind:'completion',entityKey:'session:post'}]);
 });
