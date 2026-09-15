@@ -493,9 +493,16 @@ export async function readDiscoverPage(
         comments_count: p.comments_count,
         shares_count: p.shares_count,
         purchase_count: p.purchase_count,
-        creator_name: userId ? p.profile?.full_name : null,
-        creator_username: userId ? p.profile?.username : null,
-        creator_avatar_url: userId ? p.profile?.avatar_url : null,
+        // Creator identity is PUBLIC: creator profile pages render it to anyone,
+        // and the legacy get_feed_v3 path returns it to anon too. Gating these on
+        // userId made every post on the signed-out front door read "Creator",
+        // undoing the fix migration 060/#153 shipped for exactly that. The
+        // profile is already loaded unconditionally here — creator_verified just
+        // below reads the same p.profile with no gate — so this was throwing
+        // away data it had already fetched.
+        creator_name: p.profile?.full_name ?? null,
+        creator_username: p.profile?.username ?? null,
+        creator_avatar_url: p.profile?.avatar_url ?? null,
         creator_verified: isSellReadyProfile(p.profile),
         product_type: p.product?.type,
         product_price_cents: p.product?.amount_cents || p.product?.price_cents,
