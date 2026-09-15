@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 import { assertMembershipId } from "@/lib/membershipAgreement";
 import { membershipCheckoutReady } from "@/lib/membershipServer";
 import { createMembershipRuntime } from "@/lib/membershipRuntime";
@@ -11,6 +12,10 @@ export async function GET(req: NextRequest) {
   if (!membershipCheckoutReady()) return Response.json({ error: "Monthly checkout is not enabled." }, { status: 409, headers });
   const user = await getAuthenticatedUser(req);
   if (!user) return Response.json({ error: "Sign in to review this membership." }, { status: 401, headers });
+  // Keyed by user and placed AFTER auth on purpose: an IP key checked before
+  // auth would let unauthenticated strangers behind the same carrier NAT burn
+  // a buyer's budget one click away from a sale.
+  if (!allowRequest(`membership-quote:${user.id}`, { limit: 90, windowMs: 60_000 })) return tooManyRequests();
   try {
     const params = new URL(req.url).searchParams, productId = params.get("product_id"), postId = params.get("post_id");
     assertMembershipId(productId); assertMembershipId(postId);

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,6 +25,12 @@ export async function GET(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // Deliberately very generous. PostComposer reads this without checking res.ok,
+  // so a 429 body makes ready=false and tells a creator who IS connected to
+  // "connect Stripe", with no error and no retry path. The banner also remounts
+  // on every 1024px viewport crossing, which fires extra calls nobody counts.
+  if (!allowRequest(`connect-status:${user.id}`, { limit: 240, windowMs: 60_000 })) return tooManyRequests();
 
   const db = admin();
 

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
+import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 import { assertExactInstallmentEnvironment } from "@/lib/installments/checkoutPreparation";
 import { readContextCheckoutPayments } from "@/lib/installments/contextCheckoutApp";
 import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
@@ -30,6 +31,12 @@ export async function GET(req: NextRequest) {
       { status: 401 }
     );
   }
+
+  // Keyed by user, not IP: an agency running several closer accounts from one
+  // office IP must not share a bucket on the route their dashboard refreshes
+  // most. The Refresh button is disabled while a load is in flight, so the
+  // client cannot exceed one request per completed round trip.
+  if (!allowRequest(`bookings-list:${user.id}`, { limit: 60, windowMs: 60_000 })) return tooManyRequests();
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },

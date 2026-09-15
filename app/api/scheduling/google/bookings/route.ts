@@ -1,10 +1,14 @@
 import {NextRequest,NextResponse} from "next/server";
 import {getAuthenticatedUser} from "@/lib/supabaseConnectAuth";
+import {allowRequest, tooManyRequests} from "@/lib/rateLimit";
 import {supabaseAdmin as db} from "@/lib/supabaseAdmin";
 import {isBookingId} from "@/lib/googleBookingUrl";
 const headers={"Cache-Control":"private, no-store"};
 export async function GET(req:NextRequest){
  const user=await getAuthenticatedUser(req);if(!user)return NextResponse.json({error:"Sign in to view bookings"},{status:401,headers});
+ // Both triggers (Refresh, Load more) are disabled while a load is in flight, so
+ // a human cannot approach this; it exists to stop a scripted loop.
+ if(!allowRequest(`google-bookings:${user.id}`,{limit:120,windowMs:60_000}))return tooManyRequests();
  const q=req.nextUrl.searchParams,role=q.get("role")??"buyer",before=q.get("before"),beforeId=q.get("before_id");
  if(!["buyer","creator"].includes(role)||((before!==null)!==(beforeId!==null))||(before!==null&&(!Number.isFinite(Date.parse(before))||!isBookingId(beforeId))))return NextResponse.json({error:"Invalid booking page"},{status:400,headers});
  // A deployment that has not enabled the Google schema does not query its tables.

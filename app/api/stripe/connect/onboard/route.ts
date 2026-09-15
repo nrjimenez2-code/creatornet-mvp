@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
 import { createClient } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 import { getSiteUrl } from "@/lib/siteUrl";
 import { ConnectAccountReconciliationError, createOrRecoverConnectAccount } from "@/lib/connectAccountCreation";
 
@@ -34,6 +35,11 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
+
+  // 60, not lower: the connect banner re-enables its button after every failure,
+  // so a creator hitting the "Stripe Connect is not enabled" branch will mash it,
+  // and that is payout setup on launch day. 60 still stops a scripted loop.
+  if (!allowRequest(`connect-onboard:${user.id}`, { limit: 60, windowMs: 60_000 })) return tooManyRequests();
 
   const db = admin();
 
