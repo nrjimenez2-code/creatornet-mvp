@@ -75,12 +75,18 @@ async function eventResponse(req:NextRequest, measured:EventMeasure) {
     };
     const sessionKey = body.session + ":" + body.postId;
     if (isWatch) {
+      const recorded = new Set(context.recordedKinds ?? []);
+      // These receipts belong to this freshly authorized session/post. Once all
+      // viewing milestones exist, duration cannot award another one. Continue
+      // sampling watch time, but avoid a media lookup with no remaining use.
+      // Partial/legacy receipts still require current verified media metadata.
+      const viewingComplete = ['exposure', 'qualified_view', 'completion'].every(kind=>recorded.has(kind));
       // Both reads depend on the completed eligibility checks, not each other.
       const [{ data: watched, error: watchError }, duration] = await Promise.all([
         measured('sample',async()=>context.watched !== undefined ? {data:context.watched,error:null} : await admin.rpc("discover_watch_sample_v1", {
           p_session: body.session, p_post: body.postId, p_claimed: seconds,
         })),
-        measured('media',()=>body.kind === "watch" ? verifiedVideoDuration(post.video_url) : Promise.resolve(null)),
+        measured('media',()=>body.kind === "watch" && !viewingComplete ? verifiedVideoDuration(post.video_url) : Promise.resolve(null)),
       ]);
       if (watchError) throw watchError;
       const events = [{kind:'exposure',entityKey:sessionKey}];
@@ -102,7 +108,6 @@ async function eventResponse(req:NextRequest, measured:EventMeasure) {
           kind: "completion",
           entityKey: sessionKey,
         });
-      const recorded = new Set(context.recordedKinds ?? []);
       const missing = events.filter(event=>!recorded.has(event.kind));
       // A concurrent request may still race this read; the unique upsert remains
       // the final deduplication guard for newly reached milestones.
