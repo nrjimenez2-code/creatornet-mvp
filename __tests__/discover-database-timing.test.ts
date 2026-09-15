@@ -37,3 +37,17 @@ test('production passes through without diagnostics', async () => {
     expect(discoverDatabaseTimingHeader()).toEqual([]);
   });
 });
+
+test('accepts only numeric upstream durations and distinguishes missing samples', async () => {
+  process.env.VERCEL_ENV = 'preview';
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce(new Response('{}', {headers:{'x-envoy-upstream-service-time':'12.5'}}))
+    .mockResolvedValueOnce(new Response('{}', {headers:{'x-envoy-upstream-service-time':'private-detail'}}))
+    .mockResolvedValueOnce(new Response('{}'));
+  await withDiscoverDatabaseTiming(async () => {
+    for(let i=0;i<3;i++) await timedDatabaseFetch('https://example.test');
+    expect(discoverDatabaseTimingHeader()).toContain('upstream;dur=12.5');
+    expect(discoverDatabaseTimingHeader()).toContain('upstreamcount;dur=1');
+    expect(discoverDatabaseTimingHeader().join(',')).not.toContain('private-detail');
+  });
+});
