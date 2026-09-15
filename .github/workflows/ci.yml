@@ -75,5 +75,8 @@ jobs:
       - name: Tests
         run: node scripts/ci-tests.cjs
 
+      - name: Media processor safeguards
+        run: node --test workers/media-processor/worker.test.mjs
+
       - name: Production build
         run: npm run build
