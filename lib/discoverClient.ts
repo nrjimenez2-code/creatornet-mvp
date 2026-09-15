@@ -1,8 +1,19 @@
 "use client";
+import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
+import { DiscoverEventQueue } from "@/lib/discoverEventQueue";
 const sessions = new Map<string, string>();
 const actorTokens = new Map<string, string>();
-const pendingEvents = new Map<string, Promise<unknown>>();
 const watchTotals = new Map<string, number>();
+const eventQueue = new DiscoverEventQueue((event, signal) => fetch("/api/feed-events", {
+  method: "POST",
+  keepalive: true,
+  signal,
+  headers: {
+    "Content-Type": "application/json",
+    ...(event.actorToken ? { "x-cn-discover-actor": event.actorToken } : {}),
+  },
+  body: JSON.stringify({ session: event.session, postId: event.postId, kind: event.kind, watchSeconds: event.watchSeconds }),
+}));
 function trimMap<T>(map: Map<string, T>, limit: number) {
   while (map.size > limit) map.delete(map.keys().next().value!);
 }
@@ -22,6 +33,7 @@ export async function fetchDiscoverPage(
   offset: number,
   limit: number,
   session: string | null,
+  signal?: AbortSignal,
 ) {
   const params = new URLSearchParams({
     tab,
@@ -31,12 +43,18 @@ export async function fetchDiscoverPage(
   if (session) params.set("session", session);
   const response = await fetch("/api/feed?" + params, {
     cache: "no-store",
+    signal,
     headers:
       session && actorTokens.has(session)
         ? { "x-cn-discover-actor": actorTokens.get(session)! }
         : {},
   });
   const result = await response.json();
+  // A superseded feed must not retain a token even if its body arrived while
+  // cancellation was propagating through the browser's transport.
+  signal?.throwIfAborted();
+  if (response.status === 410 && result.code === DISCOVER_SESSION_UNAVAILABLE)
+    throw new DiscoverSessionUnavailableError();
   if (!response.ok) throw new Error(result.error ?? "Could not load feed");
   if (result.session && result.actorToken)
     actorTokens.set(result.session, result.actorToken);
@@ -69,25 +87,5 @@ export function sendDiscoverEvent(
     watchTotals.set(key, watchSeconds);
     trimMap(watchTotals, 10000);
   }
-  const send = () =>
-    fetch("/api/feed-events", {
-      method: "POST",
-      keepalive: true,
-      headers: {
-        "Content-Type": "application/json",
-        ...(actorTokens.has(session)
-          ? { "x-cn-discover-actor": actorTokens.get(session)! }
-          : {}),
-      },
-      body: JSON.stringify({ session, postId, kind, watchSeconds }),
-    });
-  // Preserve exposure-before-watch ordering even on a slow connection.
-  const pending = (pendingEvents.get(key) ?? Promise.resolve())
-    .then(send, send)
-    .catch(() => {});
-  pendingEvents.set(key, pending);
-  void pending.finally(() => {
-    if (pendingEvents.get(key) === pending) pendingEvents.delete(key);
-  });
-  return true;
+  return eventQueue.enqueue({ session, postId, kind, watchSeconds, actorToken: actorTokens.get(session) });
 }

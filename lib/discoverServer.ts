@@ -14,6 +14,11 @@ import { matchInterestTopics, normalizeTopics } from "@/lib/interestTopics";
 import { isUnreliableVideoUrl } from "@/lib/feedV3";
 import { isSellReadyProfile } from "@/lib/sellReady";
 import { assignDiscoverPilot } from "@/lib/discoverPilot";
+import { inFlightRead } from "@/lib/inFlightRead";
+import { discoverSharedRead } from "@/lib/discoverSharedRead";
+import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
+const initialInventoryRead = inFlightRead<Record<string, any>[]>();
+const rankingEvidenceRead = inFlightRead<DiscoverEvidence[]>();
 export const discoverEnabled = () => process.env.DISCOVER_V4_ENABLED === "true";
 const COOKIE = "cn_discover_actor";
 function sign(value: string) {
@@ -22,6 +27,21 @@ function sign(value: string) {
     .digest("hex");
 }
 export async function discoverIdentity(req: NextRequest) {
+  return resolveDiscoverIdentity(req, false);
+}
+// An event candidate cannot create/read feed sessions. Its anonymous claim check
+// is resolved by loadDiscoverEventContext before it becomes an event actor.
+export type DiscoverEventIdentity = {
+  actorCandidate: string;
+  userId: string | null;
+  anonymousClaimCheck: 'context' | 'complete';
+};
+export async function discoverEventIdentity(req: NextRequest): Promise<DiscoverEventIdentity> {
+  const deferred = process.env.DISCOVER_EVENT_CONTEXT_ENABLED === 'true';
+  const identity = await resolveDiscoverIdentity(req, deferred);
+  return { actorCandidate: identity.actor, userId: identity.userId, anonymousClaimCheck: deferred ? 'context' : 'complete' };
+}
+async function resolveDiscoverIdentity(req: NextRequest, deferAnonymousClaimCheck: boolean) {
   const { data, error } = await createServerClient().auth.getUser();
   if (error && error.name !== "AuthSessionMissingError")
     throw new Error("Could not verify feed identity");
@@ -30,12 +50,21 @@ export async function discoverIdentity(req: NextRequest) {
     if (anonymous) await claimDiscoverIdentity(anonymous.id, data.user.id);
     return {
       actor: "user:" + data.user.id,
+      newAnonymous: false,
       userId: data.user.id,
       cookie: null,
       token: null,
     };
   }
   if (anonymous) {
+    if (deferAnonymousClaimCheck)
+      return {
+        actor: "anon:" + anonymous.id,
+        newAnonymous: false,
+        userId: null,
+        cookie: null,
+        token: anonymous.token,
+      };
     const { data: linked, error: linkError } = await admin
       .from("discover_identity_links_v1")
       .select("anonymous_id")
@@ -47,6 +76,7 @@ export async function discoverIdentity(req: NextRequest) {
     if (!linked)
       return {
         actor: "anon:" + anonymous.id,
+        newAnonymous: false,
         userId: null,
         cookie: null,
         token: anonymous.token,
@@ -55,6 +85,7 @@ export async function discoverIdentity(req: NextRequest) {
   const next = randomUUID();
   return {
     actor: "anon:" + next,
+    newAnonymous: true,
     userId: null,
     cookie: next + "." + sign(next),
     token: next + "." + sign(next),
@@ -147,8 +178,19 @@ async function byIds(
 }
 export async function discoverInventory(
   ids?: string[],
+  preloaded?: Record<string, any>,
 ): Promise<Record<string, any>[]> {
-  const posts = ids
+  let posts: Record<string, any>[], profiles: Record<string, any>[],
+    primaryProducts: Record<string, any>[], legacyProducts: Record<string, any>[],
+    offerings: Record<string, any>[];
+  if (preloaded || (ids && process.env.DISCOVER_BATCH_INVENTORY_ENABLED === 'true')) {
+    const {data,error} = preloaded ? {data:preloaded,error:null} : await admin.rpc('discover_inventory_batch_v1',{p_ids:ids});
+    if(error) throw error;
+    if(!data || !['posts','profiles','primaryProducts','legacyProducts','offerings']
+      .every(key => Array.isArray(data[key]))) throw new Error('Inventory batch unavailable');
+    ({posts,profiles,primaryProducts,legacyProducts,offerings}=data);
+  } else {
+  posts = ids
     ? await byIds("posts", POST_COLUMNS, ids)
     : await readAll("posts", POST_COLUMNS);
   const creatorIds = [
@@ -162,7 +204,7 @@ export async function discoverInventory(
   ];
   const productColumns =
     "id,product_id,creator_id,title,description,type,price_cents,amount_cents,active";
-  const [profiles, primaryProducts, legacyProducts, offerings] =
+  [profiles, primaryProducts, legacyProducts, offerings] =
     await Promise.all([
       byIds(
         "profiles",
@@ -177,6 +219,7 @@ export async function discoverInventory(
         offeringIds,
       ),
     ]);
+  }
   const products = [...primaryProducts, ...legacyProducts];
   const profilesById = new Map(profiles.map((p) => [p.id, p]));
   const productsById = new Map(
@@ -257,11 +300,14 @@ export async function createDiscoverSession(
   actor: string,
   userId: string | null,
   tab: string,
+  newAnonymous = false,
 ) {
   const pilot = await assignDiscoverPilot(admin, userId, tab);
   const [inventory, events, profile, following, legacy] = await Promise.all([
-    discoverInventory(),
-    tab === "following"
+    initialInventoryRead('inventory', () => discoverSharedRead('inventory', () => discoverInventory())),
+    // Only the server identity issuer can mark a just-minted anonymous UUID.
+    // Returning actors and every authenticated viewer still read their history.
+    tab === "following" || (newAnonymous && userId === null && actor.startsWith('anon:'))
       ? Promise.resolve([])
       : readAll(
           "discover_events_v1",
@@ -295,12 +341,14 @@ export async function createDiscoverSession(
   const evidence: DiscoverEvidence[] = [];
   if (tab !== "following")
     for (let offset = 0; offset < inventory.length; offset += 200) {
-      const { data, error } = await admin.rpc("discover_rank_evidence_v1", {
-        p_posts: inventory.slice(offset, offset + 200).map((p) => p.id),
-      });
-      if (error || !Array.isArray(data))
-        throw error ?? new Error("Ranking evidence unavailable");
-      evidence.push(...(data as DiscoverEvidence[]));
+      const postIds = inventory.slice(offset, offset + 200).map((p) => p.id);
+      const batch = await rankingEvidenceRead(JSON.stringify(postIds), () => discoverSharedRead('evidence:'+JSON.stringify(postIds), async () => {
+        const { data, error } = await admin.rpc("discover_rank_evidence_v1", {p_posts: postIds});
+        if (error || !Array.isArray(data))
+          throw error ?? new Error("Ranking evidence unavailable");
+        return data as DiscoverEvidence[];
+      }));
+      evidence.push(...batch);
     }
   const follows = new Set((following.data ?? []).map((f) => f.following_id));
   const placements: Record<string, DiscoverPlacement> = {};
@@ -384,21 +432,27 @@ export async function readDiscoverPage(
   limit: number,
   userId: string | null,
 ) {
-  const { data: session, error } = await admin
+  const { data: session, error } = process.env.DISCOVER_PAGE_INVENTORY_ENABLED === 'true'
+    ? await admin.rpc('discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit})
+    : await admin
     .from("discover_sessions_v1")
     .select("post_ids,expires_at")
     .eq("id", sessionId)
     .eq("actor", actor)
-    .single();
-  if (error || !session) throw new Error("Feed session unavailable");
+    .maybeSingle();
+  // The private page RPC uses a dedicated SQLSTATE for missing, expired and
+  // differently owned snapshots. Temporary database failures keep Retry semantics.
+  if (error?.code === "CN001") throw new DiscoverSessionUnavailableError();
+  if (error) throw error;
+  if (!session) throw new DiscoverSessionUnavailableError();
   if (Date.parse(session.expires_at) <= Date.now())
-    throw new Error("Feed session expired; refresh to continue");
+    throw new DiscoverSessionUnavailableError();
   const ids: string[] = session.post_ids;
   const selected = ids.slice(offset, offset + limit);
   if (!selected.length)
     return { items: [], nextOffset: ids.length, hasMore: false };
   // Recheck moderation on every page; the snapshot freezes order, not permissions.
-  const inventory = await discoverInventory(selected);
+  const inventory = await discoverInventory(selected, session.inventory);
   const [likes, follows] = await Promise.all([
     userId
       ? admin
@@ -458,7 +512,7 @@ export async function readDiscoverPage(
     hasMore: offset + limit < ids.length,
   };
 }
-export async function recordDiscoverEvent(input: {
+type DiscoverEventInput = {
   actor: string;
   userId: string | null;
   postId: string;
@@ -467,19 +521,54 @@ export async function recordDiscoverEvent(input: {
   audience?: string;
   amountCents?: number;
   currency?: string;
-}) {
-  const { data: p, error } = await admin
-    .from("posts")
-    .select(
-      "id,creator_id,interests,topics,title,content,caption,product_id,offering_id,allow_booking",
-    )
-    .eq("id", input.postId)
-    .single();
-  if (error) throw error;
+};
+export const DISCOVER_EVENT_POST_COLUMNS =
+  "id,creator_id,interests,topics,title,content,caption,product_id,offering_id,allow_booking";
+export type DiscoverEventPost = {
+  id: string;
+  creator_id: string;
+  interests?: string[] | null;
+  topics?: string[] | null;
+  title?: string | null;
+  content?: string | null;
+  caption?: string | null;
+  product_id?: string | null;
+  offering_id?: string | null;
+  allow_booking?: boolean | null;
+};
+export type DiscoverEventOffers = {
+  primaryProducts: Record<string, any>[];
+  legacyProducts: Record<string, any>[];
+  offerings: Record<string, any>[];
+};
+export async function recordDiscoverEvent(input: DiscoverEventInput) {
+  return recordDiscoverEvents(input, [{kind:input.kind,entityKey:input.entityKey}]);
+}
+export async function recordDiscoverEvents(
+  input: Omit<DiscoverEventInput, 'kind' | 'entityKey'>,
+  events: Array<Pick<DiscoverEventInput, 'kind' | 'entityKey'>>,
+  // Only server-loaded metadata from this request; never a browser payload or cache.
+  loadedPost?: DiscoverEventPost,
+  loadedOffers?: DiscoverEventOffers,
+) {
+  if (!events.length) return;
+  let p = loadedPost;
+  if (p && p.id !== input.postId) throw new Error("Event metadata post mismatch");
+  if (!p) {
+    const { data, error } = await admin
+      .from("posts")
+      .select(DISCOVER_EVENT_POST_COLUMNS)
+      .eq("id", input.postId)
+      .single();
+    if (error) throw error;
+    p = data;
+  }
   if (!p?.creator_id || p.creator_id === input.userId) return;
   const productColumns =
     "id,product_id,creator_id,title,description,type,active";
-  const [products, legacyProducts, offerings] = await Promise.all([
+  const [products, legacyProducts, offerings] = loadedOffers
+    ? [loadedOffers.primaryProducts, loadedOffers.legacyProducts, loadedOffers.offerings]
+    : await Promise.all([
     p.product_id
       ? byIds("products", productColumns, [p.product_id])
       : Promise.resolve([]),
@@ -536,14 +625,13 @@ export async function recordDiscoverEvent(input: {
     if (exposureError) throw exposureError;
     audience = exposure?.audience ?? "general";
   }
-  const { error: writeError } = await admin.from("discover_events_v1").upsert(
-    {
+  const rows = events.map(event => ({
       actor: input.actor,
       user_id: input.userId,
       post_id: p.id,
       creator_id: p.creator_id,
-      kind: input.kind,
-      entity_key: input.entityKey,
+      kind: event.kind,
+      entity_key: event.entityKey,
       categories,
       topics,
       audience,
@@ -553,7 +641,9 @@ export async function recordDiscoverEvent(input: {
         (p.allow_booking ? "free_call" : "none"),
       amount_cents: input.amountCents ?? 0,
       currency: input.currency ?? null,
-    },
+    }));
+  const { error: writeError } = await admin.from("discover_events_v1").upsert(
+    rows.length === 1 ? rows[0] : rows,
     { onConflict: "kind,entity_key", ignoreDuplicates: true },
   );
   if (writeError) throw writeError;
