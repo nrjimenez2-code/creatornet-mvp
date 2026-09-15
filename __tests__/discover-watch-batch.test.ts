@@ -37,7 +37,7 @@ test('batches only evidence established by server watch time and verified durati
   {kind:'exposure',entityKey:'session:post'},
   {kind:'qualified_view',entityKey:'session:post'},
   {kind:'completion',entityKey:'session:post'},
- ],expect.objectContaining({id:'post',creator_id:'creator',caption:'Portrait photography'}));
+ ],expect.objectContaining({id:'post',creator_id:'creator',caption:'Portrait photography'}),undefined);
 });
 test('inflated browser time cannot add qualified viewing or completion',async()=>{
  watched=1;

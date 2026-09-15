@@ -25,6 +25,8 @@ beforeAll(async()=>{
  insert into discover_sessions_v1 values('${post}','anon:owner',array['${post}'::uuid],now()+interval '1 hour');
  grant select on discover_sessions_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260915054818_discover_page_inventory.sql','utf8'));
+ await db.exec(`alter table discover_sessions_v1 add column audiences jsonb default '{}'::jsonb`);
+ await db.exec(readFileSync('supabase/migrations/20260915065451_discover_event_context.sql','utf8'));
 });
 test('combined page query enforces ownership, expiry, role and page bounds',async()=>{
  const sql='select discover_page_inventory_v1($1::uuid,$2::text,$3::bigint,$4::integer) as data';
@@ -48,6 +50,37 @@ test('combined page query enforces ownership, expiry, role and page bounds',asyn
  await expect(db.query(sql,[post,'anon:owner',0,5])).rejects.toThrow('Feed session unavailable');
 });
 afterAll(async()=>{await db.close();});
+
+test('event context requires owned unexpired membership and fresh moderation, and is private',async()=>{
+ await db.exec('begin');
+ const sql='select discover_event_context_v1($1::uuid,$2::text,$3::uuid) as data';
+ const context=async(actor='anon:owner',postId=post)=>(await db.query<{data:any}>(sql,[post,actor,postId])).rows[0].data;
+ try {
+  await db.exec(`update discover_sessions_v1 set expires_at=now()+interval '1 hour';update posts set active=true,hidden_at=null,removed_at=null;update profiles set banned_at=null;`);
+  await db.exec('set role service_role');
+  expect((await context()).post.id).toBe(post);
+  expect(await context('anon:other')).toBeNull();
+  expect(await context('anon:owner',creator)).toBeNull();
+  await db.exec('reset role');
+  for(const change of [
+   `update posts set active=false`, `update posts set hidden_at=now()`,
+   `update posts set removed_at=now()`, `update profiles set banned_at=now()`,
+   `update discover_sessions_v1 set expires_at=now()-interval '1 second'`,
+   `update discover_sessions_v1 set post_ids='{}'`,
+  ]) {
+   await db.exec('savepoint eligibility');await db.exec(change);
+   expect(await context()).toBeNull();
+   await db.exec('rollback to eligibility');
+  }
+  for(const role of ['anon','authenticated']) {
+   await db.exec('savepoint roles');
+   await db.exec('set role '+role);
+   await expect(context()).rejects.toThrow(/permission denied/);
+   // A failed SQL command aborts this transaction; roll back the role-test savepoint.
+   await db.exec('rollback to roles');
+  }
+ } finally {await db.exec('rollback');}
+});
 test('only requested post data and allowed profile columns are returned',async()=>{
  const {rows}=await db.query<{data:any}>('select discover_inventory_batch_v1($1::uuid[]) as data',[[post]]);
  expect(rows[0].data.posts).toHaveLength(1);

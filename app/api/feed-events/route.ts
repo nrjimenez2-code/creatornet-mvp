@@ -5,10 +5,10 @@ import {
   discoverIdentity,
   recordDiscoverEvent,
   recordDiscoverEvents,
-  DISCOVER_EVENT_POST_COLUMNS,
 } from "@/lib/discoverServer";
 import { allowRequest } from "@/lib/rateLimit";
 import { verifiedVideoDuration } from "@/lib/discoverMedia";
+import { loadDiscoverEventContext } from "@/lib/discoverEventContext";
 const KINDS = new Set([
   "exposure",
   "watch",
@@ -36,44 +36,14 @@ export async function POST(req: NextRequest) {
       })
     )
       return NextResponse.json({ error: "Too many events" }, { status: 429 });
-    const { data: session, error } = await admin
-      .from("discover_sessions_v1")
-      .select("post_ids,expires_at,audiences")
-      .eq("id", body.session)
-      .eq("actor", identity.actor)
-      .single();
-    if (
-      error ||
-      !session ||
-      Date.parse(session.expires_at) <= Date.now() ||
-      !session.post_ids.includes(body.postId)
-    )
-      return NextResponse.json({ error: "Invalid exposure" }, { status: 403 });
-    const { data: post, error: postError } = await admin
-      .from("posts")
-      .select(`${DISCOVER_EVENT_POST_COLUMNS},active,hidden_at,removed_at,video_url` as const)
-      .eq("id", body.postId)
-      .single();
-    if (
-      postError ||
-      !post ||
-      post.active === false ||
-      post.hidden_at ||
-      post.removed_at
-    )
-      return NextResponse.json({ error: "Post unavailable" }, { status: 403 });
-    const { data: creator, error: creatorError } = await admin
-      .from("profiles")
-      .select("banned_at")
-      .eq("id", post.creator_id)
-      .single();
-    if (creatorError || !creator || creator.banned_at)
-      return NextResponse.json({ error: "Post unavailable" }, { status: 403 });
+    const context = await loadDiscoverEventContext(body.session, identity.actor, body.postId);
+    if (!context) return NextResponse.json({error:'Invalid exposure'}, {status:403});
+    const {post, audience, offers} = context;
     const base = {
       actor: identity.actor,
       userId: identity.userId,
       postId: body.postId,
-      audience: session.audiences?.[body.postId] ?? "general",
+      audience,
     };
     const sessionKey = body.session + ":" + body.postId;
     if (body.kind === "watch" || body.kind === "exposure") {
@@ -114,7 +84,7 @@ export async function POST(req: NextRequest) {
           kind: "completion",
           entityKey: sessionKey,
         });
-      await recordDiscoverEvents(base,events,post);
+      await recordDiscoverEvents(base,events,post,offers);
     } else {
       // Dedupe taps and negative feedback across remounts, refreshes and retries.
       const day = new Date().toISOString().slice(0, 10);
