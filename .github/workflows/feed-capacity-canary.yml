@@ -1,0 +1,66 @@
+name: Manual feed capacity canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      expected_production_sha:
+        description: App SHA independently verified on www.creatornet.net before this run
+        required: true
+        type: string
+      viewers:
+        description: One bounded anonymous stage; verify and clean each run before another
+        required: true
+        type: choice
+        default: '5'
+        options: ['5', '25', '50']
+  pull_request:
+    paths:
+      - 'scripts/capacity/**'
+      - '.github/workflows/feed-capacity-canary.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-feed-capacity-canary
+  cancel-in-progress: false
+
+jobs:
+  safeguards:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test scripts/capacity/capacity-production-canary.test.cjs scripts/capacity/run-cloud-canary.test.cjs
+
+  canary:
+    needs: safeguards
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'nrjimenez2-code/creatornet-mvp' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Measure one stage against the public production feed
+        timeout-minutes: 10
+        env:
+          CAPACITY_EXPECTED_SHA: ${{ inputs.expected_production_sha }}
+          CAPACITY_VIEWERS: ${{ inputs.viewers }}
+        run: node scripts/capacity/run-cloud-canary.cjs
+      - name: Retain exact fixture journal and aggregate measurements
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: feed-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: scripts/outputs/capacity-prod-cloud-*
+          retention-days: 7
+          if-no-files-found: warn

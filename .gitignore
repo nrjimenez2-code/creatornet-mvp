@@ -38,6 +38,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# Generated capacity measurements and exact temporary fixture journals.
+/scripts/outputs/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
