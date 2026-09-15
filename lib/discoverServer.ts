@@ -151,12 +151,13 @@ async function byIds(
 }
 export async function discoverInventory(
   ids?: string[],
+  preloaded?: Record<string, any>,
 ): Promise<Record<string, any>[]> {
   let posts: Record<string, any>[], profiles: Record<string, any>[],
     primaryProducts: Record<string, any>[], legacyProducts: Record<string, any>[],
     offerings: Record<string, any>[];
-  if (ids && process.env.DISCOVER_BATCH_INVENTORY_ENABLED === 'true') {
-    const {data,error} = await admin.rpc('discover_inventory_batch_v1',{p_ids:ids});
+  if (preloaded || (ids && process.env.DISCOVER_BATCH_INVENTORY_ENABLED === 'true')) {
+    const {data,error} = preloaded ? {data:preloaded,error:null} : await admin.rpc('discover_inventory_batch_v1',{p_ids:ids});
     if(error) throw error;
     if(!data || !['posts','profiles','primaryProducts','legacyProducts','offerings']
       .every(key => Array.isArray(data[key]))) throw new Error('Inventory batch unavailable');
@@ -401,7 +402,9 @@ export async function readDiscoverPage(
   limit: number,
   userId: string | null,
 ) {
-  const { data: session, error } = await admin
+  const { data: session, error } = process.env.DISCOVER_PAGE_INVENTORY_ENABLED === 'true'
+    ? await admin.rpc('discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit})
+    : await admin
     .from("discover_sessions_v1")
     .select("post_ids,expires_at")
     .eq("id", sessionId)
@@ -415,7 +418,7 @@ export async function readDiscoverPage(
   if (!selected.length)
     return { items: [], nextOffset: ids.length, hasMore: false };
   // Recheck moderation on every page; the snapshot freezes order, not permissions.
-  const inventory = await discoverInventory(selected);
+  const inventory = await discoverInventory(selected, session.inventory);
   const [likes, follows] = await Promise.all([
     userId
       ? admin

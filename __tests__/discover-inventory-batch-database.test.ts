@@ -21,6 +21,31 @@ beforeAll(async()=>{
  insert into posts(id,creator_id,title,active) values('${post}','${creator}','visible',true);
  grant select on posts,profiles,products,offerings to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260915052139_discover_inventory_batch.sql','utf8'));
+ await db.exec(`create table discover_sessions_v1(id uuid primary key,actor text,post_ids uuid[],expires_at timestamptz);
+ insert into discover_sessions_v1 values('${post}','anon:owner',array['${post}'::uuid],now()+interval '1 hour');
+ grant select on discover_sessions_v1 to service_role;`);
+ await db.exec(readFileSync('supabase/migrations/20260915054818_discover_page_inventory.sql','utf8'));
+});
+test('combined page query enforces ownership, expiry, role and page bounds',async()=>{
+ const sql='select discover_page_inventory_v1($1::uuid,$2::text,$3::bigint,$4::integer) as data';
+ await db.exec('set role service_role');
+ try {
+  const {rows}=await db.query<{data:any}>(sql,[post,'anon:owner',0,5]);
+  expect(rows[0].data.post_ids).toEqual([post]);
+  expect(rows[0].data.inventory.posts[0].id).toBe(post);
+  await expect(db.query(sql,[post,'anon:other',0,5])).rejects.toThrow('Feed session unavailable');
+  await expect(db.query(sql,[post,'anon:owner',-1,5])).rejects.toThrow('Invalid feed page');
+  await expect(db.query(sql,[post,'anon:owner',0,51])).rejects.toThrow('Invalid feed page');
+  const empty=await db.query<{data:any}>(sql,[post,'anon:owner',Number.MAX_SAFE_INTEGER,5]);
+  expect(empty.rows[0].data.inventory.posts).toEqual([]);
+ } finally {await db.exec('reset role');}
+ for(const role of ['anon','authenticated']) {
+  await db.exec('set role '+role);
+  try {await expect(db.query(sql,[post,'anon:owner',0,5])).rejects.toThrow(/permission denied/);}
+  finally {await db.exec('reset role');}
+ }
+ await db.exec(`update discover_sessions_v1 set expires_at=now()-interval '1 second'`);
+ await expect(db.query(sql,[post,'anon:owner',0,5])).rejects.toThrow('Feed session unavailable');
 });
 afterAll(async()=>{await db.close();});
 test('only requested post data and allowed profile columns are returned',async()=>{

@@ -25,6 +25,13 @@ jest.mock("@/lib/supabaseServer", () => ({ createServerClient: () => auth }));
 import { GET } from "@/app/api/feed/route";
 import { POST } from "@/app/api/feed-events/route";
 function respond(op: Op): {data: any; error: unknown} {
+  if(op.table === 'discover_page_inventory_v1') {
+    const args=op.payload as {p_actor:string;p_offset:number;p_limit:number};
+    if(args.p_actor!==actor || expired) return {data:null,error:{code:'22023'}};
+    const selected=ids.slice(args.p_offset,args.p_offset+args.p_limit);
+    return {data:{post_ids:ids,expires_at:new Date(Date.now()+3600000).toISOString(),
+      inventory:respond({...op,table:'discover_inventory_batch_v1',payload:{p_ids:selected}}).data},error:null};
+  }
   if(op.table === 'discover_inventory_batch_v1') {
     const selected = (op.payload as {p_ids:string[]}).p_ids;
     return {data:{
@@ -72,6 +79,7 @@ function respond(op: Op): {data: any; error: unknown} {
   return { data: [], error: null };
 }
 beforeEach(() => {
+  delete process.env.DISCOVER_PAGE_INVENTORY_ENABLED;
   process.env.DISCOVER_V4_ENABLED = "true";
   actor = "user:viewer";
   expired = false;
@@ -81,6 +89,7 @@ beforeEach(() => {
   db = createMockClient(respond);
 });
 afterAll(() => {
+  delete process.env.DISCOVER_PAGE_INVENTORY_ENABLED;
   delete process.env.DISCOVER_V4_ENABLED;
 });
 const request = (query: string) =>
@@ -148,6 +157,26 @@ test("invalid offsets and fabricated commercial events are rejected", async () =
   );
   expect(response.status).toBe(400);
   expect(db.opsFor("discover_events_v1")).toHaveLength(0);
+});
+test('combined page path preserves moderation skipping, ownership and expiry',async()=>{
+ process.env.DISCOVER_PAGE_INVENTORY_ENABLED='true';
+ hidden=new Set(ids.slice(0,5));
+ const first=await (await GET(request('offset=0&limit=5'))).json();
+ expect(first.items.map((p:{post_id:string})=>p.post_id)).toEqual(ids.slice(5,10));
+ expect(first.nextOffset).toBe(10);
+ expect(db.opsFor('discover_sessions_v1')).toHaveLength(0);
+ expect(db.opsFor('posts')).toHaveLength(0);
+ banned=true;
+ ids=ids.slice(0,10);
+ const moderated=await (await GET(request('offset=5&limit=5'))).json();
+ expect(moderated.items).toEqual([]);
+ const log=jest.spyOn(console,'error').mockImplementation(()=>{});
+ try {
+  actor='user:other';
+  expect((await GET(request('offset=0&limit=5'))).status).toBe(503);
+  actor='user:viewer'; expired=true;
+  expect((await GET(request('offset=0&limit=5'))).status).toBe(503);
+ } finally {log.mockRestore();}
 });
 test('batched inventory preserves pagination and fresh moderation without direct table reads',async()=>{
  process.env.DISCOVER_BATCH_INVENTORY_ENABLED='true';
