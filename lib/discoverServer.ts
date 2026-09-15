@@ -484,7 +484,7 @@ export async function readDiscoverPage(
     hasMore: offset + limit < ids.length,
   };
 }
-export async function recordDiscoverEvent(input: {
+type DiscoverEventInput = {
   actor: string;
   userId: string | null;
   postId: string;
@@ -493,7 +493,15 @@ export async function recordDiscoverEvent(input: {
   audience?: string;
   amountCents?: number;
   currency?: string;
-}) {
+};
+export async function recordDiscoverEvent(input: DiscoverEventInput) {
+  return recordDiscoverEvents(input, [{kind:input.kind,entityKey:input.entityKey}]);
+}
+export async function recordDiscoverEvents(
+  input: Omit<DiscoverEventInput, 'kind' | 'entityKey'>,
+  events: Array<Pick<DiscoverEventInput, 'kind' | 'entityKey'>>,
+) {
+  if (!events.length) return;
   const { data: p, error } = await admin
     .from("posts")
     .select(
@@ -562,14 +570,13 @@ export async function recordDiscoverEvent(input: {
     if (exposureError) throw exposureError;
     audience = exposure?.audience ?? "general";
   }
-  const { error: writeError } = await admin.from("discover_events_v1").upsert(
-    {
+  const rows = events.map(event => ({
       actor: input.actor,
       user_id: input.userId,
       post_id: p.id,
       creator_id: p.creator_id,
-      kind: input.kind,
-      entity_key: input.entityKey,
+      kind: event.kind,
+      entity_key: event.entityKey,
       categories,
       topics,
       audience,
@@ -579,7 +586,9 @@ export async function recordDiscoverEvent(input: {
         (p.allow_booking ? "free_call" : "none"),
       amount_cents: input.amountCents ?? 0,
       currency: input.currency ?? null,
-    },
+    }));
+  const { error: writeError } = await admin.from("discover_events_v1").upsert(
+    rows.length === 1 ? rows[0] : rows,
     { onConflict: "kind,entity_key", ignoreDuplicates: true },
   );
   if (writeError) throw writeError;
