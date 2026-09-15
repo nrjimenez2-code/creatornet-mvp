@@ -1,3 +1,5 @@
+import { discoverTimingEnabled } from './discoverTimingLog';
+
 // Create once per route module, then capture immediately on handler entry.
 // Import evaluation before this factory and platform wait before dispatch are
 // not measured. Invocation 1 means first observed use of this module instance,
@@ -6,7 +8,7 @@ export function createDiscoverRouteTiming() {
   const loadedAt = performance.now();
   let invocation = 0;
   return (): string[] => {
-    if (process.env.VERCEL_ENV !== 'preview') return [];
+    if (!discoverTimingEnabled()) return [];
     const age = performance.now() - loadedAt;
     invocation = Math.min(invocation + 1, Number.MAX_SAFE_INTEGER);
     const metrics = [`invocation;dur=${invocation}`];

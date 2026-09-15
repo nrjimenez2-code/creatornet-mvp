@@ -4,7 +4,9 @@ import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/
 import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
+import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
 const routeTiming = createDiscoverRouteTiming();
+const logTiming = createDiscoverTimingLogger('feed');
 export async function GET(req:NextRequest){
  const lifecycle = routeTiming();
  return withDiscoverDatabaseTiming(() => feedResponse(req,lifecycle));
@@ -20,9 +22,11 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
   finally { timings.push(`${name};dur=${(performance.now()-start).toFixed(1)}`); }
  };
  const finish = (response: NextResponse) => {
+  if (!discoverTimingEnabled()) return response;
+  const metrics = [...timings,...discoverDatabaseTimingHeader(),...lifecycle,`total;dur=${(performance.now()-started).toFixed(1)}`];
   // Preview contains numeric timing and invocation diagnostics only, never actor/session identifiers.
-  if(process.env.VERCEL_ENV==='preview') response.headers.set('Server-Timing',
-   [...timings,...discoverDatabaseTimingHeader(),...lifecycle,`total;dur=${(performance.now()-started).toFixed(1)}`].join(', '));
+  if(process.env.VERCEL_ENV==='preview') response.headers.set('Server-Timing',metrics.join(', '));
+  else logTiming(response.status,metrics);
   return response;
  };
  const tab=req.nextUrl.searchParams.get('tab')==='following'?'following':'discover';

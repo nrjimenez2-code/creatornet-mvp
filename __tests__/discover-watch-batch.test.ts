@@ -100,3 +100,24 @@ test('preview event timings contain only numeric phases and production has no he
  process.env.VERCEL_ENV='production';
  expect((await POST(request())).headers.get('server-timing')).toBeNull();
 });
+test('temporary production timing preserves watch evidence without public diagnostics',async()=>{
+ const previous=process.env.DISCOVER_TIMING_LOG_UNTIL;
+ const info=jest.spyOn(console,'info').mockImplementation(()=>{});
+ try {
+  process.env.VERCEL_ENV='production';
+  process.env.DISCOVER_TIMING_LOG_UNTIL=new Date(Date.now()+60_000).toISOString();
+  watched=6;
+  const response=await POST(request());
+  expect(response.status).toBe(200);
+  expect(response.headers.has('server-timing')).toBe(false);
+  expect(recordMany.mock.calls[0][1].map((event:{kind:string})=>event.kind)).toEqual(['exposure','qualified_view']);
+  expect(info).toHaveBeenCalledTimes(1);
+  const entry=JSON.parse(info.mock.calls[0][1]);
+  expect(entry).toMatchObject({route:'feed-events',status:200,metrics:{context:expect.any(Number),total:expect.any(Number)}});
+  expect(JSON.stringify(info.mock.calls)).not.toMatch(/viewer|creator|https|100000/);
+ } finally {
+  info.mockRestore();
+  if(previous===undefined)delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+  else process.env.DISCOVER_TIMING_LOG_UNTIL=previous;
+ }
+});

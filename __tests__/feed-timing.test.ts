@@ -32,3 +32,22 @@ test('production does not expose diagnostic timings',async()=>{
  process.env.VERCEL_ENV='production';
  expect((await GET(new NextRequest('https://test.invalid/api/feed'))).headers.has('server-timing')).toBe(false);
 });
+test('temporary production timing goes only to logs and leaves the feed response unchanged',async()=>{
+ const previous=process.env.DISCOVER_TIMING_LOG_UNTIL;
+ const info=jest.spyOn(console,'info').mockImplementation(()=>{});
+ try {
+  process.env.VERCEL_ENV='production';
+  process.env.DISCOVER_TIMING_LOG_UNTIL=new Date(Date.now()+60_000).toISOString();
+  const response=await GET(new NextRequest('https://test.invalid/api/feed'));
+  expect(response.headers.has('server-timing')).toBe(false);
+  expect(await response.json()).toEqual({items:[],hasMore:false,nextOffset:0,session:'private-session',actorToken:'private-token'});
+  expect(info).toHaveBeenCalledTimes(1);
+  const entry=JSON.parse(info.mock.calls[0][1]);
+  expect(entry).toMatchObject({route:'feed',status:200,metrics:{dbcount:0,total:expect.any(Number),invocation:expect.any(Number)}});
+  expect(JSON.stringify(info.mock.calls)).not.toMatch(/private-actor|private-session|private-token/);
+ } finally {
+  info.mockRestore();
+  if(previous===undefined)delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+  else process.env.DISCOVER_TIMING_LOG_UNTIL=previous;
+ }
+});
