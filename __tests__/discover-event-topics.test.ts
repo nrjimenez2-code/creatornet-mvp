@@ -90,3 +90,27 @@ test('one watch batch shares metadata and one deduplicated write across its even
  expect(rows.map(r=>r.kind)).toEqual(['exposure','qualified_view','completion']);
  for(const row of rows){expect(row.topics).toContain('photography');expect(row.entity_key).toBe('session:post');}
 });
+
+test('request metadata retains topic credit without rereading the post',async()=>{
+ db=createMockClient(op=>{
+  if(op.table==='posts')throw new Error('Unexpected post reread');
+  return {data:null,error:null};
+ });
+ const original=db.from;
+ db.from=table=>{const source=original(table);return {...source,upsert:source.insert};};
+ await recordDiscoverEvents({actor:'user:viewer',userId:'viewer',postId:'post',audience:'photography'},
+  [{kind:'qualified_view',entityKey:'session:post'}],
+  {id:'post',creator_id:'creator',caption:'Portrait photography',allow_booking:true});
+ expect(db.opsFor('posts')).toHaveLength(0);
+ expect(db.opsFor('discover_events_v1')[0].payload).toEqual(expect.objectContaining({
+  post_id:'post',creator_id:'creator',topics:expect.arrayContaining(['photography']),offer_type:'free_call',
+ }));
+});
+
+test('request metadata cannot cross posts or grant self-credit',async()=>{
+ db=createMockClient(()=>{throw new Error('No database operation expected');});
+ const input={actor:'user:viewer',userId:'viewer',postId:'post',audience:'general'};
+ const events=[{kind:'qualified_view',entityKey:'session:post'}];
+ await expect(recordDiscoverEvents(input,events,{id:'another-post',creator_id:'creator'})).rejects.toThrow('metadata post mismatch');
+ await expect(recordDiscoverEvents(input,events,{id:'post',creator_id:'viewer'})).resolves.toBeUndefined();
+});
