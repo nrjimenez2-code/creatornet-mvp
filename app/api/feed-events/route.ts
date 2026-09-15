@@ -4,6 +4,7 @@ import {
   discoverEnabled,
   discoverIdentity,
   recordDiscoverEvent,
+  recordDiscoverEvents,
 } from "@/lib/discoverServer";
 import { allowRequest } from "@/lib/rateLimit";
 import { verifiedVideoDuration } from "@/lib/discoverMedia";
@@ -90,11 +91,7 @@ export async function POST(req: NextRequest) {
         { p_session: body.session, p_post: body.postId, p_claimed: seconds },
       );
       if (watchError) throw watchError;
-      await recordDiscoverEvent({
-        ...base,
-        kind: "exposure",
-        entityKey: sessionKey,
-      });
+      const events = [{kind:'exposure',entityKey:sessionKey}];
       const duration =
         body.kind === "watch"
           ? await verifiedVideoDuration(post.video_url)
@@ -104,8 +101,7 @@ export async function POST(req: NextRequest) {
           ? Math.min(5, duration * 0.9)
           : 5;
       if (Number(watched) >= threshold)
-        await recordDiscoverEvent({
-          ...base,
+        events.push({
           kind: "qualified_view",
           entityKey: sessionKey,
         });
@@ -114,11 +110,11 @@ export async function POST(req: NextRequest) {
         duration > 0 &&
         Number(watched) >= duration * 0.9
       )
-        await recordDiscoverEvent({
-          ...base,
+        events.push({
           kind: "completion",
           entityKey: sessionKey,
         });
+      await recordDiscoverEvents(base,events);
     } else {
       // Dedupe taps and negative feedback across remounts, refreshes and retries.
       const day = new Date().toISOString().slice(0, 10);
