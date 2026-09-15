@@ -90,6 +90,11 @@ test('preview event timings contain only numeric phases and production has no he
  expect(header).toMatch(/context;dur=[\d.]+/);
  expect(header).toMatch(/write;dur=[\d.]+/);
  expect(header).toMatch(/dbcount;dur=\d+/);
+ expect(header).toMatch(/routeage;dur=[\d.]+/);
+ expect(header).toMatch(/uptime;dur=[\d.]+/);
+ const nextHeader=(await POST(request())).headers.get('server-timing')!;
+ const ordinal=(value:string)=>Number(value.match(/invocation;dur=(\d+)/)![1]);
+ expect(ordinal(nextHeader)).toBe(ordinal(header)+1);
  expect(header.split(', ').every(metric=>/^[a-z]+;dur=\d+(?:\.\d+)?$/.test(metric))).toBe(true);
  expect(header).not.toMatch(/viewer|creator|post|session|https|100000/);
  process.env.VERCEL_ENV='production';
