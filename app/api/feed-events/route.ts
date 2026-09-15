@@ -9,6 +9,8 @@ import {
 import { allowRequest } from "@/lib/rateLimit";
 import { verifiedVideoDuration } from "@/lib/discoverMedia";
 import { loadDiscoverEventContext } from "@/lib/discoverEventContext";
+import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
+type EventMeasure = <T>(phase:'identity'|'context'|'sample'|'media'|'write', work:()=>Promise<T>)=>Promise<T>;
 const KINDS = new Set([
   "exposure",
   "watch",
@@ -18,6 +20,21 @@ const KINDS = new Set([
   "quick_skip",
 ]);
 export async function POST(req: NextRequest) {
+  if (process.env.VERCEL_ENV !== 'preview') return eventResponse(req,(_,work)=>work());
+  return withDiscoverDatabaseTiming(async()=>{
+    const start=performance.now();
+    const phases:string[]=[];
+    const measured:EventMeasure=async(phase,work)=>{
+      const began=performance.now();
+      try{return await work();}
+      finally{phases.push(`${phase};dur=${(performance.now()-began).toFixed(1)}`);}
+    };
+    const response=await eventResponse(req,measured);
+    response.headers.set('Server-Timing',[...phases,...discoverDatabaseTimingHeader(),`total;dur=${(performance.now()-start).toFixed(1)}`].join(', '));
+    return response;
+  });
+}
+async function eventResponse(req:NextRequest, measured:EventMeasure) {
   if (!discoverEnabled())
     return NextResponse.json({ ok: true, enabled: false });
   try {
@@ -28,7 +45,7 @@ export async function POST(req: NextRequest) {
       typeof body.session !== "string"
     )
       return NextResponse.json({ error: "Invalid event" }, { status: 400 });
-    const identity = await discoverIdentity(req);
+    const identity = await measured('identity',()=>discoverIdentity(req));
     if (
       !allowRequest("discover:" + identity.actor, {
         limit: 240,
@@ -40,7 +57,7 @@ export async function POST(req: NextRequest) {
     const seconds = body.kind === 'exposure' ? 0 : body.watchSeconds;
     if (isWatch && (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0))
       return NextResponse.json({error:'Invalid watch time'}, {status:400});
-    const context = await loadDiscoverEventContext(body.session, identity.actor, body.postId, isWatch ? seconds : undefined);
+    const context = await measured('context',()=>loadDiscoverEventContext(body.session, identity.actor, body.postId, isWatch ? seconds : undefined));
     if (!context) return NextResponse.json({error:'Invalid exposure'}, {status:403});
     const {post, audience, offers} = context;
     const base = {
@@ -53,10 +70,10 @@ export async function POST(req: NextRequest) {
     if (isWatch) {
       // Both reads depend on the completed eligibility checks, not each other.
       const [{ data: watched, error: watchError }, duration] = await Promise.all([
-        context.watched !== undefined ? Promise.resolve({data:context.watched,error:null}) : admin.rpc("discover_watch_sample_v1", {
+        measured('sample',async()=>context.watched !== undefined ? {data:context.watched,error:null} : await admin.rpc("discover_watch_sample_v1", {
           p_session: body.session, p_post: body.postId, p_claimed: seconds,
-        }),
-        body.kind === "watch" ? verifiedVideoDuration(post.video_url) : Promise.resolve(null),
+        })),
+        measured('media',()=>body.kind === "watch" ? verifiedVideoDuration(post.video_url) : Promise.resolve(null)),
       ]);
       if (watchError) throw watchError;
       const events = [{kind:'exposure',entityKey:sessionKey}];
@@ -82,15 +99,15 @@ export async function POST(req: NextRequest) {
       const missing = events.filter(event=>!recorded.has(event.kind));
       // A concurrent request may still race this read; the unique upsert remains
       // the final deduplication guard for newly reached milestones.
-      if (missing.length) await recordDiscoverEvents(base,missing,post,offers);
+      if (missing.length) await measured('write',()=>recordDiscoverEvents(base,missing,post,offers));
     } else {
       // Dedupe taps and negative feedback across remounts, refreshes and retries.
       const day = new Date().toISOString().slice(0, 10);
-      await recordDiscoverEvent({
+      await measured('write',()=>recordDiscoverEvent({
         ...base,
         kind: body.kind,
         entityKey: identity.actor + ":" + body.postId + ":" + day,
-      });
+      }));
     }
     return NextResponse.json({ ok: true });
   } catch {

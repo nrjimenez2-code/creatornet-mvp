@@ -8,6 +8,7 @@ let hidden=false;
 let banned=false;
 let recordedKinds:string[]=[];
 const recordMany=jest.fn();
+const originalVercelEnv=process.env.VERCEL_ENV;
 jest.mock('@/lib/supabaseAdmin',()=>({get supabaseAdmin(){return db;}}));
 jest.mock('@/lib/discoverServer',()=>({
  discoverEnabled:()=>true,
@@ -31,7 +32,7 @@ beforeEach(()=>{
   return {data:null,error:null};
  });
 });
-afterEach(()=>{delete process.env.DISCOVER_EVENT_CONTEXT_ENABLED;});
+afterEach(()=>{delete process.env.DISCOVER_EVENT_CONTEXT_ENABLED;process.env.VERCEL_ENV=originalVercelEnv;});
 const request=()=>new NextRequest('https://example.test/api/feed-events',{method:'POST',body:JSON.stringify({session:'session',postId:'post',kind:'watch',watchSeconds:100000})});
 test('batches only evidence established by server watch time and verified duration',async()=>{
  watched=9;
@@ -79,4 +80,18 @@ test('existing receipts skip duplicate writes while a new completion is still re
  watched=9;
  expect((await POST(request())).status).toBe(200);
  expect(recordMany.mock.calls[0][1]).toEqual([{kind:'completion',entityKey:'session:post'}]);
+});
+
+test('preview event timings contain only numeric phases and production has no header',async()=>{
+ process.env.VERCEL_ENV='preview';
+ const response=await POST(request());
+ const header=response.headers.get('server-timing')!;
+ expect(header).toMatch(/identity;dur=[\d.]+/);
+ expect(header).toMatch(/context;dur=[\d.]+/);
+ expect(header).toMatch(/write;dur=[\d.]+/);
+ expect(header).toMatch(/dbcount;dur=\d+/);
+ expect(header.split(', ').every(metric=>/^[a-z]+;dur=\d+(?:\.\d+)?$/.test(metric))).toBe(true);
+ expect(header).not.toMatch(/viewer|creator|post|session|https|100000/);
+ process.env.VERCEL_ENV='production';
+ expect((await POST(request())).headers.get('server-timing')).toBeNull();
 });
