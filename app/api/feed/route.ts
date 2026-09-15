@@ -32,7 +32,7 @@ async function feedResponse(req:NextRequest){
    return NextResponse.json({items:data??[],nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
   const identity=await measured('identity',()=>discoverIdentity(req));
-  const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab));
+  const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab,identity.newAnonymous));
   const result=await measured('page',()=>readDiscoverPage(session,identity.actor,offset,limit,identity.userId));
   return finish(setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie));
  }catch(error){

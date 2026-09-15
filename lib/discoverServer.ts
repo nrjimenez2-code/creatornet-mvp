@@ -34,6 +34,7 @@ export async function discoverIdentity(req: NextRequest) {
     if (anonymous) await claimDiscoverIdentity(anonymous.id, data.user.id);
     return {
       actor: "user:" + data.user.id,
+      newAnonymous: false,
       userId: data.user.id,
       cookie: null,
       token: null,
@@ -51,6 +52,7 @@ export async function discoverIdentity(req: NextRequest) {
     if (!linked)
       return {
         actor: "anon:" + anonymous.id,
+        newAnonymous: false,
         userId: null,
         cookie: null,
         token: anonymous.token,
@@ -59,6 +61,7 @@ export async function discoverIdentity(req: NextRequest) {
   const next = randomUUID();
   return {
     actor: "anon:" + next,
+    newAnonymous: true,
     userId: null,
     cookie: next + "." + sign(next),
     token: next + "." + sign(next),
@@ -273,11 +276,14 @@ export async function createDiscoverSession(
   actor: string,
   userId: string | null,
   tab: string,
+  newAnonymous = false,
 ) {
   const pilot = await assignDiscoverPilot(admin, userId, tab);
   const [inventory, events, profile, following, legacy] = await Promise.all([
     initialInventoryRead('inventory', () => discoverSharedRead('inventory', () => discoverInventory())),
-    tab === "following"
+    // Only the server identity issuer can mark a just-minted anonymous UUID.
+    // Returning actors and every authenticated viewer still read their history.
+    tab === "following" || (newAnonymous && userId === null && actor.startsWith('anon:'))
       ? Promise.resolve([])
       : readAll(
           "discover_events_v1",

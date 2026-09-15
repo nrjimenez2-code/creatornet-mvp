@@ -50,7 +50,9 @@ afterAll(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = savedKey;
 });
 test("sign-in links only a valid signed anonymous identity to the verified account", async () => {
-  expect((await discoverIdentity(request(token()))).actor).toBe("user:viewer");
+  const signedIn=await discoverIdentity(request(token()));
+  expect(signedIn.actor).toBe("user:viewer");
+  expect(signedIn.newAnonymous).toBe(false);
   expect(rpc).toHaveBeenCalledWith("link_discover_identity_v1", {
     p_anonymous: anonymous,
     p_user: "viewer",
@@ -61,12 +63,13 @@ test("sign-in links only a valid signed anonymous identity to the verified accou
 });
 test("sign-out rotates a previously claimed browser identity instead of sharing future activity", async () => {
   user = null;
-  expect((await discoverIdentity(request(token()))).actor).toBe(
-    "anon:" + anonymous,
-  );
+  const returning=await discoverIdentity(request(token()));
+  expect(returning.actor).toBe("anon:" + anonymous);
+  expect(returning.newAnonymous).toBe(false);
   claimed = true;
   const next = await discoverIdentity(request(token()));
   expect(next.actor).not.toBe("anon:" + anonymous);
   expect(next.cookie).toBeTruthy();
+  expect(next.newAnonymous).toBe(true);
   expect(rpc).not.toHaveBeenCalled();
 });
