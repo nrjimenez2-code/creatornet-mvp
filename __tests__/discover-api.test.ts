@@ -24,7 +24,15 @@ jest.mock("@/lib/supabaseAdmin", () => ({
 jest.mock("@/lib/supabaseServer", () => ({ createServerClient: () => auth }));
 import { GET } from "@/app/api/feed/route";
 import { POST } from "@/app/api/feed-events/route";
-function respond(op: Op) {
+function respond(op: Op): {data: any; error: unknown} {
+  if(op.table === 'discover_inventory_batch_v1') {
+    const selected = (op.payload as {p_ids:string[]}).p_ids;
+    return {data:{
+      posts:respond({...op,table:'posts',inFilters:[{column:'id',values:selected}]}).data,
+      profiles:respond({...op,table:'profiles'}).data,
+      primaryProducts:[],legacyProducts:[],offerings:[],
+    },error:null};
+  }
   if (op.table === "discover_sessions_v1")
     return {
       data:
@@ -140,4 +148,17 @@ test("invalid offsets and fabricated commercial events are rejected", async () =
   );
   expect(response.status).toBe(400);
   expect(db.opsFor("discover_events_v1")).toHaveLength(0);
+});
+test('batched inventory preserves pagination and fresh moderation without direct table reads',async()=>{
+ process.env.DISCOVER_BATCH_INVENTORY_ENABLED='true';
+ try {
+  ids=['p1','p2','p3']; hidden=new Set(['p1','p2']);
+  const body=await (await GET(request('offset=0&limit=2'))).json();
+  expect(body.items.map((p:{post_id:string})=>p.post_id)).toEqual(['p3']);
+  expect(body.nextOffset).toBe(3);
+  expect(db.opsFor('posts')).toHaveLength(0);
+  expect(db.opsFor('discover_inventory_batch_v1')).toHaveLength(2);
+  banned=true;
+  expect((await (await GET(request('offset=0&limit=2'))).json()).items).toEqual([]);
+ } finally {delete process.env.DISCOVER_BATCH_INVENTORY_ENABLED;}
 });

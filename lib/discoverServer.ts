@@ -152,7 +152,17 @@ async function byIds(
 export async function discoverInventory(
   ids?: string[],
 ): Promise<Record<string, any>[]> {
-  const posts = ids
+  let posts: Record<string, any>[], profiles: Record<string, any>[],
+    primaryProducts: Record<string, any>[], legacyProducts: Record<string, any>[],
+    offerings: Record<string, any>[];
+  if (ids && process.env.DISCOVER_BATCH_INVENTORY_ENABLED === 'true') {
+    const {data,error} = await admin.rpc('discover_inventory_batch_v1',{p_ids:ids});
+    if(error) throw error;
+    if(!data || !['posts','profiles','primaryProducts','legacyProducts','offerings']
+      .every(key => Array.isArray(data[key]))) throw new Error('Inventory batch unavailable');
+    ({posts,profiles,primaryProducts,legacyProducts,offerings}=data);
+  } else {
+  posts = ids
     ? await byIds("posts", POST_COLUMNS, ids)
     : await readAll("posts", POST_COLUMNS);
   const creatorIds = [
@@ -166,7 +176,7 @@ export async function discoverInventory(
   ];
   const productColumns =
     "id,product_id,creator_id,title,description,type,price_cents,amount_cents,active";
-  const [profiles, primaryProducts, legacyProducts, offerings] =
+  [profiles, primaryProducts, legacyProducts, offerings] =
     await Promise.all([
       byIds(
         "profiles",
@@ -181,6 +191,7 @@ export async function discoverInventory(
         offeringIds,
       ),
     ]);
+  }
   const products = [...primaryProducts, ...legacyProducts];
   const profilesById = new Map(profiles.map((p) => [p.id, p]));
   const productsById = new Map(
@@ -564,3 +575,4 @@ export async function recordDiscoverEvent(input: {
   );
   if (writeError) throw writeError;
 }
+
