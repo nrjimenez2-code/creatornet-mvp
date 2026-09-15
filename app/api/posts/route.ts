@@ -5,10 +5,10 @@ import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
 import { publicMessage } from "@/lib/apiError";
 import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
-import { headR2Object, deleteR2Object, r2KeyFromPublicUrl } from "@/lib/r2";
-import { isAllowedUpload, maxBytesFor, type UploadFolder } from "@/lib/uploadPolicy";
+import { headR2Object, deleteR2Object, r2KeyFromPublicUrl, readR2ObjectPrefix } from "@/lib/r2";
+import { isAllowedUpload, maxBytesFor, bytesAllowedForFolder, SNIFF_BYTES, type UploadFolder } from "@/lib/uploadPolicy";
 
-/** Returns an error message if the object at `url` (if it is ours) is too big or the wrong type; null if fine. */
+/** Returns an error message if the object at `url` (if it is ours) is too big, the wrong declared type, or not actually that format; null if fine. */
 async function enforceUploadSize(url: string | null, folder: UploadFolder): Promise<string | null> {
   if (!url) return null;
   const key = r2KeyFromPublicUrl(url);
@@ -26,6 +26,20 @@ async function enforceUploadSize(url: string | null, folder: UploadFolder): Prom
   if (head.contentType && !isAllowedUpload(folder, head.contentType)) {
     await deleteR2Object(key);
     return folder === "videos" ? "Uploaded file is not a video." : "Uploaded file is not an image.";
+  }
+  // Everything above trusts a Content-Type the UPLOADER chose. Uploads go
+  // straight from the browser to R2 on a presigned URL, so this is the first
+  // point at which the actual bytes can be looked at. It matters because sharp
+  // sniffs the real format, not the header: a HEIC or AVIF sent as image/jpeg
+  // lands under media.creatornet.net/thumbnails, which is exactly the
+  // remotePatterns entry /_next/image will fetch and decode.
+  // Reads 16 bytes, not the file. Fails open on an R2 hiccup, like the HEAD above.
+  const prefix = await readR2ObjectPrefix(key, SNIFF_BYTES);
+  if (prefix && !bytesAllowedForFolder(folder, prefix)) {
+    await deleteR2Object(key);
+    return folder === "videos"
+      ? "That file is not a video. Please upload an MP4."
+      : "That image is not a JPG or PNG. Please re-export it and try again.";
   }
   return null;
 }
