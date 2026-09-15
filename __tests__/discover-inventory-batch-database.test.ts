@@ -27,6 +27,15 @@ beforeAll(async()=>{
  await db.exec(readFileSync('supabase/migrations/20260915054818_discover_page_inventory.sql','utf8'));
  await db.exec(`alter table discover_sessions_v1 add column audiences jsonb default '{}'::jsonb`);
  await db.exec(readFileSync('supabase/migrations/20260915065451_discover_event_context.sql','utf8'));
+ await db.exec(`create table discover_watch_v1(session_id uuid references discover_sessions_v1(id),post_id uuid references posts(id),
+ claimed_seconds numeric default 0,watch_seconds numeric default 0,last_at timestamptz default now(),primary key(session_id,post_id));
+ grant select,insert,update on discover_watch_v1 to service_role;`);
+ const original=readFileSync('supabase/migrations/20260913005126_discover_events_and_sessions.sql','utf8');
+ const watchStart=original.indexOf('create or replace function public.discover_watch_sample_v1');
+ const watchEnd=original.indexOf('-- Retire expired snapshots',watchStart);
+ if(watchStart<0||watchEnd<0)throw new Error('Watch function not found');
+ await db.exec(original.slice(watchStart,watchEnd));
+ await db.exec(readFileSync('supabase/migrations/20260915070916_discover_watch_context.sql','utf8'));
 });
 test('combined page query enforces ownership, expiry, role and page bounds',async()=>{
  const sql='select discover_page_inventory_v1($1::uuid,$2::text,$3::bigint,$4::integer) as data';
@@ -50,6 +59,33 @@ test('combined page query enforces ownership, expiry, role and page bounds',asyn
  await expect(db.query(sql,[post,'anon:owner',0,5])).rejects.toThrow('Feed session unavailable');
 });
 afterAll(async()=>{await db.close();});
+
+test('combined watch context enforces eligibility before writes and preserves bounded replay handling',async()=>{
+ await db.exec('begin');
+ const sql='select discover_watch_context_v1($1::uuid,$2::text,$3::uuid,$4::numeric) as data';
+ const sample=async(actor:string,claim:number)=>(await db.query<{data:any}>(sql,[post,actor,post,claim])).rows[0].data;
+ try {
+  await db.exec(`update discover_sessions_v1 set expires_at=now()+interval '1 hour';update posts set active=true,hidden_at=null,removed_at=null;update profiles set banned_at=null;`);
+  expect(await sample('anon:other',0)).toBeNull();
+  expect((await db.query<{n:number}>('select count(*)::int as n from discover_watch_v1')).rows[0].n).toBe(0);
+  await db.exec('set role service_role');
+  expect((await sample('anon:owner',0)).watched).toBe(0);
+  await db.exec('reset role');
+  await db.exec(`update discover_watch_v1 set last_at=clock_timestamp()-interval '10 seconds'`);
+  await db.exec('set role service_role');
+  expect((await sample('anon:owner',100)).watched).toBe(6);
+  expect((await sample('anon:owner',100)).watched).toBe(6);
+  await db.exec('reset role');
+  await db.exec('update profiles set banned_at=now()');
+  expect(await sample('anon:owner',105)).toBeNull();
+  expect((await db.query<{n:string}>('select claimed_seconds as n from discover_watch_v1')).rows[0].n).toBe('100');
+  for(const role of ['anon','authenticated']) {
+   await db.exec('savepoint denied');await db.exec('set role '+role);
+   await expect(sample('anon:owner',0)).rejects.toThrow(/permission denied/);
+   await db.exec('rollback to denied');
+  }
+ }finally{await db.exec('rollback');}
+});
 
 test('event context requires owned unexpired membership and fresh moderation, and is private',async()=>{
  await db.exec('begin');

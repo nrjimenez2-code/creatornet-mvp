@@ -36,7 +36,11 @@ export async function POST(req: NextRequest) {
       })
     )
       return NextResponse.json({ error: "Too many events" }, { status: 429 });
-    const context = await loadDiscoverEventContext(body.session, identity.actor, body.postId);
+    const isWatch = body.kind === 'watch' || body.kind === 'exposure';
+    const seconds = body.kind === 'exposure' ? 0 : body.watchSeconds;
+    if (isWatch && (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0))
+      return NextResponse.json({error:'Invalid watch time'}, {status:400});
+    const context = await loadDiscoverEventContext(body.session, identity.actor, body.postId, isWatch ? seconds : undefined);
     if (!context) return NextResponse.json({error:'Invalid exposure'}, {status:403});
     const {post, audience, offers} = context;
     const base = {
@@ -46,20 +50,10 @@ export async function POST(req: NextRequest) {
       audience,
     };
     const sessionKey = body.session + ":" + body.postId;
-    if (body.kind === "watch" || body.kind === "exposure") {
-      const seconds = body.kind === "exposure" ? 0 : body.watchSeconds;
-      if (
-        typeof seconds !== "number" ||
-        !Number.isFinite(seconds) ||
-        seconds < 0
-      )
-        return NextResponse.json(
-          { error: "Invalid watch time" },
-          { status: 400 },
-        );
+    if (isWatch) {
       // Both reads depend on the completed eligibility checks, not each other.
       const [{ data: watched, error: watchError }, duration] = await Promise.all([
-        admin.rpc("discover_watch_sample_v1", {
+        context.watched !== undefined ? Promise.resolve({data:context.watched,error:null}) : admin.rpc("discover_watch_sample_v1", {
           p_session: body.session, p_post: body.postId, p_claimed: seconds,
         }),
         body.kind === "watch" ? verifiedVideoDuration(post.video_url) : Promise.resolve(null),

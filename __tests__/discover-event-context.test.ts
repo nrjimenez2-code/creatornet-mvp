@@ -23,3 +23,14 @@ test('unavailable context is denied, RPC errors and malformed metadata fail clos
  db=createMockClient(()=>({data:{post:{id:'other',creator_id:'creator'}},error:null}));
  await expect(loadDiscoverEventContext('s','a','p')).rejects.toThrow('Invalid event context');
 });
+
+test('combined watch RPC returns only server-calculated time and denies malformed IDs',async()=>{
+ db=createMockClient(op=>{
+  expect(op.table).toBe('discover_watch_context_v1');
+  expect(op.payload).toEqual({p_session:'session',p_actor:'user:viewer',p_post:'post',p_claimed:50});
+  return {data:{post:{id:'post',creator_id:'creator'},audience:'general',primaryProducts:[],legacyProducts:[],offerings:[],watched:5},error:null};
+ });
+ expect((await loadDiscoverEventContext('session','user:viewer','post',50))?.watched).toBe(5);
+ db=createMockClient(()=>({data:null,error:{code:'22P02'}}));
+ expect(await loadDiscoverEventContext('bad','user:viewer','post',5)).toBeNull();
+});
