@@ -17,6 +17,27 @@ const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "on" },
 ];
 
+
+// The three public *.vercel.app copies of production. Each is a separate Vercel
+// project deploying THIS repo, so all three serve a byte-identical app against
+// the same production database, are indexable, and are not redirected at the
+// platform level.
+//
+// This is not only an SEO problem. Supabase session cookies are host-only, so a
+// visitor who signs in on one of these copies and then buys is returned by
+// Stripe to NEXT_PUBLIC_SITE_URL (www) carrying no session — /api/confirm-purchase
+// 401s and a real buyer is charged with nothing delivered.
+//
+// Matched as EXACT hostnames on purpose. Preview deployments are
+// `<project>-<hash>-<team>.vercel.app`, which none of these match, so review
+// previews keep working.
+const DUPLICATE_PROD_HOSTS = [
+  "creatornet-mvp.vercel.app",
+  "creatornet-mvpv2.vercel.app",
+  "nextjs-7fjq.vercel.app",
+];
+const DUPLICATE_HOST_PATTERN = `(${DUPLICATE_PROD_HOSTS.map((h) => h.replace(/\./g, "\\.")).join("|")})`;
+
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   // Drop the default `x-powered-by: Next.js` response header. It only tells an
@@ -28,6 +49,27 @@ const nextConfig: NextConfig = {
 
   async headers() {
     return [{ source: "/(.*)", headers: securityHeaders }];
+  },
+
+  async redirects() {
+    // 307, not 308: reversible. These hosts have no meaningful inbound links, so
+    // there is no link equity to preserve, and a permanent redirect would be
+    // cached hard by browsers if one of these projects is ever repurposed.
+    //
+    // /api/* is deliberately NOT redirected. The Stripe webhook endpoint URL
+    // lives in the Stripe dashboard and cannot be read from here; if it still
+    // points at one of these hosts, redirecting it would silently drop payment
+    // notifications, because Stripe does not follow redirects.
+    const has = [{ type: "host" as const, value: DUPLICATE_HOST_PATTERN }];
+    return [
+      { source: "/", has, destination: "https://www.creatornet.net/", permanent: false },
+      {
+        source: "/:path((?!api/).*)",
+        has,
+        destination: "https://www.creatornet.net/:path",
+        permanent: false,
+      },
+    ];
   },
 };
 
