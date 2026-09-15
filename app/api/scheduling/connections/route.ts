@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 import { supabaseAdmin as db } from "@/lib/supabaseAdmin";
 import { schedulingAvailable, schedulingOrigin, googleCalendarAvailable } from "@/lib/schedulingConfig";
 import { isBookingProvider } from "@/lib/schedulingConnectionTypes";
@@ -14,6 +15,11 @@ const headers = { "Cache-Control": "no-store" };
 export async function GET(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
+  // 120: PostComposer can mount TWO SchedulingConnections at once (the paid-call
+  // block and the attach-booking block), each with its own window-focus listener,
+  // so real usage is about double the obvious count. Each GET can also trigger a
+  // Google Calendar round trip, which is what makes limiting this worth anything.
+  if (!allowRequest(`scheduling-connections:${user.id}`, { limit: 120, windowMs: 60_000 })) return tooManyRequests();
   try {
     const providers = ["calcom", "calendly", "google"] as const;
     if (process.env.SCHEDULING_OAUTH_ENABLED !== "true" && !googleCalendarAvailable()) return NextResponse.json({ connections: providers.map(provider => ({
@@ -65,6 +71,9 @@ export async function GET(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const user = await getAuthenticatedUser(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401, headers });
+  // Disconnecting a provider is deliberate and rare; its own bucket so it can
+  // never be starved by the GET above.
+  if (!allowRequest(`scheduling-disconnect:${user.id}`, { limit: 30, windowMs: 60_000 })) return tooManyRequests();
   try {
     if (req.headers.get("origin") !== schedulingOrigin()) return NextResponse.json({ error: "Invalid origin" }, { status: 403 });
     const { provider } = await req.json();

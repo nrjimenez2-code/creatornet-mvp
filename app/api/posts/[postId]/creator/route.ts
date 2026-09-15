@@ -1,14 +1,20 @@
 import { NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { createClient } from "@supabase/supabase-js";
+import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
+// Near-dead code in production (only reachable when a card has neither a
+// creator id nor a username), so this ceiling is unreachable by real users.
+const CREATOR_RATE = { limit: 120, windowMs: 60_000 };
+
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ postId: string }> }
 ) {
+  if (!allowRequest(`post-creator:${clientKey(req)}`, CREATOR_RATE)) return tooManyRequests();
   const { postId } = await params;
 
   if (!postId) {
