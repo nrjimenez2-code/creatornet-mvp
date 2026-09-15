@@ -54,7 +54,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [loadingMore, setLoadingMore] = useState(false);
   const [moreError, setMoreError] = useState<"retry" | "refresh" | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [pendingPosts, setPendingPosts] = useState<string[]>([]);
+  const [hasNewPosts, setHasNewPosts] = useState(false);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
@@ -159,6 +159,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const toggleSound = useCallback(() => setGlobalSoundOn(!readSoundOn()), [setGlobalSoundOn]);
   const handleDeleted = useCallback((id: string) => {
     draftsRef.current.delete(id);
+    offerRefreshesRef.current.delete(id);
     const current = itemsRef.current;
     const index = current.findIndex(row => row.id === id);
     const remaining = current.filter(row => row.id !== id);
@@ -181,7 +182,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     loadingMoreRef.current = false;
     setLoadingMore(false);
     setMoreError(null);
-    setPendingPosts([]);
+    setHasNewPosts(false);
+    offerRefreshesRef.current.clear();
+    // Until this generation loads, the retained state rows belong to the old
+    // tab/session and must not seed new realtime offer work.
+    itemsRef.current = [];
     setWarmingPostId(null);
     setReadyPostId(null);
 
@@ -250,6 +255,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         "postgres_changes",
         { event: "*", schema: "public", table: "posts" },
         (payload) => {
+          if (cancelled) return;
           // DELETE payloads carry `new: {}` (truthy!) and the row in `old`,
           // so the event type — not truthiness — must pick the record.
           const eventRow = (payload.eventType === "DELETE"
@@ -267,12 +273,16 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           // Do not prepend or hydrate unranked rows while someone is watching.
           // Refresh through the authoritative feed RPC only on an explicit tap.
           if (payload.eventType === "INSERT") {
-            setPendingPosts(ids => ids.includes(removedId) ? ids : [...ids, removedId]);
+            // The control only signals that a refresh is available. Retaining
+            // every inserted ID makes unrelated publishing activity grow memory
+            // and rerender the feed while the viewer is watching.
+            setHasNewPosts(true);
             return;
           }
-          const refresh = (offerRefreshes.get(removedId) ?? 0) + 1;
-          offerRefreshes.set(removedId, refresh);
-
+          const currentPost = itemsRef.current.find(p => p.id === removedId);
+          // Ignore off-feed updates/deletes before retaining offer versions or
+          // scheduling state work. New rows still require an explicit refresh.
+          if (!currentPost) return;
           // Drop the post on delete, on losing its media, or on being
           // moderated (hidden/removed — mirrors the feed's WHERE clause). If
           // it was the one on screen, hand the render window to a neighbor so
@@ -288,6 +298,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             eventRow.hidden_at != null ||
             eventRow.removed_at != null
           ) {
+            offerRefreshes.delete(removedId);
             const current = itemsRef.current;
             const idx = current.findIndex((p) => p.id === removedId);
             if (idx >= 0) {
@@ -306,9 +317,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             return;
           }
 
-          const currentPost = itemsRef.current.find(p => p.id === removedId);
-          // Updates to an unseen/queued post must not bypass the ranked refresh.
-          if (!currentPost) return;
+          const refresh = (offerRefreshes.get(removedId) ?? 0) + 1;
+          offerRefreshes.set(removedId, refresh);
           const offerSource = { ...currentPost, ...payload.new, id: removedId } as PostRow;
           void loadFeedOffers([offerSource]).then(([offer]) => {
             if (cancelled || offerRefreshes.get(removedId) !== refresh) return;
@@ -663,7 +673,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
   return (
     <div className="relative h-full min-h-0 feed-mobile-viewport">
-      {pendingPosts.length > 0 && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
+      {hasNewPosts && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
         {moreError === "refresh" ? <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }}>Refresh feed to continue</button>
           : moreError === "retry" ? <button type="button" onClick={() => void loadMore()}>Couldn’t load more · Retry</button> : "Loading more…"}
