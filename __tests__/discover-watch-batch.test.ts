@@ -8,6 +8,7 @@ let hidden=false;
 let banned=false;
 let recordedKinds:string[]=[];
 const recordMany=jest.fn();
+const readDuration=jest.fn();
 const originalVercelEnv=process.env.VERCEL_ENV;
 jest.mock('@/lib/supabaseAdmin',()=>({get supabaseAdmin(){return db;}}));
 jest.mock('@/lib/discoverServer',()=>({
@@ -18,13 +19,14 @@ jest.mock('@/lib/discoverServer',()=>({
  DISCOVER_EVENT_POST_COLUMNS:'id,creator_id,caption',
 }));
 jest.mock('@/lib/rateLimit',()=>({allowRequest:()=>true}));
-jest.mock('@/lib/discoverMedia',()=>({verifiedVideoDuration:async()=>duration}));
+jest.mock('@/lib/discoverMedia',()=>({verifiedVideoDuration:(...args:unknown[])=>readDuration(...args)}));
 import {POST} from '@/app/api/feed-events/route';
 beforeEach(()=>{
  delete process.env.DISCOVER_EVENT_CONTEXT_ENABLED;
  recordMany.mockReset();watched=0;duration=10;invalidSession=false;hidden=false;banned=false;recordedKinds=[];
+ readDuration.mockReset().mockImplementation(async()=>duration);
  db=createMockClient(op=>{
-  if(op.table==='discover_watch_context_v1')return {data:{anonymousClaimChecked:true,post:{id:'post',creator_id:'creator',video_url:'https://media.creatornet.net/videos/test.mp4'},audience:'photography',primaryProducts:[],legacyProducts:[],offerings:[],watched,recordedKinds},error:null};
+  if(op.table==='discover_watch_context_v1')return {data:invalidSession||hidden||banned?null:{anonymousClaimChecked:true,post:{id:'post',creator_id:'creator',video_url:'https://media.creatornet.net/videos/test.mp4'},audience:'photography',primaryProducts:[],legacyProducts:[],offerings:[],watched,recordedKinds},error:null};
   if(op.table==='discover_sessions_v1')return {data:invalidSession?null:{post_ids:['post'],expires_at:new Date(Date.now()+3600000).toISOString(),audiences:{post:'photography'}},error:null};
   if(op.table==='posts')return {data:{id:'post',creator_id:'creator',active:true,hidden_at:hidden?'2026-09-15':null,caption:'Portrait photography',video_url:'https://media.creatornet.net/videos/test.mp4'},error:null};
   if(op.table==='profiles')return {data:{banned_at:banned?'2026-09-15':null},error:null};
@@ -120,4 +122,40 @@ test('temporary production timing preserves watch evidence without public diagno
   if(previous===undefined)delete process.env.DISCOVER_TIMING_LOG_UNTIL;
   else process.env.DISCOVER_TIMING_LOG_UNTIL=previous;
  }
+});
+
+test('complete persisted milestones skip media but still invoke fresh authorized watch sampling',async()=>{
+ process.env.DISCOVER_EVENT_CONTEXT_ENABLED='true'; watched=12;
+ recordedKinds=['exposure','qualified_view','completion'];
+ readDuration.mockRejectedValue(new Error('Media unavailable'));
+ expect((await POST(request())).status).toBe(200);
+ expect(db.opsFor('discover_watch_context_v1')).toHaveLength(1);
+ expect(readDuration).not.toHaveBeenCalled();
+ expect(recordMany).not.toHaveBeenCalled();
+});
+
+test.each(['exposure','qualified_view','completion'])('missing %s keeps current media verification',async(missing)=>{
+ process.env.DISCOVER_EVENT_CONTEXT_ENABLED='true'; watched=12;
+ recordedKinds=['exposure','qualified_view','completion'].filter(kind=>kind!==missing);
+ expect((await POST(request())).status).toBe(200);
+ expect(readDuration).toHaveBeenCalledTimes(1);
+ expect(recordMany.mock.calls[0][1]).toEqual([{kind:missing,entityKey:'session:post'}]);
+});
+
+test.each(['invalid session','hidden post','banned creator'])('complete receipts cannot bypass %s',async(reason)=>{
+ process.env.DISCOVER_EVENT_CONTEXT_ENABLED='true'; watched=12;
+ recordedKinds=['exposure','qualified_view','completion'];
+ invalidSession=reason==='invalid session';hidden=reason==='hidden post';banned=reason==='banned creator';
+ expect((await POST(request())).status).toBe(403);
+ expect(db.opsFor('discover_watch_context_v1')).toHaveLength(1);
+ expect(readDuration).not.toHaveBeenCalled();
+ expect(recordMany).not.toHaveBeenCalled();
+});
+
+test('legacy context without receipts still verifies media and samples watch time',async()=>{
+ watched=12; recordedKinds=['exposure','qualified_view','completion'];
+ expect((await POST(request())).status).toBe(200);
+ expect(db.opsFor('discover_watch_sample_v1')).toHaveLength(1);
+ expect(readDuration).toHaveBeenCalledTimes(1);
+ expect(recordMany).toHaveBeenCalledTimes(1);
 });
