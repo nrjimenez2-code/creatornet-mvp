@@ -18,12 +18,14 @@ test('preview separates new-session work from pagination without exposing identi
  expect(first.status).toBe(200);
  const metrics=first.headers.get('server-timing')!.split(', ');
  expect(metrics.map(metric=>metric.split(';')[0])).toEqual([
-  'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount','loopbusy','loopidle','total',
+  'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount','loopbusy','loopidle','invocation','routeage','uptime','total',
  ]);
  expect(metrics.every(metric=>/^[a-z]+;dur=\d+(?:\.\d+)?$/.test(metric))).toBe(true);
  expect(first.headers.get('server-timing')).not.toMatch(/private/);
  const next=await GET(new NextRequest('https://test.invalid/api/feed?session=private-session'));
  expect(next.headers.get('server-timing')).not.toMatch(/session;|private/);
+ const ordinal=(response:NextResponse)=>Number(response.headers.get('server-timing')!.match(/invocation;dur=(\d+)/)![1]);
+ expect(ordinal(next)).toBe(ordinal(first)+1);
  expect(create).toHaveBeenCalledTimes(1);
 });
 test('production does not expose diagnostic timings',async()=>{
