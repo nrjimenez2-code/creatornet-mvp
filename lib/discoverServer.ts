@@ -496,7 +496,7 @@ type DiscoverEventInput = {
 };
 export const DISCOVER_EVENT_POST_COLUMNS =
   "id,creator_id,interests,topics,title,content,caption,product_id,offering_id,allow_booking";
-type DiscoverEventPost = {
+export type DiscoverEventPost = {
   id: string;
   creator_id: string;
   interests?: string[] | null;
@@ -508,6 +508,11 @@ type DiscoverEventPost = {
   offering_id?: string | null;
   allow_booking?: boolean | null;
 };
+export type DiscoverEventOffers = {
+  primaryProducts: Record<string, any>[];
+  legacyProducts: Record<string, any>[];
+  offerings: Record<string, any>[];
+};
 export async function recordDiscoverEvent(input: DiscoverEventInput) {
   return recordDiscoverEvents(input, [{kind:input.kind,entityKey:input.entityKey}]);
 }
@@ -516,6 +521,7 @@ export async function recordDiscoverEvents(
   events: Array<Pick<DiscoverEventInput, 'kind' | 'entityKey'>>,
   // Only server-loaded metadata from this request; never a browser payload or cache.
   loadedPost?: DiscoverEventPost,
+  loadedOffers?: DiscoverEventOffers,
 ) {
   if (!events.length) return;
   let p = loadedPost;
@@ -532,7 +538,9 @@ export async function recordDiscoverEvents(
   if (!p?.creator_id || p.creator_id === input.userId) return;
   const productColumns =
     "id,product_id,creator_id,title,description,type,active";
-  const [products, legacyProducts, offerings] = await Promise.all([
+  const [products, legacyProducts, offerings] = loadedOffers
+    ? [loadedOffers.primaryProducts, loadedOffers.legacyProducts, loadedOffers.offerings]
+    : await Promise.all([
     p.product_id
       ? byIds("products", productColumns, [p.product_id])
       : Promise.resolve([]),
