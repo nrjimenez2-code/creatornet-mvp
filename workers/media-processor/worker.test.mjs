@@ -50,3 +50,80 @@ test('legacy processed video recovers duration only from its matching Stream job
  assert.equal((await (await worker.fetch(request,f.env)).json()).durationSeconds,15);
  assert.equal(reads,2);
 });
+
+function processedFixture() {
+ const f=fixture();
+ const key='ready/videos/test.mp4.json';
+ const record={etag:'source',outputKey:'feed-auto/'+'a'.repeat(64)+'.mp4',durationSeconds:12.5};
+ f.env.STATE.objects.set(key,{body:JSON.stringify(record)});
+ return {...f,record,key,request:()=>new Request('https://media.creatornet.net/auto/metadata/videos/test.mp4')};
+}
+
+test('reuses a completed record but checks source deletion and replacement on every request',async()=>{
+ const f=processedFixture();let reads=0,heads=0;
+ const get=f.env.STATE.get.bind(f.env.STATE),head=f.env.MEDIA.head.bind(f.env.MEDIA);
+ f.env.STATE.get=async key=>{reads++;return get(key)};
+ f.env.MEDIA.head=async key=>{heads++;return head(key)};
+ assert.equal((await worker.fetch(f.request(),f.env)).status,200);
+ assert.equal((await worker.fetch(f.request(),f.env)).status,200);
+ assert.equal(reads,1);assert.equal(heads,2);
+ f.env.MEDIA.objects.delete('videos/test.mp4');
+ assert.equal((await worker.fetch(f.request(),f.env)).status,404);
+ f.env.MEDIA.objects.set('videos/test.mp4',{etag:'replacement',size:4});
+ assert.equal((await worker.fetch(f.request(),f.env)).status,404);
+ await f.env.STATE.put(f.key,JSON.stringify({...f.record,etag:'replacement',durationSeconds:22}));
+ const response=await worker.fetch(f.request(),f.env);
+ assert.equal(response.status,200);assert.equal((await response.json()).durationSeconds,22);
+ assert.equal(response.headers.get('cache-control'),'no-store');
+ assert.equal(heads,5);
+});
+
+test('a replacement ready record is used immediately even while the old entry is cached',async()=>{
+ const f=processedFixture();await worker.fetch(f.request(),f.env);
+ f.env.MEDIA.objects.set('videos/test.mp4',{etag:'replacement',size:4});
+ await f.env.STATE.put(f.key,JSON.stringify({...f.record,etag:'replacement',durationSeconds:30}));
+ assert.equal((await (await worker.fetch(f.request(),f.env)).json()).durationSeconds,30);
+});
+
+test('cache expiry is fixed rather than extended by hits and does not cross state bindings',async t=>{
+ let now=1000;t.mock.method(Date,'now',()=>now);
+ const f=processedFixture(),other=processedFixture();
+ assert.equal((await (await worker.fetch(f.request(),f.env)).json()).durationSeconds,12.5);
+ await f.env.STATE.put(f.key,JSON.stringify({...f.record,durationSeconds:20}));
+ await other.env.STATE.put(other.key,JSON.stringify({...other.record,durationSeconds:40}));
+ now=30000;
+ assert.equal((await (await worker.fetch(f.request(),f.env)).json()).durationSeconds,12.5);
+ assert.equal((await (await worker.fetch(other.request(),other.env)).json()).durationSeconds,40);
+ now=31000;
+ assert.equal((await (await worker.fetch(f.request(),f.env)).json()).durationSeconds,20);
+});
+
+test('missing metadata and storage failures are not retained; source-read failures fail closed',async()=>{
+ const f=processedFixture();f.env.STATE.objects.delete(f.key);
+ assert.equal((await worker.fetch(f.request(),f.env)).status,404);
+ await f.env.STATE.put(f.key,JSON.stringify(f.record));
+ const get=f.env.STATE.get.bind(f.env.STATE);let fail=true;
+ f.env.STATE.get=async key=>{if(fail)throw Error('unavailable');return get(key)};
+ assert.equal((await worker.fetch(f.request(),f.env)).status,404);
+ fail=false;assert.equal((await worker.fetch(f.request(),f.env)).status,200);
+ f.env.MEDIA.head=async()=>{throw Error('unavailable')};
+ assert.equal((await worker.fetch(f.request(),f.env)).status,404);
+});
+
+test('metadata starts independent storage reads together and bounds retained ready records',async()=>{
+ const f=processedFixture();let headStarted=false;
+ const get=f.env.STATE.get.bind(f.env.STATE),head=f.env.MEDIA.head.bind(f.env.MEDIA);
+ f.env.STATE.get=async key=>{await Promise.resolve();assert(headStarted);return get(key)};
+ f.env.MEDIA.head=async key=>{headStarted=true;return head(key)};
+ assert.equal((await worker.fetch(f.request(),f.env)).status,200);
+ let reads=0;f.env.STATE.get=async key=>{reads++;return get(key)};
+ for(let index=0;index<1024;index++){
+   const key='videos/cache-'+index+'.mp4';
+   f.env.MEDIA.objects.set(key,{etag:'source',size:4});
+   await f.env.STATE.put('ready/'+key+'.json',JSON.stringify(f.record));
+   assert.equal((await worker.fetch(new Request('https://media.creatornet.net/auto/metadata/'+key),f.env)).status,200);
+ }
+ const previous=reads;
+ assert.equal((await worker.fetch(f.request(),f.env)).status,200);
+ assert.equal(reads,previous+1);
+});

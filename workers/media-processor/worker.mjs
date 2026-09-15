@@ -9,6 +9,32 @@ const json = async (bucket, key) => { const object = await bucket.get(key); retu
 const save = (bucket, key, value) => bucket.put(key, JSON.stringify(value), {httpMetadata:{contentType:'application/json'}});
 const cleanEtag = e => String(e || '').replaceAll('"', '');
 
+// Cache only completed public metadata, never a request, response, or I/O promise.
+// Every use still checks the current source ETag with R2. Binding isolation keeps
+// another environment from reusing this environment's ready records.
+const readyCaches = new WeakMap();
+const READY_CACHE_MS = 30000;
+const READY_CACHE_LIMIT = 1024;
+function readyCache(bucket) {
+  let cache = readyCaches.get(bucket);
+  if (!cache) { cache = new Map(); readyCaches.set(bucket, cache); }
+  return cache;
+}
+function cachedReady(cache, key) {
+  const entry = cache.get(key);
+  if (!entry) return null;
+  if (entry.expiresAt <= Date.now()) { cache.delete(key); return null; }
+  return {...entry.value};
+}
+function rememberReady(cache, key, ready) {
+  if (key.length > 2048 || typeof ready.etag !== 'string' || !ready.etag ||
+      !Number.isFinite(ready.durationSeconds) || ready.durationSeconds <= 0 || ready.durationSeconds > 43200) return;
+  cache.delete(key);
+  if (cache.size >= READY_CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  cache.set(key, {expiresAt: Date.now() + READY_CACHE_MS,
+    value: Object.freeze({etag:ready.etag, outputKey:ready.outputKey, durationSeconds:ready.durationSeconds})});
+}
+
 export async function processMessage(message, env) {
   const event = message.body;
   const key = event?.object?.key;
@@ -94,9 +120,23 @@ export default {
     if(!validKey(key)||url.search)return new Response('Not found',{status:404});
     let target=ORIGIN+'/'+key;
     try{
-      const ready=await json(env.STATE,'ready/'+key+'.json');
+      const cache = metadata ? readyCache(env.STATE) : null;
+      const cached = cache ? cachedReady(cache, key) : null;
+      // Metadata's two independent storage reads can overlap. Playback retains
+      // its original fallback path and does not use the metadata cache.
+      let ready, metadataHead;
+      if (metadata) {
+        [ready, metadataHead] = await Promise.all([
+          cached ? Promise.resolve(cached) : json(env.STATE,'ready/'+key+'.json'),
+          env.MEDIA.head(key),
+        ]);
+        if (cached && metadataHead?.etag !== cached.etag) {
+          cache.delete(key);
+          ready = await json(env.STATE,'ready/'+key+'.json');
+        }
+      } else ready = await json(env.STATE,'ready/'+key+'.json');
       if(ready && /^feed-auto\/[a-f0-9]{64}\.mp4$/.test(ready.outputKey)){
-        const head=await env.MEDIA.head(key);
+        const head=metadata ? metadataHead : await env.MEDIA.head(key);
         if(head?.etag===ready.etag){
           if(metadata && !(Number.isFinite(ready.durationSeconds) && ready.durationSeconds>0)){
             const id=await digest(key+'\n'+head.etag);
@@ -109,8 +149,10 @@ export default {
               }
             }
           }
-          if(metadata && Number.isFinite(ready.durationSeconds) && ready.durationSeconds>0)
+          if(metadata && Number.isFinite(ready.durationSeconds) && ready.durationSeconds>0) {
+            if (ready !== cached) rememberReady(cache, key, ready);
             return Response.json({key,etag:ready.etag,durationSeconds:ready.durationSeconds},{headers:{'Cache-Control':'no-store'}});
+          }
           target=ORIGIN+'/'+ready.outputKey;
         }
       }

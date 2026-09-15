@@ -46,7 +46,13 @@ test("video opens the chosen search result without navigating and browser Back p
   expect(mockRouter.push).not.toHaveBeenCalled();
   expect(window.location.pathname).toBe("/search");
   expect(host.querySelector("main")?.hasAttribute("inert")).toBe(true);
-  await act(async () => { window.history.back(); await new Promise(resolve => setTimeout(resolve, 30)); });
+  await act(async () => {
+    // History traversal is asynchronous; a loaded runner may take more than 30 ms.
+    // The test timeout still fails if browser Back never emits its real event.
+    const navigated = new Promise<void>(resolve => window.addEventListener("popstate", () => resolve(), { once: true }));
+    window.history.back();
+    await navigated;
+  });
   expect(host.querySelector('[role="dialog"]')).toBeNull();
   expect(videos.getAttribute("aria-selected")).toBe("true");
   expect((host.querySelector('input') as HTMLInputElement).value).toBe("e-commerce");
