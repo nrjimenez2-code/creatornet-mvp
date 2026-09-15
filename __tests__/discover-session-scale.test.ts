@@ -95,6 +95,15 @@ test("Discover fetches only personal history and batches all candidate summaries
   expect(batches.every((ids) => ids.length <= 200)).toBe(true);
   expect(new Set(batches.flat()).size).toBe(2005);
 });
+
+test('only newly minted anonymous identities skip an empty history read', async () => {
+  await createDiscoverSession('anon:new',null,'discover',true);
+  expect(snapshot.post_ids).toHaveLength(2005);
+  expect(db.opsFor('discover_events_v1')).toHaveLength(0);
+  await createDiscoverSession('anon:returning',null,'discover');
+  await createDiscoverSession('user:viewer','viewer','discover',true);
+  expect(db.opsFor('discover_events_v1').map(op=>op.filters.actor)).toEqual(['anon:returning','user:viewer']);
+});
 test("overlapping sessions share global reads but keep histories and sessions separate", async () => {
   await Promise.all([
     createDiscoverSession("user:alice", "alice", "discover"),
