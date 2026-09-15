@@ -11,7 +11,9 @@ import { verifiedVideoDuration } from "@/lib/discoverMedia";
 import { loadDiscoverEventContext } from "@/lib/discoverEventContext";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
+import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
 const routeTiming = createDiscoverRouteTiming();
+const logTiming = createDiscoverTimingLogger('feed-events');
 type EventMeasure = <T>(phase:'identity'|'context'|'sample'|'media'|'write', work:()=>Promise<T>)=>Promise<T>;
 const KINDS = new Set([
   "exposure",
@@ -23,7 +25,7 @@ const KINDS = new Set([
 ]);
 export async function POST(req: NextRequest) {
   const lifecycle = routeTiming();
-  if (process.env.VERCEL_ENV !== 'preview') return eventResponse(req,(_,work)=>work());
+  if (!discoverTimingEnabled()) return eventResponse(req,(_,work)=>work());
   return withDiscoverDatabaseTiming(async()=>{
     const start=performance.now();
     const phases:string[]=[];
@@ -33,7 +35,9 @@ export async function POST(req: NextRequest) {
       finally{phases.push(`${phase};dur=${(performance.now()-began).toFixed(1)}`);}
     };
     const response=await eventResponse(req,measured);
-    response.headers.set('Server-Timing',[...phases,...discoverDatabaseTimingHeader(),...lifecycle,`total;dur=${(performance.now()-start).toFixed(1)}`].join(', '));
+    const metrics=[...phases,...discoverDatabaseTimingHeader(),...lifecycle,`total;dur=${(performance.now()-start).toFixed(1)}`];
+    if (process.env.VERCEL_ENV === 'preview') response.headers.set('Server-Timing',metrics.join(', '));
+    else logTiming(response.status,metrics);
     return response;
   });
 }

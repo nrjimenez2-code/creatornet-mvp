@@ -1,11 +1,12 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance as nodePerformance } from 'node:perf_hooks';
+import { discoverTimingEnabled } from './discoverTimingLog';
 
 type Timing = { count: number; totalMs: number; maxMs: number; upstreamMs: number; upstreamCount: number; loopStart: ReturnType<typeof nodePerformance.eventLoopUtilization> };
 const timing = new AsyncLocalStorage<Timing>();
 
 export function withDiscoverDatabaseTiming<T>(work: () => T): T {
-  if (process.env.VERCEL_ENV !== 'preview') return work();
+  if (!discoverTimingEnabled()) return work();
   return timing.run({ count: 0, totalMs: 0, maxMs: 0, upstreamMs: 0, upstreamCount: 0, loopStart: nodePerformance.eventLoopUtilization() }, work);
 }
 

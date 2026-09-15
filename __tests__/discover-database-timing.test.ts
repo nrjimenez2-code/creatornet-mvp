@@ -38,6 +38,27 @@ test('production passes through without diagnostics', async () => {
   });
 });
 
+test('explicit production timing isolates concurrent request measurements', async () => {
+  const originalUntil = process.env.DISCOVER_TIMING_LOG_UNTIL;
+  process.env.VERCEL_ENV = 'production';
+  process.env.DISCOVER_TIMING_LOG_UNTIL = new Date(Date.now() + 60_000).toISOString();
+  global.fetch = jest.fn(async () => new Response('{}'));
+  try {
+    const results = await Promise.all([1, 3].map(count => withDiscoverDatabaseTiming(async () => {
+      for (let i = 0; i < count; i++)
+        await timedDatabaseFetch('https://private.test/person', {headers: {Authorization: 'secret'}});
+      return discoverDatabaseTimingHeader();
+    })));
+    expect(results[0]).toContain('dbcount;dur=1');
+    expect(results[1]).toContain('dbcount;dur=3');
+    expect(JSON.stringify(results)).not.toMatch(/secret|private|person/);
+    expect(discoverDatabaseTimingHeader()).toEqual([]);
+  } finally {
+    if (originalUntil === undefined) delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+    else process.env.DISCOVER_TIMING_LOG_UNTIL = originalUntil;
+  }
+});
+
 test('accepts only numeric upstream durations and distinguishes missing samples', async () => {
   process.env.VERCEL_ENV = 'preview';
   global.fetch = jest.fn()
