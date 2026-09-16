@@ -19,6 +19,7 @@ jobs:
         with:
           node-version: 22
       - run: npm ci --no-audit --no-fund
+      - run: node --test scripts/capacity/startup-network-block.test.cjs
       - name: Build with fake credentials and outbound network blocked
         run: node scripts/capacity/profile-route-startup.cjs --build
       - name: Profile fresh-process and cached route loading
