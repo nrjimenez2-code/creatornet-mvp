@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
-import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, createDiscoverSessionWithFirstPage, readDiscoverPage } from "@/lib/discoverServer";
+import { discoverEnabled, discoverIdentity, discoverExistingPageIdentity, setDiscoverCookie, createDiscoverSession, createDiscoverSessionWithFirstPage, readDiscoverPage, readDiscoverAnonymousPage } from "@/lib/discoverServer";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
 import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
@@ -39,7 +39,16 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
    if(error)throw error;
    return NextResponse.json({items:data??[],nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
-  const identity=await measured('identity',()=>discoverIdentity(req));
+  const existingSession=req.nextUrl.searchParams.get('session');
+  const checkedAnonymousPage=existingSession !== null && process.env.DISCOVER_ANON_PAGE_ENABLED === 'true' &&
+   process.env.DISCOVER_PAGE_INVENTORY_ENABLED === 'true' && process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true';
+  const identity=await measured('identity',()=>checkedAnonymousPage ? discoverExistingPageIdentity(req) : discoverIdentity(req));
+  if ('anonymousPageCandidate' in identity) {
+   // This candidate has no actor and cannot reach session creation or the
+   // unchecked reader. Every recursive page read retains its fresh claim check.
+   const result=await measured('page',()=>readDiscoverAnonymousPage(existingSession!,identity,offset,limit));
+   return finish(setDiscoverCookie(NextResponse.json({...result,session:existingSession,actorToken:identity.token}),null));
+  }
   if (!req.nextUrl.searchParams.has('session') && process.env.DISCOVER_CREATE_PAGE_ENABLED === 'true') {
    const created=await measured('session',()=>createDiscoverSessionWithFirstPage(identity.actor,identity.userId,tab,identity.newAnonymous,offset,limit,
     discoverTimingEnabled() ? (name,duration)=>{timings.push(`${name};dur=${duration.toFixed(1)}`);} : undefined));
