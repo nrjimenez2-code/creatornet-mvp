@@ -1,0 +1,13 @@
+# Initial Discover inventory batching
+
+`DISCOVER_INITIAL_INVENTORY_PAGE_ENABLED=true` makes initial ranking inventory use `discover_initial_inventory_page_v1`. It defaults to disabled. Apply `20260916194615_discover_initial_inventory_page.sql` before enabling it for a staging comparison.
+
+The observed signed-in staging first feed took 2,439.5 ms at the client and 811.6 ms inside the feed handler. Initial inputs took 429.5 ms, including an expired inventory cache entry and 331.0 ms waiting for the underlying inventory read. Provider logs also identified a cold function. This change targets successive inventory HTTP reads; it does not claim to eliminate cold-start overhead or prove capacity.
+
+The RPC returns up to 1,000 posts plus the existing creator, product, legacy-product and offering fields in one JSON response. It uses a UUID keyset cursor and continues until the full catalog is read. The public feed remains 20 posts per batch. Returning one JSON object avoids truncating a catalog at PostgREST's top-level row limit. Shared metadata is deduplicated by ID across pages. Queries select explicit columns and reuse the existing primary-key/product indexes; no new tables, services or connections are introduced.
+
+The function is STABLE and SECURITY INVOKER, with an empty search path and qualified table names. Execution is revoked from PUBLIC, anon and authenticated and granted only to service_role. The existing application mapper still applies moderation and creator/offer ownership checks. Existing-session page reads still perform their fresh authorization and visibility checks. Signed/private media URLs, viewer likes/follows, paid access, checkout and ranking are unchanged. No personalized response caching is added.
+
+Rollout: pass hosted CI; apply and verify only this migration on staging; deploy with the flag disabled; compare the same staged workload with the flag off and on. Separate fresh-cache, expired-cache and cold-function samples using the response timing/request IDs. Report first-feed latency separately from established scrolling. A failed RPC or invalid/nonadvancing cursor fails the new read; it does not silently return a partial catalog or retry through the old path. Disabling the flag restores the previous initial read path.
+
+The initial scan still visits the full catalog and the ranking inputs remain cached under the existing freshness policy. This improves round trips; representative large-table query plans, realistic larger workloads and headroom still require measurement. Production enablement and 1k/10k capacity claims require separate evidence.
