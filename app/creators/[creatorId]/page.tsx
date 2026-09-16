@@ -9,15 +9,15 @@ import FollowStats from "@/components/FollowStats";
 import OffersPanel, { type OffersRating } from "@/components/OffersPanel";
 import { createServerClient } from "@/lib/supabaseServer";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
-import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
 import { updateInterestScore } from "@/lib/updateInterestScore";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
-import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
+import { isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
+import { readCreatorPublicProfile } from "@/lib/creatorPublicProfile";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -34,21 +34,10 @@ type MetadataProfile = {
   avatar_url: string | null;
 };
 
-// Same id-or-username resolution as the page itself, scoped to metadata fields.
+// The page and metadata share one request-scoped creator snapshot.
 async function findProfileForMetadata(creatorId: string): Promise<MetadataProfile | null> {
-  const fields = "username, full_name, tagline, bio, avatar_url";
-  const byId = await supabaseAdmin
-    .from("profiles")
-    .select(fields)
-    .eq("id", creatorId)
-    .maybeSingle();
-  if (byId.data) return byId.data;
-  const byUsername = await supabaseAdmin
-    .from("profiles")
-    .select(fields)
-    .eq("username", creatorId)
-    .maybeSingle();
-  return byUsername.data ?? null;
+  const result = await readCreatorPublicProfile(creatorId);
+  return result.data ?? null;
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
@@ -91,35 +80,14 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   }
 
   const supabase = createServerClient();
-  const {
-    data: { user: viewer },
-  } = await supabase.auth.getUser();
-
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      auth: { persistSession: false, autoRefreshToken: false },
-    }
-  );
-
-  let profileRes = await admin
-    .from("profiles")
-    .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
-    .eq("id", creatorId)
-    .maybeSingle();
-
-  // Allow /creators/<username> in addition to /creators/<id>.
-  if (!profileRes.data) {
-    const usernameRes = await admin
-      .from("profiles")
-      .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
-      .eq("username", creatorId)
-      .maybeSingle();
-    if (usernameRes.data) {
-      profileRes = usernameRes as typeof profileRes;
-    }
-  }
+  // Public lookup does not depend on the viewer. Verify identity concurrently,
+  // then use only that verified viewer for follows, likes and interest updates.
+  const [viewerRes, profileRes] = await Promise.all([
+    supabase.auth.getUser(),
+    readCreatorPublicProfile(creatorId),
+  ]);
+  const viewer = viewerRes.data.user;
+  const admin = supabaseAdmin;
 
   if (profileRes.error || !profileRes.data) {
     notFound();
@@ -143,13 +111,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   // Score: +4 for viewing a creator profile (use creator's primary interest as category)
   if (viewer?.id) {
-    const { data: creatorProfile } = await admin
-      .from("profiles")
-      .select("interests")
-      .eq("id", resolvedCreatorId)
-      .maybeSingle();
-    const category = Array.isArray(creatorProfile?.interests)
-      ? (creatorProfile.interests[0] as string ?? null)
+    const category = Array.isArray(profile.interests)
+      ? (profile.interests[0] as string ?? null)
       : null;
     updateInterestScore(viewer.id, category, 4);
   }

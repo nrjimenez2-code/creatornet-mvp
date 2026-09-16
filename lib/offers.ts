@@ -116,21 +116,35 @@ function isActive(product: OfferProduct): boolean {
  * Picks the product a post sells: an `id` match wins over a `product_id`
  * match (feed RPC: `order by (pr.id = p.product_id) desc`).
  */
-function productForPost(post: OfferPost, products: readonly OfferProduct[]): OfferProduct | null {
+function indexProducts(products: readonly OfferProduct[]) {
+  const byId = new Map<string, OfferProduct>();
+  const byAlias = new Map<string, OfferProduct>();
+  for (const product of products) {
+    // Match Array.find's first-row behavior, including ID/legacy-alias collisions.
+    if (!byId.has(product.id)) byId.set(product.id, product);
+    if (product.product_id != null && !byAlias.has(product.product_id)) {
+      byAlias.set(product.product_id, product);
+    }
+  }
+  return { byId, byAlias };
+}
+
+function productForPost(post: OfferPost, products: ReturnType<typeof indexProducts>): OfferProduct | null {
   const wanted = post.product_id;
   if (!wanted) return null;
-  const byId = products.find((p) => p.id === wanted);
-  if (byId) return byId;
-  return products.find((p) => p.product_id != null && p.product_id === wanted) ?? null;
+  return products.byId.get(wanted) ?? products.byAlias.get(wanted) ?? null;
 }
 
 /** Keep every gallery post, but enable Buy only with an owned, validated product. */
 export function mapProfileGalleryPosts<T extends OfferPost & { creator_id?: string | null; price_cents?: number | null }>(
   posts: readonly T[], products: readonly OfferProduct[] | null | undefined, creatorId: string,
 ) {
+  // Gallery resolution must retain inactive/unowned ID matches so they block Buy
+  // rather than falling back to a different product's active legacy alias.
+  const productIndex = indexProducts(products ?? []);
   return posts.map(post => {
     const blocked = { ...post, product_type: null, monthlyTerms: null, purchaseOptionsReady: false };
-    const product = productForPost(post, products ?? []);
+    const product = productForPost(post, productIndex);
     if (!product || post.creator_id !== creatorId || product.creator_id !== creatorId || !isActive(product)) return blocked;
     try {
       const monthlyTerms = readMonthlyMentorshipTerms(product.membership_terms, product.type);
@@ -209,25 +223,28 @@ export function buildOffers(
   posts: readonly OfferPost[] | null | undefined,
 ): OfferCard[] {
   const productRows = (products ?? []).filter(isActive);
+  const productIndex = indexProducts(productRows);
   const postRows = posts ?? [];
 
   const seenProducts = new Set<string>();
-  const productCards = postRows.reduce<OfferCard[]>((cards, post) => {
-    const product = productForPost(post, productRows);
-    if (!product || seenProducts.has(product.id)) return cards;
+  const productCards: OfferCard[] = [];
+  postRows.forEach(post => {
+    const product = productForPost(post, productIndex);
+    if (!product || seenProducts.has(product.id)) return;
     seenProducts.add(product.id);
     const card = productCard(product, post);
-    return card ? [...cards, card] : cards;
-  }, []);
+    if (card) productCards.push(card);
+  });
 
   const seenBookingPosts = new Set<string>();
-  const bookingCards = postRows.reduce<OfferCard[]>((cards, post) => {
-    if (post.allow_booking !== true) return cards;
-    if (!(post.booking_url ?? "").trim()) return cards;
-    if (seenBookingPosts.has(post.id)) return cards;
+  const bookingCards: OfferCard[] = [];
+  postRows.forEach(post => {
+    if (post.allow_booking !== true) return;
+    if (!(post.booking_url ?? "").trim()) return;
+    if (seenBookingPosts.has(post.id)) return;
     seenBookingPosts.add(post.id);
-    return [...cards, bookingCard(post)];
-  }, []);
+    bookingCards.push(bookingCard(post));
+  });
 
   return [...productCards, ...bookingCards];
 }
