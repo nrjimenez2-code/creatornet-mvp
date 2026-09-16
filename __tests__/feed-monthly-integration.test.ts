@@ -147,12 +147,15 @@ test("media renders while offer data is pending, with purchases disabled", async
 });
 
 test("late initial offers cannot overwrite a newer realtime refresh", async () => {
+  jest.useFakeTimers();
   let finish!: (v: unknown) => void;
   (global.fetch as jest.Mock).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   await render();
   (global.fetch as jest.Mock).mockResolvedValueOnce(response(["one"], { ...terms, minimumMonths: 6 }));
   await act(async () => realtime({ eventType: "UPDATE", new: { id: "one", creator_id: "creator", product_id: "alias-one", poster_url: "poster.jpg" } }));
   await act(async () => finish(response(["one"])));
+  expect(props("one").purchaseOptionsReady).toBe(false);
+  await act(async () => jest.advanceTimersByTime(25));
   expect(props("one").monthlyTerms.minimumMonths).toBe(6);
 });
 test("pagination enriches additional monthly cards", async () => {
@@ -200,14 +203,18 @@ test("a failed later page retries the same offset without moving or duplicating 
   } finally { errors.mockRestore(); }
 });
 test("realtime update blocks Buy while refreshing and discards an older metadata response", async () => {
+  jest.useFakeTimers();
   await render();
   let finish!: (v: unknown) => void;
   (global.fetch as jest.Mock).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
   await act(async () => realtime({ eventType: "UPDATE", new: { id: "one", creator_id: "creator", product_id: "alias-one", poster_url: "poster.jpg" } }));
+  await act(async () => jest.advanceTimersByTime(25));
   expect(props("one").purchaseOptionsReady).toBe(false);
   (global.fetch as jest.Mock).mockResolvedValueOnce(response(["one"], { ...terms, minimumMonths: 6 }));
   await act(async () => realtime({ eventType: "UPDATE", new: { id: "one", creator_id: "creator", product_id: "alias-one", poster_url: "poster.jpg" } }));
   await act(async () => finish(response(["one"])));
+  expect(props("one").purchaseOptionsReady).toBe(false);
+  await act(async () => jest.advanceTimersByTime(25));
   expect(props("one").monthlyTerms.minimumMonths).toBe(6);
 });
 test("tab change discards stale initial enrichment", async () => {

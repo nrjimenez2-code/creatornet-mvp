@@ -851,6 +851,20 @@ function VideoCard(props: VideoCardProps) {
     };
   }, [src, retryVersion, preload]);
 
+  // Settle watch events and remove playback listeners before releasing media.
+  // Capture this node: a keyed retry may already have installed its replacement.
+  useEffect(() => {
+    const video = videoRef.current;
+    return () => {
+      // Strict Mode replays effects on connected nodes. Source/activation changes
+      // also keep the node, so only a detached video may lose its media resource.
+      if (!video || video.isConnected) return;
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [src, retryVersion]);
+
   const handleVideoClick = useCallback(() => {
     const video = videoRef.current;
     if (!video || !tapToTogglePlayback) return;
