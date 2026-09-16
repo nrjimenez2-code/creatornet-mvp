@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, HeadObjectCommand, DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const accountId = process.env.R2_ACCOUNT_ID!;
@@ -50,6 +50,28 @@ export async function headR2Object(
   try {
     const res = await r2Client.send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
     return { size: res.ContentLength ?? 0, contentType: res.ContentType ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read only the first `length` bytes of an object, so a file's real format can
+ * be identified without pulling a 500 MB video through this process. Uses a
+ * Range request; returns null if the object cannot be read, so callers can fail
+ * open on an R2 hiccup rather than block a creator.
+ */
+export async function readR2ObjectPrefix(
+  key: string,
+  length: number
+): Promise<Uint8Array | null> {
+  try {
+    const res = await r2Client.send(
+      new GetObjectCommand({ Bucket: R2_BUCKET, Key: key, Range: `bytes=0-${length - 1}` })
+    );
+    const body = res.Body as { transformToByteArray?: () => Promise<Uint8Array> } | undefined;
+    if (!body?.transformToByteArray) return null;
+    return await body.transformToByteArray();
   } catch {
     return null;
   }
