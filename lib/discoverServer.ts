@@ -29,6 +29,30 @@ function sign(value: string) {
 export async function discoverIdentity(req: NextRequest) {
   return resolveDiscoverIdentity(req, false);
 }
+// This is only a verified token, not an authorized feed/event actor. The private
+// page RPC must freshly check its claim before it can return an owned page.
+export type DiscoverAnonymousPageCandidate = {
+  anonymousPageCandidate: true;
+  anonymousId: string;
+  token: string;
+};
+export async function discoverExistingPageIdentity(req: NextRequest) {
+  if (!discoverEnabled() || !req.nextUrl.searchParams.has('session') ||
+      process.env.DISCOVER_ANON_PAGE_ENABLED !== 'true' ||
+      process.env.DISCOVER_PAGE_INVENTORY_ENABLED !== 'true' ||
+      process.env.DISCOVER_COMPACT_PAGE_ENABLED !== 'true')
+    return discoverIdentity(req);
+  const verified = await verifyDiscoverIdentity(req);
+  if (!verified.user && verified.anonymous) {
+    const candidate: DiscoverAnonymousPageCandidate = {
+      anonymousPageCandidate: true,
+      anonymousId: verified.anonymous.id,
+      token: verified.anonymous.token,
+    };
+    return candidate;
+  }
+  return resolveVerifiedDiscoverIdentity(verified, false);
+}
 // An event candidate cannot create/read feed sessions. Its anonymous claim check
 // is resolved by loadDiscoverEventContext before it becomes an event actor.
 export type DiscoverEventIdentity = {
@@ -42,16 +66,24 @@ export async function discoverEventIdentity(req: NextRequest): Promise<DiscoverE
   return { actorCandidate: identity.actor, userId: identity.userId, anonymousClaimCheck: deferred ? 'context' : 'complete' };
 }
 async function resolveDiscoverIdentity(req: NextRequest, deferAnonymousClaimCheck: boolean) {
+  return resolveVerifiedDiscoverIdentity(await verifyDiscoverIdentity(req), deferAnonymousClaimCheck);
+}
+async function verifyDiscoverIdentity(req: NextRequest) {
   const { data, error } = await createServerClient().auth.getUser();
   if (error && error.name !== "AuthSessionMissingError")
     throw new Error("Could not verify feed identity");
-  const anonymous = verifiedAnonymousIdentity(req);
-  if (data.user) {
-    if (anonymous) await claimDiscoverIdentity(anonymous.id, data.user.id);
+  return { user: data.user, anonymous: verifiedAnonymousIdentity(req) };
+}
+async function resolveVerifiedDiscoverIdentity(
+  {user, anonymous}: Awaited<ReturnType<typeof verifyDiscoverIdentity>>,
+  deferAnonymousClaimCheck: boolean,
+) {
+  if (user) {
+    if (anonymous) await claimDiscoverIdentity(anonymous.id, user.id);
     return {
-      actor: "user:" + data.user.id,
+      actor: "user:" + user.id,
       newAnonymous: false,
-      userId: data.user.id,
+      userId: user.id,
       cookie: null,
       token: null,
     };
@@ -311,7 +343,8 @@ export async function createDiscoverSessionWithFirstPage(
   onPhase?: (phase: DiscoverSessionPhase, durationMs: number) => void,
 ) {
   const saved = await prepareDiscoverSession(actor,userId,tab,newAnonymous,onPhase,{offset,limit});
-  const result = await renderDiscoverPage(saved.page,saved.id,actor,offset,limit,userId);
+  const result = await renderDiscoverPage(saved.page,offset,limit,userId,
+    nextOffset => readDiscoverPage(saved.id,actor,nextOffset,limit,userId));
   return {session:saved.id,result};
 }
 async function prepareDiscoverSession(
@@ -496,12 +529,38 @@ export async function readDiscoverPage(
   // differently owned snapshots. Temporary database failures keep Retry semantics.
   if (error?.code === "CN001") throw new DiscoverSessionUnavailableError();
   if (error) throw error;
-  return renderDiscoverPage(session,sessionId,actor,offset,limit,userId);
+  return renderDiscoverPage(session,offset,limit,userId,
+    nextOffset => readDiscoverPage(sessionId,actor,nextOffset,limit,userId));
+}
+export async function readDiscoverAnonymousPage(
+  sessionId: string,
+  candidate: DiscoverAnonymousPageCandidate,
+  offset: number,
+  limit: number,
+): Promise<DiscoverPageResult> {
+  const { data, error } = await admin.rpc('discover_anon_compact_page_v1', {
+    p_session: sessionId, p_anonymous: candidate.anonymousId, p_offset: offset, p_limit: limit,
+  });
+  if (error?.code === 'CN001') throw new DiscoverSessionUnavailableError();
+  if (error) throw error;
+  const page = data?.page;
+  // Never fall back to an unchecked page or direct inventory lookup for an
+  // unresolved candidate, including an empty page with malformed metadata.
+  if (data?.anonymousClaimChecked !== true || !page ||
+      !Array.isArray(page.page_post_ids) || !Number.isSafeInteger(page.total_count) ||
+      typeof page.expires_at !== 'string' || !Number.isFinite(Date.parse(page.expires_at)) ||
+      !page.inventory || !['posts','profiles','primaryProducts','legacyProducts','offerings']
+        .every(key => Array.isArray(page.inventory[key]) && page.inventory[key]
+          .every((row: unknown) => row !== null && typeof row === 'object' && !Array.isArray(row))))
+    throw new Error('Checked anonymous feed page unavailable');
+  return renderDiscoverPage(page,offset,limit,null,
+    nextOffset => readDiscoverAnonymousPage(sessionId,candidate,nextOffset,limit));
 }
 async function renderDiscoverPage(
   session: ({post_ids:string[]} | {page_post_ids:string[];total_count:number}) &
     {expires_at:string;inventory?:Record<string,any>} | null | undefined,
-  sessionId:string, actor:string, offset:number, limit:number, userId:string | null,
+  offset:number, limit:number, userId:string | null,
+  readNextPage: (offset: number) => Promise<DiscoverPageResult>,
 ): Promise<DiscoverPageResult> {
   if (!session) throw new DiscoverSessionUnavailableError();
   if (Date.parse(session.expires_at) <= Date.now())
@@ -576,7 +635,7 @@ async function renderDiscoverPage(
     ];
   });
   if (!items.length && offset + limit < total)
-    return readDiscoverPage(sessionId, actor, offset + limit, limit, userId);
+    return readNextPage(offset + limit);
   return {
     items,
     nextOffset: Math.min(total, offset + limit),
