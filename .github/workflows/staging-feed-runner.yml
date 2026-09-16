@@ -1,0 +1,21 @@
+name: Staging feed runner safeguards
+on:
+  pull_request:
+    paths:
+      - 'scripts/capacity/staging-sustained-feed*'
+      - 'scripts/capacity/capacity-response-correlation.cjs'
+      - '.github/workflows/staging-feed-runner.yml'
+  push:
+    branches: [perf/staging-sustained-feed-runner]
+permissions:
+  contents: read
+jobs:
+  isolated-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: node --test scripts/capacity/staging-sustained-feed.test.cjs
