@@ -18,6 +18,7 @@ import { inFlightRead } from "@/lib/inFlightRead";
 import { discoverSharedRead } from "@/lib/discoverSharedRead";
 import { observeDiscoverSharedRead } from "@/lib/discoverSharedReadTiming";
 import { readDiscoverEvidenceBatches } from "@/lib/discoverEvidenceBatches";
+import { readInitialDiscoverInventory } from '@/lib/discoverInitialInventory';
 import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 const initialInventoryRead = inFlightRead<Record<string, any>[]>();
 const rankingEvidenceRead = inFlightRead<DiscoverEvidence[]>();
@@ -217,7 +218,9 @@ export async function discoverInventory(
   let posts: Record<string, any>[], profiles: Record<string, any>[],
     primaryProducts: Record<string, any>[], legacyProducts: Record<string, any>[],
     offerings: Record<string, any>[];
-  if (preloaded || (ids && process.env.DISCOVER_BATCH_INVENTORY_ENABLED === 'true')) {
+  if (!ids && !preloaded && process.env.DISCOVER_INITIAL_INVENTORY_PAGE_ENABLED === 'true') {
+    ({posts,profiles,primaryProducts,legacyProducts,offerings} = await readInitialDiscoverInventory(admin));
+  } else if (preloaded || (ids && process.env.DISCOVER_BATCH_INVENTORY_ENABLED === 'true')) {
     const {data,error} = preloaded ? {data:preloaded,error:null} : await admin.rpc('discover_inventory_batch_v1',{p_ids:ids});
     if(error) throw error;
     if(!data || !['posts','profiles','primaryProducts','legacyProducts','offerings']
