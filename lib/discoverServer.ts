@@ -16,6 +16,7 @@ import { isSellReadyProfile } from "@/lib/sellReady";
 import { assignDiscoverPilot } from "@/lib/discoverPilot";
 import { inFlightRead } from "@/lib/inFlightRead";
 import { discoverSharedRead } from "@/lib/discoverSharedRead";
+import { observeDiscoverSharedRead } from "@/lib/discoverSharedReadTiming";
 import { readDiscoverEvidenceBatches } from "@/lib/discoverEvidenceBatches";
 import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 const initialInventoryRead = inFlightRead<Record<string, any>[]>();
@@ -367,7 +368,8 @@ async function prepareDiscoverSession(
   const pilot = await assignDiscoverPilot(admin, userId, tab);
   mark('sessionpilot');
   const [inventory, events, profile, following, legacy] = await Promise.all([
-    initialInventoryRead('inventory', () => discoverSharedRead('inventory', () => discoverInventory())),
+    observeDiscoverSharedRead('inventory', observation => initialInventoryRead('inventory',
+      () => discoverSharedRead('inventory', () => discoverInventory(), observation), () => observation?.event('join'))),
     // Only the server identity issuer can mark a just-minted anonymous UUID.
     // Returning actors and every authenticated viewer still read their history.
     tab === "following" || (newAnonymous && userId === null && actor.startsWith('anon:'))
@@ -404,12 +406,13 @@ async function prepareDiscoverSession(
   mark('sessioninput');
   const evidence = tab === "following" ? [] : await readDiscoverEvidenceBatches(
     inventory.map(p => p.id),
-    postIds => rankingEvidenceRead(JSON.stringify(postIds), () => discoverSharedRead('evidence:'+JSON.stringify(postIds), async () => {
+    postIds => observeDiscoverSharedRead('evidence', observation => rankingEvidenceRead(JSON.stringify(postIds),
+      () => discoverSharedRead('evidence:'+JSON.stringify(postIds), async () => {
         const { data, error } = await admin.rpc("discover_rank_evidence_v1", {p_posts: postIds});
         if (error || !Array.isArray(data))
           throw error ?? new Error("Ranking evidence unavailable");
         return data as DiscoverEvidence[];
-      })),
+      }, observation), () => observation?.event('join'))),
     process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED === 'true',
   );
   mark('sessionevidence');
@@ -485,27 +488,33 @@ async function prepareDiscoverSession(
   );
   mark('sessionaudience');
   if (firstPage) {
-    const {data,error} = await admin.rpc(process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
-      ? 'discover_create_compact_page_v1' : 'discover_create_page_v1', {
-      p_actor:actor,p_user_id:userId,p_tab:tab,p_post_ids:ids,p_audiences:audiences,
-      p_offset:firstPage.offset,p_limit:firstPage.limit,p_pilot_id:pilot?.experimentId ?? null,
-      p_pilot_variant:pilot?.variant ?? null,p_pilot_placements:pilot ? placements : {},
+    const saved = await observeDiscoverSharedRead('write', async () => {
+      const {data,error} = await admin.rpc(process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
+        ? 'discover_create_compact_page_v1' : 'discover_create_page_v1', {
+        p_actor:actor,p_user_id:userId,p_tab:tab,p_post_ids:ids,p_audiences:audiences,
+        p_offset:firstPage.offset,p_limit:firstPage.limit,p_pilot_id:pilot?.experimentId ?? null,
+        p_pilot_variant:pilot?.variant ?? null,p_pilot_placements:pilot ? placements : {},
+      });
+      if (error) throw error;
+      if (!data || typeof data.id !== 'string' || !data.page || !data.page.inventory)
+        throw new Error('Initial feed page unavailable');
+      return {id:data.id as string,page:data.page};
     });
-    if (error) throw error;
-    if (!data || typeof data.id !== 'string' || !data.page || !data.page.inventory)
-      throw new Error('Initial feed page unavailable');
     mark('sessionwritepage');
-    return {id:data.id as string,page:data.page};
+    return saved;
   }
-  const { data, error } = await admin
-    .from("discover_sessions_v1")
-    .insert({ actor, user_id: userId, tab, post_ids: ids, audiences,
-      ...(pilot ? { pilot_id: pilot.experimentId, pilot_variant: pilot.variant, pilot_placements: placements } : {}) })
-    .select("id")
-    .single();
-  if (error) throw error;
+  const saved = await observeDiscoverSharedRead('write', async () => {
+    const { data, error } = await admin
+      .from("discover_sessions_v1")
+      .insert({ actor, user_id: userId, tab, post_ids: ids, audiences,
+        ...(pilot ? { pilot_id: pilot.experimentId, pilot_variant: pilot.variant, pilot_placements: placements } : {}) })
+      .select("id")
+      .single();
+    if (error) throw error;
+    return {id:data.id as string,page:undefined};
+  });
   mark('sessionwrite');
-  return {id:data.id as string,page:undefined};
+  return saved;
 }
 type DiscoverPageResult = {items: Record<string,any>[];nextOffset:number;hasMore:boolean};
 export async function readDiscoverPage(

@@ -1,6 +1,11 @@
+import { DISCOVER_SHARED_READ_METRICS } from './discoverSharedReadTiming';
+
 const MAX_LOGS_PER_ROUTE_MODULE = 64;
+// Existing transport/startup phases plus at most 44 fixed shared-read metrics.
+const MAX_METRICS_PER_LOG = 96;
 const MAX_WINDOW_MS = 2 * 60 * 60 * 1000;
 const ALLOWED_METRICS = new Set([
+  ...DISCOVER_SHARED_READ_METRICS,
   'sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite', 'sessionwritepage',
   'identity', 'session', 'page', 'context', 'sample', 'media', 'write',
   'dbtotal', 'dbmax', 'dbcount', 'upstream', 'upstreamcount',
@@ -30,7 +35,7 @@ export function createDiscoverTimingLogger(route: 'feed' | 'feed-events') {
     if (!productionLoggingEnabled() || remainingLogs === 0 ||
         !Number.isInteger(status) || status < 100 || status > 599) return;
     const metrics: Record<string, number> = {};
-    for (const value of values.slice(0, 40)) {
+    for (const value of values.slice(0, MAX_METRICS_PER_LOG)) {
       const match = /^([a-z]+);dur=(\d{1,16}(?:\.\d{1,3})?)$/.exec(value);
       if (!match || !ALLOWED_METRICS.has(match[1])) continue;
       const duration = Number(match[2]);

@@ -12,6 +12,7 @@ jest.mock('@/lib/discoverServer',()=>({
  setDiscoverCookie:(response:NextResponse)=>response,
 }));
 import {GET} from '@/app/api/feed/route';
+import { observeDiscoverSharedRead, discoverSharedReadTimingHeader } from '@/lib/discoverSharedReadTiming';
 const original=process.env.VERCEL_ENV;
 const originalCreatePage=process.env.DISCOVER_CREATE_PAGE_ENABLED;
 afterEach(()=>{if(originalCreatePage===undefined)delete process.env.DISCOVER_CREATE_PAGE_ENABLED;else process.env.DISCOVER_CREATE_PAGE_ENABLED=originalCreatePage;});
@@ -101,4 +102,51 @@ test('temporary production timing goes only to logs and leaves the feed response
   if(previous===undefined)delete process.env.DISCOVER_TIMING_LOG_UNTIL;
   else process.env.DISCOVER_TIMING_LOG_UNTIL=previous;
  }
+});
+
+test.each(['preview', 'production-disabled', 'production-enabled'])('shared-read diagnostics use only the existing route gate (%s)', async mode => {
+ const previous = process.env.DISCOVER_TIMING_LOG_UNTIL;
+ const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+ try {
+  process.env.VERCEL_ENV = mode === 'preview' ? 'preview' : 'production';
+  if (mode === 'production-enabled') process.env.DISCOVER_TIMING_LOG_UNTIL = new Date(Date.now()+60_000).toISOString();
+  else delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+  create.mockImplementationOnce(() => observeDiscoverSharedRead('inventory', async observation => {
+   expect(Boolean(observation)).toBe(mode !== 'production-disabled');
+   observation?.event('fresh');
+   return 'private-session';
+  }));
+  const response = await GET(new NextRequest('https://test.invalid/api/feed'));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({items:[],hasMore:false,nextOffset:0,session:'private-session',actorToken:'private-token'});
+  if (mode === 'preview') {
+   expect(response.headers.get('server-timing')).toContain('invfresh;dur=1.0');
+   expect(info).not.toHaveBeenCalled();
+  } else {
+   expect(response.headers.has('server-timing')).toBe(false);
+   if (mode === 'production-enabled') {
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(info.mock.calls[0][1]).metrics).toMatchObject({ invcalls: 1, invfresh: 1, invloads: 0 });
+    expect(JSON.stringify(info.mock.calls)).not.toMatch(/private/);
+   } else expect(info).not.toHaveBeenCalled();
+  }
+  expect(discoverSharedReadTimingHeader()).toEqual([]);
+ } finally {
+  info.mockRestore();
+  if (previous === undefined) delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+  else process.env.DISCOVER_TIMING_LOG_UNTIL = previous;
+ }
+});
+
+test('preview error response retains numeric write failure diagnostics without exposing the error', async () => {
+ process.env.VERCEL_ENV = 'preview';
+ const error = jest.spyOn(console, 'error').mockImplementation(() => {});
+ create.mockImplementationOnce(() => observeDiscoverSharedRead('write', async () => { throw new Error('private-write-detail'); }));
+ try {
+  const response = await GET(new NextRequest('https://test.invalid/api/feed'));
+  expect(response.status).toBe(503);
+  expect(response.headers.get('server-timing')).toContain('sessionstoreerrors;dur=1.0');
+  expect(response.headers.get('server-timing')).not.toMatch(/private/);
+  expect(await response.json()).toEqual({error:'Could not load this feed. Refresh to try again.'});
+ } finally { error.mockRestore(); }
 });

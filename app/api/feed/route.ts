@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
+import { withDiscoverSharedReadTiming, discoverSharedReadTimingHeader } from '@/lib/discoverSharedReadTiming';
 import { discoverEnabled, discoverIdentity, discoverExistingPageIdentity, setDiscoverCookie, createDiscoverSession, createDiscoverSessionWithFirstPage, readDiscoverPage, readDiscoverAnonymousPage } from "@/lib/discoverServer";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
@@ -9,7 +10,7 @@ const routeTiming = createDiscoverRouteTiming();
 const logTiming = createDiscoverTimingLogger('feed');
 export async function GET(req:NextRequest){
  const lifecycle = routeTiming();
- return withDiscoverDatabaseTiming(() => feedResponse(req,lifecycle));
+ return withDiscoverSharedReadTiming(discoverTimingEnabled(), () => withDiscoverDatabaseTiming(() => feedResponse(req,lifecycle)));
 }
 async function feedResponse(req:NextRequest,lifecycle:string[]){
  const timings: string[] = [];
@@ -23,7 +24,8 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
  };
  const finish = (response: NextResponse) => {
   if (!discoverTimingEnabled()) return response;
-  const metrics = [...timings,...discoverDatabaseTimingHeader(),...lifecycle,`total;dur=${(performance.now()-started).toFixed(1)}`];
+  const metrics = [...timings,...discoverDatabaseTimingHeader(),...lifecycle,
+   ...discoverSharedReadTimingHeader(),`total;dur=${(performance.now()-started).toFixed(1)}`];
   // Preview contains numeric timing and invocation diagnostics only, never actor/session identifiers.
   if(process.env.VERCEL_ENV==='preview') response.headers.set('Server-Timing',metrics.join(', '));
   else logTiming(response.status,metrics);

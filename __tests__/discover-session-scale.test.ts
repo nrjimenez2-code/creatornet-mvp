@@ -11,6 +11,7 @@ jest.mock("@/lib/supabaseAdmin", () => ({
 }));
 jest.mock("@/lib/supabaseServer", () => ({ createServerClient: () => ({}) }));
 import { createDiscoverSession, createDiscoverSessionWithFirstPage } from "@/lib/discoverServer";
+import { withDiscoverSharedReadTiming, discoverSharedReadTimingHeader } from '@/lib/discoverSharedReadTiming';
 const posts = Array.from({ length: 2005 }, (_, i) => ({
   id: "p" + String(i).padStart(4, "0"),
   creator_id: "c" + String(i).padStart(4, "0"),
@@ -210,6 +211,41 @@ test("overlapping sessions share global reads but keep histories and sessions se
   await createDiscoverSession("user:alice", "alice", "discover");
   expect(db.opsFor("posts")).toHaveLength(6);
   expect(db.opsFor("discover_rank_evidence_v1")).toHaveLength(22);
+});
+
+test.each([false, true])('request-local diagnostics enclose actual inventory, evidence and session writes (firstPage=%s)', async firstPage => {
+  const previous = process.env.VERCEL;
+  delete process.env.VERCEL;
+  try {
+    await withDiscoverSharedReadTiming(true, async () => {
+      if (firstPage) await createDiscoverSessionWithFirstPage('anon:test', null, 'discover', true, 0, 20);
+      else await createDiscoverSession('anon:test', null, 'discover', true);
+      const timing = discoverSharedReadTimingHeader();
+      expect(timing).toEqual(expect.arrayContaining(['invcalls;dur=1.0', 'invloads;dur=1.0',
+        'evicalls;dur=11.0', 'eviloads;dur=11.0', 'sessionstorecalls;dur=1.0',
+        'sessionstoreerrors;dur=0.0', 'sessionstorewaitcount;dur=1.0']));
+      expect(timing.join(',')).not.toMatch(/anon|session-private|p000|viewer/);
+    });
+    expect(snapshot.post_ids).toHaveLength(2005);
+    expect(db.opsFor('discover_rank_evidence_v1')).toHaveLength(11);
+    expect(db.opsFor('discover_events_v1')).toHaveLength(0);
+  } finally {
+    if (previous === undefined) delete process.env.VERCEL; else process.env.VERCEL = previous;
+  }
+});
+
+test('first-page validation failure remains an error inside the measured write and never inserts again', async () => {
+  const original = db.rpc;
+  db.rpc = (name, args) => name === 'discover_create_page_v1'
+    ? Promise.resolve({ data: { id: 'invalid' }, error: null }) : original(name, args);
+  await withDiscoverSharedReadTiming(true, async () => {
+    await expect(createDiscoverSessionWithFirstPage('anon:test', null, 'discover', true, 0, 20))
+      .rejects.toThrow('Initial feed page unavailable');
+    expect(discoverSharedReadTimingHeader()).toEqual(expect.arrayContaining([
+      'sessionstorecalls;dur=1.0', 'sessionstoreerrors;dur=1.0', 'sessionstorewaitcount;dur=1.0',
+    ]));
+  });
+  expect(db.opsFor('discover_sessions_v1')).toHaveLength(0);
 });
 
 test.each([undefined, 'false', '1', 'true'])('evidence overlap requires literal true (flag=%s)', async flag => {

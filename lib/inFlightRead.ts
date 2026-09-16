@@ -1,9 +1,12 @@
 // Share only overlapping reads. Completed results and failures are never cached.
 export function inFlightRead<T>() {
  const pending = new Map<string, Promise<T>>();
- return (key: string, read: () => Promise<T>): Promise<T> => {
+ return (key: string, read: () => Promise<T>, onJoin?: () => void): Promise<T> => {
   const existing = pending.get(key);
-  if (existing) return existing;
+  if (existing) {
+   try { onJoin?.(); } catch { /* Optional diagnostics cannot change shared reads. */ }
+   return existing;
+  }
   const request = Promise.resolve().then(read).then(
    value => { pending.delete(key); return value; },
    error => { pending.delete(key); throw error; },

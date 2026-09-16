@@ -19,3 +19,16 @@ test('a failed read is removed so recovery can succeed', async () => {
  await expect(share('same',async()=>{throw new Error('temporary');})).rejects.toThrow('temporary');
  await expect(share('same',async()=>3)).resolves.toBe(3);
 });
+
+test('join observation retains the exact shared promise and observer errors cannot change it', async () => {
+ const share = inFlightRead<number>();
+ const ownerObserver = jest.fn();
+ const first = share('same', async () => 5, ownerObserver);
+ const joiningObserver = jest.fn(() => { throw new Error('diagnostics failed'); });
+ expect(share('same', async () => 99, joiningObserver)).toBe(first);
+ expect(ownerObserver).not.toHaveBeenCalled();
+ expect(joiningObserver).toHaveBeenCalledTimes(1);
+ expect(await first).toBe(5);
+ expect(await share('same', async () => 6, ownerObserver)).toBe(6);
+ expect(ownerObserver).not.toHaveBeenCalled();
+});
