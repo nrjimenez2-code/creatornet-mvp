@@ -453,7 +453,8 @@ async function prepareDiscoverSession(
   );
   mark('sessionaudience');
   if (firstPage) {
-    const {data,error} = await admin.rpc('discover_create_page_v1', {
+    const {data,error} = await admin.rpc(process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
+      ? 'discover_create_compact_page_v1' : 'discover_create_page_v1', {
       p_actor:actor,p_user_id:userId,p_tab:tab,p_post_ids:ids,p_audiences:audiences,
       p_offset:firstPage.offset,p_limit:firstPage.limit,p_pilot_id:pilot?.experimentId ?? null,
       p_pilot_variant:pilot?.variant ?? null,p_pilot_placements:pilot ? placements : {},
@@ -483,7 +484,8 @@ export async function readDiscoverPage(
   userId: string | null,
 ): Promise<DiscoverPageResult> {
   const { data: session, error } = process.env.DISCOVER_PAGE_INVENTORY_ENABLED === 'true'
-    ? await admin.rpc('discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit})
+    ? await admin.rpc(process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
+      ? 'discover_compact_page_v1' : 'discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit})
     : await admin
     .from("discover_sessions_v1")
     .select("post_ids,expires_at")
@@ -497,16 +499,22 @@ export async function readDiscoverPage(
   return renderDiscoverPage(session,sessionId,actor,offset,limit,userId);
 }
 async function renderDiscoverPage(
-  session: {post_ids:string[];expires_at:string;inventory?:Record<string,any>} | null | undefined,
+  session: ({post_ids:string[]} | {page_post_ids:string[];total_count:number}) &
+    {expires_at:string;inventory?:Record<string,any>} | null | undefined,
   sessionId:string, actor:string, offset:number, limit:number, userId:string | null,
 ): Promise<DiscoverPageResult> {
   if (!session) throw new DiscoverSessionUnavailableError();
   if (Date.parse(session.expires_at) <= Date.now())
     throw new DiscoverSessionUnavailableError();
-  const ids: string[] = session.post_ids;
-  const selected = ids.slice(offset, offset + limit);
+  const compact = 'page_post_ids' in session;
+  const total = compact ? session.total_count : session.post_ids.length;
+  const selected = compact ? session.page_post_ids : session.post_ids.slice(offset, offset + limit);
+  if (compact && (!Number.isSafeInteger(total) || total<0 || !Array.isArray(selected) ||
+      selected.length!==Math.min(limit,Math.max(0,total-offset)) ||
+      selected.some(id=>typeof id!=='string') || new Set(selected).size!==selected.length))
+    throw new Error('Invalid compact feed page');
   if (!selected.length)
-    return { items: [], nextOffset: ids.length, hasMore: false };
+    return { items: [], nextOffset: total, hasMore: false };
   // Recheck moderation on every page; the snapshot freezes order, not permissions.
   const inventory = await discoverInventory(selected, session.inventory);
   const [likes, follows] = await Promise.all([
@@ -567,12 +575,12 @@ async function renderDiscoverPage(
       },
     ];
   });
-  if (!items.length && offset + limit < ids.length)
+  if (!items.length && offset + limit < total)
     return readDiscoverPage(sessionId, actor, offset + limit, limit, userId);
   return {
     items,
-    nextOffset: Math.min(ids.length, offset + limit),
-    hasMore: offset + limit < ids.length,
+    nextOffset: Math.min(total, offset + limit),
+    hasMore: offset + limit < total,
   };
 }
 type DiscoverEventInput = {

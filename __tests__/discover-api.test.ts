@@ -25,11 +25,11 @@ jest.mock("@/lib/supabaseServer", () => ({ createServerClient: () => auth }));
 import { GET } from "@/app/api/feed/route";
 import { POST } from "@/app/api/feed-events/route";
 function respond(op: Op): {data: any; error: unknown} {
-  if(op.table === 'discover_page_inventory_v1') {
+  if(op.table === 'discover_page_inventory_v1' || op.table === 'discover_compact_page_v1') {
     const args=op.payload as {p_actor:string;p_offset:number;p_limit:number};
     if(args.p_actor!==actor || expired) return {data:null,error:{code:'CN001'}};
     const selected=ids.slice(args.p_offset,args.p_offset+args.p_limit);
-    return {data:{post_ids:ids,expires_at:new Date(Date.now()+3600000).toISOString(),
+    return {data:{...(op.table==='discover_compact_page_v1'?{page_post_ids:selected,total_count:ids.length}:{post_ids:ids}),expires_at:new Date(Date.now()+3600000).toISOString(),
       inventory:respond({...op,table:'discover_inventory_batch_v1',payload:{p_ids:selected}}).data},error:null};
   }
   if(op.table === 'discover_inventory_batch_v1') {
@@ -79,6 +79,7 @@ function respond(op: Op): {data: any; error: unknown} {
   return { data: [], error: null };
 }
 beforeEach(() => {
+  delete process.env.DISCOVER_COMPACT_PAGE_ENABLED;
   delete process.env.DISCOVER_PAGE_INVENTORY_ENABLED;
   process.env.DISCOVER_V4_ENABLED = "true";
   actor = "user:viewer";
@@ -89,12 +90,14 @@ beforeEach(() => {
   db = createMockClient(respond);
 });
 afterAll(() => {
+  delete process.env.DISCOVER_COMPACT_PAGE_ENABLED;
   delete process.env.DISCOVER_PAGE_INVENTORY_ENABLED;
   delete process.env.DISCOVER_V4_ENABLED;
 });
 const request = (query: string) =>
   new NextRequest("https://example.test/api/feed?session=existing&" + query);
-test("pagination crosses the old 2000 cap and keeps snapshot order", async () => {
+test.each([false,true])("pagination crosses the old 2000 cap and keeps snapshot order (compact=%s)", async compact => {
+  if(compact){process.env.DISCOVER_COMPACT_PAGE_ENABLED='true';process.env.DISCOVER_PAGE_INVENTORY_ENABLED='true';}
   let response = await GET(request("offset=1998&limit=5"));
   let body = await response.json();
   expect(response.status).toBe(200);
@@ -164,7 +167,8 @@ test("invalid offsets and fabricated commercial events are rejected", async () =
   expect(response.status).toBe(400);
   expect(db.opsFor("discover_events_v1")).toHaveLength(0);
 });
-test('combined page path preserves moderation skipping, ownership and expiry',async()=>{
+test.each([false,true])('combined page preserves moderation skipping, ownership and expiry (compact=%s)',async compact=>{
+ process.env.DISCOVER_COMPACT_PAGE_ENABLED=String(compact);
  process.env.DISCOVER_PAGE_INVENTORY_ENABLED='true';
  hidden=new Set(ids.slice(0,5));
  const first=await (await GET(request('offset=0&limit=5'))).json();
@@ -187,6 +191,15 @@ test('combined page path preserves moderation skipping, ownership and expiry',as
   expect(oldSession.status).toBe(410);
   expect(await oldSession.json()).toEqual({error:'This feed needs to be refreshed.',code:'DISCOVER_SESSION_UNAVAILABLE'});
  } finally {log.mockRestore();}
+});
+
+test('malformed compact metadata fails closed without returning inventory',async()=>{
+ process.env.DISCOVER_PAGE_INVENTORY_ENABLED='true';process.env.DISCOVER_COMPACT_PAGE_ENABLED='true';
+ const log=jest.spyOn(console,'error').mockImplementation(()=>{});
+ try{for(const patch of [{total_count:-1},{page_post_ids:['p1','p1']},{total_count:NaN},{page_post_ids:[]}]){
+  db=createMockClient(op=>{const result=respond(op);if(op.table==='discover_compact_page_v1')Object.assign(result.data,patch);return result;});
+  const response=await GET(request('offset=0&limit=2'));expect(response.status).toBe(503);expect(await response.json()).not.toHaveProperty('items');
+ }}finally{log.mockRestore();}
 });
 
 test.each([false,true])('temporary session reads preserve retryable failure semantics (combined=%s)',async(combined)=>{

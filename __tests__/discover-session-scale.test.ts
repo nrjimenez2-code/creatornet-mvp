@@ -22,6 +22,14 @@ let freshPageBanned = false;
 let viewerTopics: Record<string, string[]> = {};
 let snapshot: { post_ids: string[]; audiences: Record<string,string>; pilot_id?: string; pilot_variant?: string; pilot_placements?: Record<string,{position:number}> };
 function respond(op: Op) {
+  if (op.table === 'discover_create_compact_page_v1') {
+    const input=op.payload as Record<string,any>;
+    snapshot={post_ids:input.p_post_ids,audiences:input.p_audiences};
+    const selected=snapshot.post_ids.slice(input.p_offset,input.p_offset+input.p_limit);
+    const pagePosts=selected.map(id=>posts.find(p=>p.id===id)!);
+    return {data:{id:'session',page:{page_post_ids:selected,total_count:snapshot.post_ids.length,expires_at:'2100-01-01',inventory:{posts:pagePosts,
+      profiles:pagePosts.map(p=>({id:p.creator_id,username:'public-creator'})),primaryProducts:[],legacyProducts:[],offerings:[]}}},error:null};
+  }
   if (op.table === 'discover_create_page_v1') {
     const input=op.payload as Record<string,any>;
     snapshot={post_ids:input.p_post_ids,audiences:input.p_audiences};
@@ -149,6 +157,16 @@ test("Discover fetches only personal history and batches all candidate summaries
   expect(batches.every((ids) => ids.length <= 200)).toBe(true);
   expect(new Set(batches.flat()).size).toBe(2005);
 });
+test('compact first-page creation retains the full ranking but renders only the selected IDs',async()=>{
+ process.env.DISCOVER_COMPACT_PAGE_ENABLED='true';
+ try{
+  const result=await createDiscoverSessionWithFirstPage('anon:new',null,'discover',true,0,20);
+  expect(result.result.items.map(p=>p.post_id)).toEqual(snapshot.post_ids.slice(0,20));
+  expect(result.result.nextOffset).toBe(20);expect(result.result.hasMore).toBe(true);expect(snapshot.post_ids).toHaveLength(2005);
+  expect(db.opsFor('discover_create_compact_page_v1')).toHaveLength(1);expect(db.opsFor('discover_create_page_v1')).toHaveLength(0);expect(db.opsFor('discover_sessions_v1')).toHaveLength(0);
+ }finally{delete process.env.DISCOVER_COMPACT_PAGE_ENABLED;}
+});
+
 test('audiences preserve per-post topic priority and stay isolated between viewers', async () => {
   topicFixture = true;
   viewerTopics = { alice: ['ＥＣＯＭＭＥＲＣＥ', 'LANGUAGES'], bob: ['ecommerce'] };

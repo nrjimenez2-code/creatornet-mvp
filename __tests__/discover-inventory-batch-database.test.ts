@@ -52,6 +52,46 @@ beforeAll(async()=>{
  add column pilot_id text,add column pilot_variant text,add column pilot_placements jsonb default '{}';
  grant insert on discover_sessions_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260916040322_discover_create_page.sql','utf8'));
+ await db.exec(readFileSync('supabase/migrations/20260916051608_discover_compact_page.sql','utf8'));
+});
+
+test('compact pages match legacy inventory while bounding IDs for a 10001-post ranking',async()=>{
+ await db.exec('begin');
+ try{
+  await db.exec(`update discover_sessions_v1 set post_ids=array_prepend('${post}'::uuid,array(select md5(n::text)::uuid from generate_series(1,10000)n)) where id='${post}'`);
+  await db.exec('set role service_role');
+  for(const offset of [0,20,9998,10001,Number.MAX_SAFE_INTEGER]){
+   const {rows}=await db.query<{old:any;compact:any}>(`select discover_page_inventory_v1($1,$2,$3,20) as old,discover_compact_page_v1($1,$2,$3,20) as compact`,[post,owner,offset]);
+   const {old,compact}=rows[0];expect(compact.page_post_ids).toEqual(old.post_ids.slice(offset,offset+20));expect(compact.total_count).toBe(10001);expect(compact.inventory).toEqual(old.inventory);expect(compact.expires_at).toBe(old.expires_at);expect(compact).not.toHaveProperty('post_ids');expect(JSON.stringify(compact).length).toBeLessThan(JSON.stringify(old).length/10);
+  }
+  await db.exec('reset role');await db.exec('update profiles set banned_at=now()');await db.exec('set role service_role');
+  const fresh=await db.query<{page:any}>('select discover_compact_page_v1($1,$2,0,20) as page',[post,owner]);expect(fresh.rows[0].page.inventory.profiles[0].banned_at).not.toBeNull();
+ }finally{await db.exec('rollback');}
+});
+
+test('compact page preserves role denial, unavailable sessions and invalid bounds',async()=>{
+ const sql='select discover_compact_page_v1($1::uuid,$2::text,$3::bigint,$4::integer)';
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{await expect(db.query(sql,[post,owner,0,20])).rejects.toThrow(/permission denied/);}finally{await db.exec('reset role');}}
+ await expect(db.query(sql,[creator,owner,0,20])).rejects.toMatchObject({code:'CN001'});
+ await expect(db.query(sql,[post,'anon:other',0,20])).rejects.toMatchObject({code:'CN001'});
+ for(const [offset,limit] of [[-1,20],[null,20],[0,0],[0,51],[0,null]])await expect(db.query(sql,[post,owner,offset,limit])).rejects.toMatchObject({code:'22023'});
+ await db.exec('begin');try{await db.exec('update discover_sessions_v1 set expires_at=now()');await expect(db.query(sql,[post,owner,0,20])).rejects.toMatchObject({code:'CN001'});}finally{await db.exec('rollback');}
+});
+
+test('compact creation keeps full snapshot metadata and rolls back page failures',async()=>{
+ const sql=`select discover_create_compact_page_v1($1::text,$2::uuid,'discover',array[$3::uuid],'{"${post}":"languages"}',0,20,'pilot','control','{"${post}":{"position":0}}') as data`;
+ await db.exec('begin');try{
+  await db.exec('set role service_role');const {rows}=await db.query<{data:any}>(sql,[owner,null,post]);const saved=rows[0].data;
+  expect(saved.page.page_post_ids).toEqual([post]);expect(saved.page.total_count).toBe(1);expect(saved.page).not.toHaveProperty('post_ids');
+  const snapshot=await db.query<any>('select post_ids,audiences,pilot_id,pilot_variant,pilot_placements from discover_sessions_v1 where id=$1',[saved.id]);
+  expect(snapshot.rows[0]).toEqual({post_ids:[post],audiences:{[post]:'languages'},pilot_id:'pilot',pilot_variant:'control',pilot_placements:{[post]:{position:0}}});
+ }finally{await db.exec('rollback');}
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);try{await expect(db.query(sql,[owner,null,post])).rejects.toThrow(/permission denied/);}finally{await db.exec('reset role');}}
+ const count=async()=> (await db.query<{n:number}>('select count(*)::int as n from discover_sessions_v1')).rows[0].n;const before=await count();
+ await expect(db.query(sql,[owner,creator,post])).rejects.toMatchObject({code:'22023'});
+ await db.exec('revoke execute on function discover_compact_page_v1(uuid,text,bigint,integer) from service_role');await db.exec('set role service_role');
+ try{await expect(db.query(sql,[owner,null,post])).rejects.toThrow(/permission denied/);}finally{await db.exec('reset role');await db.exec('grant execute on function discover_compact_page_v1(uuid,text,bigint,integer) to service_role');}
+ expect(await count()).toBe(before);
 });
 
 test('create-and-page preserves the snapshot, filters fresh moderation and rolls back failed creation',async()=>{
