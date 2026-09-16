@@ -11,15 +11,29 @@ export type FeedOffer = {
 };
 
 /** The deployed feed RPC predates monthly columns. Enrich without changing its schema. */
-export async function loadFeedOffers(posts: PostRow[]): Promise<PostRow[]> {
+export async function loadFeedOffers(posts: PostRow[], signal?: AbortSignal): Promise<PostRow[]> {
   if (!posts.length) return posts;
   let offers: Record<string, FeedOffer | null> = {};
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, { once: true });
+  const deadline = setTimeout(abort, 10000);
   try {
+    controller.signal.throwIfAborted();
     const res = await fetch(`/api/posts/feed-offers?${new URLSearchParams({ ids: posts.map(p => p.id).join(",") })}`,
-      { credentials: "include", cache: "no-store", signal: AbortSignal.timeout(10000) });
-    if (!res.ok) throw Error("Purchase options unavailable");
-    offers = (await res.json()).offers ?? {};
-  } catch { /* Keep media/Book usable; an unknown paid offer stays disabled. */ }
+      { credentials: "include", cache: "no-store", signal: controller.signal });
+    if (!res.ok) {
+      // A fetch resolves at headers. Keep this read's slot/deadline until its
+      // rejected body's cancellation actually settles, not just until headers.
+      await res.body?.cancel();
+      throw Error("Purchase options unavailable");
+    }
+    const body = await res.json();
+    controller.signal.throwIfAborted();
+    offers = body.offers ?? {};
+  } catch { controller.abort(); /* Unknown paid offers stay disabled; stop any remaining body work. */ }
+  finally { clearTimeout(deadline); signal?.removeEventListener('abort', abort); }
   return posts.map(post => {
     const blocked = { ...post, monthlyTerms: null, purchaseOptionsReady: false };
     const offer = offers[post.id];

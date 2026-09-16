@@ -43,13 +43,14 @@ const currentHandler=()=>handlers[handlers.length-1];
 const refreshButton=()=>Array.from(container.querySelectorAll("button")).find(button=>button.textContent==="New posts · Refresh");
 const publish=(id:string):RealtimePayload=>({eventType:"INSERT",new:{id,video_url:"https://example.test/new.mp4"},old:{}});
 beforeEach(()=>{
+  jest.useFakeTimers();
   handlers.length=0;
   pageFetch.mockReset().mockResolvedValue(page("visible"));
   offerLoad.mockReset().mockImplementation(async(posts:PostRow[])=>posts.map(post=>offer(post)));
   commits.mockReset();
   container=document.createElement("div");document.body.appendChild(container);root=createRoot(container);
 });
-afterEach(async()=>{await act(async()=>root.unmount());container.remove();jest.restoreAllMocks();});
+afterEach(async()=>{await act(async()=>root.unmount());container.remove();jest.restoreAllMocks();jest.useRealTimers();});
 async function render() {
   await act(async()=>root.render(createElement(Profiler,{id:"feed",onRender:commits},
     createElement(FeedList,{activeTab:"discover",onChangeTab:jest.fn()}))));
@@ -115,6 +116,7 @@ test("unrelated updates and deletions do no feed rendering or offer work, while 
   const updated=deferred<PostRow[]>();
   offerLoad.mockReturnValueOnce(updated.promise);
   await act(async()=>currentHandler()({eventType:"UPDATE",new:{id:"visible",video_url:"https://example.test/video.mp4",product_id:"updated-alias"},old:{}}));
+  await act(async()=>jest.advanceTimersByTime(25));
   expect(offerLoad).toHaveBeenCalledTimes(2);
   expect(container.querySelector('video[data-card="visible"]')?.getAttribute("data-ready")).toBe("false");
   const source=offerLoad.mock.calls[1][0][0] as PostRow;
@@ -128,6 +130,7 @@ test("removing a visible post invalidates its outstanding offer response and rep
   const updated=deferred<PostRow[]>();
   offerLoad.mockReturnValueOnce(updated.promise);
   await act(async()=>currentHandler()({eventType:"UPDATE",new:{id:"visible",video_url:"https://example.test/video.mp4"},old:{}}));
+  await act(async()=>jest.advanceTimersByTime(25));
   const source=offerLoad.mock.calls[1][0][0] as PostRow;
   await act(async()=>currentHandler()({eventType:"DELETE",new:{},old:{id:"visible"}}));
   expect(container.querySelector("video")).toBeNull();

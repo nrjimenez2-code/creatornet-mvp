@@ -7,6 +7,7 @@ import FeedVideoCard from "./VideoCard";
 const VideoCard = memo(FeedVideoCard);
 import FeedEmptyState from "./FeedEmptyState";
 import { loadFeedOffers } from "@/lib/feedOffers";
+import { FeedOfferRefreshQueue, type FeedOfferJob } from "@/lib/feedOfferRefreshQueue";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { readSoundOn, useSoundPreference } from "@/lib/audioPreference";
@@ -55,6 +56,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [moreError, setMoreError] = useState<"retry" | "refresh" | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
+  const [offersDeferred, setOffersDeferred] = useState(false);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
@@ -110,30 +112,69 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
   const offerRefreshesRef = useRef(new Map<string, number>());
+  // Only capacity refusals can be retried. Like versions, this metadata is tied
+  // to retained feed rows; it does not claim the whole catalog is memory-bounded.
+  const deferredOffersRef = useRef(new Map<string, FeedOfferJob>());
+  const retryDeferredRef = useRef(() => {});
+  const retryingDeferredRef = useRef(false);
+  const offerQueueRef = useRef<FeedOfferRefreshQueue | null>(null);
+  const currentOfferJob = (job: FeedOfferJob, post?: PostRow) =>
+    fetchGenRef.current === job.generation && offerRefreshesRef.current.get(job.post.id) === job.version &&
+    !!post && post.creator_id === job.post.creator_id && post.product_id === job.post.product_id;
+  if (!offerQueueRef.current) offerQueueRef.current = new FeedOfferRefreshQueue({
+    load: loadFeedOffers,
+    isCurrent: job => currentOfferJob(job, itemsRef.current.find(post => post.id === job.post.id)),
+    apply: results => {
+      const byId = new Map(results.map(result => [result.job.post.id, result]));
+      const apply = (rows: PostRow[]) => rows.map(post => {
+        const result = byId.get(post.id);
+        if (!result || !currentOfferJob(result.job, post) || result.offer.creator_id !== post.creator_id) return post;
+        const { offer } = result;
+        return { ...post, product_id: offer.product_id, product_type: offer.product_type,
+          price_cents: offer.monthlyTerms ? offer.price_cents : post.price_cents,
+          monthlyTerms: offer.monthlyTerms, purchaseOptionsReady: offer.purchaseOptionsReady };
+      });
+      itemsRef.current = apply(itemsRef.current);
+      setItems(apply);
+    },
+    capacityAvailable: () => retryDeferredRef.current(),
+  });
+  const enqueueOffers = useCallback((jobs: FeedOfferJob[], immediate = false) => {
+    for (const job of jobs) {
+      if (deferredOffersRef.current.get(job.post.id)?.version === job.version) deferredOffersRef.current.delete(job.post.id);
+    }
+    for (const job of offerQueueRef.current!.enqueue(jobs, immediate)) deferredOffersRef.current.set(job.post.id, job);
+    setOffersDeferred(deferredOffersRef.current.size > 0);
+    retryDeferredRef.current();
+  }, []);
+  retryDeferredRef.current = () => {
+    if (retryingDeferredRef.current) return;
+    retryingDeferredRef.current = true;
+    try {
+      const rows = itemsRef.current;
+      const active = Math.max(0, rows.findIndex(post => post.id === activeIdRef.current));
+      const jobs = rows.slice(Math.max(0, active - 2), active + 3)
+        .map(post => deferredOffersRef.current.get(post.id)).filter((job): job is FeedOfferJob => !!job);
+      if (jobs.length) enqueueOffers(jobs);
+    } finally { retryingDeferredRef.current = false; }
+  };
+  useEffect(() => { retryDeferredRef.current(); }, [activePostId]);
   const backgroundRef = useRef(new Set<() => void>());
   useEffect(() => () => {
     backgroundRef.current.forEach(cancel => cancel());
     backgroundRef.current.clear();
   }, [viewerId, activeTab]);
   const enrichPosts = useCallback((posts: PostRow[], generation: number) => {
-    const versions = new Map(posts.map(post => {
+    const jobs = posts.map(post => {
       const version = (offerRefreshesRef.current.get(post.id) ?? 0) + 1;
       offerRefreshesRef.current.set(post.id, version);
-      return [post.id, version];
-    }));
+      return { post, generation, version };
+    });
     const run = () => {
-    if (generation !== fetchGenRef.current) return;
-    void loadFeedOffers(posts).then(offers => {
       if (generation !== fetchGenRef.current) return;
-      const byId = new Map(offers.map(offer => [offer.id, offer]));
-      setItems(current => current.map(post => {
-        const offer = byId.get(post.id);
-        if (!offer || offerRefreshesRef.current.get(post.id) !== versions.get(post.id)) return post;
-        return { ...post, product_id: offer.product_id, product_type: offer.product_type,
-          price_cents: offer.monthlyTerms ? offer.price_cents : post.price_cents,
-          monthlyTerms: offer.monthlyTerms, purchaseOptionsReady: offer.purchaseOptionsReady };
-      }));
-    }).catch(() => { /* Media remains usable; unverified purchase controls stay disabled. */ });
+      // Versions were captured before mobile deferral. A newer realtime update
+      // must win even if this initial enrichment has not been enqueued yet.
+      enqueueOffers(jobs, true);
     };
     if (desktopRef.current) run();
     else {
@@ -143,7 +184,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       });
       backgroundRef.current.add(cancel);
     }
-  }, []);
+  }, [enqueueOffers]);
 
   // Handler to update follow status in cached feed data
   const handleFollowChange = useCallback((creatorId: string, isFollowing: boolean) => {
@@ -160,6 +201,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const handleDeleted = useCallback((id: string) => {
     draftsRef.current.delete(id);
     offerRefreshesRef.current.delete(id);
+    deferredOffersRef.current.delete(id);
+    offerQueueRef.current!.remove(id);
+    setOffersDeferred(deferredOffersRef.current.size > 0);
     const current = itemsRef.current;
     const index = current.findIndex(row => row.id === id);
     const remaining = current.filter(row => row.id !== id);
@@ -176,6 +220,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
 
     // Reset pagination on every tab change / reload; invalidate stale loadMores.
     fetchGenRef.current += 1;
+    offerQueueRef.current!.begin(fetchGenRef.current);
     offsetRef.current = 0;
     sessionRef.current = null;
     hasMoreRef.current = false;
@@ -184,6 +229,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     setMoreError(null);
     setHasNewPosts(false);
     offerRefreshesRef.current.clear();
+    deferredOffersRef.current.clear();
+    setOffersDeferred(false);
     // Until this generation loads, the retained state rows belong to the old
     // tab/session and must not seed new realtime offer work.
     itemsRef.current = [];
@@ -194,6 +241,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     if (authLoading) return () => {
       cancelled = true;
       controller.abort();
+      offerQueueRef.current!.stop();
       if (fetchControllerRef.current === controller) fetchControllerRef.current = null;
     };
 
@@ -224,6 +272,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         const mapped = mapFeedV3Rows(data).map(post => ({ ...post, monthlyTerms: null, purchaseOptionsReady: false }));
 
         if (!cancelled) {
+          itemsRef.current = mapped;
           setItems(mapped);
           enrichPosts(mapped, fetchGenRef.current);
           setFeedError(null);
@@ -248,7 +297,6 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     })();
 
     // realtime: reflect inserts/updates/deletes on posts
-    const offerRefreshes = offerRefreshesRef.current;
     const channel = supabase
       .channel("posts-realtime")
       .on(
@@ -298,7 +346,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             eventRow.hidden_at != null ||
             eventRow.removed_at != null
           ) {
-            offerRefreshes.delete(removedId);
+            offerRefreshesRef.current.delete(removedId);
+            deferredOffersRef.current.delete(removedId);
+            offerQueueRef.current!.remove(removedId);
+            setOffersDeferred(deferredOffersRef.current.size > 0);
             const current = itemsRef.current;
             const idx = current.findIndex((p) => p.id === removedId);
             if (idx >= 0) {
@@ -317,77 +368,33 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             return;
           }
 
-          const refresh = (offerRefreshes.get(removedId) ?? 0) + 1;
-          offerRefreshes.set(removedId, refresh);
-          const offerSource = { ...currentPost, ...payload.new, id: removedId } as PostRow;
-          void loadFeedOffers([offerSource]).then(([offer]) => {
-            if (cancelled || offerRefreshes.get(removedId) !== refresh) return;
-            setItems(curr => curr.map(p => p.id === removedId ? { ...p,
-              product_id: offer.product_id, product_type: offer.product_type,
-              price_cents: offer.monthlyTerms ? offer.price_cents : p.price_cents,
-              monthlyTerms: offer.monthlyTerms, purchaseOptionsReady: offer.purchaseOptionsReady,
-            } : p));
-          });
-
-          setItems((prev) => {
-            const row = payload.new as any;
-            const postId = (row?.id ?? row?.post_id) as string | undefined;
-            if (!postId) return prev;
-
-            const i = prev.findIndex((p) => p.id === postId);
-            if (i >= 0) {
-              const next = [...prev];
-              next[i] = {
-                ...next[i],
+          const refresh = (offerRefreshesRef.current.get(removedId) ?? 0) + 1;
+          offerRefreshesRef.current.set(removedId, refresh);
+          deferredOffersRef.current.delete(removedId);
+          const row = payload.new as any;
+          const patch = {
                 // only merge known fields
-                title: row.title ?? next[i].title,
-                video_url: row.video_url ?? next[i].video_url,
-                poster_url: row.poster_url ?? next[i].poster_url,
-                price_cents: row.price_cents ?? next[i].price_cents,
-                product_id: row.product_id ?? next[i].product_id,
+                title: row.title ?? currentPost.title,
+                video_url: row.video_url ?? currentPost.video_url,
+                poster_url: row.poster_url ?? currentPost.poster_url,
+                price_cents: row.price_cents ?? currentPost.price_cents,
+                product_id: row.product_id !== undefined ? row.product_id : currentPost.product_id,
                 monthlyTerms: null,
                 purchaseOptionsReady: false,
                 allow_booking:
-                  row.allow_booking ?? next[i].allow_booking ?? false,
-                booking_url: row.booking_url ?? next[i].booking_url,
-                interests: stringArrayOrNull(row.interests) ?? next[i].interests,
-                hashtags: stringArrayOrNull(row.hashtags) ?? next[i].hashtags,
+                  row.allow_booking ?? currentPost.allow_booking ?? false,
+                booking_url: row.booking_url ?? currentPost.booking_url,
+                interests: stringArrayOrNull(row.interests) ?? currentPost.interests,
+                hashtags: stringArrayOrNull(row.hashtags) ?? currentPost.hashtags,
                 purchase_count:
                   typeof row.purchase_count === "number"
                     ? row.purchase_count
-                    : next[i].purchase_count ?? null,
-                is_following: next[i].is_following,
+                    : currentPost.purchase_count ?? null,
               };
-              return next;
-            }
-            // New posts stay blocked for Buy until linked offer metadata arrives.
-            const newItem = {
-              id: postId,
-              creator_id: row.creator_id ?? null,
-              product_id: row.product_id ?? null,
-              purchaseOptionsReady: false,
-              price_cents: row.price_cents ?? 0,
-              title: row.title ?? null,
-              video_url: row.video_url ?? null,
-              poster_url: row.poster_url ?? null,
-              content: row.title ?? "",
-              interests: stringArrayOrNull(row.interests) ?? [],
-              hashtags: stringArrayOrNull(row.hashtags),
-              created_at: row.created_at ?? null,
-              likes_count: 0,
-              comments_count: 0,
-              shares_count: 0,
-              purchase_count: 0,
-              product_type: (row.product_type as string | null) ?? null,
-              allow_booking: row.allow_booking ?? false,
-              booking_url: row.booking_url ?? null,
-              creator_name: null,
-              creator_username: null,
-              creator_avatar_url: null,
-              is_following: false,
-            };
-            return [newItem, ...prev];
-          });
+          itemsRef.current = itemsRef.current.map(post => post.id === removedId ? { ...post, ...patch } : post);
+          setItems(prev => prev.map(post => post.id === removedId ? { ...post, ...patch } : post));
+          const offerSource = { ...currentPost, ...patch, creator_id: row.creator_id ?? currentPost.creator_id } as PostRow;
+          enqueueOffers([{ post: offerSource, generation: fetchGenRef.current, version: refresh }]);
         }
       )
       .subscribe();
@@ -396,10 +403,13 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       cancelled = true;
       fetchGenRef.current += 1;
       controller.abort();
+      offerQueueRef.current!.stop();
+      backgroundRef.current.forEach(cancel => cancel());
+      backgroundRef.current.clear();
       if (fetchControllerRef.current === controller) fetchControllerRef.current = null;
       supabase.removeChannel(channel);
     };
-  }, [activeTab, supabase, authLoading, viewerId, enrichPosts, refreshKey]);
+  }, [activeTab, supabase, authLoading, viewerId, enrichPosts, enqueueOffers, refreshKey]);
 
   useEffect(() => {
     itemsRef.current = items;
@@ -589,12 +599,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       hasMoreRef.current = page.hasMore;
 
       // Deduplicate and append
+      const existing = new Set(itemsRef.current.map(post => post.id));
+      const appended = mapped.filter(post => !existing.has(post.id));
+      itemsRef.current = [...itemsRef.current, ...appended];
       setItems((prev) => {
         const existingIds = new Set(prev.map((p) => p.id));
-        const newItems = mapped.filter((p) => !existingIds.has(p.id));
+        const newItems = appended.filter((p) => !existingIds.has(p.id));
         return newItems.length ? [...prev, ...newItems] : prev;
       });
-      enrichPosts(mapped, gen);
+      enrichPosts(appended, gen);
     } catch (err) {
       if (gen === fetchGenRef.current) {
         if (err instanceof DiscoverSessionUnavailableError) {
@@ -674,6 +687,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   return (
     <div className="relative h-full min-h-0 feed-mobile-viewport">
       {hasNewPosts && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
+      {offersDeferred && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-28 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">Purchase options delayed · Refresh feed</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
         {moreError === "refresh" ? <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }}>Refresh feed to continue</button>
           : moreError === "retry" ? <button type="button" onClick={() => void loadMore()}>Couldn’t load more · Retry</button> : "Loading more…"}
