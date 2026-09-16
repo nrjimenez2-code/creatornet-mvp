@@ -1,4 +1,5 @@
 import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
+import { DISCOVER_SHARED_READ_METRICS } from '@/lib/discoverSharedReadTiming';
 
 const originalEnv = process.env.VERCEL_ENV;
 const originalUntil = process.env.DISCOVER_TIMING_LOG_UNTIL;
@@ -11,13 +12,15 @@ test('session subphase metrics remain numeric and retain the total within the lo
   enable();
   const info = jest.spyOn(console, 'info').mockImplementation(() => {});
   const phases = ['sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite'];
-  // Feed emits at most 33 metrics including all transport and startup fields.
+  // Existing feed phases plus all fixed shared-read fields must retain total.
   const values = [...phases.map(name => `${name};dur=1.5`),
-    ...Array.from({length:26}, () => 'identity;dur=1'), 'total;dur=100'];
+    ...Array.from({length:26}, () => 'identity;dur=1'),
+    ...DISCOVER_SHARED_READ_METRICS.map(name => `${name};dur=2`), 'total;dur=100'];
   createDiscoverTimingLogger('feed')(200, values);
   const entry = JSON.parse(info.mock.calls[0][1] as string);
   expect(entry.metrics.total).toBe(100);
   for (const phase of phases) expect(entry.metrics[phase]).toBe(1.5);
+  for (const name of DISCOVER_SHARED_READ_METRICS) expect(entry.metrics[name]).toBe(2);
 });
 afterEach(() => {
   if (originalEnv === undefined) delete process.env.VERCEL_ENV;
