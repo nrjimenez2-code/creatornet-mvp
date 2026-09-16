@@ -1,0 +1,31 @@
+name: Isolated route startup profile
+on:
+  push:
+    branches: [perf/profile-route-startup-linux]
+permissions:
+  contents: read
+concurrency:
+  group: isolated-route-startup
+  cancel-in-progress: true
+jobs:
+  profile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - run: npm ci --no-audit --no-fund
+      - name: Build with fake credentials and outbound network blocked
+        run: node scripts/capacity/profile-route-startup.cjs --build
+      - name: Profile fresh-process and cached route loading
+        run: node scripts/capacity/profile-route-startup.cjs --profile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: isolated-route-startup
+          path: startup-results/route-startup.json
+          if-no-files-found: error
+          retention-days: 14
