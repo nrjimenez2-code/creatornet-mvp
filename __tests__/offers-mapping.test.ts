@@ -115,6 +115,52 @@ describe("buildOffers — product cards", () => {
     expect(cards.map((c) => c.title)).toEqual(["Right"]);
   });
 
+  test("keeps the first canonical and first legacy matches when input contains duplicate keys", () => {
+    const cards = buildOffers(
+      Object.freeze([
+        Object.freeze(product({ id: "alias-first", product_id: "legacy", title: "First alias" })),
+        Object.freeze(product({ id: "alias-second", product_id: "legacy", title: "Second alias" })),
+        Object.freeze(product({ id: "canonical", title: "First canonical" })),
+        Object.freeze(product({ id: "canonical", title: "Second canonical" })),
+      ]),
+      Object.freeze([
+        Object.freeze(post({ id: "p1", product_id: "canonical" })),
+        Object.freeze(post({ id: "p2", product_id: "legacy" })),
+      ]),
+    );
+    expect(cards.map(c => [c.productId, c.title])).toEqual([
+      ["canonical", "First canonical"], ["alias-first", "First alias"],
+    ]);
+  });
+
+  test("removes inactive canonical rows before resolving an active legacy alias for Offers", () => {
+    const cards = buildOffers(
+      [product({ id: "canonical", active: false }), product({ id: "active", product_id: "canonical" })],
+      [post({ id: "visible", product_id: "canonical" })],
+    );
+    expect(cards.map(c => [c.productId, c.postId])).toEqual([["active", "visible"]]);
+  });
+
+  test("a larger mixed catalog retains product order, newest linked posts and booking order without input mutation", () => {
+    const products = Object.freeze(Array.from({ length: 400 }, (_, i) => Object.freeze(product({
+      id: `product-${i}`, product_id: `alias-${i}`, active: i % 7 !== 0,
+    }))));
+    const newest = Array.from({ length: 400 }, (_, i) => Object.freeze(post({
+      id: `new-${i}`, product_id: i % 2 === 0 ? `product-${i}` : `alias-${i}`,
+      allow_booking: i % 11 === 0, booking_url: "https://booking.invalid/session",
+    })));
+    const posts = Object.freeze([...newest, ...newest.map(p => Object.freeze({ ...p, id: `older-${p.id}`, allow_booking: false }))]);
+    const cards = buildOffers(products, posts);
+    const expectedProducts = products.filter(p => p.active).map(p => p.id);
+    expect(cards.filter(c => c.productId).map(c => c.productId)).toEqual(expectedProducts);
+    expect(cards.filter(c => c.productId).map(c => c.postId)).toEqual(
+      Array.from({ length: 400 }, (_, i) => i).filter(i => i % 7 !== 0).map(i => `new-${i}`),
+    );
+    expect(cards.slice(expectedProducts.length).map(c => c.postId)).toEqual(
+      newest.filter(p => p.allow_booking).map(p => p.id),
+    );
+  });
+
   test("excludes products whose active is explicitly false, keeps null/undefined/true", () => {
     const cards = buildOffers(
       [

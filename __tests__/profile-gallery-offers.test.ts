@@ -38,6 +38,25 @@ test.each([
 test("an invalid canonical row cannot fall back to another active product's alias", () => {
   expect(project([product, { ...product, id: "alias", active: false }])[0].purchaseOptionsReady).toBe(false);
 });
+test("gallery and Offers deliberately retain different inactive canonical precedence", () => {
+  const rows = Object.freeze([
+    Object.freeze({ ...product, id: "alias", product_id: null, active: false }),
+    Object.freeze(product),
+  ]);
+  expect(mapProfileGalleryPosts(Object.freeze([Object.freeze(post)]), rows, "creator")[0])
+    .toMatchObject({ product_id: "alias", purchaseOptionsReady: false });
+  expect(buildOffers(rows, [post]).filter(offer => offer.productId).map(offer => offer.productId)).toEqual(["product"]);
+});
+test("first canonical or alias match remains authoritative even when a later duplicate is valid", () => {
+  const unowned = Object.freeze({ ...product, creator_id: "someone-else" });
+  for (const productId of ["product", "alias"]) {
+    const [gallery] = mapProfileGalleryPosts(
+      Object.freeze([Object.freeze({ ...post, product_id: productId })]),
+      Object.freeze([unowned, Object.freeze(product)]), "creator",
+    );
+    expect(gallery).toMatchObject({ product_id: productId, purchaseOptionsReady: false });
+  }
+});
 test("a post owned by someone else cannot borrow this creator's product", () => {
   expect(project([product], [{ ...post, creator_id: "other" }])[0].purchaseOptionsReady).toBe(false);
 });
