@@ -21,7 +21,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       - run: node --test scripts/capacity/startup-network-block.test.cjs
       - name: Build with fake credentials and outbound network blocked
-        run: node scripts/capacity/profile-route-startup.cjs --build
+        run: node scripts/capacity/profile-route-startup.cjs --build-instrumented
       - name: Profile fresh-process and cached route loading
         run: node scripts/capacity/profile-route-startup.cjs --profile
       - uses: actions/upload-artifact@v4

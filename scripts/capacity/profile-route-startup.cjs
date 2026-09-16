@@ -76,8 +76,23 @@ async function main() {
   }
   if (fs.readdirSync(root).some(name => /^\.env(?:\.|$)/.test(name)))
     throw new Error('Use a clean checkout without dotenv files');
-  if (command === '--build') {
-    run([require.resolve('next/dist/bin/next'), 'build'], { stdio: 'inherit' }); return;
+  if (command === '--build' || command === '--build-instrumented') {
+    const configPath = path.join(root, 'next.config.ts');
+    const originalConfig = fs.readFileSync(configPath, 'utf8');
+    const integration = command === '--build-instrumented';
+    if (integration) {
+      const target = 'withSentryConfig(nextConfig, sentryConfig)';
+      if (originalConfig.split(target).length !== 2) throw new Error('Unexpected Sentry build configuration');
+      fs.writeFileSync(configPath, originalConfig.replace(target,
+        'withSentryConfig(nextConfig, { ...sentryConfig, telemetry: false, sourcemaps: { disable: true }, release: { create: false, finalize: false } })'));
+      env.SENTRY_AUTH_TOKEN = 'isolated-experiment-not-a-real-token';
+    }
+    try { run([require.resolve('next/dist/bin/next'), 'build'], { stdio: 'inherit' }); }
+    finally { if (integration) fs.writeFileSync(configPath, originalConfig); }
+    fs.mkdirSync(path.join(root, 'startup-results'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'startup-results/build-mode.json'),
+      JSON.stringify({ sentryBuildIntegration: integration, sourceMapUpload: false, releasePublication: false }));
+    return;
   }
   if (command !== '--profile') throw new Error('Use --build or --profile');
   const rows = [];
@@ -85,7 +100,8 @@ async function main() {
     const output = run([__filename, '--child', variant], { timeout: 45000 });
     rows.push({ trial, ...JSON.parse(output.trim().split(/\r?\n/).at(-1)) });
   }
-  const report = { nextVersion: require('next/package.json').version, nodeVersion: process.version,
+  const report = { buildMode: JSON.parse(fs.readFileSync(path.join(root, 'startup-results/build-mode.json'), 'utf8')),
+    nextVersion: require('next/package.json').version, nodeVersion: process.version,
     platform: process.platform, bundler: 'default Next production build', rows,
     limitations: 'Fresh-process module loading only, no handler calls. Fake credentials and blocked Node outbound network. Filesystem cache uncontrolled. Linux CI is not the deployed Vercel runtime; no production latency or capacity claim.' };
   fs.mkdirSync(path.join(root, 'startup-results'), { recursive: true });
