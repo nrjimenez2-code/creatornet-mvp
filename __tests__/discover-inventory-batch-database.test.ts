@@ -45,6 +45,53 @@ beforeAll(async()=>{
  grant select on discover_identity_links_v1 to service_role;`);
  await db.exec(readFileSync('supabase/migrations/20260915081427_discover_event_identity_check.sql','utf8'));
 });
+beforeAll(async()=>{
+ await db.exec(`alter table discover_sessions_v1 alter column id set default gen_random_uuid();
+ alter table discover_sessions_v1 alter column expires_at set default now()+interval '2 hours';
+ alter table discover_sessions_v1 add column user_id uuid, add column tab text,
+ add column pilot_id text,add column pilot_variant text,add column pilot_placements jsonb default '{}';
+ grant insert on discover_sessions_v1 to service_role;`);
+ await db.exec(readFileSync('supabase/migrations/20260916040322_discover_create_page.sql','utf8'));
+});
+
+test('create-and-page preserves the snapshot, filters fresh moderation and rolls back failed creation',async()=>{
+ const sql=`select discover_create_page_v1($1::text,$2::uuid,'discover',array[$3::uuid],'{"${post}":"languages"}',0,20,'pilot','control','{"${post}":{"position":0}}') as data`;
+ await db.exec('begin');
+ try {
+  await db.exec('set role service_role');
+  const {rows}=await db.query<{data:any}>(sql,[owner,null,post]);
+  const saved=rows[0].data;
+  expect(saved.page.post_ids).toEqual([post]);
+  expect(saved.page.inventory.posts[0].id).toBe(post);
+  expect(saved.page.inventory.profiles[0]).not.toHaveProperty('private_extra');
+  const snapshot=await db.query<any>('select * from discover_sessions_v1 where id=$1',[saved.id]);
+  expect(snapshot.rows[0]).toMatchObject({actor:owner,user_id:null,tab:'discover',pilot_id:'pilot',pilot_variant:'control',audiences:{[post]:'languages'},pilot_placements:{[post]:{position:0}}});
+  const ordinary=await db.query<{data:any}>('select discover_page_inventory_v1($1,$2,0,20) as data',[saved.id,owner]);
+  expect(saved.page).toEqual(ordinary.rows[0].data);
+  await db.exec('reset role');
+  await db.exec('update profiles set banned_at=now()');
+  await db.exec('set role service_role');
+  // Inventory returns fresh moderation fields; the shared application mapper filters them.
+  expect((await db.query<{data:any}>(sql,[owner,null,post])).rows[0].data.page.inventory.profiles[0].banned_at).not.toBeNull();
+ } finally {await db.exec('rollback');}
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  try {await expect(db.query(sql,[owner,null,post])).rejects.toThrow(/permission denied/);}
+  finally {await db.exec('reset role');}
+ }
+ const count=async()=> (await db.query<{n:number}>('select count(*)::int as n from discover_sessions_v1')).rows[0].n;
+ const before=await count();
+ await expect(db.query(sql,[owner,creator,post])).rejects.toMatchObject({code:'22023'});
+ await expect(db.query(sql.replace(',0,20,',',-1,20,'),[owner,null,post])).rejects.toMatchObject({code:'22023'});
+ expect(await count()).toBe(before);
+ // Force a failure after insertion: the entire function call must roll back.
+ await db.exec('revoke execute on function discover_page_inventory_v1(uuid,text,bigint,integer) from service_role');
+ await db.exec('set role service_role');
+ try {await expect(db.query(sql,[owner,null,post])).rejects.toThrow(/permission denied/);}
+ finally {await db.exec('reset role');await db.exec('grant execute on function discover_page_inventory_v1(uuid,text,bigint,integer) to service_role');}
+ expect(await count()).toBe(before);
+});
+
 test('combined page query enforces ownership, expiry, role and page bounds',async()=>{
  const sql='select discover_page_inventory_v1($1::uuid,$2::text,$3::bigint,$4::integer) as data';
  await db.exec('set role service_role');

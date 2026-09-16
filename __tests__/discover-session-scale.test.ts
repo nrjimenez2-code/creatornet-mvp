@@ -10,7 +10,7 @@ jest.mock("@/lib/supabaseAdmin", () => ({
   },
 }));
 jest.mock("@/lib/supabaseServer", () => ({ createServerClient: () => ({}) }));
-import { createDiscoverSession } from "@/lib/discoverServer";
+import { createDiscoverSession, createDiscoverSessionWithFirstPage } from "@/lib/discoverServer";
 const posts = Array.from({ length: 2005 }, (_, i) => ({
   id: "p" + String(i).padStart(4, "0"),
   creator_id: "c" + String(i).padStart(4, "0"),
@@ -18,9 +18,18 @@ const posts = Array.from({ length: 2005 }, (_, i) => ({
   poster_url: "https://example.test/poster.jpg",
 }));
 let topicFixture = false;
+let freshPageBanned = false;
 let viewerTopics: Record<string, string[]> = {};
 let snapshot: { post_ids: string[]; audiences: Record<string,string>; pilot_id?: string; pilot_variant?: string; pilot_placements?: Record<string,{position:number}> };
 function respond(op: Op) {
+  if (op.table === 'discover_create_page_v1') {
+    const input=op.payload as Record<string,any>;
+    snapshot={post_ids:input.p_post_ids,audiences:input.p_audiences};
+    return {data:{id:'session',page:{post_ids:[posts[0].id],expires_at:'2100-01-01',inventory:{
+      posts:[posts[0]],profiles:[{id:posts[0].creator_id,username:'public-creator',banned_at:freshPageBanned?'2026-01-01':null}],
+      primaryProducts:[],legacyProducts:[],offerings:[],
+    }}},error:null};
+  }
   if (op.table === "discover_pilots_v1") return {data:{id:"qa",enabled:true,policy_version:"commercial-order-v1",starts_at:"2000-01-01",ends_at:"2100-01-01",eligible_user_ids:["viewer"]},error:null};
   if (op.table === "discover_pilot_assignments_v1") return {data:{variant:"control"},error:null};
   if (op.table === "posts")
@@ -57,6 +66,7 @@ function respond(op: Op) {
 }
 beforeEach(() => {
   topicFixture = false;
+  freshPageBanned = false;
   viewerTopics = {};
   db = createMockClient(respond);
   const original = db.from;
@@ -85,6 +95,19 @@ test("Following includes more than 1000 followed creators and stays newest-first
   expect(snapshot.post_ids[2004]).toBe("p0000");
   expect(db.opsFor("follows")).toHaveLength(3);
   expect(db.opsFor("discover_events_v1")).toHaveLength(0);
+});
+
+test('new-session first page uses one save/read call and retains fresh moderation filtering', async()=>{
+ const created=await createDiscoverSessionWithFirstPage('anon:test',null,'discover',true,0,20);
+ expect(created.session).toBe('session');
+ expect(created.result.items).toHaveLength(1);
+ expect(created.result.items[0]).toMatchObject({post_id:posts[0].id,creator_username:'public-creator',is_liked:false,is_following:false});
+ expect(db.opsFor('discover_create_page_v1')).toHaveLength(1);
+ expect(db.opsFor('discover_sessions_v1')).toHaveLength(0);
+ expect(db.opsFor('discover_page_inventory_v1')).toHaveLength(0);
+ expect(snapshot.post_ids).toHaveLength(2005);
+ freshPageBanned=true;
+ expect((await createDiscoverSessionWithFirstPage('anon:test',null,'discover',true,0,20)).result.items).toEqual([]);
 });
 
 test('session diagnostics preserve snapshots and isolate concurrent callbacks', async () => {

@@ -298,13 +298,29 @@ async function readFollowedCreators(userId: string) {
 }
 export type DiscoverSessionPhase =
   | 'sessionpilot' | 'sessioninput' | 'sessionevidence'
-  | 'sessionrank' | 'sessionaudience' | 'sessionwrite';
+  | 'sessionrank' | 'sessionaudience' | 'sessionwrite' | 'sessionwritepage';
 export async function createDiscoverSession(
+  actor: string, userId: string | null, tab: string, newAnonymous = false,
+  onPhase?: (phase: DiscoverSessionPhase, durationMs: number) => void,
+) {
+  return (await prepareDiscoverSession(actor,userId,tab,newAnonymous,onPhase)).id;
+}
+export async function createDiscoverSessionWithFirstPage(
+  actor: string, userId: string | null, tab: string, newAnonymous: boolean,
+  offset: number, limit: number,
+  onPhase?: (phase: DiscoverSessionPhase, durationMs: number) => void,
+) {
+  const saved = await prepareDiscoverSession(actor,userId,tab,newAnonymous,onPhase,{offset,limit});
+  const result = await renderDiscoverPage(saved.page,saved.id,actor,offset,limit,userId);
+  return {session:saved.id,result};
+}
+async function prepareDiscoverSession(
   actor: string,
   userId: string | null,
   tab: string,
   newAnonymous = false,
   onPhase?: (phase: DiscoverSessionPhase, durationMs: number) => void,
+  firstPage?: {offset:number;limit:number},
 ) {
   // Per-call numeric diagnostics; no actor data or shared timing state.
   let phaseStarted = onPhase ? performance.now() : 0;
@@ -436,6 +452,18 @@ export async function createDiscoverSession(
     }),
   );
   mark('sessionaudience');
+  if (firstPage) {
+    const {data,error} = await admin.rpc('discover_create_page_v1', {
+      p_actor:actor,p_user_id:userId,p_tab:tab,p_post_ids:ids,p_audiences:audiences,
+      p_offset:firstPage.offset,p_limit:firstPage.limit,p_pilot_id:pilot?.experimentId ?? null,
+      p_pilot_variant:pilot?.variant ?? null,p_pilot_placements:pilot ? placements : {},
+    });
+    if (error) throw error;
+    if (!data || typeof data.id !== 'string' || !data.page || !data.page.inventory)
+      throw new Error('Initial feed page unavailable');
+    mark('sessionwritepage');
+    return {id:data.id as string,page:data.page};
+  }
   const { data, error } = await admin
     .from("discover_sessions_v1")
     .insert({ actor, user_id: userId, tab, post_ids: ids, audiences,
@@ -444,15 +472,16 @@ export async function createDiscoverSession(
     .single();
   if (error) throw error;
   mark('sessionwrite');
-  return data.id as string;
+  return {id:data.id as string,page:undefined};
 }
+type DiscoverPageResult = {items: Record<string,any>[];nextOffset:number;hasMore:boolean};
 export async function readDiscoverPage(
   sessionId: string,
   actor: string,
   offset: number,
   limit: number,
   userId: string | null,
-) {
+): Promise<DiscoverPageResult> {
   const { data: session, error } = process.env.DISCOVER_PAGE_INVENTORY_ENABLED === 'true'
     ? await admin.rpc('discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit})
     : await admin
@@ -465,6 +494,12 @@ export async function readDiscoverPage(
   // differently owned snapshots. Temporary database failures keep Retry semantics.
   if (error?.code === "CN001") throw new DiscoverSessionUnavailableError();
   if (error) throw error;
+  return renderDiscoverPage(session,sessionId,actor,offset,limit,userId);
+}
+async function renderDiscoverPage(
+  session: {post_ids:string[];expires_at:string;inventory?:Record<string,any>} | null | undefined,
+  sessionId:string, actor:string, offset:number, limit:number, userId:string | null,
+): Promise<DiscoverPageResult> {
   if (!session) throw new DiscoverSessionUnavailableError();
   if (Date.parse(session.expires_at) <= Date.now())
     throw new DiscoverSessionUnavailableError();

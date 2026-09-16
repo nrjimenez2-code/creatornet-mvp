@@ -1,16 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server';
 const create = jest.fn(async () => 'private-session');
+const createPage = jest.fn(async () => ({session:'private-session',result:{items:[],hasMore:false,nextOffset:0}}));
 const read = jest.fn(async () => ({items:[],hasMore:false,nextOffset:0}));
 jest.mock('@/lib/supabaseServer',()=>({createServerClient:jest.fn()}));
 jest.mock('@/lib/discoverServer',()=>({
  discoverEnabled:()=>true,
  discoverIdentity:async()=>({actor:'private-actor',userId:null,cookie:null,token:'private-token'}),
  createDiscoverSession:(...args:unknown[])=>create(...args as []),
+ createDiscoverSessionWithFirstPage:(...args:unknown[])=>createPage(...args as []),
  readDiscoverPage:(...args:unknown[])=>read(...args as []),
  setDiscoverCookie:(response:NextResponse)=>response,
 }));
 import {GET} from '@/app/api/feed/route';
 const original=process.env.VERCEL_ENV;
+const originalCreatePage=process.env.DISCOVER_CREATE_PAGE_ENABLED;
+afterEach(()=>{if(originalCreatePage===undefined)delete process.env.DISCOVER_CREATE_PAGE_ENABLED;else process.env.DISCOVER_CREATE_PAGE_ENABLED=originalCreatePage;});
+
+test('combined creation is flag-gated, uses the resolved identity, and leaves later pages on their owned-read path',async()=>{
+ process.env.DISCOVER_CREATE_PAGE_ENABLED='true';
+ const first=await GET(new NextRequest('https://test.invalid/api/feed?offset=0&limit=20'));
+ expect(first.status).toBe(200);
+ expect(await first.json()).toMatchObject({session:'private-session',actorToken:'private-token'});
+ expect(createPage.mock.calls[0].slice(0,6)).toEqual(['private-actor',null,'discover',undefined,0,20]);
+ expect(create).not.toHaveBeenCalled();expect(read).not.toHaveBeenCalled();
+ await GET(new NextRequest('https://test.invalid/api/feed?session=private-session&offset=20'));
+ expect(createPage).toHaveBeenCalledTimes(1);expect(read).toHaveBeenCalledTimes(1);
+ delete process.env.DISCOVER_CREATE_PAGE_ENABLED;
+ await GET(new NextRequest('https://test.invalid/api/feed'));
+ expect(create).toHaveBeenCalledTimes(1);
+});
+
+test('combined creation failure does not retry an insert on the legacy path',async()=>{
+ process.env.DISCOVER_CREATE_PAGE_ENABLED='true';
+ createPage.mockRejectedValueOnce(new Error('database failure'));
+ const log=jest.spyOn(console,'error').mockImplementation(()=>{});
+ try {
+  const response=await GET(new NextRequest('https://test.invalid/api/feed'));
+  expect(response.status).toBe(503);
+  expect(createPage).toHaveBeenCalledTimes(1);
+  expect(create).not.toHaveBeenCalled();expect(read).not.toHaveBeenCalled();
+ } finally {log.mockRestore();}
+});
 afterEach(()=>{if(original===undefined)delete process.env.VERCEL_ENV;else process.env.VERCEL_ENV=original;jest.clearAllMocks();});
 test('preview separates new-session work from pagination without exposing identity',async()=>{
  process.env.VERCEL_ENV='preview';

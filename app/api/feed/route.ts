@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
-import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
+import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, createDiscoverSessionWithFirstPage, readDiscoverPage } from "@/lib/discoverServer";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
 import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
@@ -40,6 +40,11 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
    return NextResponse.json({items:data??[],nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
   const identity=await measured('identity',()=>discoverIdentity(req));
+  if (!req.nextUrl.searchParams.has('session') && process.env.DISCOVER_CREATE_PAGE_ENABLED === 'true') {
+   const created=await measured('session',()=>createDiscoverSessionWithFirstPage(identity.actor,identity.userId,tab,identity.newAnonymous,offset,limit,
+    discoverTimingEnabled() ? (name,duration)=>{timings.push(`${name};dur=${duration.toFixed(1)}`);} : undefined));
+   return finish(setDiscoverCookie(NextResponse.json({...created.result,session:created.session,actorToken:identity.token}),identity.cookie));
+  }
   const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab,identity.newAnonymous,discoverTimingEnabled() ? (name, duration) => { timings.push(`${name};dur=${duration.toFixed(1)}`); } : undefined));
   const result=await measured('page',()=>readDiscoverPage(session,identity.actor,offset,limit,identity.userId));
   return finish(setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie));
