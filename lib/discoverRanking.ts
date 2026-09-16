@@ -364,18 +364,31 @@ export function rankDiscover(
     for (const queue of heads) pending.push(queue.shift()!);
   }
   const out: string[] = [];
+  // These properties never change after scoring. Keep remaining counts instead
+  // of rescanning the full queue to discover the same eligibility boundaries.
+  let unseenCount = 0, relevantCount = 0, unseenRelevantCount = 0;
+  const creatorCounts = new Map<string, number>();
+  for (const row of pending) {
+    const relevant = row.topicMatch || row.relevance > 0;
+    if (!row.seen) unseenCount++;
+    if (relevant) relevantCount++;
+    if (!row.seen && relevant) unseenRelevantCount++;
+    creatorCounts.set(row.post.creator_id, (creatorCounts.get(row.post.creator_id) ?? 0) + 1);
+  }
   let lastCreator: string | null = null;
   while (pending.length) {
-    const unseen = pending.some((p) => !p.seen);
-    const relevant = pending.some(
-      (p) => (p.topicMatch || p.relevance > 0) && (!unseen || !p.seen),
-    );
+    const unseen = unseenCount > 0;
+    const relevant = (unseen ? unseenRelevantCount : relevantCount) > 0;
+    // When only the previous creator remains, all diversity searches must fail.
+    // Skip those searches and retain the existing eligible-post fallback.
+    const otherCreator = lastCreator === null ||
+      (creatorCounts.get(lastCreator) ?? 0) < pending.length;
     const eligible = (p: (typeof scored)[number]) =>
       (!unseen || !p.seen) && (!relevant || p.topicMatch || p.relevance > 0);
     const explore = out.length % DISCOVER_POLICY.explorationEvery === 0;
     let index = -1;
     let relatedTrial = false;
-    if (explore) {
+    if (explore && otherCreator) {
       // Alternate a relevant cold-start/retest with a proven related-audience trial.
       const relatedSlot =
         Math.floor(out.length / DISCOVER_POLICY.explorationEvery) % 2 === 1;
@@ -398,24 +411,30 @@ export function rankDiscover(
       }
       relatedTrial = relatedSlot && index >= 0;
     }
-    if (index < 0)
+    if (index < 0 && otherCreator)
       index = pending.findIndex(
         (p) =>
           eligible(p) &&
           p.post.creator_id !== lastCreator &&
           (!explore || p.explore),
       );
-    if (index < 0)
+    if (index < 0 && otherCreator)
       index = pending.findIndex(
         (p) => eligible(p) && p.post.creator_id !== lastCreator,
       );
-    if (index < 0)
+    if (index < 0 && otherCreator)
       index = pending.findIndex(
         (p) => p.post.creator_id !== lastCreator && (!unseen || !p.seen),
       );
     if (index < 0) index = pending.findIndex(eligible);
     if (index < 0) index = 0;
     const [next] = pending.splice(index, 1);
+    if (!next.seen) unseenCount--;
+    if (next.topicMatch || next.relevance > 0) {
+      relevantCount--;
+      if (!next.seen) unseenRelevantCount--;
+    }
+    creatorCounts.set(next.post.creator_id, creatorCounts.get(next.post.creator_id)! - 1);
     options.onPlacement?.(next.post.id, {
       position: out.length,
       placement: relatedTrial ? "related_trial" : explore && next.explore ? (next.mature ? "retest" : "cold_start") : "standard",
