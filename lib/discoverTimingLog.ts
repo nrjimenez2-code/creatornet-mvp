@@ -6,6 +6,7 @@ const ALLOWED_METRICS = new Set([
   'dbtransportcount', 'dbrequestcount', 'dbsendcount', 'dbresponsecount',
   'dbprepare', 'dbdispatch', 'dbresponse', 'dbresponsemax', 'dbresume',
   'loopbusy', 'loopidle', 'invocation', 'routeage', 'uptime', 'total',
+  'bootcomplete', 'bootimports', 'bootregister', 'bootage',
 ]);
 
 function productionLoggingEnabled(): boolean {
