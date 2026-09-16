@@ -20,6 +20,32 @@ permissions:
   contents: read
 
 jobs:
+  postgres-claim-overlap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    services:
+      claim_postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: cn_claim_page_ci
+          POSTGRES_PASSWORD: disposable-ci-only
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Test disposable PostgreSQL transport guards offline
+        run: node --test scripts/capacity/real-postgres-claim.test.cjs
+      - name: Verify claims across two real PostgreSQL connections
+        env:
+          CLAIM_PROBE_POSTGRES_CONTAINER: ${{ job.services.claim_postgres.id }}
+        run: node scripts/capacity/real-postgres-claim.cjs
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
