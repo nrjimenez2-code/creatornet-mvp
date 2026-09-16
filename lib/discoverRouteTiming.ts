@@ -1,4 +1,5 @@
 import { discoverTimingEnabled } from './discoverTimingLog';
+import { serverStartupMetrics } from './serverStartupTiming';
 
 // Create once per route module, then capture immediately on handler entry.
 // Import evaluation before this factory and platform wait before dispatch are
@@ -22,6 +23,6 @@ export function createDiscoverRouteTiming() {
     try {
       if (typeof process.uptime === 'function') addDuration('uptime', process.uptime() * 1000);
     } catch { /* An unavailable uptime is not a request failure. */ }
-    return metrics;
+    return [...metrics, ...serverStartupMetrics()];
   };
 }
