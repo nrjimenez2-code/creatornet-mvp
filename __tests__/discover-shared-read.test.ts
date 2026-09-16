@@ -31,3 +31,63 @@ test('database failures are not retried or replaced by stale fallback',async()=>
  await expect(discoverSharedRead('inventory',read)).rejects.toThrow('database unavailable');
  expect(read).toHaveBeenCalledTimes(1);
 });
+
+test('an expired entry shares its in-progress background refresh with the foreground read',async()=>{
+ let finish!: (value:string[])=>void;
+ let background!: Promise<unknown>;
+ const read=jest.fn(()=>new Promise<string[]>(resolve=>{finish=resolve;}));
+ cache.mockImplementation((load:()=>Promise<unknown>)=>async()=>{
+  background=load();
+  return {value:['expired'],readAt:Date.now()-61000};
+ });
+ const result=discoverSharedRead('inventory',read);
+ // Let both the background refresh and expired-entry fallback start.
+ await new Promise(resolve=>setImmediate(resolve));
+ const calls=read.mock.calls.length;
+ finish(['fresh']);
+ expect(await result).toEqual(['fresh']);
+ expect(calls).toBe(1);
+ await background;
+});
+
+test('an expired entry reuses a refresh that finished before the stale result arrived',async()=>{
+ cache.mockImplementation((load:()=>Promise<unknown>)=>async()=>{
+  await load();
+  return {value:['expired'],readAt:Date.now()-61000};
+ });
+ const read=jest.fn(async()=>['fresh']);
+ expect(await discoverSharedRead('inventory',read)).toEqual(['fresh']);
+ expect(read).toHaveBeenCalledTimes(1);
+});
+
+test('a failed background refresh is not repeated by the expired-entry fallback',async()=>{
+ cache.mockImplementation((load:()=>Promise<unknown>)=>async()=>{
+  await load().catch(()=>undefined);
+  return {value:['expired'],readAt:Date.now()-61000};
+ });
+ const read=jest.fn(async()=>{throw new Error('database unavailable');});
+ await expect(discoverSharedRead('inventory',read)).rejects.toThrow('database unavailable');
+ expect(read).toHaveBeenCalledTimes(1);
+});
+
+test('read sharing never survives into a later caller',async()=>{
+ cache.mockImplementation((load:()=>Promise<unknown>)=>load);
+ const read=jest.fn().mockRejectedValueOnce(new Error('temporary')).mockResolvedValueOnce(['recovered']);
+ await expect(discoverSharedRead('inventory',read)).rejects.toThrow('temporary');
+ expect(await discoverSharedRead('inventory',read)).toEqual(['recovered']);
+ expect(read).toHaveBeenCalledTimes(2);
+});
+
+test('a stale entry within the freshness bound still returns without waiting for refresh',async()=>{
+ let finish!: (value:string[])=>void;
+ let background!: Promise<unknown>;
+ const read=jest.fn(()=>new Promise<string[]>(resolve=>{finish=resolve;}));
+ cache.mockImplementation((load:()=>Promise<unknown>)=>async()=>{
+  background=load();
+  return {value:['recent'],readAt:Date.now()-31000};
+ });
+ expect(await discoverSharedRead('inventory',read)).toEqual(['recent']);
+ finish(['fresh']);
+ await background;
+ expect(read).toHaveBeenCalledTimes(1);
+});
