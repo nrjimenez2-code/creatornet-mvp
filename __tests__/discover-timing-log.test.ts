@@ -6,6 +6,19 @@ const enable = () => {
   process.env.VERCEL_ENV = 'production';
   process.env.DISCOVER_TIMING_LOG_UNTIL = new Date(Date.now() + 60_000).toISOString();
 };
+
+test('session subphase metrics remain numeric and retain the total within the log budget', () => {
+  enable();
+  const info = jest.spyOn(console, 'info').mockImplementation(() => {});
+  const phases = ['sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite'];
+  // Feed emits at most 33 metrics including all transport and startup fields.
+  const values = [...phases.map(name => `${name};dur=1.5`),
+    ...Array.from({length:26}, () => 'identity;dur=1'), 'total;dur=100'];
+  createDiscoverTimingLogger('feed')(200, values);
+  const entry = JSON.parse(info.mock.calls[0][1] as string);
+  expect(entry.metrics.total).toBe(100);
+  for (const phase of phases) expect(entry.metrics[phase]).toBe(1.5);
+});
 afterEach(() => {
   if (originalEnv === undefined) delete process.env.VERCEL_ENV;
   else process.env.VERCEL_ENV = originalEnv;

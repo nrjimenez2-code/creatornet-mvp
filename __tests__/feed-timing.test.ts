@@ -34,6 +34,25 @@ test('production does not expose diagnostic timings',async()=>{
  process.env.VERCEL_ENV='production';
  expect((await GET(new NextRequest('https://test.invalid/api/feed'))).headers.has('server-timing')).toBe(false);
 });
+
+test('preview forwards numeric session subphases and production disables the callback',async()=>{
+ process.env.VERCEL_ENV='preview';
+ create.mockImplementationOnce(async (...args: unknown[]) => {
+  (args[4] as (name:string, duration:number)=>void)('sessionevidence', 42.5);
+  return 'private-session';
+ });
+ const response=await GET(new NextRequest('https://test.invalid/api/feed'));
+ expect(response.headers.get('server-timing')).toContain('sessionevidence;dur=42.5');
+ const previous=process.env.DISCOVER_TIMING_LOG_UNTIL;
+ try {
+  process.env.VERCEL_ENV='production';
+  delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+  await GET(new NextRequest('https://test.invalid/api/feed'));
+  expect((create.mock.calls.at(-1) as unknown[])?.[4]).toBeUndefined();
+ } finally {
+  if(previous!==undefined)process.env.DISCOVER_TIMING_LOG_UNTIL=previous;
+ }
+});
 test('temporary production timing goes only to logs and leaves the feed response unchanged',async()=>{
  const previous=process.env.DISCOVER_TIMING_LOG_UNTIL;
  const info=jest.spyOn(console,'info').mockImplementation(()=>{});

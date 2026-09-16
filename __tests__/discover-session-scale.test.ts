@@ -86,6 +86,31 @@ test("Following includes more than 1000 followed creators and stays newest-first
   expect(db.opsFor("follows")).toHaveLength(3);
   expect(db.opsFor("discover_events_v1")).toHaveLength(0);
 });
+
+test('session diagnostics preserve snapshots and isolate concurrent callbacks', async () => {
+  await createDiscoverSession('user:alice', 'alice', 'following');
+  const expected = snapshot;
+  const alice = jest.fn(), bob = jest.fn();
+  await Promise.all([
+    createDiscoverSession('user:alice', 'alice', 'following', false, alice),
+    createDiscoverSession('user:bob', 'bob', 'following', false, bob),
+  ]);
+  const phases = ['sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite'];
+  for (const callback of [alice, bob]) {
+    expect(callback.mock.calls.map(call => call[0])).toEqual(phases);
+    expect(callback.mock.calls.every(call => call.length === 2 &&
+      Number.isFinite(call[1]) && call[1] >= 0)).toBe(true);
+  }
+  const saved = db.opsFor('discover_sessions_v1').map(op => op.payload);
+  expect(saved[1]).toEqual(expected);
+});
+
+test('a failing diagnostic callback cannot fail session creation', async () => {
+  await expect(createDiscoverSession('anon:test', null, 'discover', true, () => {
+    throw new Error('diagnostic sink failed');
+  })).resolves.toBe('session');
+  expect(snapshot.post_ids).toHaveLength(2005);
+});
 test("Discover fetches only personal history and batches all candidate summaries", async () => {
   await createDiscoverSession("user:viewer", "viewer", "discover");
   expect(snapshot.post_ids).toHaveLength(2005);

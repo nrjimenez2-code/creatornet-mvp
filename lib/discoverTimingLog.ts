@@ -1,6 +1,7 @@
 const MAX_LOGS_PER_ROUTE_MODULE = 64;
 const MAX_WINDOW_MS = 2 * 60 * 60 * 1000;
 const ALLOWED_METRICS = new Set([
+  'sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite',
   'identity', 'session', 'page', 'context', 'sample', 'media', 'write',
   'dbtotal', 'dbmax', 'dbcount', 'upstream', 'upstreamcount',
   'dbtransportcount', 'dbrequestcount', 'dbsendcount', 'dbresponsecount',

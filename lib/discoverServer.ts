@@ -296,13 +296,26 @@ async function readFollowedCreators(userId: string) {
     cursor = page.data[page.data.length - 1].following_id;
   }
 }
+export type DiscoverSessionPhase =
+  | 'sessionpilot' | 'sessioninput' | 'sessionevidence'
+  | 'sessionrank' | 'sessionaudience' | 'sessionwrite';
 export async function createDiscoverSession(
   actor: string,
   userId: string | null,
   tab: string,
   newAnonymous = false,
+  onPhase?: (phase: DiscoverSessionPhase, durationMs: number) => void,
 ) {
+  // Per-call numeric diagnostics; no actor data or shared timing state.
+  let phaseStarted = onPhase ? performance.now() : 0;
+  const mark = (phase: DiscoverSessionPhase) => {
+    if (!onPhase) return;
+    const duration = performance.now() - phaseStarted;
+    try { onPhase(phase, duration); } catch { /* Diagnostics cannot fail a feed. */ }
+    phaseStarted = performance.now();
+  };
   const pilot = await assignDiscoverPilot(admin, userId, tab);
+  mark('sessionpilot');
   const [inventory, events, profile, following, legacy] = await Promise.all([
     initialInventoryRead('inventory', () => discoverSharedRead('inventory', () => discoverInventory())),
     // Only the server identity issuer can mark a just-minted anonymous UUID.
@@ -338,6 +351,7 @@ export async function createDiscoverSession(
   ]);
   if (profile.error || following.error || legacy.error)
     throw profile.error ?? following.error ?? legacy.error;
+  mark('sessioninput');
   const evidence: DiscoverEvidence[] = [];
   if (tab !== "following")
     for (let offset = 0; offset < inventory.length; offset += 200) {
@@ -350,6 +364,7 @@ export async function createDiscoverSession(
       }));
       evidence.push(...batch);
     }
+  mark('sessionevidence');
   const follows = new Set((following.data ?? []).map((f) => f.following_id));
   const placements: Record<string, DiscoverPlacement> = {};
   const ids =
@@ -374,6 +389,7 @@ export async function createDiscoverSession(
           { commercialOrdering: pilot?.variant !== "control",
             ...(pilot ? { onPlacement: (id: string, value: DiscoverPlacement) => { placements[id] = value; } } : {}) },
         );
+  mark('sessionrank');
   const declared = profile.data?.interests ?? [];
   const declaredTopics = [
     ...new Set([
@@ -419,6 +435,7 @@ export async function createDiscoverSession(
       ];
     }),
   );
+  mark('sessionaudience');
   const { data, error } = await admin
     .from("discover_sessions_v1")
     .insert({ actor, user_id: userId, tab, post_ids: ids, audiences,
@@ -426,6 +443,7 @@ export async function createDiscoverSession(
     .select("id")
     .single();
   if (error) throw error;
+  mark('sessionwrite');
   return data.id as string;
 }
 export async function readDiscoverPage(
