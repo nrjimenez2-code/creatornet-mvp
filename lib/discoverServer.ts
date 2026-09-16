@@ -16,6 +16,7 @@ import { isSellReadyProfile } from "@/lib/sellReady";
 import { assignDiscoverPilot } from "@/lib/discoverPilot";
 import { inFlightRead } from "@/lib/inFlightRead";
 import { discoverSharedRead } from "@/lib/discoverSharedRead";
+import { readDiscoverEvidenceBatches } from "@/lib/discoverEvidenceBatches";
 import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 const initialInventoryRead = inFlightRead<Record<string, any>[]>();
 const rankingEvidenceRead = inFlightRead<DiscoverEvidence[]>();
@@ -401,18 +402,16 @@ async function prepareDiscoverSession(
   if (profile.error || following.error || legacy.error)
     throw profile.error ?? following.error ?? legacy.error;
   mark('sessioninput');
-  const evidence: DiscoverEvidence[] = [];
-  if (tab !== "following")
-    for (let offset = 0; offset < inventory.length; offset += 200) {
-      const postIds = inventory.slice(offset, offset + 200).map((p) => p.id);
-      const batch = await rankingEvidenceRead(JSON.stringify(postIds), () => discoverSharedRead('evidence:'+JSON.stringify(postIds), async () => {
+  const evidence = tab === "following" ? [] : await readDiscoverEvidenceBatches(
+    inventory.map(p => p.id),
+    postIds => rankingEvidenceRead(JSON.stringify(postIds), () => discoverSharedRead('evidence:'+JSON.stringify(postIds), async () => {
         const { data, error } = await admin.rpc("discover_rank_evidence_v1", {p_posts: postIds});
         if (error || !Array.isArray(data))
           throw error ?? new Error("Ranking evidence unavailable");
         return data as DiscoverEvidence[];
-      }));
-      evidence.push(...batch);
-    }
+      })),
+    process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED === 'true',
+  );
   mark('sessionevidence');
   const follows = new Set((following.data ?? []).map((f) => f.following_id));
   const placements: Record<string, DiscoverPlacement> = {};

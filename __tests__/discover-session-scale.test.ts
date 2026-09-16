@@ -211,6 +211,70 @@ test("overlapping sessions share global reads but keep histories and sessions se
   expect(db.opsFor("posts")).toHaveLength(6);
   expect(db.opsFor("discover_rank_evidence_v1")).toHaveLength(22);
 });
+
+test.each([undefined, 'false', '1', 'true'])('evidence overlap requires literal true (flag=%s)', async flag => {
+  const previous = process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED;
+  if (flag === undefined) delete process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED;
+  else process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED = flag;
+  let release!: () => void, reachedWindow!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const started = new Promise<void>(resolve => { reachedWindow = resolve; });
+  const original = db.rpc, expected = flag === 'true' ? 2 : 1;
+  let calls = 0;
+  db.rpc = (name, args) => {
+    if (name !== 'discover_rank_evidence_v1') return original(name, args);
+    if (++calls === expected) reachedWindow();
+    return gate.then(() => original(name, args));
+  };
+  const session = createDiscoverSession('anon:new', null, 'discover', true);
+  try {
+    await started;
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    expect(calls).toBe(expected);
+    release(); await session;
+    expect(db.opsFor('discover_rank_evidence_v1')).toHaveLength(11);
+    expect(db.opsFor('discover_events_v1')).toHaveLength(0);
+    expect(snapshot.post_ids).toHaveLength(2005);
+  } finally {
+    release(); await session;
+    if (previous === undefined) delete process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED;
+    else process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED = previous;
+  }
+});
+
+test('enabled evidence failure drains its peer without creating a partial session', async () => {
+  const previous = process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED;
+  process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED = 'true';
+  let fail!: () => void, releasePeer!: () => void, reachedWindow!: () => void;
+  const failure = new Error('Evidence unavailable');
+  const failed = new Promise(resolve => { fail = () => resolve({ data: null, error: failure }); });
+  const peer = new Promise(resolve => { releasePeer = () => resolve({ data: [], error: null }); });
+  const started = new Promise<void>(resolve => { reachedWindow = resolve; });
+  const original = db.rpc;
+  let calls = 0, settled = false;
+  db.rpc = (name, args) => {
+    if (name !== 'discover_rank_evidence_v1') return original(name, args);
+    calls++;
+    if (calls === 2) reachedWindow();
+    return calls === 1 ? failed : peer;
+  };
+  const session = createDiscoverSessionWithFirstPage('anon:new', null, 'discover', true, 0, 20).then(
+    value => { settled = true; return { value }; }, error => { settled = true; return { error }; },
+  );
+  try {
+    await started; fail();
+    for (let i = 0; i < 12; i++) await Promise.resolve();
+    expect(settled).toBe(false); expect(calls).toBe(2);
+    releasePeer(); expect(await session).toEqual({ error: failure });
+    expect(calls).toBe(2);
+    for (const name of ['discover_sessions_v1', 'discover_create_page_v1', 'discover_create_compact_page_v1'])
+      expect(db.opsFor(name)).toHaveLength(0);
+  } finally {
+    fail(); releasePeer(); await session;
+    if (previous === undefined) delete process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED;
+    else process.env.DISCOVER_EVIDENCE_BOUNDED_READS_ENABLED = previous;
+  }
+});
 test("enabled pilot persists all placement metadata and does not enroll Following",async()=>{
  const previous=process.env.DISCOVER_PILOT_ID;
  process.env.DISCOVER_PILOT_ID="qa";
