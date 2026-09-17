@@ -349,7 +349,7 @@ export async function createDiscoverSessionWithFirstPage(
 ) {
   const saved = await prepareDiscoverSession(actor,userId,tab,newAnonymous,onPhase,{offset,limit});
   const result = await renderDiscoverPage(saved.page,offset,limit,userId,
-    nextOffset => readDiscoverPage(saved.id,actor,nextOffset,limit,userId));
+    nextOffset => readDiscoverPage(saved.id,actor,nextOffset,limit,userId),batchedViewerPageEnabled(userId));
   return {session:saved.id,result};
 }
 async function prepareDiscoverSession(
@@ -492,7 +492,8 @@ async function prepareDiscoverSession(
   mark('sessionaudience');
   if (firstPage) {
     const saved = await observeDiscoverSharedRead('write', async () => {
-      const {data,error} = await admin.rpc(process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
+      const {data,error} = await admin.rpc(batchedViewerPageEnabled(userId)
+        ? 'discover_create_user_compact_page_v1' : process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
         ? 'discover_create_compact_page_v1' : 'discover_create_page_v1', {
         p_actor:actor,p_user_id:userId,p_tab:tab,p_post_ids:ids,p_audiences:audiences,
         p_offset:firstPage.offset,p_limit:firstPage.limit,p_pilot_id:pilot?.experimentId ?? null,
@@ -520,6 +521,10 @@ async function prepareDiscoverSession(
   return saved;
 }
 type DiscoverPageResult = {items: Record<string,any>[];nextOffset:number;hasMore:boolean};
+function batchedViewerPageEnabled(userId:string|null) {
+  return userId!==null && process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED==='true' &&
+    process.env.DISCOVER_COMPACT_PAGE_ENABLED==='true';
+}
 export async function readDiscoverPage(
   sessionId: string,
   actor: string,
@@ -527,9 +532,11 @@ export async function readDiscoverPage(
   limit: number,
   userId: string | null,
 ): Promise<DiscoverPageResult> {
+  const batched=process.env.DISCOVER_PAGE_INVENTORY_ENABLED==='true' && batchedViewerPageEnabled(userId);
   const { data: session, error } = process.env.DISCOVER_PAGE_INVENTORY_ENABLED === 'true'
-    ? await admin.rpc(process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
-      ? 'discover_compact_page_v1' : 'discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit})
+    ? await admin.rpc(batched ? 'discover_user_compact_page_v1' : process.env.DISCOVER_COMPACT_PAGE_ENABLED === 'true'
+      ? 'discover_compact_page_v1' : 'discover_page_inventory_v1', {p_session:sessionId,p_actor:actor,p_offset:offset,p_limit:limit,
+        ...(batched?{p_user_id:userId}:{})})
     : await admin
     .from("discover_sessions_v1")
     .select("post_ids,expires_at")
@@ -541,7 +548,7 @@ export async function readDiscoverPage(
   if (error?.code === "CN001") throw new DiscoverSessionUnavailableError();
   if (error) throw error;
   return renderDiscoverPage(session,offset,limit,userId,
-    nextOffset => readDiscoverPage(sessionId,actor,nextOffset,limit,userId));
+    nextOffset => readDiscoverPage(sessionId,actor,nextOffset,limit,userId),batched);
 }
 export async function readDiscoverAnonymousPage(
   sessionId: string,
@@ -569,9 +576,12 @@ export async function readDiscoverAnonymousPage(
 }
 async function renderDiscoverPage(
   session: ({post_ids:string[]} | {page_post_ids:string[];total_count:number}) &
-    {expires_at:string;inventory?:Record<string,any>} | null | undefined,
+    {expires_at:string;inventory?:Record<string,any>;viewer_state?:{
+      user_id:string;liked_post_ids:string[];followed_creator_ids:string[];
+    }} | null | undefined,
   offset:number, limit:number, userId:string | null,
   readNextPage: (offset: number) => Promise<DiscoverPageResult>,
+  viewerStateRequired=false,
 ): Promise<DiscoverPageResult> {
   if (!session) throw new DiscoverSessionUnavailableError();
   if (Date.parse(session.expires_at) <= Date.now())
@@ -583,19 +593,28 @@ async function renderDiscoverPage(
       selected.length!==Math.min(limit,Math.max(0,total-offset)) ||
       selected.some(id=>typeof id!=='string') || new Set(selected).size!==selected.length))
     throw new Error('Invalid compact feed page');
+  const state=viewerStateRequired?session.viewer_state:null;
+  if(viewerStateRequired) {
+    const creators=new Set((session.inventory?.posts??[]).map((p:Record<string,any>)=>p.creator_id));
+    const ids=(value:unknown,allowed:Set<unknown>)=>Array.isArray(value)&&value.length<=50&&
+      value.every(id=>typeof id==='string'&&allowed.has(id))&&new Set(value).size===value.length;
+    if(!state||state.user_id!==userId||Object.keys(state).length!==3||
+      !ids(state.liked_post_ids,new Set(selected))||!ids(state.followed_creator_ids,creators))
+      throw new Error('Invalid private viewer state');
+  }
   if (!selected.length)
     return { items: [], nextOffset: total, hasMore: false };
   // Recheck moderation on every page; the snapshot freezes order, not permissions.
   const inventory = await discoverInventory(selected, session.inventory);
   const [likes, follows] = await Promise.all([
-    userId
+    state ? Promise.resolve({data:state.liked_post_ids.map((post_id:string)=>({post_id})),error:null}) : userId
       ? admin
           .from("likes")
           .select("post_id")
           .eq("user_id", userId)
           .in("post_id", selected)
       : Promise.resolve({ data: [], error: null }),
-    userId
+    state ? Promise.resolve({data:state.followed_creator_ids.map((following_id:string)=>({following_id})),error:null}) : userId
       ? admin
           .from("follows")
           .select("following_id")

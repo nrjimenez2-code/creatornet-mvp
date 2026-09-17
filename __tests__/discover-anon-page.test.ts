@@ -35,6 +35,7 @@ const posts = ['p1', 'p2', 'p3'].map((id, index) => ({
   comments_count: 2, shares_count: 3, purchase_count: 4,
 }));
 const flags = ['DISCOVER_V4_ENABLED', 'DISCOVER_ANON_PAGE_ENABLED',
+  'DISCOVER_VIEWER_STATE_PAGE_ENABLED',
   'DISCOVER_PAGE_INVENTORY_ENABLED', 'DISCOVER_COMPACT_PAGE_ENABLED',
   'DISCOVER_CREATE_PAGE_ENABLED', 'DISCOVER_EVENT_CONTEXT_ENABLED',
   'DISCOVER_BATCH_INVENTORY_ENABLED', 'DISCOVER_PILOT_ID', 'VERCEL',
@@ -65,6 +66,13 @@ function page(offset: number, limit: number) {
 }
 function respond(op: Op): {data: any; error: any} {
   const args = op.payload as Record<string, any>;
+  if (op.table === 'discover_user_compact_page_v1') {
+    const original = respond({...op, table: 'discover_compact_page_v1'});
+    if (original.error) return original;
+    return {data: {...original.data, viewer_state: {user_id: args.p_user_id,
+      liked_post_ids: original.data.page_post_ids.includes('p1') ? ['p1'] : [],
+      followed_creator_ids: original.data.inventory.posts.length ? [creatorId] : []}}, error: null};
+  }
   if (op.table === 'discover_identity_links_v1')
     return {data: claimed ? {anonymous_id: anonymous} : null, error: null};
   if (op.table === 'link_discover_identity_v1') return {data: true, error: null};
@@ -243,6 +251,79 @@ test('signed-in account claim, ownership, likes and follows still use the ordina
   expect(db.ops[0].payload).toEqual({p_anonymous: anonymous, p_user: 'viewer'});
   expect(db.ops[1].payload).toMatchObject({p_actor: 'user:viewer'});
   expect(response.headers.get('set-cookie')).toBeNull();
+});
+
+test('signed-in batch retains wire parity, verified identity and private caching with one page RPC', async () => {
+  user = 'viewer'; owner = 'user:viewer';
+  const original = await (await GET(request())).json();
+  useDatabase(); process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED = 'true';
+  const response = await GET(request());
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual(original);
+  expect(response.headers.get('cache-control')).toBe('private, no-store');
+  expect(authRead).toHaveBeenCalledTimes(2);
+  expect(db.ops.map(op => op.table)).toEqual(['link_discover_identity_v1', 'discover_user_compact_page_v1']);
+  expect(db.ops[1].payload).toMatchObject({p_user_id: 'viewer', p_actor: 'user:viewer'});
+});
+
+test.each(['missing', 'foreign-user', 'foreign-like', 'foreign-follow', 'duplicate', 'extra-key'])
+('malformed private state (%s) fails closed without separate reads or fallback', async reason => {
+  user = 'viewer'; owner = 'user:viewer'; process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED = 'true';
+  useDatabase(op => {
+    const result = respond(op);
+    if (op.table === 'discover_user_compact_page_v1') {
+      const state = result.data.viewer_state;
+      if (reason === 'missing') delete result.data.viewer_state;
+      if (reason === 'foreign-user') state.user_id = 'other';
+      if (reason === 'foreign-like') state.liked_post_ids = ['outside-page'];
+      if (reason === 'foreign-follow') state.followed_creator_ids = ['other-creator'];
+      if (reason === 'duplicate') state.liked_post_ids = ['p1', 'p1'];
+      if (reason === 'extra-key') state.private_extra = 'secret';
+    }
+    return result;
+  });
+  const response = await GET(request());
+  expect(response.status).toBe(503);
+  expect(db.ops.map(op => op.table)).toEqual(['link_discover_identity_v1', 'discover_user_compact_page_v1']);
+});
+
+test.each(['PGRST202', '42501', '57014', 'CN001'])('private page RPC error %s never falls back', async code => {
+  user = 'viewer'; owner = 'user:viewer'; process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED = 'true';
+  useDatabase(op => op.table === 'discover_user_compact_page_v1' ? {data: null, error: {code}} : respond(op));
+  expect((await GET(request())).status).toBe(code === 'CN001' ? 410 : 503);
+  expect(db.ops.map(op => op.table)).toEqual(['link_discover_identity_v1', 'discover_user_compact_page_v1']);
+});
+
+test('private page uses verified Auth identity and ignores caller-supplied viewer IDs', async () => {
+  user = 'viewer'; owner = 'user:viewer'; process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED = 'true';
+  expect((await GET(request('session='+sessionId+'&user_id=other&actor=user:other',null))).status).toBe(200);
+  expect(db.opsFor('discover_user_compact_page_v1')[0].payload).toMatchObject({p_user_id:'viewer',p_actor:'user:viewer'});
+  useDatabase(); authError = {name:'AuthRetryableFetchError'};
+  expect((await GET(request())).status).toBe(503);
+  expect(db.ops).toHaveLength(0);
+});
+
+test('private page flag does not change anonymous reads or bypass current moderation', async () => {
+  process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED = 'true';
+  expect((await GET(request())).status).toBe(200);
+  expect(db.ops.map(op => op.table)).toEqual(['discover_anon_compact_page_v1']);
+  user = 'viewer'; owner = 'user:viewer'; hidden = new Set(['p1', 'p2']);
+  useDatabase();
+  const body = await (await GET(request())).json();
+  expect(body.items.map((p: any) => p.post_id)).toEqual(['p3']);
+  expect(body.nextOffset).toBe(3); expect(body.hasMore).toBe(false);
+  expect(db.opsFor('discover_user_compact_page_v1')).toHaveLength(2);
+  banned = true; useDatabase();
+  expect((await (await GET(request())).json()).items).toEqual([]);
+});
+
+test.each(['DISCOVER_COMPACT_PAGE_ENABLED', 'DISCOVER_PAGE_INVENTORY_ENABLED'])
+('private page flag retains old path without dependency %s', async dependency => {
+  user = 'viewer'; owner = 'user:viewer'; process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED = 'true';
+  delete process.env[dependency];
+  expect((await GET(request())).status).toBe(200);
+  expect(db.opsFor('discover_user_compact_page_v1')).toHaveLength(0);
+  expect(db.opsFor('likes')).toHaveLength(1); expect(db.opsFor('follows')).toHaveLength(1);
 });
 
 test.each(['wrong-owner', 'missing', 'expired', 'claimed'])('unavailable %s page has the same non-disclosing 410', async reason => {
