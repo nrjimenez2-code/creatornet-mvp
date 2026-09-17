@@ -12,15 +12,20 @@ test('session subphase metrics remain numeric and retain the total within the lo
   enable();
   const info = jest.spyOn(console, 'info').mockImplementation(() => {});
   const phases = ['sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite'];
+  const service = ['servicejwt', 'servicejwtcount', 'serviceparse', 'serviceparsecount',
+    'serviceplan', 'serviceplancount', 'servicetransaction', 'servicetransactioncount',
+    'servicetransactionmax', 'serviceresponse', 'serviceresponsecount'];
   // Existing feed phases plus all fixed shared-read fields must retain total.
   const values = [...phases.map(name => `${name};dur=1.5`),
     ...Array.from({length:26}, () => 'identity;dur=1'),
-    ...DISCOVER_SHARED_READ_METRICS.map(name => `${name};dur=2`), 'total;dur=100'];
+    ...DISCOVER_SHARED_READ_METRICS.map(name => `${name};dur=2`),
+    ...service.map(name => `${name};dur=3`), 'total;dur=100'];
   createDiscoverTimingLogger('feed')(200, values);
   const entry = JSON.parse(info.mock.calls[0][1] as string);
   expect(entry.metrics.total).toBe(100);
   for (const phase of phases) expect(entry.metrics[phase]).toBe(1.5);
   for (const name of DISCOVER_SHARED_READ_METRICS) expect(entry.metrics[name]).toBe(2);
+  for (const name of service) expect(entry.metrics[name]).toBe(3);
 });
 afterEach(() => {
   if (originalEnv === undefined) delete process.env.VERCEL_ENV;

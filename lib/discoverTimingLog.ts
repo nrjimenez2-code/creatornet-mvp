@@ -1,14 +1,17 @@
 import { DISCOVER_SHARED_READ_METRICS } from './discoverSharedReadTiming';
 
 const MAX_LOGS_PER_ROUTE_MODULE = 64;
-// Existing transport/startup phases plus at most 44 fixed shared-read metrics.
-const MAX_METRICS_PER_LOG = 96;
+// Fixed transport/startup, shared-read and backend-service phase metrics.
+const MAX_METRICS_PER_LOG = 112;
 const MAX_WINDOW_MS = 2 * 60 * 60 * 1000;
 const ALLOWED_METRICS = new Set([
   ...DISCOVER_SHARED_READ_METRICS,
   'sessionpilot', 'sessioninput', 'sessionevidence', 'sessionrank', 'sessionaudience', 'sessionwrite', 'sessionwritepage',
   'identity', 'session', 'page', 'context', 'sample', 'media', 'write',
   'dbtotal', 'dbmax', 'dbcount', 'upstream', 'upstreamcount',
+  'servicejwt', 'servicejwtcount', 'serviceparse', 'serviceparsecount',
+  'serviceplan', 'serviceplancount', 'servicetransaction', 'servicetransactioncount',
+  'servicetransactionmax', 'serviceresponse', 'serviceresponsecount',
   'dbtransportcount', 'dbrequestcount', 'dbsendcount', 'dbresponsecount',
   'dbprepare', 'dbdispatch', 'dbresponse', 'dbresponsemax', 'dbresume',
   'loopbusy', 'loopidle', 'invocation', 'routeage', 'uptime', 'total',
