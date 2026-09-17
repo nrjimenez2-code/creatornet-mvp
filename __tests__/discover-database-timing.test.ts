@@ -5,6 +5,47 @@ const originalFetch = global.fetch;
 const originalEnv = process.env.VERCEL_ENV;
 afterEach(() => { global.fetch = originalFetch; process.env.VERCEL_ENV = originalEnv; });
 
+test('backend phase timing retains numeric measurements and distinguishes missing from zero', async () => {
+  process.env.VERCEL_ENV = 'preview';
+  const response = new Response('{}', {headers: {'server-timing': 'jwt;dur=0, parse;dur=0, plan;dur=1.2, transaction;dur=6.1, response;dur=0, private;dur=99'}});
+  global.fetch = jest.fn().mockResolvedValueOnce(response)
+    .mockResolvedValueOnce(new Response('{}', {headers: {'server-timing': 'transaction;dur=12.3'}}))
+    .mockResolvedValueOnce(new Response('{}'));
+  await withDiscoverDatabaseTiming(async () => {
+    expect(await timedDatabaseFetch('https://example.test')).toBe(response);
+    await timedDatabaseFetch('https://example.test'); await timedDatabaseFetch('https://example.test');
+    const headers = discoverDatabaseTimingHeader();
+    expect(headers).toEqual(expect.arrayContaining(['servicejwt;dur=0.0', 'servicejwtcount;dur=1',
+      'servicetransaction;dur=18.4', 'servicetransactioncount;dur=2', 'servicetransactionmax;dur=12.3']));
+    expect(headers.join(',')).not.toMatch(/secret|private/);
+  });
+});
+
+test('ambiguous, nonnumeric and oversized backend phases cannot pollute diagnostics', async () => {
+  process.env.VERCEL_ENV = 'preview';
+  for (const header of ['transaction;dur=1, transaction;dur=2, transaction;dur=3',
+    'transaction;dur=NaN, plan;dur=-2, jwt;dur=Infinity', 'transaction;dur=1;desc="secret"',
+    'other;desc="secret,transaction;dur=999,response;dur=0"', 'x'.repeat(4097)]) {
+    global.fetch = jest.fn(async () => new Response('{}', {headers: {'server-timing': header}}));
+    await withDiscoverDatabaseTiming(async () => {
+      await timedDatabaseFetch('https://example.test');
+      const headers = discoverDatabaseTimingHeader();
+      expect(headers).toContain('servicetransactioncount;dur=0');
+      expect(headers.join(',')).not.toMatch(/servicetransaction;|secret|NaN|Infinity/);
+    });
+  }
+});
+
+test('overlapping service phases stay in their owning request', async () => {
+  process.env.VERCEL_ENV = 'preview';
+  global.fetch = jest.fn(async input => new Response('{}', {headers: {'server-timing': 'transaction;dur=' + (input === 'https://one.test' ? '3' : '7')}}));
+  const results = await Promise.all(['one', 'two'].map(name => withDiscoverDatabaseTiming(async () => {
+    await timedDatabaseFetch(`https://${name}.test`); return discoverDatabaseTimingHeader();
+  })));
+  expect(results[0]).toContain('servicetransaction;dur=3.0');
+  expect(results[1]).toContain('servicetransaction;dur=7.0');
+});
+
 test('isolates overlapping requests and records no private inputs', async () => {
   process.env.VERCEL_ENV = 'preview';
   global.fetch = jest.fn(async () => new Response('{}'));
