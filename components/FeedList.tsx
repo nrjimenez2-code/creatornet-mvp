@@ -15,6 +15,7 @@ import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { useDesktopViewport, usePageVisible } from "@/lib/browserVisibility";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
+import { useFeedDomWindow } from "@/lib/useFeedDomWindow";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -111,6 +112,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const itemsRef = useRef<PostRow[]>([]);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const domWindow = useFeedDomWindow(feedScrollRef, sectionRefs, items.length, loading);
+  const { scrollToIndex } = domWindow;
+  const visibleItems = items.slice(domWindow.start, domWindow.end);
   const offerRefreshesRef = useRef(new Map<string, number>());
   // Only capacity refusals can be retried. Like versions, this metadata is tied
   // to retained feed rows; it does not claim the whole catalog is memory-bounded.
@@ -435,27 +439,27 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   // can't steal the active id back (with a timeout so it can never wedge).
   const highlightHandledRef = useRef<string | null>(null);
   const pendingHighlightScrollRef = useRef<string | null>(null);
+  const highlightIndex = items.findIndex(item => item.id === highlightPostId);
   useEffect(() => {
-    if (!highlightPostId || items.length === 0) return;
+    if (!highlightPostId || highlightIndex < 0 || loading) return;
     if (highlightHandledRef.current === highlightPostId) return;
-    const element = sectionRefs.current.get(highlightPostId);
-    if (!element) return; // not loaded yet; retry on the next items change
     highlightHandledRef.current = highlightPostId;
     pendingHighlightScrollRef.current = highlightPostId;
     setActivePostId(highlightPostId);
-    // Wait a bit for layout to settle
-    setTimeout(() => {
-      element.scrollIntoView({ behavior: "smooth", block: "center" });
-    }, 300);
+    scrollToIndex(highlightIndex);
     // Safety valve: never suppress the observer for more than a few seconds.
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       if (pendingHighlightScrollRef.current === highlightPostId) {
         pendingHighlightScrollRef.current = null;
       }
     }, 4000);
-  }, [highlightPostId, items]);
+    return () => {
+      clearTimeout(timer);
+      if (pendingHighlightScrollRef.current === highlightPostId) pendingHighlightScrollRef.current = null;
+    };
+  }, [highlightPostId, highlightIndex, loading, scrollToIndex]);
 
-  const sectionMembership = items.map(item => item.id).join(",");
+  const sectionMembership = visibleItems.map(item => item.id).join(",");
   const observerRef = useRef<IntersectionObserver | null>(null);
   const observedRootRef = useRef<HTMLDivElement | null>(null);
   const observedDesktopRef = useRef(desktop);
@@ -491,7 +495,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         const delta = root.scrollTop - scrollPositionRef.current;
         if (Math.abs(delta) > 1) scrollDirectionRef.current = delta > 0 ? 1 : -1;
         scrollPositionRef.current = root.scrollTop;
-        entries.forEach(entry => ratios.set(entry.target, entry));
+        entries.forEach(entry => {
+          // Unobserving a section does not discard callbacks already queued
+          // by the browser. Never retain or reactivate an unmounted section.
+          if (!root.contains(entry.target)) { ratios.delete(entry.target); return; }
+          ratios.set(entry.target, entry);
+        });
         const visible = [...ratios.values()]
           .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
@@ -550,14 +559,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           ? Math.max(0, currentIndex - 1)
           : Math.min(items.length - 1, currentIndex + 1);
 
-      const targetId = items[targetIndex]?.id;
-      if (!targetId) return;
-      const node = sectionRefs.current.get(targetId);
-      if (!node) return;
-
-      node.scrollIntoView({ behavior: "smooth", block: "start" });
+      scrollToIndex(targetIndex);
     },
-    [items, activePostId]
+    [items, activePostId, scrollToIndex]
   );
 
   const handleFeedKeyDown = useCallback(
@@ -570,9 +574,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
       } else if (e.key === "ArrowUp" || e.key === "PageUp") {
         e.preventDefault();
         scrollByOneCard("up");
+      } else if (e.key === "Home" || e.key === "End") {
+        e.preventDefault();
+        scrollToIndex(e.key === "Home" ? 0 : items.length - 1);
       }
     },
-    [items.length, scrollByOneCard]
+    [items.length, scrollByOneCard, scrollToIndex]
   );
 
   // Load the next page (both tabs — same single RPC, offset paginated)
@@ -699,11 +706,14 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           scrollbarWidth: "none",
           overscrollBehaviorY: "contain",
           touchAction: "pan-y pinch-zoom",
+          overflowAnchor: "none",
         }}
         onKeyDown={handleFeedKeyDown}
         tabIndex={0}
       >
-        {items.map((p, idx) => {
+        {domWindow.start > 0 && <div aria-hidden="true" style={{ height: `calc(var(--feed-card-height, 100dvh) * ${domWindow.start})` }} />}
+        {visibleItems.map((p, visibleIndex) => {
+        const idx = domWindow.start + visibleIndex;
         const price = typeof p.price_cents === "number" ? p.price_cents : 0;
         const isActive = activePostId === p.id;
         const isSoundOn = globalSoundOn && isActive;
@@ -718,8 +728,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
           (sellable && creatorCanSell) ||
           (price > 0 && creatorCanSell);
         // Virtualization: only mount the heavy VideoCard (and its <video>)
-        // near the viewport; distant sections keep their full-height slot so
-        // scroll-snap geometry and the IntersectionObserver keep working.
+        // near the viewport. Two spacers account for distant, unmounted rows.
         const isMounted = isWithinRenderWindow(idx, activeIndex);
 
           return (
@@ -807,6 +816,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
             </section>
           );
         })}
+        {domWindow.end < items.length && <div aria-hidden="true" style={{ height: `calc(var(--feed-card-height, 100dvh) * ${items.length - domWindow.end})` }} />}
 
       </div>
 

@@ -40,10 +40,19 @@ const render = (strict = false) => act(async () => {
   const feed = createElement(FeedList, { activeTab: 'discover', onChangeTab: jest.fn() });
   root.render(strict ? createElement(StrictMode, null, feed) : feed);
 });
-const activate = (id: string) => act(async () => observer([
-  { target: container.querySelector(`[data-post-id="${id}"]`)!, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry,
-], {} as IntersectionObserver));
+const activate = async (id: string) => {
+  await act(async () => {
+    const scroller = container.querySelector<HTMLDivElement>('div[tabindex="0"]')!;
+    scroller.scrollTop = Number(id) * 700;
+    scroller.dispatchEvent(new Event('scroll'));
+    jest.advanceTimersByTime(20);
+  });
+  await act(async () => observer([
+    { target: container.querySelector(`[data-post-id="${id}"]`)!, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry,
+  ], {} as IntersectionObserver));
+};
 beforeEach(() => {
+  jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 700, width: 390, top: 0, bottom: 700, left: 0, right: 390, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
   jest.useFakeTimers(); desktop = true; viewer.userId = 'viewer'; handlers.length = 0;
   pageFetch.mockReset().mockResolvedValue(page());
   fetchMock = jest.fn(async (url: string) => response(ids(url))); global.fetch = fetchMock;
