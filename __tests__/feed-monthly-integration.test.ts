@@ -38,6 +38,7 @@ const response = (ids: string[], monthlyTerms: unknown = terms) => ({ ok: true, 
 }])) }) });
 const props = (id: string) => JSON.parse(container.querySelector(`[data-card="${id}"]`)!.getAttribute("data-props")!);
 beforeEach(() => {
+  jest.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ height: 700, width: 390, top: 0, bottom: 700, left: 0, right: 390, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
   viewerId = "buyer";
   cardProps.clear(); observeNode.mockClear();
   window.matchMedia = jest.fn(() => ({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
@@ -47,6 +48,21 @@ beforeEach(() => {
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); jest.useRealTimers(); });
 const render = async (activeTab: "discover" | "following" = "discover") => act(async () => root.render(createElement(FeedList, { activeTab, onChangeTab: jest.fn() })));
+const activate = async (index: number, previous?: Element | null) => {
+  await act(async () => {
+    const scroller = container.querySelector<HTMLDivElement>('div[tabindex="0"]')!;
+    scroller.scrollTop = index * 700;
+    scroller.dispatchEvent(new Event('scroll'));
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  });
+  const target = container.querySelector(`[data-post-id="${index}"]`)!;
+  expect(target).not.toBeNull();
+  await act(async () => observe([
+    ...(previous ? [{ target: previous, isIntersecting: false, intersectionRatio: 0 }] : []),
+    { target, isIntersecting: true, intersectionRatio: 1 },
+  ]));
+  return target;
+};
 
 test("mobile preloads its next video immediately and prepares an entering card without delaying activation", async () => {
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
@@ -106,30 +122,24 @@ test("successful interactions and drafts survive unmounting a card; old viewer r
   expect(props("0")).toMatchObject({ isLiked: false, likes: 0, commentDraft: "" });
 });
 
-test("300-post forward/back navigation keeps at most five players and observes each section only once", async () => {
+test("300-post forward/back navigation bounds sections and players and observes each mounted node once", async () => {
   rpc.mockImplementation(async (_name, args) => ({ data: Array.from({ length: Math.max(0, Math.min(20, 300 - args.p_offset)) }, (_, i) => row(String(args.p_offset + i))), error: null }));
   await render();
   const originalObserver = observe;
   let previous: Element | null = null;
   for (let end = 19; end < 300; end += 20) {
-    const target = container.querySelector(`[data-post-id="${end}"]`)!;
-    await act(async () => observe([
-      ...(previous ? [{ target: previous, isIntersecting: false, intersectionRatio: 0 }] : []),
-      { target, isIntersecting: true, intersectionRatio: 1 },
-    ]));
+    const target = await activate(end, previous);
     previous = target;
     expect(container.querySelectorAll('[data-card]').length).toBeLessThanOrEqual(5);
     expect(props(String(end)).isActive).toBe(true);
     expect(observe).toBe(originalObserver);
   }
-  expect(container.querySelectorAll('[data-post-id]')).toHaveLength(300);
-  expect(observeNode).toHaveBeenCalledTimes(300);
-  await act(async () => observe([
-    { target: previous, isIntersecting: false, intersectionRatio: 0 },
-    { target: container.querySelector('[data-post-id="0"]'), isIntersecting: true, intersectionRatio: 1 },
-  ]));
+  expect(container.querySelectorAll('[data-post-id]').length).toBeLessThanOrEqual(13);
+  expect(new Set(observeNode.mock.calls.map(call => call[0])).size).toBe(observeNode.mock.calls.length);
+  await activate(0, previous);
   expect(props("0").isActive).toBe(true);
   expect(container.querySelectorAll('[data-card]')).toHaveLength(3);
+  expect(new Set(observeNode.mock.calls.map(call => call[0])).size).toBe(observeNode.mock.calls.length);
 });
 test("initial feed passes canonical product/post identity, terms and product monthly price to VideoCard", async () => {
   await render();
@@ -161,7 +171,7 @@ test("late initial offers cannot overwrite a newer realtime refresh", async () =
 test("pagination enriches additional monthly cards", async () => {
   rpc.mockImplementation(async (_name, args) => ({ data: args.p_offset === 0 ? Array.from({ length: 20 }, (_, i) => row(String(i))) : [row("next")], error: null }));
   await render();
-  await act(async () => observe([{ isIntersecting: true, intersectionRatio: 1, target: container.querySelector('[data-post-id="19"]') }]));
+  await activate(19);
   expect(rpc).toHaveBeenCalledWith("get_feed_v3", expect.objectContaining({ p_offset: 20 }));
   expect(props("next")).toMatchObject({ productId: "product-next", monthlyTerms: terms, purchaseOptionsReady: true });
 });
@@ -194,7 +204,7 @@ test("a failed later page retries the same offset without moving or duplicating 
       .mockResolvedValueOnce({ data: null, error: { message: "offline" } })
       .mockResolvedValueOnce({ data: [row("next")], error: null });
     await render();
-    await act(async () => observe([{ isIntersecting: true, intersectionRatio: 1, target: container.querySelector('[data-post-id="19"]') }]));
+    await activate(19);
     expect(props("19").isActive).toBe(true);
     await act(async () => Array.from(container.querySelectorAll("button")).find(button => button.textContent?.includes("Retry"))!.click());
     expect(rpc.mock.calls.slice(1).map(call => call[1].p_offset)).toEqual([20, 20]);
