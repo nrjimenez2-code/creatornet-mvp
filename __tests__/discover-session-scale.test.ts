@@ -23,12 +23,13 @@ let freshPageBanned = false;
 let viewerTopics: Record<string, string[]> = {};
 let snapshot: { post_ids: string[]; audiences: Record<string,string>; pilot_id?: string; pilot_variant?: string; pilot_placements?: Record<string,{position:number}> };
 function respond(op: Op) {
-  if (op.table === 'discover_create_compact_page_v1') {
+  if (['discover_create_compact_page_v1','discover_create_user_compact_page_v1'].includes(op.table)) {
     const input=op.payload as Record<string,any>;
     snapshot={post_ids:input.p_post_ids,audiences:input.p_audiences};
     const selected=snapshot.post_ids.slice(input.p_offset,input.p_offset+input.p_limit);
     const pagePosts=selected.map(id=>posts.find(p=>p.id===id)!);
-    return {data:{id:'session',page:{page_post_ids:selected,total_count:snapshot.post_ids.length,expires_at:'2100-01-01',inventory:{posts:pagePosts,
+    return {data:{id:'session',page:{page_post_ids:selected,total_count:snapshot.post_ids.length,expires_at:'2100-01-01',
+      ...(op.table==='discover_create_user_compact_page_v1'?{viewer_state:{user_id:input.p_user_id,liked_post_ids:[],followed_creator_ids:pagePosts.map(p=>p.creator_id)}}:{}),inventory:{posts:pagePosts,
       profiles:pagePosts.map(p=>({id:p.creator_id,username:'public-creator'})),primaryProducts:[],legacyProducts:[],offerings:[]}}},error:null};
   }
   if (op.table === 'discover_create_page_v1') {
@@ -63,6 +64,7 @@ function respond(op: Op) {
         .filter(
           (p) => p.creator_id > String(op.filters.__gt_following_id ?? ""),
         )
+        .filter((p) => !op.inFilters.length || op.inFilters[0].values.includes(p.creator_id))
         .slice(0, 1000)
         .map((p) => ({ following_id: p.creator_id })),
       error: null,
@@ -166,6 +168,41 @@ test('compact first-page creation retains the full ranking but renders only the 
   expect(result.result.nextOffset).toBe(20);expect(result.result.hasMore).toBe(true);expect(snapshot.post_ids).toHaveLength(2005);
   expect(db.opsFor('discover_create_compact_page_v1')).toHaveLength(1);expect(db.opsFor('discover_create_page_v1')).toHaveLength(0);expect(db.opsFor('discover_sessions_v1')).toHaveLength(0);
  }finally{delete process.env.DISCOVER_COMPACT_PAGE_ENABLED;}
+});
+
+test('private first-page batch preserves ranking and rendering while removing only two viewer reads', async () => {
+  process.env.DISCOVER_COMPACT_PAGE_ENABLED='true';
+  try {
+    const original=await createDiscoverSessionWithFirstPage('user:viewer','viewer','following',false,0,20);
+    const ranked=[...snapshot.post_ids];
+    const originalLikes=db.opsFor('likes').length, originalFollows=db.opsFor('follows').length;
+    process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED='true';
+    db.ops.length=0;
+    const batched=await createDiscoverSessionWithFirstPage('user:viewer','viewer','following',false,0,20);
+    expect(batched).toEqual(original); expect(snapshot.post_ids).toEqual(ranked);
+    expect(db.opsFor('likes')).toHaveLength(originalLikes-1);
+    expect(db.opsFor('follows')).toHaveLength(originalFollows-1);
+    expect(db.opsFor('discover_create_user_compact_page_v1')).toHaveLength(1);
+    expect(db.opsFor('discover_create_compact_page_v1')).toHaveLength(0);
+    expect(db.opsFor('discover_create_user_compact_page_v1')[0].payload).toMatchObject({p_actor:'user:viewer',p_user_id:'viewer'});
+  } finally { delete process.env.DISCOVER_COMPACT_PAGE_ENABLED; delete process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED; }
+});
+
+test('missing private state on creation fails without repeating the session write', async () => {
+  process.env.DISCOVER_COMPACT_PAGE_ENABLED='true'; process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED='true';
+  const original=db.rpc;
+  db.rpc=async (name,args) => {
+    const response=await original(name,args);
+    if(name==='discover_create_user_compact_page_v1') delete response.data.page.viewer_state;
+    return response;
+  };
+  try {
+    await expect(createDiscoverSessionWithFirstPage('user:viewer','viewer','following',false,0,20))
+      .rejects.toThrow('Invalid private viewer state');
+    expect(db.opsFor('discover_create_user_compact_page_v1')).toHaveLength(1);
+    expect(db.opsFor('discover_create_compact_page_v1')).toHaveLength(0);
+    expect(db.opsFor('discover_sessions_v1')).toHaveLength(0);
+  } finally { delete process.env.DISCOVER_COMPACT_PAGE_ENABLED; delete process.env.DISCOVER_VIEWER_STATE_PAGE_ENABLED; }
 });
 
 test('audiences preserve per-post topic priority and stay isolated between viewers', async () => {
