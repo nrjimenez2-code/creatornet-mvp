@@ -50,6 +50,22 @@ async function updateLike(
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
+    // Opt in per environment only after its migration is verified. Never replay
+    // the legacy mutation after an RPC error: its commit status may be unknown.
+    if (process.env.POST_LIKE_RPC_V1 === "true") {
+      const { data, error } = await admin.rpc("update_post_like_v1", {
+        p_user_id: user.id, p_post_id: postId, p_like_only: likeOnly,
+      });
+      if (error || !data || typeof data.liked !== "boolean" ||
+          typeof data.inserted !== "boolean" || !Number.isInteger(data.likes_count) ||
+          data.likes_count < 0 || (data.category !== null && typeof data.category !== "string")) {
+        console.error("[like-api] Batched mutation failed:", error ?? "Invalid result");
+        return NextResponse.json({ error: "Could not update like." }, { status: 500 });
+      }
+      if (data.inserted) await updateInterestScore(user.id, data.category, 5);
+      return NextResponse.json({ success: true, liked: data.liked, likes_count: data.likes_count });
+    }
+
     // Check if user has already liked this post
     const { data: existingLike, error: checkError } = await admin
       .from("likes")
