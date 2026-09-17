@@ -60,12 +60,20 @@ const request = (index: number) => ({
   signal: fetchMock.mock.calls[index][1].signal as AbortSignal,
 });
 async function activate(id: string) {
+  const index = Number(id.slice(id.lastIndexOf("-") + 1));
+  await act(async () => {
+    const scroller = container.querySelector<HTMLDivElement>('div[tabindex="0"]')!;
+    scroller.scrollTop = index * 700;
+    scroller.dispatchEvent(new Event("scroll"));
+    await new Promise(resolve => setTimeout(resolve, 25));
+  });
   const node = container.querySelector(`[data-post-id="${id}"]`)!;
   const observer = Observer.instances.find(instance => !instance.disconnected && instance.nodes.has(node))!;
   expect(observer).toBeDefined();
   await act(async () => observer.activate(node));
 }
 beforeEach(() => {
+  jest.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({ height: 700, width: 390, top: 0, bottom: 700, left: 0, right: 390, x: 0, y: 0, toJSON: () => ({}) } as DOMRect);
   viewer.userId = "viewer";
   viewer.loading = false;
   fetchMock.mockReset();
@@ -127,6 +135,25 @@ test("an obsolete pagination response cannot append items or replace the new tab
   expect(container.querySelectorAll("video").length).toBeLessThanOrEqual(5);
 });
 
+test("a thousand retained posts keep a bounded DOM and restore a distant earlier post without refetching", async () => {
+  fetchMock.mockResolvedValueOnce(response(page("long", 1000, false)));
+  await render("discover");
+  expect(container.querySelectorAll("section[data-post-id]").length).toBeLessThanOrEqual(13);
+  const oldNode = container.querySelector('[data-post-id="long-0"]')!;
+  const oldObserver = Observer.instances.find(instance => instance.nodes.has(oldNode))!;
+  await activate("long-990");
+  expect(container.querySelector('video[data-card-id="long-990"]')?.getAttribute("data-active")).toBe("true");
+  expect(container.querySelector('[data-post-id="long-0"]')).toBeNull();
+  expect(container.querySelectorAll("section[data-post-id]").length).toBeLessThanOrEqual(13);
+  expect(container.querySelectorAll("video").length).toBeLessThanOrEqual(5);
+  await act(async () => oldObserver.activate(oldNode));
+  expect(container.querySelector('video[data-card-id="long-990"]')?.getAttribute("data-active")).toBe("true");
+  await activate("long-0");
+  expect(container.querySelector('video[data-card-id="long-0"]')?.getAttribute("data-active")).toBe("true");
+  expect(container.querySelector('[data-post-id="long-990"]')).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
 test("authentication changes abort a pending read and ignore its late completion", async () => {
   const oldPage = deferred<ReturnType<typeof response>>();
   fetchMock.mockReturnValueOnce(oldPage.promise).mockResolvedValueOnce(response(page("new-viewer")));
@@ -167,8 +194,11 @@ test("a failed current page retries its existing session and offset without losi
   expect(request(2).signal.aborted).toBe(false);
   await act(async () => retried.resolve(response(page("next", 4, false, 24))));
   expect(container.querySelector('[data-post-id="next-0"]')).not.toBeNull();
-  expect(container.querySelectorAll("section[data-post-id]")).toHaveLength(24);
+  expect(container.querySelectorAll("section[data-post-id]").length).toBeLessThanOrEqual(13);
   expect(container.textContent).not.toContain("Couldn’t load more");
+  await activate("retry-0");
+  expect(container.querySelector('[data-post-id="retry-0"]')).not.toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(3);
 });
 
 test("an unavailable snapshot waits for an explicit refresh, which replaces the feed and starts at offset zero", async () => {
@@ -193,7 +223,7 @@ test("an unavailable snapshot waits for an explicit refresh, which replaces the 
   expect(container.querySelector("video")).toBeNull();
   await act(async () => refreshed.resolve(response(page("fresh",20,true))));
   expect(container.querySelector('[data-post-id="expired-0"]')).toBeNull();
-  expect(container.querySelectorAll("section[data-post-id]")).toHaveLength(20);
+  expect(container.querySelectorAll("section[data-post-id]").length).toBeLessThanOrEqual(13);
   expect(container.querySelector('video[data-card-id="fresh-0"]')?.getAttribute("data-active")).toBe("true");
   await activate("fresh-18");
   expect(request(3).url.searchParams.get("session")).toBe("fresh-session");
