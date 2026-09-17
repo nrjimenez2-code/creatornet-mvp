@@ -50,10 +50,15 @@ test('preview separates new-session work from pagination without exposing identi
  const metrics=first.headers.get('server-timing')!.split(', ');
  expect(metrics.map(metric=>metric.split(';')[0])).toEqual([
   'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount',
+  'servicejwtcount','serviceparsecount','serviceplancount','servicetransactioncount','serviceresponsecount',
   'dbtransportcount','dbrequestcount','dbsendcount','dbresponsecount',
   'loopbusy','loopidle','invocation','routeage','uptime','total',
  ]);
  expect(metrics.every(metric=>/^[a-z]+;dur=\d+(?:\.\d+)?$/.test(metric))).toBe(true);
+ for(const phase of ['jwt','parse','plan','transaction','response']) {
+  expect(metrics).toContain(`service${phase}count;dur=0`);
+  expect(metrics.some(metric=>metric.startsWith(`service${phase};`))).toBe(false);
+ }
  expect(first.headers.get('server-timing')).not.toMatch(/private/);
  const next=await GET(new NextRequest('https://test.invalid/api/feed?session=private-session'));
  expect(next.headers.get('server-timing')).not.toMatch(/session;|private/);
