@@ -75,10 +75,19 @@ export const timedDatabaseFetch: typeof fetch = async (input, init) => {
 
 export function discoverDatabaseTimingHeader(): string[] {
   const current = timing.getStore();
+  // Preview-only format indicator for the configured admin client credential.
+  // Never retain the value, decoded claims, a hash, or any credential fragment.
+  // This identifies configuration, not the gateway's internal implementation.
+  const adminKeyFormat = process.env.VERCEL_ENV === 'preview' && current
+    ? process.env.SUPABASE_SERVICE_ROLE_KEY?.startsWith('sb_secret_') ? 'opaque'
+      : /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(process.env.SUPABASE_SERVICE_ROLE_KEY ?? '') ? 'jwt'
+        : 'unknown'
+    : null;
   // Process activity during this request includes work for overlapping requests.
   // It distinguishes a busy JS process from idle network/service wait.
   const loop = current ? nodePerformance.eventLoopUtilization(current.loopStart) : null;
   return current ? [
+    ...(adminKeyFormat ? [`adminkey${adminKeyFormat};dur=1`] : []),
     `dbtotal;dur=${current.totalMs.toFixed(1)}`,
     `dbmax;dur=${current.maxMs.toFixed(1)}`,
     `dbcount;dur=${current.count}`,

@@ -48,7 +48,9 @@ test('preview separates new-session work from pagination without exposing identi
  const first=await GET(new NextRequest('https://test.invalid/api/feed'));
  expect(first.status).toBe(200);
  const metrics=first.headers.get('server-timing')!.split(', ');
- expect(metrics.map(metric=>metric.split(';')[0])).toEqual([
+ expect(metrics.filter(metric=>metric.startsWith('adminkey'))).toHaveLength(1);
+ expect(metrics.find(metric=>metric.startsWith('adminkey'))).toMatch(/^adminkey(?:opaque|jwt|unknown);dur=1$/);
+ expect(metrics.map(metric=>metric.split(';')[0]).filter(name=>!name.startsWith('adminkey'))).toEqual([
   'identity','session','page','dbtotal','dbmax','dbcount','upstream','upstreamcount',
   'servicejwtcount','serviceparsecount','serviceplancount','servicetransactioncount','serviceresponsecount',
   'dbtransportcount','dbrequestcount','dbsendcount','dbresponsecount',

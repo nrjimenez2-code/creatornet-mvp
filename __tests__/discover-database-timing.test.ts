@@ -5,6 +5,33 @@ const originalFetch = global.fetch;
 const originalEnv = process.env.VERCEL_ENV;
 afterEach(() => { global.fetch = originalFetch; process.env.VERCEL_ENV = originalEnv; });
 
+test('preview reports only admin key format and production omits it even with timing enabled', async () => {
+  const originalKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const originalUntil = process.env.DISCOVER_TIMING_LOG_UNTIL;
+  try {
+    for (const [value, format] of [['sb_secret_fixture_private', 'opaque'], ['header.payload.signature', 'jwt'], ['unrecognized_private', 'unknown']]) {
+      process.env.SUPABASE_SERVICE_ROLE_KEY = value;
+      process.env.VERCEL_ENV = 'preview';
+      withDiscoverDatabaseTiming(() => {
+        const fields = discoverDatabaseTimingHeader();
+        expect(fields.filter(field => field.startsWith('adminkey'))).toEqual([`adminkey${format};dur=1`]);
+        expect(fields.join(',')).not.toContain(value);
+      });
+      process.env.VERCEL_ENV = 'production';
+      process.env.DISCOVER_TIMING_LOG_UNTIL = new Date(Date.now() + 60_000).toISOString();
+      withDiscoverDatabaseTiming(() => {
+        expect(discoverDatabaseTimingHeader().join(',')).not.toMatch(/adminkey|fixture_private|header.payload|unrecognized_private/);
+      });
+    }
+    expect(discoverDatabaseTimingHeader()).toEqual([]);
+  } finally {
+    if (originalKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = originalKey;
+    if (originalUntil === undefined) delete process.env.DISCOVER_TIMING_LOG_UNTIL;
+    else process.env.DISCOVER_TIMING_LOG_UNTIL = originalUntil;
+  }
+});
+
 test('backend phase timing retains numeric measurements and distinguishes missing from zero', async () => {
   process.env.VERCEL_ENV = 'preview';
   const response = new Response('{}', {headers: {'server-timing': 'jwt;dur=0, parse;dur=0, plan;dur=1.2, transaction;dur=6.1, response;dur=0, private;dur=99'}});
