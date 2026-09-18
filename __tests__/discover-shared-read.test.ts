@@ -2,8 +2,41 @@ const cache = jest.fn();
 jest.mock('next/cache',()=>({unstable_cache:(...args:unknown[])=>cache(...args)}));
 import {discoverSharedRead} from '@/lib/discoverSharedRead';
 const previous = process.env.VERCEL;
-beforeEach(()=>{process.env.VERCEL='1';cache.mockReset();});
+const previousCommit = process.env.VERCEL_GIT_COMMIT_SHA;
+let fixture = 0;
+beforeEach(()=>{process.env.VERCEL='1';process.env.VERCEL_GIT_COMMIT_SHA='shared-read-'+(++fixture);cache.mockReset();});
 afterAll(()=>{if(previous===undefined)delete process.env.VERCEL;else process.env.VERCEL=previous;});
+afterAll(()=>{if(previousCommit===undefined)delete process.env.VERCEL_GIT_COMMIT_SHA;else process.env.VERCEL_GIT_COMMIT_SHA=previousCommit;});
+
+test('warm public input skips remote cache without extending the original freshness window',async()=>{
+ let now = 100000;
+ const clock = jest.spyOn(Date,'now').mockImplementation(()=>now);
+ try {
+  cache.mockReturnValue(async()=>({value:['common'],readAt:100000}));
+  const read=jest.fn();
+  expect(await discoverSharedRead('inventory',read)).toEqual(['common']);
+  now=129999;
+  expect(await discoverSharedRead('inventory',read)).toEqual(['common']);
+  expect(cache).toHaveBeenCalledTimes(1);
+  now=130001;
+  cache.mockReturnValue(async()=>({value:['updated'],readAt:now}));
+  expect(await discoverSharedRead('inventory',read)).toEqual(['updated']);
+  expect(cache).toHaveBeenCalledTimes(2);
+  expect(read).not.toHaveBeenCalled();
+ } finally { clock.mockRestore(); }
+});
+
+test('local public input cache is isolated by deployment and bounded by entry count',async()=>{
+ cache.mockReturnValue(async()=>({value:['common'],readAt:Date.now()}));
+ const read=jest.fn();
+ await discoverSharedRead('inventory',read);
+ process.env.VERCEL_GIT_COMMIT_SHA+='-other';
+ await discoverSharedRead('inventory',read);
+ expect(cache).toHaveBeenCalledTimes(2);
+ for(let i=0;i<16;i++)await discoverSharedRead('evidence:'+i,read);
+ await discoverSharedRead('inventory',read);
+ expect(cache).toHaveBeenCalledTimes(19);
+});
 test('reuses a recent common input without rereading database',async()=>{
  cache.mockReturnValue(async()=>({value:['common'],readAt:Date.now()}));
  const read=jest.fn();

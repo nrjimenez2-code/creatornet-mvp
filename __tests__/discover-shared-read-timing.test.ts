@@ -8,6 +8,8 @@ import {
 } from '@/lib/discoverSharedReadTiming';
 
 const originalVercel = process.env.VERCEL;
+const originalCommit = process.env.VERCEL_GIT_COMMIT_SHA;
+let fixture = 0;
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: unknown) => void;
@@ -24,11 +26,13 @@ function inventory<T>(read: () => Promise<T>) {
   return observeDiscoverSharedRead('inventory', observation =>
     discoverSharedRead('fixture-private-key', read, observation));
 }
-beforeEach(() => { process.env.VERCEL = '1'; cache.mockReset(); });
+beforeEach(() => { process.env.VERCEL = '1'; process.env.VERCEL_GIT_COMMIT_SHA = 'timing-' + (++fixture); cache.mockReset(); });
 afterEach(() => {
   jest.restoreAllMocks();
   if (originalVercel === undefined) delete process.env.VERCEL;
   else process.env.VERCEL = originalVercel;
+  if (originalCommit === undefined) delete process.env.VERCEL_GIT_COMMIT_SHA;
+  else process.env.VERCEL_GIT_COMMIT_SHA = originalCommit;
 });
 
 test('disabled observation preserves the original promise and has no request context', async () => {
