@@ -127,15 +127,47 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           .maybeSingle()
       : Promise.resolve({ data: null, error: null } as const);
 
-  const [postsRes, followersRes, followingRes, followStatusRes, productsRes, ratingRes] =
-    await Promise.all([
+  // Likes depend only on the visible posts and verified viewer, not on
+  // ratings, follower counts or product reads. Share one posts request.
+  const postsPromise = Promise.resolve(
     onlyVisiblePosts(
-      admin
-        .from("posts")
+      admin.from("posts")
         .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
-    )
-      .eq("creator_id", resolvedCreatorId)
-      .order("created_at", { ascending: false }),
+    ).eq("creator_id", resolvedCreatorId)
+      .order("created_at", { ascending: false })
+  );
+  const likedPostIdsPromise = postsPromise.then(async postsRes => {
+    const posts = postsRes?.data ?? [];
+    // Which of these posts has the viewer already liked? Without this the gallery
+    // renders every heart empty, and a viewer who already liked a post taps a
+    // hollow heart and silently REMOVES their like (the API toggles server-side).
+    // public.likes is world-readable (policy "like select" USING (true)).
+    // A failed read degrades to "none liked" — the pre-existing behaviour — and is
+    // logged rather than swallowed; it must never block the page.
+    let likedPostIds: string[] = [];
+    if (viewer?.id && posts.length > 0) {
+      const { data: likedRows, error: likedError } = await admin
+        .from("likes")
+        .select("post_id")
+        .eq("user_id", viewer.id)
+        .in(
+          "post_id",
+          posts.map((p: { id: string }) => p.id)
+        );
+      if (likedError) {
+        console.error("[creator-profile] likes read failed:", likedError.message);
+      } else {
+        likedPostIds = (likedRows ?? [])
+          .map((r: { post_id: string | null }) => r.post_id)
+          .filter((id): id is string => typeof id === "string");
+      }
+    }
+    return likedPostIds;
+  });
+
+  const [postsRes, followersRes, followingRes, followStatusRes, productsRes, ratingRes, likedPostIds] =
+    await Promise.all([
+    postsPromise,
     admin
       .from("follows")
       .select("follower_id", { count: "exact", head: true })
@@ -164,33 +196,10 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           )
     ).eq("creator_id", resolvedCreatorId),
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
+    likedPostIdsPromise,
   ]);
   const posts = postsRes?.data ?? [];
 
-  // Which of these posts has the viewer already liked? Without this the gallery
-  // renders every heart empty, and a viewer who already liked a post taps a
-  // hollow heart and silently REMOVES their like (the API toggles server-side).
-  // public.likes is world-readable (policy "like select" USING (true)).
-  // A failed read degrades to "none liked" — the pre-existing behaviour — and is
-  // logged rather than swallowed; it must never block the page.
-  let likedPostIds: string[] = [];
-  if (viewer?.id && posts.length > 0) {
-    const { data: likedRows, error: likedError } = await admin
-      .from("likes")
-      .select("post_id")
-      .eq("user_id", viewer.id)
-      .in(
-        "post_id",
-        posts.map((p: { id: string }) => p.id)
-      );
-    if (likedError) {
-      console.error("[creator-profile] likes read failed:", likedError.message);
-    } else {
-      likedPostIds = (likedRows ?? [])
-        .map((r: { post_id: string | null }) => r.post_id)
-        .filter((id): id is string => typeof id === "string");
-    }
-  }
   if (productsRes?.error) {
     // Non-fatal: the page still renders, just without the Offers button.
     console.error("[creator-profile] products query failed:", productsRes.error.message);

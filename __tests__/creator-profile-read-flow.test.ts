@@ -68,6 +68,26 @@ test("ID precedence and exact username fallback preserve resolution and metadata
   expect((await readCreatorPublicProfile("coach")).data).toBeNull();
 });
 
+test("viewer likes start after visible posts without waiting for the rating query", async () => {
+  let release!: (value: { data: unknown[]; error: null }) => void;
+  const rating = new Promise<{ data: unknown[]; error: null }>(resolve => { release = resolve; });
+  db = createMockClient(op => {
+    if (op.table === "profiles") return { data: profile, error: null };
+    if (op.table === "posts") return { data: [{ id: "post-1", creator_id: profile.id }], error: null };
+    if (op.table === "likes") return { data: [{ post_id: "post-1" }], error: null };
+    return undefined;
+  });
+  db.rpc = () => rating;
+  const pending = Page({ params });
+  try {
+    await ticks(); await ticks();
+    expect(db.opsFor("posts")).toHaveLength(1);
+    expect(db.opsFor("likes")).toHaveLength(1);
+    expect(db.opsFor("likes")[0].filters.user_id).toBe("viewer-a");
+    expect(db.opsFor("likes")[0].inFilters).toEqual([{ column: "post_id", values: ["post-1"] }]);
+  } finally { release({ data: [], error: null }); await pending; }
+});
+
 test.each([null, [], [null]])("missing primary interests %p keep the existing no-op score call", async interests => {
   db = createMockClient(op => op.table === "profiles" ? { data: { ...profile, interests }, error: null } : undefined);
   await Page({ params }); expect(updateInterestScore).toHaveBeenCalledWith("viewer-a", null, 4);
