@@ -2,12 +2,15 @@
 
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Ellipsis, Trash2 } from "lucide-react";
+import { Ellipsis, EyeOff, Trash2 } from "lucide-react";
 import { getActionSession } from "@/lib/actionSession";
 import { useUser } from "@/lib/useUser";
 
-export default function DeleteVideoButton({ postId, creatorId, onDeleted }: {
-  postId: string; creatorId: string; onDeleted: () => void;
+export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotInterested }: {
+  postId: string;
+  creatorId: string;
+  onDeleted: () => void;
+  onNotInterested?: () => void;
 }) {
   const { userId, loading } = useUser();
   const dialog = useRef<HTMLDialogElement>(null);
@@ -20,7 +23,9 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (loading || !userId || userId !== creatorId) return null;
+  const isOwner = Boolean(userId && userId === creatorId);
+
+  if (loading || (!isOwner && !onNotInterested)) return null;
 
   async function remove() {
     if (inFlight.current) return;
@@ -67,13 +72,20 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted }: {
         onTouchStart={(event) => event.stopPropagation()} onTouchEnd={(event) => event.stopPropagation()}
         className="fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none rounded-t-2xl border border-white/15 bg-[#17141d] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-white shadow-2xl backdrop:bg-black/60 lg:bottom-auto lg:right-auto lg:w-52 lg:rounded-xl lg:p-1.5 lg:backdrop:bg-transparent">
         <div className="mx-auto mb-4 h-1 w-8 rounded-full bg-white/25 lg:hidden" />
-        <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-red-300 hover:bg-white/5"
-          onClick={() => { options.current?.close(); setOptionsOpen(false); setError(null); dialog.current?.showModal(); cancel.current?.focus(); }}>
-          <Trash2 className="h-4 w-4" aria-hidden="true" />Delete video
-        </button>
+        {isOwner ? (
+          <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-red-300 hover:bg-white/5"
+            onClick={() => { options.current?.close(); setOptionsOpen(false); setError(null); dialog.current?.showModal(); cancel.current?.focus(); }}>
+            <Trash2 className="h-4 w-4" aria-hidden="true" />Delete video
+          </button>
+        ) : (
+          <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-white hover:bg-white/5"
+            onClick={() => { options.current?.close(); setOptionsOpen(false); onNotInterested?.(); }}>
+            <EyeOff className="h-4 w-4" aria-hidden="true" />Not interested
+          </button>
+        )}
         <button type="button" onClick={() => options.current?.close()} className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 py-3 text-sm lg:hidden">Cancel</button>
       </dialog>, document.body)}
-    {typeof document !== "undefined" && createPortal(
+    {isOwner && typeof document !== "undefined" && createPortal(
       <dialog ref={dialog} aria-labelledby={`delete-title-${postId}`} aria-describedby={`delete-description-${postId}`}
         onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}
         onWheel={(event) => event.stopPropagation()}
