@@ -1,16 +1,18 @@
 import { discoverTimingEnabled } from './discoverTimingLog';
-import { serverStartupMetrics } from './serverStartupTiming';
+import { serverStartupMetrics, previewStartupBoundaries } from './serverStartupTiming';
 
 // Create once per route module, then capture immediately on handler entry.
-// Import evaluation before this factory and platform wait before dispatch are
-// not measured. Invocation 1 means first observed use of this module instance,
+// An optional first-dependency marker brackets subsequent import evaluation in
+// Preview. Earlier framework/platform work is not a measured request phase.
+// Invocation 1 means first observed use of this module instance,
 // not a proven cold start; neither age nor ordinal identifies an instance.
-export function createDiscoverRouteTiming() {
+export function createDiscoverRouteTiming(importStarted?: number) {
   const loadedAt = performance.now();
   let invocation = 0;
   return (): string[] => {
     if (!discoverTimingEnabled()) return [];
-    const age = performance.now() - loadedAt;
+    const entryAt = performance.now();
+    const age = entryAt - loadedAt;
     invocation = Math.min(invocation + 1, Number.MAX_SAFE_INTEGER);
     const metrics = [`invocation;dur=${invocation}`];
     const addDuration = (name: string, value: number) => {
@@ -23,6 +25,8 @@ export function createDiscoverRouteTiming() {
     try {
       if (typeof process.uptime === 'function') addDuration('uptime', process.uptime() * 1000);
     } catch { /* An unavailable uptime is not a request failure. */ }
-    return [...metrics, ...serverStartupMetrics()];
+    return [...metrics, ...serverStartupMetrics(),
+      ...(importStarted !== undefined && invocation <= 64
+        ? previewStartupBoundaries(importStarted, loadedAt, entryAt) : [])];
   };
 }

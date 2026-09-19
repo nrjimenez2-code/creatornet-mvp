@@ -1,3 +1,4 @@
+import { routeImportStarted } from './startupProbe';
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import {
@@ -12,7 +13,7 @@ import { loadDiscoverEventContext } from "@/lib/discoverEventContext";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
 import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
-const routeTiming = createDiscoverRouteTiming();
+const routeTiming = createDiscoverRouteTiming(routeImportStarted);
 const logTiming = createDiscoverTimingLogger('feed-events');
 type EventMeasure = <T>(phase:'identity'|'context'|'sample'|'media'|'write', work:()=>Promise<T>)=>Promise<T>;
 const KINDS = new Set([

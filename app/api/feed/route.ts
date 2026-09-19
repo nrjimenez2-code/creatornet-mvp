@@ -1,3 +1,4 @@
+import { routeImportStarted } from './startupProbe';
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
@@ -6,7 +7,7 @@ import { discoverEnabled, discoverIdentity, discoverExistingPageIdentity, setDis
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { createDiscoverRouteTiming } from '@/lib/discoverRouteTiming';
 import { createDiscoverTimingLogger, discoverTimingEnabled } from '@/lib/discoverTimingLog';
-const routeTiming = createDiscoverRouteTiming();
+const routeTiming = createDiscoverRouteTiming(routeImportStarted);
 const logTiming = createDiscoverTimingLogger('feed');
 export async function GET(req:NextRequest){
  const lifecycle = routeTiming();
@@ -33,7 +34,11 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
  };
  const tab=req.nextUrl.searchParams.get('tab')==='following'?'following':'discover';
  const offset=Number(req.nextUrl.searchParams.get('offset')??0),limit=Number(req.nextUrl.searchParams.get('limit')??20);
- if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>50)return NextResponse.json({error:'Invalid page'},{status:400});
+ if(!Number.isSafeInteger(offset)||offset<0||!Number.isSafeInteger(limit)||limit<1||limit>50){
+  const response=NextResponse.json({error:'Invalid page'},{status:400});
+  // Allows a Preview startup probe to finish before identity/session/database work.
+  return process.env.VERCEL_ENV==='preview'?finish(response):response;
+ }
  try{
   if(!discoverEnabled()){
    if(offset>=2000)return NextResponse.json({items:[],nextOffset:offset,hasMore:false,session:null});
