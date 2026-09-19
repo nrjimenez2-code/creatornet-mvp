@@ -36,3 +36,32 @@ export function serverStartupMetrics(): string[] {
     return metrics;
   } catch { return []; }
 }
+
+// Numeric offsets on the same monotonic clock, never request phases. Preview
+// only; no new production logging, collector, timer, identifier or state.
+export function previewStartupBoundaries(importStart: number, loadedAt: number, entryAt: number): string[] {
+  try {
+    if (process.env.VERCEL_ENV !== 'preview') return [];
+    if (![importStart, loadedAt, entryAt].every(n => Number.isFinite(n) && n >= 0) ||
+        importStart > loadedAt || loadedAt > entryAt) return [];
+    const metrics: string[] = [];
+    const add = (name: string, value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= entryAt)
+        metrics.push(`${name};dur=${value.toFixed(1)}`);
+    };
+    add('routeimportstart', importStart);
+    add('routeimports', loadedAt - importStart);
+    add('handlerentry', entryAt);
+    const record = state[key];
+    add('bootstart', record?.started);
+    add('bootready', record?.ready);
+    // Node exposes these on global performance; Edge/missing milestones omit.
+    const node = (performance as typeof performance & {
+      nodeTiming?: { nodeStart?: number; bootstrapComplete?: number; loopStart?: number }
+    }).nodeTiming;
+    add('nodestart', node?.nodeStart);
+    add('nodebootstrap', node?.bootstrapComplete);
+    add('nodeloopstart', node?.loopStart);
+    return metrics;
+  } catch { return []; }
+}

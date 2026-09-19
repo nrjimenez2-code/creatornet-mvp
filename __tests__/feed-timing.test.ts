@@ -15,6 +15,23 @@ import {GET} from '@/app/api/feed/route';
 import { observeDiscoverSharedRead, discoverSharedReadTimingHeader } from '@/lib/discoverSharedReadTiming';
 const original=process.env.VERCEL_ENV;
 const originalCreatePage=process.env.DISCOVER_CREATE_PAGE_ENABLED;
+
+test('Preview invalid-page startup probe returns timing before any session or page work',async()=>{
+ process.env.VERCEL_ENV='preview';
+ const response=await GET(new NextRequest('https://test.invalid/api/feed?offset=-1'));
+ expect(response.status).toBe(400);
+ expect(await response.json()).toEqual({error:'Invalid page'});
+ expect(response.headers.get('server-timing')).toContain('invocation;dur=');
+ expect(create).not.toHaveBeenCalled();expect(createPage).not.toHaveBeenCalled();expect(read).not.toHaveBeenCalled();
+});
+
+test('production invalid-page response retains its existing lack of timing output',async()=>{
+ process.env.VERCEL_ENV='production';
+ const response=await GET(new NextRequest('https://test.invalid/api/feed?offset=-1'));
+ expect(response.status).toBe(400);
+ expect(response.headers.get('server-timing')).toBeNull();
+ expect(create).not.toHaveBeenCalled();expect(createPage).not.toHaveBeenCalled();expect(read).not.toHaveBeenCalled();
+});
 afterEach(()=>{if(originalCreatePage===undefined)delete process.env.DISCOVER_CREATE_PAGE_ENABLED;else process.env.DISCOVER_CREATE_PAGE_ENABLED=originalCreatePage;});
 
 test('combined creation is flag-gated, uses the resolved identity, and leaves later pages on their owned-read path',async()=>{
