@@ -67,7 +67,13 @@ provider code cannot pass the current six-digit form. Preserve the approved
 expiration, email confirmation, and rate-limit settings when correcting a
 configuration mismatch; obtain approval before changing authentication settings.
 
-Both **Confirm sign up** and **Magic link or OTP** must include `{{ .Token }}`.
+Both **Confirm sign up** and **Magic link or OTP** must include `{{ .Token }}`
+and use the subject **Your CreatorNet sign-in code**. Email authentication is
+code-only for both new and returning users: do not include `{{ .ConfirmationURL }}`,
+`{{ .TokenHash }}`, or a sign-in hyperlink in either template. New users take the
+confirmation-template path because the app requests `shouldCreateUser: true`.
+The shared template states a one-hour lifetime; keep that copy aligned with the
+approved Email OTP expiration setting in each environment.
 Reuse `docs/email-templates/login-code.html` and inspect the rendered preview to
 ensure replacing a template did not append it to the old content. Use a clearly
 identified staging sender and subject for staging emails. Keep staging SMTP
