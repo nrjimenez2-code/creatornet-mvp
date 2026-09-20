@@ -7,7 +7,9 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   const ip = process.env.VERCEL === "1" ? req.headers.get("x-vercel-forwarded-for") : null;
-  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_CODE_FROM || !process.env.SUPABASE_AUTH_SECRET_KEY?.startsWith("sb_secret_") || !ip || !isIP(ip)) {
+  // Reuse the existing server key whenever it already supports IP forwarding.
+  const authKey = process.env.SUPABASE_AUTH_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_CODE_FROM || !authKey?.startsWith("sb_secret_") || !ip || !isIP(ip)) {
     return Response.json({ error: "Sign-in is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store, private" } });
   }
   return handleEmailCode(req, {
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       // Supabase accepts forwarded client IPs only with modern secret keys.
       // Vercel overwrites this header; never trust a caller-selected generic XFF.
-      const key = process.env.SUPABASE_AUTH_SECRET_KEY;
+      const key = authKey;
       const ip = process.env.VERCEL === "1" ? req.headers.get("x-vercel-forwarded-for") : null;
       if (!url || !key?.startsWith("sb_secret_") || !ip || !isIP(ip)) throw new Error("Auth configuration unavailable");
       // Admin generation sends no email. Its provider credential never leaves

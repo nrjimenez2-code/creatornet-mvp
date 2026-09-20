@@ -17,7 +17,7 @@ The independent application code is essential: a session hook alone runs AFTER n
 
 - `RESEND_API_KEY`: a server-only sending key for the verified CreatorNet sender domain.
 - `EMAIL_CODE_FROM`: that verified sender, including display name if desired.
-- `SUPABASE_AUTH_SECRET_KEY`: a modern `sb_secret_` server key for the SAME project as `NEXT_PUBLIC_SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`. Never a browser environment variable.
+- The existing `SUPABASE_SERVICE_ROLE_KEY` is reused when it is a modern `sb_secret_` key. Only if it is a legacy JWT, supply `SUPABASE_AUTH_SECRET_KEY` with a modern server key for the SAME project as `NEXT_PUBLIC_SUPABASE_URL`. Never a browser environment variable; do not rotate or duplicate existing keys just for this change.
 - Supabase Auth IP forwarding enabled, preserving the visitor IP from Vercel's overwritten `x-vercel-forwarded-for` header via `Sb-Forwarded-For`. Legacy service-role/anon keys do not support this forwarding. This route fails closed outside Vercel or without a valid platform IP.
 - Apply `20260920230602_email_code_attempt_guard.sql` to the selected test project, and later the verified production project.
 - Configure the project's Custom Access Token hook as `public.creatornet_email_code_token_hook`. Preserve any existing hook by integrating its behavior rather than replacing it blindly.
