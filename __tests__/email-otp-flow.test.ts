@@ -8,13 +8,14 @@ const authPage = readFileSync(
 
 describe("passwordless email code flow", () => {
   test("requests an email OTP without introducing passwords", () => {
-    expect(authPage).toMatch(/signInWithOtp\(\{/);
-    expect(authPage).toMatch(/shouldCreateUser:\s*true/);
+    expect(authPage).toContain('/api/auth/email-code');
+    expect(authPage).not.toMatch(/signInWithOtp\(/);
     expect(authPage).not.toMatch(/signInWithPassword|resetPasswordForEmail/);
   });
 
   test("verifies a six-digit email token", () => {
-    expect(authPage).toMatch(/verifyOtp\(\{[\s\S]*type:\s*["']email["']/);
+    expect(authPage).toMatch(/action:\s*"verify"/);
+    expect(authPage).not.toMatch(/verifyOtp\(/);
     expect(authPage).toMatch(/\^\\d\{6\}\$/);
   });
 
