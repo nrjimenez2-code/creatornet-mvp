@@ -2,72 +2,165 @@
 
 import { useSyncExternalStore } from "react";
 
-/**
- * Per-device sound preference for video playback (Noah #6).
- *
- * Mute state used to live only in React (FeedList's globalSoundOn, VideoCard's
- * isMuted, nothing at all on the watch page), so every reload came back muted.
- * This is the single store: localStorage under SOUND_PREF_KEY, read through
- * useSyncExternalStore so SSR and hydration render the muted default and the
- * saved choice applies on the first client render (same shape as
- * components/CookieNotice.tsx).
- *
- * Every storage access is wrapped. Private mode / blocked storage degrades to
- * "remembered for this page only" via the in-memory mirror, never to a throw.
- */
 export const SOUND_PREF_KEY = "cn-sound-on";
+export const SOUND_ACCOUNT_FIELD = "cn_sound_on";
+type Choice = { soundOn: boolean; pending: boolean; revision: string };
+export type SoundAccount = {
+  id: string;
+  load: () => Promise<boolean | undefined>;
+  save: (soundOn: boolean) => Promise<void>;
+};
 
-/** Last value written; the source of truth only when storage is unusable. */
-let inMemorySoundOn = false;
-/**
- * Set once a write has failed (quota exceeded, old-Safari private mode where
- * getItem works but setItem throws). From then on reads come from the mirror
- * so the in-page choice is not silently overridden by a stale stored value.
- */
-let isStorageWriteBroken = false;
-
+// Only explicit choices belong here, never a browser autoplay refusal.
+let account: SoundAccount | null = null;
+let flush: (() => void) | null = null;
+let accountLoading = false;
+let authResolved = false;
+const saves = new Map<string, Promise<void>>();
+const memory = new Map<string, Choice>();
+const brokenWrites = new Set<string>();
 const listeners = new Set<() => void>();
+const notify = () => listeners.forEach((listener) => listener());
+const keyFor = (id?: string) => id ? `${SOUND_PREF_KEY}:${id}` : SOUND_PREF_KEY;
+
+function readChoice(key: string): Choice | undefined {
+  if (brokenWrites.has(key)) return memory.get(key);
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true" || raw === "false") {
+      return { soundOn: raw === "true", pending: false, revision: raw };
+    }
+    if (!raw) return undefined;
+    const value = JSON.parse(raw) as Partial<Choice>;
+    if (typeof value?.soundOn === "boolean" && typeof value.revision === "string") {
+      return { soundOn: value.soundOn, pending: value.pending === true, revision: value.revision };
+    }
+  } catch {
+    return memory.get(key);
+  }
+  return undefined;
+}
+
+function storeChoice(key: string, choice: Choice): void {
+  memory.set(key, choice);
+  try {
+    // Keep the guest format compatible with existing saved choices.
+    window.localStorage.setItem(key, key === SOUND_PREF_KEY ? String(choice.soundOn) : JSON.stringify(choice));
+    brokenWrites.delete(key);
+  } catch {
+    brokenWrites.add(key);
+  }
+}
 
 export function readSoundOn(): boolean {
-  if (isStorageWriteBroken) return inMemorySoundOn;
-  try {
-    return window.localStorage.getItem(SOUND_PREF_KEY) === "true";
-  } catch {
-    // No window (SSR) or storage blocked — new-visitor default, or whatever
-    // this page already chose.
-    return inMemorySoundOn;
-  }
+  if (!authResolved) return false;
+  const choice = readChoice(keyFor(account?.id));
+  if (choice) return choice.soundOn;
+  // A new device must load an existing account mute before attempting audio.
+  return accountLoading ? false : (account ? readChoice(SOUND_PREF_KEY)?.soundOn ?? true : true);
 }
 
 export function writeSoundOn(soundOn: boolean): void {
-  inMemorySoundOn = soundOn;
-  try {
-    window.localStorage.setItem(SOUND_PREF_KEY, soundOn ? "true" : "false");
-    isStorageWriteBroken = false;
-  } catch {
-    // Storage blocked — the choice still applies for this page via listeners.
-    isStorageWriteBroken = true;
-  }
-  listeners.forEach((notify) => notify());
+  storeChoice(keyFor(account?.id), {
+    soundOn, pending: account !== null, revision: crypto.randomUUID(),
+  });
+  notify();
+  flush?.();
 }
 
-function subscribe(notify: () => void): () => void {
-  listeners.add(notify);
+/** One connection at the app root, never one auth request per feed card. */
+export function connectSoundAccount(next: SoundAccount | null): () => void {
+  account = next;
+  authResolved = true;
+  let disposed = false;
+  let saving = false;
+  const key = keyFor(next?.id);
+  accountLoading = next !== null;
+
+  const savePending = async () => {
+    if (!next || disposed || saving) return;
+    saving = true;
+    try {
+      // Serialize rapid toggles. Failed writes survive reloads as pending.
+      while (!disposed) {
+        const choice = readChoice(key);
+        if (!choice?.pending) break;
+        // Also order writes across token-refresh/reconnect effect lifetimes.
+        const savingChoice = (saves.get(next.id) ?? Promise.resolve()).catch(() => {}).then(async () => {
+          if (!disposed) await next.save(choice.soundOn);
+        });
+        saves.set(next.id, savingChoice);
+        await savingChoice;
+        if (disposed) break;
+        if (readChoice(key)?.revision === choice.revision) {
+          storeChoice(key, { ...choice, pending: false });
+        }
+      }
+    } catch {
+      // Playback still works. Retry on the next choice, reconnect or login.
+    } finally {
+      saving = false;
+    }
+  };
+  const retry = () => { void savePending(); };
+  flush = retry;
+  notify();
+
+  const loadRemote = () => {
+    if (!next || disposed) return;
+    const initial = readChoice(key);
+    const startingRevision = initial?.revision;
+    void next.load().then((remote) => {
+      if (disposed) return;
+      const local = readChoice(key);
+      if (initial?.pending || local?.pending || local?.revision !== startingRevision) return;
+      if (typeof remote === "boolean") {
+        storeChoice(key, { soundOn: remote, pending: false, revision: crypto.randomUUID() });
+      } else if (!local) {
+        // Migrate the old browser choice only when the account has no choice.
+        const legacy = readChoice(SOUND_PREF_KEY);
+        if (legacy) storeChoice(key, { ...legacy, pending: true, revision: crypto.randomUUID() });
+      }
+      notify();
+      retry();
+    }).catch(() => { /* Keep the cached account choice while offline. */ }).finally(() => {
+      if (!disposed) {
+        accountLoading = false;
+        notify();
+      }
+    });
+  };
+  const reconnect = () => { loadRemote(); retry(); };
+  if (next) {
+    loadRemote();
+    retry();
+    window.addEventListener("online", reconnect);
+  }
+  return () => {
+    disposed = true;
+    window.removeEventListener("online", reconnect);
+    if (account === next) {
+      account = null;
+      accountLoading = false;
+      flush = null;
+    }
+  };
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
-    // key === null is a storage.clear(); other keys are not ours.
-    if (event.key === null || event.key === SOUND_PREF_KEY) notify();
+    if (event.key === null || event.key === keyFor(account?.id)) listener();
   };
   window.addEventListener("storage", onStorage);
   return () => {
-    listeners.delete(notify);
+    listeners.delete(listener);
     window.removeEventListener("storage", onStorage);
   };
 }
 
+// Hydration matches SSR; apply the preference once the browser can read it.
 const getServerSnapshot = () => false;
-
-/** [soundOn, setSoundOn] — every subscriber on the page updates together. */
 export function useSoundPreference(): [boolean, (soundOn: boolean) => void] {
-  const soundOn = useSyncExternalStore(subscribe, readSoundOn, getServerSnapshot);
-  return [soundOn, writeSoundOn];
+  return [useSyncExternalStore(subscribe, readSoundOn, getServerSnapshot), writeSoundOn];
 }

@@ -6,6 +6,7 @@ import SupabaseAuthSync from "@/components/SupabaseAuthSync";
 import { UserProvider } from "@/lib/useUser";
 import PostHogProvider from "@/components/PostHogProvider";
 import CookieNotice from "@/components/CookieNotice";
+import SoundPreferenceSync from "@/components/SoundPreferenceSync";
 import { getSiteUrl } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
@@ -44,6 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className="min-h-svh bg-black text-gray-900 antialiased" suppressHydrationWarning>
         <PostHogProvider>
           <UserProvider>
+            <SoundPreferenceSync />
             {/* Keep Supabase client + server sessions in sync */}
             <Suspense fallback={null}>
               <SupabaseAuthSync />

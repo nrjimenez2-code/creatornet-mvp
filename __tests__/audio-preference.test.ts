@@ -53,6 +53,7 @@ import {
   readSoundOn,
   writeSoundOn,
   useSoundPreference,
+  connectSoundAccount,
 } from "@/lib/audioPreference";
 import VideoCard from "@/components/VideoCard";
 
@@ -126,6 +127,7 @@ describe("audio preference", () => {
     );
 
   beforeEach(() => {
+    connectSoundAccount(null);
     localStorage.clear();
     playCalls = [];
     gestureSeen = false;
@@ -142,8 +144,8 @@ describe("audio preference", () => {
     container.remove();
   });
 
-  test("readSoundOn/writeSoundOn round-trip through localStorage; new visitors are muted", () => {
-    expect(readSoundOn()).toBe(false);
+  test("readSoundOn/writeSoundOn round-trip through localStorage; new visitors prefer sound", () => {
+    expect(readSoundOn()).toBe(true);
 
     writeSoundOn(true);
     expect(localStorage.getItem(SOUND_PREF_KEY)).toBe("true");
@@ -218,6 +220,7 @@ describe("audio preference", () => {
   });
 
   test("useSoundPreference updates subscribers on write and on cross-tab storage events", async () => {
+    writeSoundOn(false);
     const seen: boolean[] = [];
     const Probe = () => {
       const [soundOn] = useSoundPreference();
@@ -242,11 +245,13 @@ describe("audio preference", () => {
   });
 
   test("uncontrolled VideoCard (profile/tag modals): the mute button writes the preference", async () => {
+    writeSoundOn(false);
+    gestureSeen = true;
     await act(async () => {
       root.render(createElement(VideoCard, { src: SRC, postId: "p1" }));
     });
     const video = container.querySelector("video");
-    expect(video?.muted).toBe(true); // new visitor
+    expect(video?.muted).toBe(true); // explicit saved mute
 
     await act(async () => {
       muteButton()!.click();
@@ -267,6 +272,39 @@ describe("audio preference", () => {
       root.render(createElement(VideoCard, { src: SRC, postId: "p1" }));
     });
     expect(container.querySelector("video")?.muted).toBe(false);
+  });
+
+  test("fresh visitor attempts sound; browser fallback does not save a mute", async () => {
+    await act(async () => { root.render(createElement(VideoCard, { src: SRC, postId: "p1" })); });
+    expect(container.querySelector("video")?.muted).toBe(false);
+    await act(async () => { intersect(); });
+    expect(playCalls).toEqual([false, true]);
+    expect(chip()).not.toBeNull();
+    expect(localStorage.getItem(SOUND_PREF_KEY)).toBeNull();
+  });
+
+  test("normal unmute starts audio synchronously in the click, including a paused video", async () => {
+    writeSoundOn(false);
+    await act(async () => { root.render(createElement(VideoCard, { src: SRC, postId: "p1" })); });
+    playCalls = [];
+    await act(async () => {
+      gestureSeen = true;
+      muteButton()!.click();
+      expect(playCalls).toEqual([false]); // before React flushes effects
+      expect(container.querySelector("video")?.muted).toBe(false);
+      gestureSeen = false;
+    });
+    expect(readSoundOn()).toBe(true);
+    expect(chip()).toBeNull();
+  });
+
+  test("unmute failure keeps the sound choice and restores the sound prompt", async () => {
+    writeSoundOn(false);
+    await act(async () => { root.render(createElement(VideoCard, { src: SRC, postId: "p1" })); });
+    await act(async () => { muteButton()!.click(); });
+    expect(readSoundOn()).toBe(true);
+    expect(container.querySelector("video")?.muted).toBe(true);
+    expect(chip()).not.toBeNull();
   });
 
   test("controlled VideoCard (feed): the parent owns the preference, the card only reports the toggle", async () => {
