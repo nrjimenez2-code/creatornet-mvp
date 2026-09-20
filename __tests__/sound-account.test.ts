@@ -91,6 +91,20 @@ test("failed save survives reconnect and stale account read", async () => {
   expect(save.mock.calls).toEqual([[false], [false]]);
 });
 
+test("an older save completing after another tab reasserts the newer choice", async () => {
+  const first = deferred<void>();
+  const save = jest.fn().mockImplementationOnce(() => first.promise).mockResolvedValue(undefined);
+  bind({ id: "a", load: async () => true, save });
+  await settle();
+  writeSoundOn(false);
+  await settle();
+  localStorage.setItem(`${SOUND_PREF_KEY}:a`, JSON.stringify({ soundOn: true, pending: false, revision: "other-tab" }));
+  first.resolve();
+  await settle();
+  expect(save.mock.calls).toEqual([[false], [true]]);
+  expect(readSoundOn()).toBe(true);
+});
+
 test("online retries a failed save without changing local sound", async () => {
   const save = jest.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(undefined);
   bind({ id: "a", load: async () => true, save });

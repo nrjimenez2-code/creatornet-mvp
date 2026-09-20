@@ -92,8 +92,13 @@ export function connectSoundAccount(next: SoundAccount | null): () => void {
         saves.set(next.id, savingChoice);
         await savingChoice;
         if (disposed) break;
-        if (readChoice(key)?.revision === choice.revision) {
+        const latest = readChoice(key);
+        if (latest?.revision === choice.revision) {
           storeChoice(key, { ...choice, pending: false });
+        } else if (latest && latest.soundOn !== choice.soundOn) {
+          // Another tab may have saved its newer choice before our older
+          // request completed. Reassert that latest choice, not the old one.
+          storeChoice(key, { ...latest, pending: true });
         }
       }
     } catch {
