@@ -10,10 +10,11 @@ import DeleteVideoButton from "@/components/DeleteVideoButton";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement;
 const request = jest.fn(), deleted = jest.fn();
-const render = () => act(async () => root.render(createElement(DeleteVideoButton, { postId: "post", creatorId: "owner", onDeleted: deleted })));
+const notInterested = jest.fn();
+const render = (onNotInterested?: () => void) => act(async () => root.render(createElement(DeleteVideoButton, { postId: "post", creatorId: "owner", onDeleted: deleted, onNotInterested })));
 const click = (label: string) => act(async () => { const button = [...document.querySelectorAll("button")].find(b => (!b.closest("dialog") || b.closest("dialog")!.open) && (b.textContent === label || b.getAttribute("aria-label") === label)); button!.click(); });
 beforeEach(() => {
-  mockUser = "owner"; mockLoading = false; request.mockReset(); deleted.mockReset();
+  mockUser = "owner"; mockLoading = false; request.mockReset(); deleted.mockReset(); notInterested.mockReset();
   mockSession.mockReset().mockResolvedValue({ data: { session: { access_token: "test-token", user: { id: "owner" } } }, error: null });
   global.fetch = request;
   HTMLDialogElement.prototype.showModal = function () { this.open = true; };
@@ -25,6 +26,22 @@ test("only the signed-in owner gets the control", async () => {
   for (const user of [null, "other"]) { mockUser = user; await render(); expect(container.querySelector("button")).toBeNull(); }
   mockUser = "owner"; mockLoading = true; await render(); expect(container.querySelector("button")).toBeNull();
   mockLoading = false; await render(); expect(container.querySelector("button")).not.toBeNull();
+});
+test("a non-owner gets the same options control with only not interested", async () => {
+  mockUser = "other";
+  await render(notInterested);
+  await click("Video options");
+  expect(document.body.textContent).toContain("Not interested");
+  expect(document.body.textContent).not.toContain("Delete video");
+  await click("Not interested");
+  expect(notInterested).toHaveBeenCalledTimes(1);
+  expect(request).not.toHaveBeenCalled();
+});
+test("the owner keeps the delete menu when not interested is also available", async () => {
+  await render(notInterested);
+  await click("Video options");
+  expect(document.body.textContent).toContain("Delete video");
+  expect(document.body.textContent).not.toContain("Not interested");
 });
 test("confirmation explains buyer access and cancel sends nothing", async () => {
   await render(); await click("Video options"); await click("Delete video");

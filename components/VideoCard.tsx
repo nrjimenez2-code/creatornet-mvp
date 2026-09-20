@@ -1395,12 +1395,6 @@ function VideoCard(props: VideoCardProps) {
         tabIndex={0}
       >
 
-      {postId && props.activeTab === "discover" && hasDiscoverSession(postId) && (
-        <button type="button" className="absolute right-3 top-14 z-30 rounded-full bg-black/60 px-3 py-2 text-xs text-white"
-          onClick={() => { sendDiscoverEvent(postId, "not_interested"); props.onFeedDeleted?.(postId); }}>
-          Not interested
-        </button>
-      )}
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
       <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]" style={{ borderRadius: "16px 16px 0 0" }}>
 
@@ -1780,7 +1774,15 @@ function VideoCard(props: VideoCardProps) {
           )}
         </div>
         {postId && creatorId && (props.onDeleted || props.onFeedDeleted) && (
-          <DeleteVideoButton postId={postId} creatorId={creatorId} onDeleted={deleted} />
+          <DeleteVideoButton
+            postId={postId}
+            creatorId={creatorId}
+            onDeleted={deleted}
+            onNotInterested={activeTab === "discover" && hasDiscoverSession(postId) ? () => {
+              sendDiscoverEvent(postId, "not_interested");
+              props.onFeedDeleted?.(postId);
+            } : undefined}
+          />
         )}
       </div>
 
