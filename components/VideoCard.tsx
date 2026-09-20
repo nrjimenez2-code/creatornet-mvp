@@ -877,19 +877,28 @@ function VideoCard(props: VideoCardProps) {
     [handleVideoClick]
   );
 
-  // A real click/tap: the one place unmuted playback is always allowed.
+  // Start audio directly in the gesture handler, before React effects or any
+  // account sync. Safari may reject an unmute deferred outside the gesture.
   const handleTapForSound = useCallback(() => {
     setAutoplayBlocked(false);
     // The gesture is an explicit request for sound on this card right now.
     setMutedOverride(false);
-    // For an uncontrolled card the owner is the saved preference, so record it
-    // there too — otherwise a card whose default is muted snaps straight back.
-    if (soundEnabled === undefined) setStoredSoundOn(true);
+    mutedRef.current = false;
+    // A policy-unblock tap is also an explicit sound choice, even when the
+    // feed already preferred sound by default. Persist it to the account.
+    if (soundEnabled === false && onToggleSound) onToggleSound();
+    else setStoredSoundOn(true);
     const video = videoRef.current;
     if (!video) return;
     video.muted = false;
-    video.play().catch(() => {});
-  }, [soundEnabled, setStoredSoundOn]);
+    manuallyPausedRef.current = false;
+    video.play().catch((err: unknown) => {
+      if (isAutoplayBlockedError(err) && !mutedRef.current) {
+        setMutedOverride(null);
+        fallBackToMuted(video);
+      }
+    });
+  }, [soundEnabled, setStoredSoundOn, onToggleSound, fallBackToMuted]);
 
   // True only while this card is muted *solely* because the browser refused
   // unmuted autoplay: the parent (feed) or the saved preference still says
@@ -900,21 +909,22 @@ function VideoCard(props: VideoCardProps) {
     autoplayBlocked && isMuted && soundEnabled !== false;
 
   const handleMuteToggle = useCallback(() => {
-    if (isMutedByAutoplayPolicy) {
-      // The parent / saved preference already say "sound on"; this card only
-      // fell back to muted because autoplay was blocked. Honour the gesture.
+    if (isMuted) {
+      // Both ordinary unmute and browser-policy recovery use the real gesture.
       handleTapForSound();
       return;
     }
-    const nextMuted = !isMuted;
+    const nextMuted = true;
     // Apply on this card immediately, and tell the owner: uncontrolled cards own
     // the saved preference, the feed flips soundEnabled via onToggleSound. When
     // the owner echoes the change back, the override is cleared above.
     setMutedOverride(nextMuted);
+    mutedRef.current = true;
+    setAutoplayBlocked(false);
+    if (videoRef.current) videoRef.current.muted = true;
     if (soundEnabled === undefined) setStoredSoundOn(!nextMuted);
     onToggleSound?.();
   }, [
-    isMutedByAutoplayPolicy,
     handleTapForSound,
     isMuted,
     soundEnabled,

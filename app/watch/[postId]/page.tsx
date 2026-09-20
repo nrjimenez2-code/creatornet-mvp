@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useRequireUser } from "@/lib/useUser";
-import { readSoundOn, writeSoundOn } from "@/lib/audioPreference";
+import { readSoundOn, writeSoundOn, useSoundPreference } from "@/lib/audioPreference";
 import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { bindWatchProgress } from "@/lib/watchProgress";
@@ -47,6 +47,7 @@ export default function WatchPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [soundOn] = useSoundPreference();
   const userIdForProgress = useRef<string | null>(null);
 
   useEffect(() => {
@@ -228,16 +229,18 @@ export default function WatchPage() {
     return bindWatchProgress(video, post.id);
   }, [post]);
 
-  // Per-device sound preference (Noah #6): start the way the user left it and
-  // remember what they do with the native controls.
+  // Follow account/local changes, but persist only a differing native-control
+  // choice, not the volumechange event caused by applying this preference.
   useEffect(() => {
     const video = videoRef.current;
     if (!post || !video) return;
-    video.muted = !readSoundOn();
-    const onVolumeChange = () => writeSoundOn(!video.muted);
+    video.muted = !soundOn;
+    const onVolumeChange = () => {
+      if (video.muted !== !readSoundOn()) writeSoundOn(!video.muted);
+    };
     video.addEventListener("volumechange", onVolumeChange);
     return () => video.removeEventListener("volumechange", onVolumeChange);
-  }, [post]);
+  }, [post, soundOn]);
 
 
   // Fetch the premium file's signed URL. Until this existed, a buyer could pay
