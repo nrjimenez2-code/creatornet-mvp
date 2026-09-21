@@ -73,6 +73,7 @@ export default function AuthPage() {
   const [sending, setSending] = useState(false);
   const [verifying, setVerifying] = useState(false);
   const [resendSeconds, setResendSeconds] = useState(0);
+  const [verifyWaitSeconds, setVerifyWaitSeconds] = useState(0);
   const [oauthPending, setOauthPending] = useState<"google" | "apple" | null>(null);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [isVisible, setIsVisible] = useState(false);
@@ -149,6 +150,12 @@ export default function AuthPage() {
     return () => window.clearInterval(timer);
   }, [resendSeconds]);
 
+  useEffect(() => {
+    if (verifyWaitSeconds <= 0) return;
+    const timer = window.setInterval(() => setVerifyWaitSeconds(s => Math.max(0, s - 1)), 1000);
+    return () => window.clearInterval(timer);
+  }, [verifyWaitSeconds]);
+
   // Track auth page visit
   useEffect(() => {
     trackEvent("signup_started");
@@ -157,16 +164,20 @@ export default function AuthPage() {
   const isInputEmpty = useMemo(() => input.trim().length === 0, [input]);
 
   async function requestEmailCode(email: string) {
-    // Supabase must allow this exact URL in Authentication > URL Configuration.
-    const redirectUrl = buildAuthRedirectUrl(
-      process.env.NEXT_PUBLIC_SITE_URL,
-      window.location.origin,
-    );
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: redirectUrl, shouldCreateUser: true },
+    await submitEmailCode({ email, action: "send" });
+  }
+
+  async function submitEmailCode(body: { email: string; action: "send" | "verify"; code?: string }) {
+    const response = await fetch("/api/auth/email-code", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
     });
-    if (error) throw error;
+    const result = await response.json();
+    if (!response.ok) {
+      if (result.retryAfter > 0) setResendSeconds(result.retryAfter);
+      if (result.locked || (body.action === "verify" && result.retryAfter > 0)) setVerifyWaitSeconds(result.retryAfter);
+      throw new Error(result.error || "Unable to sign in. Please try again.");
+    }
+    return result;
   }
 
   async function handleSignIn(e: React.FormEvent) {
@@ -196,7 +207,7 @@ export default function AuthPage() {
 
   async function handleVerifyCode(e: React.FormEvent) {
     e.preventDefault();
-    if (verifying) return;
+    if (verifying || verifyWaitSeconds > 0) return;
 
     const token = verificationCode.trim();
     if (!/^\d{6}$/.test(token)) {
@@ -209,11 +220,8 @@ export default function AuthPage() {
     setVerifying(true);
 
     try {
-      const { error } = await supabase.auth.verifyOtp({
-        email: pendingEmail,
-        token,
-        type: "email",
-      });
+      const result = await submitEmailCode({ email: pendingEmail, code: token, action: "verify" });
+      const { error } = await supabase.auth.setSession({ access_token: result.access_token, refresh_token: result.refresh_token });
       if (error) throw error;
       trackEvent("signup_completed", { method: "email" });
       setMsgKind("info");
@@ -252,6 +260,7 @@ export default function AuthPage() {
     setPendingEmail("");
     setVerificationCode("");
     setResendSeconds(0);
+    setVerifyWaitSeconds(0);
     setMsg(null);
   }
 
@@ -480,11 +489,11 @@ export default function AuthPage() {
                 </p>
                 <button
                   type="submit"
-                  disabled={verifying || verificationCode.length !== 6}
+                  disabled={verifying || verifyWaitSeconds > 0 || verificationCode.length !== 6}
                   aria-busy={verifying}
                   className="w-full py-2.5 text-white rounded-md font-semibold transition bg-zinc-900 hover:bg-zinc-800 hover:scale-[1.01] active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9370DB] focus-visible:ring-offset-2"
                 >
-                  {verifying ? "Verifying…" : "Verify and continue"}
+                  {verifying ? "Verifying…" : verifyWaitSeconds > 0 ? `Try again in ${verifyWaitSeconds}s` : "Verify and continue"}
                 </button>
                 <button
                   type="button"
