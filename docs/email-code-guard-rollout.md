@@ -1,6 +1,14 @@
-# Email code guard: draft, not ready for production
+# Email code guard rollout
 
-This change requires coordinated application, email service, database, and Auth hook configuration. Do not merge or enable the hook until the hosted acceptance checks below pass. No provider configuration is changed by the migration.
+This change requires coordinated application, email service, database, and Auth hook configuration. No provider configuration is changed by the migration. The hosted security rehearsal below passed; final browser acceptance remains a separate release check.
+
+## Hosted security evidence (2026-09-21 UTC)
+
+The existing dormant migration rehearsal project `hmtbtzxpkaxmwqkuhlrd` was used, separate from capacity staging. An admin-only temporary function exercised real Auth, the database guard, and the configured token hook with synthetic accounts and no outbound email. Both initial and returning-account runs passed: correct fifth attempt, session issuance, hook completion/reset, native-token bypass denial, code replay denial, refresh, 15-minute lockout, resend lockout persistence, and sign-out. An early resend was rejected; the returning-account run passed after cooldown expiry.
+
+This caught a real runtime difference: Supabase Edge Runtime appends a User-Agent comment. The hook now extracts only the complete leading random admission product at a whitespace/end boundary. Local database regression tests reject prefixes, extra token characters, and malformed boundaries while accepting the runtime suffix.
+
+CI passed the full suite and production build before that parsing correction; the correction adds one regression test (13 database guard tests pass locally) and must pass CI again. These tests establish hosted session/guard behavior, not final browser cookie sync, onboarding routing, email inbox receipt, OAuth provider login, or attribution of forwarded IP limits. The final production browser check and user-entered code remain required for end-to-end completion. No branch preview was reconfigured against the rehearsal database.
 
 ## Behavior
 
