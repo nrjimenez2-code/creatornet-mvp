@@ -162,6 +162,9 @@ begin
   v_user_id := (event->>'user_id')::uuid;
   v_session_id := (event->'claims'->>'session_id')::uuid;
   select s.user_agent into agent from auth.sessions s where s.id = v_session_id and s.user_id = v_user_id;
+  -- Hosting runtimes may append a User-Agent product/comment. Bind only the
+  -- complete leading random admission product, requiring a token boundary.
+  agent := substring(agent from '^(CreatorNetEmailCode/[a-f0-9]{64})(?:[[:space:]]|$)');
   if agent is null or agent !~ '^CreatorNetEmailCode/[a-f0-9]{64}$' then
     return jsonb_build_object('error', jsonb_build_object('http_code', 403, 'message', 'Please verify your code on the CreatorNet sign-in page.'));
   end if;

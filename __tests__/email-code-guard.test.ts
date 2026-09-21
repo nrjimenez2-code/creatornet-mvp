@@ -85,6 +85,17 @@ test("direct API calls, fake nonces, wrong users, and expired admissions cannot 
   await db.exec("update auth_private.email_code_attempts set admission_expires_at=clock_timestamp()-interval '1 second'");
   expect((await hook()).error).toBeDefined();
 });
+
+test("runtime User-Agent suffix preserves admission but malformed products do not", async () => {
+  await admit();
+  for (const value of [`prefix ${agent}`, `${agent}a`, `${agent}/extra`]) {
+    await db.query("update auth.sessions set user_agent=$1", [value]);
+    expect((await hook()).error).toBeDefined();
+  }
+  await db.query("update auth.sessions set user_agent=$1", [`${agent} (variant; SupabaseEdgeRuntime/1.76.0)`]);
+  expect((await hook()).error).toBeUndefined();
+  expect((await finish()).verified).toBe(true);
+});
 test.each(["oauth", "token_refresh"])("%s does not need an OTP admission", async method => {
   expect(await hook(method)).toMatchObject({ claims: { session_id: session } });
 });
