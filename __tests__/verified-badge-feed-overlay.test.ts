@@ -178,6 +178,30 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     } finally { window.matchMedia = originalMatchMedia; }
   });
 
+  test("main phone feed places each post's details and actions at the card bottom", async () => {
+    await render({ mainFeedMobileLayout: true, creatorUsername: "jane", creatorVerified: true, caption: "A different caption", hashtags: "#travel", hashtagsList: ["travel"], showCTA: true, priceCents: 5000 });
+    const card = container.querySelector<HTMLElement>(".feed-mobile-card")!;
+    const name = card.querySelector<HTMLAnchorElement>('a[href="/profile/jane"]')!;
+    const badge = card.querySelector(`[aria-label="${VERIFIED_CREATOR_LABEL}"]`)!;
+    const buy = card.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    const caption = Array.from(card.querySelectorAll("p")).find(node => node.textContent === "A different caption")!;
+    const tag = Array.from(card.querySelectorAll("a")).find(node => node.textContent === "#travel")!;
+    const actions = card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.parentElement!.parentElement!;
+
+    expect(name.parentElement!.contains(badge)).toBe(true);
+    expect(name.className).toContain("max-lg:leading-[44px]");
+    expect(name.parentElement!.parentElement!.parentElement!.className).toContain("max-lg:contents");
+    expect(name.parentElement!.className).toContain("max-lg:order-1");
+    expect(buy.parentElement!.className).toContain("max-lg:order-2");
+    expect(caption.className).toContain("max-lg:order-3");
+    expect(tag.parentElement!.parentElement!.className).toContain("max-lg:order-4");
+    expect(actions.className).toContain("bottom-3");
+
+    await render({ mainFeedMobileLayout: false, creatorUsername: "jane", showCTA: true });
+    expect(card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.parentElement!.parentElement!.className).toContain("bottom-[72px]");
+    expect(card.querySelector<HTMLAnchorElement>('a[href="/profile/jane"]')!.className).not.toContain("max-lg:leading-[44px]");
+  });
+
   test("falls back to the original if CDN media fails and uses CDN for the next post", async () => {
     const original = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/fallback-test.mp4";
     await render({ src: original });

@@ -52,6 +52,7 @@ test("mobile preloads its next video immediately and prepares an entering card w
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
   rpc.mockResolvedValue({ data: [row("one"), row("two"), row("three")], error: null });
   await render();
+  expect(props("one").mainFeedMobileLayout).toBe(true);
   expect(props("one").preload).toBe("auto");
   expect(props("two").preload).toBe("auto");
   expect(props("three").preload).toBe("metadata");
