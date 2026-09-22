@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore } from "react";
 import { fetchDiscoverPage, rememberDiscoverSession } from "@/lib/discoverClient";
 import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import FeedVideoCard from "./VideoCard";
@@ -12,6 +12,7 @@ import { useUser } from "@/lib/useUser";
 import { readSoundOn, useSoundPreference } from "@/lib/audioPreference";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { useDesktopViewport, usePageVisible } from "@/lib/browserVisibility";
+import { naturalDesktopFeedFrameFits } from "@/lib/desktopFeedFrame";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
 import {
@@ -33,15 +34,35 @@ type FeedListProps = {
 
 const PAGE_SIZE = 20;
 
+function subscribeViewportSize(notify: () => void) {
+  window.addEventListener("resize", notify);
+  return () => window.removeEventListener("resize", notify);
+}
+const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
+function useFeedViewportSize() {
+  const snapshot = useSyncExternalStore(subscribeViewportSize, viewportSizeSnapshot, () => "0:0");
+  const [width, height] = snapshot.split(":").map(Number);
+  return { width, height };
+}
+
 export default function FeedList({ activeTab, onChangeTab, highlightPostId }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId, loading: authLoading } = useUser();
   const desktop = useDesktopViewport();
+  const viewport = useFeedViewportSize();
   const desktopRef = useRef(desktop);
   desktopRef.current = desktop;
   const pageVisible = usePageVisible();
 
   const [items, setItems] = useState<PostRow[]>([]);
+  // Keep measured source proportions while cards are unmounted by feed virtualization.
+  const [mediaRatios, setMediaRatios] = useState<Record<string, number>>({});
+  const rememberMediaRatio = useCallback((mediaKey: string, ratio: number) => {
+    if (!Number.isFinite(ratio) || ratio <= 0) return;
+    setMediaRatios(previous => previous[mediaKey] === ratio
+      ? previous
+      : { ...previous, [mediaKey]: ratio });
+  }, []);
   const [loading, setLoading] = useState(true);
   const [feedError, setFeedError] = useState<string | null>(null);
   const [loadContext, setLoadContext] = useState({ activeTab, authLoading, viewerId });
@@ -707,6 +728,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         // near the viewport; distant sections keep their full-height slot so
         // scroll-snap geometry and the IntersectionObserver keep working.
         const isMounted = isWithinRenderWindow(idx, activeIndex);
+        const mediaKey = p.video_url || p.poster_url || p.id;
+        const mediaRatio = mediaRatios[mediaKey];
+        const useNaturalDesktopFrame = naturalDesktopFeedFrameFits(mediaRatio, viewport.width, viewport.height);
 
           return (
             <section
@@ -723,7 +747,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               }}
             >
 
-              <div className="relative w-full h-full flex items-start justify-center max-w-full lg:-ml-[28rem]">
+              <div className="relative w-full h-full flex items-start lg:items-center justify-center max-w-full lg:-translate-x-28">
                 {isMounted ? (
                   <VideoCard
                     activeTab={activeTab}
@@ -737,6 +761,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     // media
                     src={p.video_url || undefined}
                     poster={p.poster_url || undefined}
+                    desktopFeedMediaKey={mediaKey}
+                    desktopFeedRatio={mediaRatio}
+                    desktopFeedUseNaturalFrame={useNaturalDesktopFrame}
+                    onDesktopFeedRatio={rememberMediaRatio}
                     // meta
                     creator={p.creator_name ?? "Creator"}
                     creatorAvatarUrl={p.creator_avatar_url ?? null}

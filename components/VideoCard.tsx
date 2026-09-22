@@ -21,6 +21,7 @@ import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { trackEvent, normalizeCategory } from "@/lib/posthog";
 import { feedMediaUrl, feedPosterUrl, feedAdaptiveUrl } from "@/lib/feedMedia";
 import { usePageVisible, useDesktopViewport } from "@/lib/browserVisibility";
+import { DESKTOP_FEED_SIDE_CLEARANCE, ORIGINAL_DESKTOP_FEED_WIDTH } from "@/lib/desktopFeedFrame";
 import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
 import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
@@ -93,6 +94,11 @@ type VideoCardProps = {
   activeTab?: "following" | "discover";
   onChangeTab?: (t: "following" | "discover") => void;
   mobileMuteButtonSide?: "left" | "right";
+  /** Only the main desktop feed adapts its card to square and horizontal media. */
+  desktopFeedMediaKey?: string;
+  desktopFeedRatio?: number;
+  desktopFeedUseNaturalFrame?: boolean;
+  onDesktopFeedRatio?: (mediaKey: string, ratio: number) => void;
 };
 
 /** play() rejects with NotAllowedError when autoplay policy blocks it (unmuted, no gesture yet). */
@@ -167,7 +173,21 @@ function VideoCard(props: VideoCardProps) {
     activeTab,
     onChangeTab,
     mobileMuteButtonSide = "right",
+    desktopFeedMediaKey,
+    desktopFeedRatio,
+    desktopFeedUseNaturalFrame,
+    onDesktopFeedRatio,
   } = props;
+
+  const naturalDesktopFrame = desktop && !!desktopFeedMediaKey && desktopFeedUseNaturalFrame === true &&
+    typeof desktopFeedRatio === "number" && Number.isFinite(desktopFeedRatio) && desktopFeedRatio >= 1;
+  const reportMediaDimensions = useCallback((width: number, height: number) => {
+    if (desktopFeedMediaKey && width > 0 && height > 0) {
+      onDesktopFeedRatio?.(desktopFeedMediaKey, width / height);
+    }
+  }, [desktopFeedMediaKey, onDesktopFeedRatio]);
+  const naturalFrameHeight = naturalDesktopFrame ? { height: "100%", minHeight: 0 } : undefined;
+  const naturalMediaFit = naturalDesktopFrame ? { ...naturalFrameHeight, objectFit: "contain" as const } : undefined;
 
   const interactionChange = props.onInteractionChange;
   const firstFrame = props.onFirstFrame;
@@ -1347,6 +1367,14 @@ function VideoCard(props: VideoCardProps) {
 
   return (
     <div className="feed-mobile-card relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation"
+      style={naturalDesktopFrame ? {
+        width: `min(100%, ${desktopFeedRatio * 100}dvh)`,
+        maxWidth: `calc(100vw - ${2 * DESKTOP_FEED_SIDE_CLEARANCE}px)`,
+        minWidth: ORIGINAL_DESKTOP_FEED_WIDTH,
+        height: "auto",
+        minHeight: 0,
+        aspectRatio: desktopFeedRatio,
+      } : undefined}
       onClick={(event) => {
         const target = event.target;
         // Portal clicks bubble through React, even outside this card's DOM.
@@ -1400,13 +1428,14 @@ function VideoCard(props: VideoCardProps) {
 
         className="relative w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] overflow-hidden border border-white/12 bg-black lg:h-[100dvh] lg:min-h-[100dvh]"
 
-        style={{ borderRadius: "16px 16px 20px 20px" }}
+        style={{ borderRadius: "16px 16px 20px 20px", ...naturalFrameHeight,
+          ...(naturalDesktopFrame ? { position: "absolute" as const, inset: 0 } : {}) }}
         onKeyDown={handleKeyDown}
         tabIndex={0}
       >
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
-      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]" style={{ borderRadius: "16px 16px 0 0" }}>
+      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]" style={{ borderRadius: "16px 16px 0 0", ...naturalFrameHeight }}>
 
 
 
@@ -1415,6 +1444,9 @@ function VideoCard(props: VideoCardProps) {
             key={retryVersion}
             ref={videoRef}
             src={src}
+            onLoadedMetadata={desktopFeedMediaKey
+              ? (event) => reportMediaDimensions(event.currentTarget.videoWidth, event.currentTarget.videoHeight)
+              : undefined}
             onError={() => {
               if (adaptiveSrc) setFailedAdaptiveSource(originalSrc);
               else if (src !== originalSrc) setFailedMediaSource(originalSrc);
@@ -1426,18 +1458,22 @@ function VideoCard(props: VideoCardProps) {
             preload={preload}
             loop
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
+            style={naturalMediaFit}
           />
         ) : poster ? (
           <img
             src={poster}
+            onLoad={desktopFeedMediaKey
+              ? (event) => reportMediaDimensions(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
+              : undefined}
             alt={displayTitle || "Post media"}
             className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
 
-            style={{ borderRadius: "16px 16px 0 0" }}
+            style={{ borderRadius: "16px 16px 0 0", ...naturalMediaFit }}
           />
         ) : null}
 
-        {src && displayPoster && !frameReady && !mediaError && <img src={displayPoster} alt="" aria-hidden="true" style={{ width: "100%", height: "100%", objectFit: "cover" }} onError={() => setPosterFailed(true)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
+        {src && displayPoster && !frameReady && !mediaError && <img src={displayPoster} alt="" aria-hidden="true" style={{ width: "100%", height: "100%", objectFit: naturalDesktopFrame ? "contain" : "cover" }} onError={() => setPosterFailed(true)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
         {src && mediaError && <div role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/75 text-white">
           <p>This video couldn’t load.</p>
           <button type="button" className="rounded-full border border-white/40 px-4 py-2" onClick={() => { manuallyPausedRef.current = false; setMediaError(false); setRetryVersion(value => value + 1); }}>Retry video</button>
@@ -1680,7 +1716,9 @@ function VideoCard(props: VideoCardProps) {
     </div>
 
       <div
-        className="absolute grid gap-3 right-2 lg:right-[-70px] bottom-[72px] lg:bottom-6"
+        className={`absolute grid gap-3 right-2 bottom-[72px] ${naturalDesktopFrame
+          ? "lg:right-[-60px] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2"
+          : "lg:right-[-70px] lg:bottom-6"}`}
         style={{ 
           pointerEvents: "auto",
           zIndex: 50

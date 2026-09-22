@@ -134,6 +134,50 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     } finally { support.mockRestore(); }
   });
 
+  test("main desktop feed uses natural dimensions for video and poster without cropping", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = jest.fn(() => ({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+    const measured = jest.fn();
+    try {
+      await render({ src: "https://cdn.example.com/wide.mp4", desktopFeedMediaKey: "wide", onDesktopFeedRatio: measured });
+      const video = container.querySelector("video")!;
+      Object.defineProperties(video, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } });
+      await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+      expect(measured).toHaveBeenCalledWith("wide", 16 / 9);
+      await render({ src: "https://cdn.example.com/wide.mp4", desktopFeedMediaKey: "wide", desktopFeedRatio: 16 / 9, desktopFeedUseNaturalFrame: true, onDesktopFeedRatio: measured });
+      const card = container.querySelector<HTMLElement>(".feed-mobile-card")!;
+      expect(card.style.width).toContain("177.777");
+      expect(card.style.aspectRatio).toBe(String(16 / 9));
+      expect(card.style.minWidth).toBe("420px");
+      expect(card.style.maxWidth).toBe("calc(100vw - 528px)");
+      expect(video.style.objectFit).toBe("contain");
+
+      await render({ src: undefined, poster: "https://cdn.example.com/square.jpg", desktopFeedMediaKey: "square", desktopFeedRatio: undefined, onDesktopFeedRatio: measured });
+      const image = container.querySelector<HTMLImageElement>('img[src="https://cdn.example.com/square.jpg"]')!;
+      Object.defineProperties(image, { naturalWidth: { value: 1000 }, naturalHeight: { value: 1000 } });
+      await act(async () => image.dispatchEvent(new Event("load")));
+      expect(measured).toHaveBeenCalledWith("square", 1);
+      await render({ src: undefined, poster: "https://cdn.example.com/square.jpg", desktopFeedMediaKey: "square", desktopFeedRatio: 1, desktopFeedUseNaturalFrame: true, onDesktopFeedRatio: measured });
+      expect(container.querySelector<HTMLElement>(".feed-mobile-card")!.style.aspectRatio).toBe("1");
+      expect(image.style.objectFit).toBe("contain");
+    } finally { window.matchMedia = originalMatchMedia; }
+  });
+
+  test("tall desktop videos and phone videos keep their existing card framing", async () => {
+    const originalMatchMedia = window.matchMedia;
+    try {
+      window.matchMedia = jest.fn(() => ({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+      await render({ src: "https://cdn.example.com/tall.mp4", desktopFeedMediaKey: "tall", desktopFeedRatio: 9 / 16, desktopFeedUseNaturalFrame: true });
+      expect(container.querySelector<HTMLElement>(".feed-mobile-card")!.style.aspectRatio).toBe("");
+      expect(container.querySelector("video")!.style.objectFit).toBe("");
+      await act(async () => root.render(null));
+      window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+      await render({ src: "https://cdn.example.com/wide.mp4", desktopFeedMediaKey: "wide", desktopFeedRatio: 16 / 9, desktopFeedUseNaturalFrame: true });
+      expect(container.querySelector<HTMLElement>(".feed-mobile-card")!.style.aspectRatio).toBe("");
+      expect(container.querySelector("video")!.style.objectFit).toBe("");
+    } finally { window.matchMedia = originalMatchMedia; }
+  });
+
   test("falls back to the original if CDN media fails and uses CDN for the next post", async () => {
     const original = "https://pub-91a8d994910d498d90b109487939e1db.r2.dev/videos/fallback-test.mp4";
     await render({ src: original });
@@ -574,6 +618,3 @@ describe("tripwire: migration 023 returns creator_verified from both feed branch
     expect(sql).toMatch(/ROLLBACK/);
   });
 });
-
-
-
