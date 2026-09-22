@@ -131,6 +131,58 @@ test("300-post forward/back navigation keeps at most five players and observes e
   expect(props("0").isActive).toBe(true);
   expect(container.querySelectorAll('[data-card]')).toHaveLength(3);
 });
+
+test("desktop keeps each measured card shape through feed virtualization without changing snap slots", async () => {
+  rpc.mockResolvedValue({ data: Array.from({ length: 6 }, (_, index) => ({
+    ...row(String(index)), video_url: `https://cdn.example.com/${index}.mp4`,
+  })), error: null });
+  await render();
+  const report = async (id: string, ratio: number) => act(async () => {
+    const card = cardProps.get(id);
+    card.onDesktopFeedRatio(card.desktopFeedMediaKey, ratio);
+  });
+  const slot = (id: string) => container.querySelector<HTMLElement>(`[data-post-id="${id}"]`)!;
+  await report("0", 9 / 16);
+  await report("1", 1);
+  await report("2", 16 / 9);
+  expect(props("0").desktopFeedRatio).toBe(9 / 16);
+  expect(props("1").desktopFeedRatio).toBe(1);
+  expect(props("2").desktopFeedRatio).toBe(16 / 9);
+  expect(slot("2").firstElementChild?.className).toContain("lg:-translate-x-28");
+  expect(slot("2").firstElementChild?.className).toContain("lg:items-center");
+  expect(slot("2").className).toContain("lg:h-[100dvh]");
+
+  await act(async () => observe([{ target: slot("5"), isIntersecting: true, intersectionRatio: 1 }]));
+  expect(container.querySelector('[data-card="0"]')).toBeNull();
+  await act(async () => observe([
+    { target: slot("5"), isIntersecting: false, intersectionRatio: 0 },
+    { target: slot("0"), isIntersecting: true, intersectionRatio: 1 },
+  ]));
+  expect(props("0").desktopFeedRatio).toBe(9 / 16);
+  expect(props("1").desktopFeedRatio).toBe(1);
+  expect(props("2").desktopFeedRatio).toBe(16 / 9);
+});
+
+test("a centered wide card keeps the old size on narrow desktops and expands when room opens", async () => {
+  const originalWidth = Object.getOwnPropertyDescriptor(window, "innerWidth");
+  try {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1024 });
+    rpc.mockResolvedValue({ data: [{ ...row("one"), video_url: "https://cdn.example.com/wide.mp4" }], error: null });
+    await render();
+    await act(async () => {
+      const card = cardProps.get("one");
+      card.onDesktopFeedRatio(card.desktopFeedMediaKey, 16 / 9);
+    });
+    expect(props("one").desktopFeedUseNaturalFrame).toBe(false);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 });
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    expect(props("one").desktopFeedUseNaturalFrame).toBe(true);
+  } finally {
+    if (originalWidth) Object.defineProperty(window, "innerWidth", originalWidth);
+    else delete (window as { innerWidth?: number }).innerWidth;
+  }
+});
+
 test("initial feed passes canonical product/post identity, terms and product monthly price to VideoCard", async () => {
   await render();
   expect(props("one")).toMatchObject({ postId: "one", productId: "product-one", priceCents: 9900, monthlyTerms: terms, purchaseOptionsReady: true });
