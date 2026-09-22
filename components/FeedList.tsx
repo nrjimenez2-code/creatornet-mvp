@@ -765,6 +765,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     desktopFeedRatio={mediaRatio}
                     desktopFeedUseNaturalFrame={useNaturalDesktopFrame}
                     onDesktopFeedRatio={rememberMediaRatio}
+                    mainFeedMobileLayout
                     // meta
                     creator={p.creator_name ?? "Creator"}
                     creatorAvatarUrl={p.creator_avatar_url ?? null}

@@ -99,6 +99,8 @@ type VideoCardProps = {
   desktopFeedRatio?: number;
   desktopFeedUseNaturalFrame?: boolean;
   onDesktopFeedRatio?: (mediaKey: string, ratio: number) => void;
+  /** Place the main phone feed's details and actions above its bottom navigation. */
+  mainFeedMobileLayout?: boolean;
 };
 
 /** play() rejects with NotAllowedError when autoplay policy blocks it (unmuted, no gesture yet). */
@@ -177,6 +179,7 @@ function VideoCard(props: VideoCardProps) {
     desktopFeedRatio,
     desktopFeedUseNaturalFrame,
     onDesktopFeedRatio,
+    mainFeedMobileLayout = false,
   } = props;
 
   const naturalDesktopFrame = desktop && !!desktopFeedMediaKey && desktopFeedUseNaturalFrame === true &&
@@ -1530,19 +1533,16 @@ function VideoCard(props: VideoCardProps) {
         style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
       >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
-          {/* max-lg:pb — on mobile there is ALWAYS a fixed 52px bar at the bottom
-              of the feed (the signed-out "Join CreatorNet" CTA, or the nav once
-              signed in), and it sits at z-40 over this z-20 overlay. Without the
-              extra bottom padding the caption and hashtag row render underneath
-              it: measured on production at 375x812 the hashtags occupied
-              y=738-782 while the bar started at y=751, so the lower two thirds
-              of a hashtag link was unclickable — elementFromPoint returned the
-              bar, not the link. */}
-          <div className="relative p-3 sm:p-4 max-lg:pb-[56px] max-lg:translate-y-[7px] lg:translate-y-0">
-          <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"}`}>
+          {/* The main phone feed card ends above its fixed navigation bar, so
+              its content can sit near the card's bottom edge. Other VideoCard
+              placements retain their existing mobile bottom padding. */}
+          <div className={`relative p-3 sm:p-4 ${mainFeedMobileLayout
+            ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-3"
+            : "max-lg:pb-[56px] max-lg:translate-y-[7px]"} lg:translate-y-0`}>
+          <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"} ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
 
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1 min-w-0">
+            <div className={`flex-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
+              <div className={`flex items-center gap-2 mb-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mb-0" : ""}`}>
                 {creatorProfileHref ? (
                   <Link
                     href={creatorProfileHref}
@@ -1550,7 +1550,7 @@ function VideoCard(props: VideoCardProps) {
                       e.stopPropagation();
                       trackMetric("profile_clicks");
                     }}
-                    className="text-white font-semibold text-base truncate hover:underline"
+                    className={`text-white font-semibold text-base truncate hover:underline ${mainFeedMobileLayout ? "max-lg:leading-[44px]" : ""}`}
                   >
                     {displayCreator}
                   </Link>
@@ -1564,11 +1564,11 @@ function VideoCard(props: VideoCardProps) {
                     spaces it; shrink-0 on the badge keeps it visible. */}
                 <VerifiedCreatorBadge verified={creatorVerified} size="sm" />
               </div>
-              <p className="text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0">
+              <p className={`text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0 ${mainFeedMobileLayout ? "max-lg:order-3 max-lg:mt-1" : ""}`}>
                 {displayTitle}
               </p>
               {hashtags && (
-                <div className="text-white/70 text-xs mt-1 min-w-0">
+                <div className={`text-white/70 text-xs mt-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-4 max-lg:flex max-lg:min-h-11 max-lg:items-center" : ""}`}>
                   {clickableFromDisplay.length > 0 ? (
                     <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       {clickableFromDisplay.map((tag) => (
@@ -1589,7 +1589,7 @@ function VideoCard(props: VideoCardProps) {
                               }),
                             }).catch(() => {});
                           }}
-                          className="hover:underline"
+                          className={`hover:underline ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:items-center" : ""}`}
                         >
                           #{tag}
                         </Link>
@@ -1603,7 +1603,7 @@ function VideoCard(props: VideoCardProps) {
             </div>
           </div>
           {(showCTA || allowBooking || onBuy || onBook || (productId && priceCents)) && (
-            <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"}`} ref={wrapperRef}>
+            <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"} ${mainFeedMobileLayout ? "max-lg:order-2 max-lg:mt-1 max-lg:translate-y-0" : ""}`} ref={wrapperRef}>
               <BuyButton
                 ref={buyButtonRef}
                 onClick={() => setMenuOpen((prev) => !prev)}
@@ -1716,7 +1716,7 @@ function VideoCard(props: VideoCardProps) {
     </div>
 
       <div
-        className={`absolute grid gap-3 right-2 bottom-[72px] ${naturalDesktopFrame
+        className={`absolute grid gap-3 right-2 ${mainFeedMobileLayout ? "bottom-3" : "bottom-[72px]"} ${naturalDesktopFrame
           ? "lg:right-[-60px] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2"
           : "lg:right-[-70px] lg:bottom-6"}`}
         style={{ 
