@@ -1542,7 +1542,7 @@ function VideoCard(props: VideoCardProps) {
           <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"} ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
 
             <div className={`flex-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
-              <div className={`flex items-center gap-2 mb-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mb-0" : ""}`}>
+              <div className={`flex items-center gap-2 mb-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mb-0 max-lg:gap-1" : ""}`}>
                 {creatorProfileHref ? (
                   <Link
                     href={creatorProfileHref}
@@ -1550,12 +1550,12 @@ function VideoCard(props: VideoCardProps) {
                       e.stopPropagation();
                       trackMetric("profile_clicks");
                     }}
-                    className={`text-white font-semibold text-base truncate hover:underline ${mainFeedMobileLayout ? "max-lg:leading-[44px]" : ""}`}
+                    className={`text-white font-semibold text-base truncate hover:underline ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:min-h-11 max-lg:items-center max-lg:text-[16px] max-lg:font-bold max-lg:leading-5" : ""}`}
                   >
                     {displayCreator}
                   </Link>
                 ) : (
-                  <span className="text-white font-semibold text-base truncate">
+                  <span className={`text-white font-semibold text-base truncate ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:min-h-11 max-lg:items-center max-lg:text-[16px] max-lg:font-bold max-lg:leading-5" : ""}`}>
                     {displayCreator}
                   </span>
                 )}
@@ -1564,13 +1564,13 @@ function VideoCard(props: VideoCardProps) {
                     spaces it; shrink-0 on the badge keeps it visible. */}
                 <VerifiedCreatorBadge verified={creatorVerified} size="sm" />
               </div>
-              <p className={`text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0 ${mainFeedMobileLayout ? "max-lg:order-3 max-lg:mt-1" : ""}`}>
+              <p className={`text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0 ${mainFeedMobileLayout ? "max-lg:order-3 max-lg:mt-1 max-lg:text-[15px] max-lg:font-normal max-lg:leading-5 max-lg:tracking-[-0.01em] max-lg:text-white" : ""}`}>
                 {displayTitle}
               </p>
               {hashtags && (
-                <div className={`text-white/70 text-xs mt-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-4 max-lg:flex max-lg:min-h-11 max-lg:items-center" : ""}`}>
+                <div className={`text-white/70 text-xs mt-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-4 max-lg:flex max-lg:min-h-11 max-lg:items-center max-lg:text-[15px] max-lg:font-semibold max-lg:leading-5 max-lg:tracking-[-0.01em] max-lg:text-white/90" : ""}`}>
                   {clickableFromDisplay.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${mainFeedMobileLayout ? "max-lg:gap-x-1.5" : ""}`}>
                       {clickableFromDisplay.map((tag) => (
                         <Link
                           key={tag.toLowerCase()}
@@ -1755,7 +1755,7 @@ function VideoCard(props: VideoCardProps) {
             </button>
           )}
         </div>
-        <div className="flex flex-col items-center gap-1">
+        <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
           <button
             type="button"
             onClick={() => void handleLike()}
@@ -1764,12 +1764,12 @@ function VideoCard(props: VideoCardProps) {
           >
             <Heart className={`h-6 w-6 ${liked ? "fill-red-500 text-red-500" : "fill-current"}`} />
           </button>
-          <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+          <span className={`text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px] ${mainFeedMobileLayout ? "max-lg:text-[13px] max-lg:leading-4" : ""}`}>
             {formatCount(lk)}
           </span>
         </div>
 
-        <div className="flex flex-col items-center gap-1">
+        <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
           <button
             type="button"
             onClick={handleComment}
@@ -1789,12 +1789,12 @@ function VideoCard(props: VideoCardProps) {
               <circle cx="15" cy="12" r="1.1" fill="black" />
             </svg>
           </button>
-          <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+          <span className={`text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px] ${mainFeedMobileLayout ? "max-lg:text-[13px] max-lg:leading-4" : ""}`}>
             {formatCount(cm)}
           </span>
         </div>
 
-        <div className="flex flex-col items-center gap-1">
+        <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
           <button
             type="button"
             onClick={handleShare}
@@ -1812,11 +1812,11 @@ function VideoCard(props: VideoCardProps) {
             </svg>
         </button>
           {shareCopied ? (
-            <span className="text-[12px] font-semibold leading-none tracking-tight text-[#4A35C7] translate-y-[1px]">
+            <span className={`text-[12px] font-semibold leading-none tracking-tight text-[#4A35C7] translate-y-[1px] ${mainFeedMobileLayout ? "max-lg:text-[13px] max-lg:leading-4" : ""}`}>
               Link copied
             </span>
           ) : (
-            <span className="text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px]">
+            <span className={`text-[12px] font-semibold leading-none tracking-tight text-white translate-y-[1px] ${mainFeedMobileLayout ? "max-lg:text-[13px] max-lg:leading-4" : ""}`}>
               {formatCount(sh)}
             </span>
           )}

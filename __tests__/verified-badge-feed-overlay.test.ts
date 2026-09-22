@@ -189,17 +189,27 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     const actions = card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.parentElement!.parentElement!;
 
     expect(name.parentElement!.contains(badge)).toBe(true);
-    expect(name.className).toContain("max-lg:leading-[44px]");
+    expect(name.className).toContain("max-lg:font-bold");
+    expect(name.className).toContain("max-lg:items-center");
     expect(name.parentElement!.parentElement!.parentElement!.className).toContain("max-lg:contents");
     expect(name.parentElement!.className).toContain("max-lg:order-1");
     expect(buy.parentElement!.className).toContain("max-lg:order-2");
     expect(caption.className).toContain("max-lg:order-3");
+    expect(caption.className).toContain("max-lg:text-[15px]");
+    expect(caption.className).toContain("max-lg:font-normal");
     expect(tag.parentElement!.parentElement!.className).toContain("max-lg:order-4");
+    expect(tag.parentElement!.parentElement!.className).toContain("max-lg:text-[15px]");
+    expect(tag.parentElement!.parentElement!.className).toContain("max-lg:font-semibold");
     expect(actions.className).toContain("bottom-3");
+    const likePair = card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.parentElement!;
+    expect(likePair.className).toContain("max-lg:gap-0");
+    expect(likePair.querySelector("span")!.className).toContain("max-lg:text-[13px]");
+    expect(card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.className).toContain("h-[48px]");
 
     await render({ mainFeedMobileLayout: false, creatorUsername: "jane", showCTA: true });
     expect(card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.parentElement!.parentElement!.className).toContain("bottom-[72px]");
-    expect(card.querySelector<HTMLAnchorElement>('a[href="/profile/jane"]')!.className).not.toContain("max-lg:leading-[44px]");
+    expect(card.querySelector<HTMLAnchorElement>('a[href="/profile/jane"]')!.className).not.toContain("max-lg:font-bold");
+    expect(card.querySelector<HTMLButtonElement>('button[aria-label="Like"]')!.parentElement!.className).toContain("gap-1");
   });
 
   test("falls back to the original if CDN media fails and uses CDN for the next post", async () => {
