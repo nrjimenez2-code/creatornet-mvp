@@ -34,7 +34,7 @@ const results = (count: number): SearchPost[] => Array.from({ length: count }, (
 const metadata = (posts: SearchPost[]): PostRow[] => posts.map(post => ({
   id: post.id, creator_id: post.creator_id, creator_username: post.creator.username,
   creator_name: post.creator.username, product_id: "offer", purchaseOptionsReady: true,
-  price_cents: 500, title: post.caption, content: null, video_url: post.media_url,
+  price_cents: 500, title: post.caption, content: "#trading", video_url: post.media_url,
   poster_url: null, interests: [], created_at: null, is_liked: true,
   creator_verified: post.creator_verified === true,
 }));
@@ -72,7 +72,7 @@ test("opens the selected result with the shared player and hydrates creator, lik
   expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-full-mobile-height")).toBe("true");
   expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-verified")).toBe("true");
   expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-hashtags")).toBe("");
-  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-caption")).toBe("");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-caption")).toBe("Video 0");
   expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-checkout-title")).toBe("Video 0");
   expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-media-key")).toBe("https://example.com/0.mp4");
   expect(host.querySelector('[data-index="0"]')?.classList.contains("h-[100dvh]")).toBe(true);
