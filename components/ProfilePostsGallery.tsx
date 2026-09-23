@@ -239,7 +239,7 @@ export default function ProfilePostsGallery({
                     creatorName={creatorName}
                     creatorAvatarUrl={creatorAvatarUrl}
                     creatorVerified={creatorVerified}
-                    caption={post.content || ""}
+                    caption={post.title ?? ""}
                     titleForCheckout={post.title ?? post.content ?? "CreatorNet Video"}
                     hashtags={
                       Array.isArray(post.hashtags) && post.hashtags.length

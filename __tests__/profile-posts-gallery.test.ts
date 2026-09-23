@@ -85,6 +85,7 @@ const makePosts = (count: number) =>
   Array.from({ length: count }, (_, i) => ({
     id: `post-${i}`,
     title: `Post ${i}`,
+    content: "#trading",
     video_url: `https://cdn.example/${i}.mp4`,
     poster_url: null,
   }));
@@ -210,7 +211,7 @@ describe("ProfilePostsGallery modal render window", () => {
     expect(card.getAttribute("data-full-mobile-height")).toBe("true");
     expect(card.getAttribute("data-media-key")).toBe("https://cdn.example/1.mp4");
     expect(card.getAttribute("data-natural-frame")).toBe("false");
-    expect(card.getAttribute("data-caption")).toBe("");
+    expect(card.getAttribute("data-caption")).toBe("Post 1");
     expect(card.getAttribute("data-checkout-title")).toBe("Post 1");
     expect(card.closest('[data-index="1"]')?.classList.contains("h-[100dvh]")).toBe(true);
     await act(async () => card.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));

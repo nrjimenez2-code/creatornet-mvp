@@ -374,7 +374,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                       creatorName={displayCreator}
                       creatorAvatarUrl={p.creator?.avatar_url ?? null}
                       creatorVerified={p.creator?.verified === true}
-                      caption={p.content || ""}
+                      caption={p.title ?? ""}
                       hashtags={hashtagText}
                       hashtagsList={Array.isArray(p.hashtags) ? p.hashtags : null}
                       likes={p.likes_count ?? 0}

@@ -135,7 +135,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
               isActive={index === activeIndex} creatorId={post.creator_id}
               creatorUsername={post.creator_username} creatorName={post.creator_name || result.creator.username}
               creatorAvatarUrl={post.creator_avatar_url} creatorVerified={post.creator_verified === true}
-              caption={post.content || ""} titleForCheckout={post.title ?? post.content ?? "CreatorNet Video"}
+              caption={post.title ?? ""} titleForCheckout={post.title ?? post.content ?? "CreatorNet Video"}
               hashtags={(post.hashtags ?? post.interests ?? []).map(tag => tag.startsWith("#") ? tag : `#${tag}`).join(" ")}
               hashtagsList={post.hashtags ?? post.interests ?? []}
               likes={post.likes_count ?? 0} comments={post.comments_count ?? 0} shares={post.shares_count ?? 0} isLiked={post.is_liked === true}
