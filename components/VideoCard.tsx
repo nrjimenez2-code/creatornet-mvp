@@ -1736,7 +1736,7 @@ function VideoCard(props: VideoCardProps) {
             <img
               src={displayAvatar}
               alt=""
-              className="h-full w-full object-cover pointer-events-none"
+              className="avatar-image h-full w-full object-cover pointer-events-none"
             />
           </button>
           {canFollow && !isFollowing && (

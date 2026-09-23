@@ -497,7 +497,7 @@ export default function WatchPage() {
               <img
                 src={post.creator?.avatar_url || DEFAULT_AVATAR_URL}
                 alt=""
-                className="h-full w-full object-cover"
+                className="avatar-image h-full w-full object-cover"
               />
             </div>
             <div className="flex-1 min-w-0">

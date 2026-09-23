@@ -19,6 +19,15 @@ img, svg, video, canvas {
   height: auto;
 }
 
+/* Avatar slots must size the image itself to the square before clipping it. */
+img.avatar-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
 /* Prevent horizontal scroll on mobile */
 body {
   overflow-x: hidden;

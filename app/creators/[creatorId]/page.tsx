@@ -291,7 +291,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             <img
               src={avatarUrl || DEFAULT_AVATAR_URL}
               alt={`${username} avatar`}
-              className="h-full w-full object-cover"
+              className="avatar-image h-full w-full object-cover"
             />
           </div>
 

@@ -7,6 +7,7 @@ import { useRequireUser, useUser } from "@/lib/useUser";
 import Link from "next/link";
 import styles from "./profile-editor.module.css";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import AvatarCropDialog from "@/components/AvatarCropDialog";
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -19,6 +20,7 @@ export default function EditProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState("");
   const [bio, setBio] = useState("");
   const [avatarUploading, setAvatarUploading] = useState(false);
+  const [selectedAvatarUrl, setSelectedAvatarUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -29,6 +31,11 @@ export default function EditProfilePage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const busy = saving || avatarUploading;
   const disabled = busy || loading || !profileLoaded || loadFailed;
+
+  useEffect(() => {
+    if (!selectedAvatarUrl) return;
+    return () => URL.revokeObjectURL(selectedAvatarUrl);
+  }, [selectedAvatarUrl]);
 
   // Load current profile (signed-out users are redirected by useRequireUser)
   useEffect(() => {
@@ -109,18 +116,28 @@ export default function EditProfilePage() {
     }
   }
 
-  async function handleAvatarUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleAvatarSelection(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.currentTarget;
     if (disabled) return;
     const file = input.files?.[0];
     if (!file) return;
+    input.value = "";
 
     if (file.size > 5 * 1024 * 1024) {
       setErr("Please choose an image under 5MB.");
-      input.value = "";
+      return;
+    }
+    if (!["image/jpeg", "image/png", "image/webp", "image/gif"].includes(file.type)) {
+      setErr("Please choose a JPG, PNG, WebP or GIF image.");
       return;
     }
 
+    setErr(null);
+    setMsg(null);
+    setSelectedAvatarUrl(URL.createObjectURL(file));
+  }
+
+  async function saveCroppedAvatar(croppedPhoto: Blob) {
     setAvatarUploading(true);
     setErr(null);
     setMsg(null);
@@ -128,15 +145,14 @@ export default function EditProfilePage() {
     try {
       if (!userId) throw new Error("No user");
 
-      const ext = file.name.split(".").pop() || "png";
-      const filePath = `${userId}/avatar-${Date.now()}.${ext}`;
+      const filePath = `${userId}/avatar-${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
 
       const { error: uploadErr } = await supabase.storage
         .from("avatars")
-        .upload(filePath, file, {
+        .upload(filePath, croppedPhoto, {
           cacheControl: "3600",
-          upsert: true,
-          contentType: file.type || "image/png",
+          upsert: false,
+          contentType: "image/png",
         });
 
       if (uploadErr) {
@@ -154,6 +170,7 @@ export default function EditProfilePage() {
 
       if (profileErr) throw profileErr;
       setAvatarUrl(publicUrl);
+      setSelectedAvatarUrl(null);
 
       setMsg("Avatar updated. Your profile photo is live.");
       router.refresh();
@@ -164,7 +181,6 @@ export default function EditProfilePage() {
       );
     } finally {
       setAvatarUploading(false);
-      input.value = "";
     }
   }
 
@@ -185,9 +201,9 @@ export default function EditProfilePage() {
             <img className={styles.avatar} src={avatarUrl || DEFAULT_AVATAR_URL} alt="Profile photo" width={72} height={72} />
             <div className={styles.photoCopy}>
               <h2>Profile photo</h2>
-              <p id="photo-help">JPG, PNG or GIF · Up to 5 MB</p>
+              <p id="photo-help">JPG, PNG, WebP or GIF · Up to 5 MB</p>
             </div>
-            <input ref={fileInput} type="file" accept="image/*" onChange={handleAvatarUpload} disabled={disabled} hidden aria-label="Choose profile photo" />
+            <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleAvatarSelection} disabled={disabled} hidden aria-label="Choose profile photo" />
             <button type="button" className={styles.changePhoto} disabled={disabled} onClick={() => fileInput.current?.click()} aria-describedby="photo-help">
               {avatarUploading ? "Uploading…" : "Change photo"}
             </button>
@@ -215,6 +231,15 @@ export default function EditProfilePage() {
             <button type="submit" disabled={disabled} className={styles.save}>{saving ? "Saving…" : "Save changes"}</button>
           </div>
         </form>
+        {selectedAvatarUrl && (
+          <AvatarCropDialog
+            photoUrl={selectedAvatarUrl}
+            uploading={avatarUploading}
+            uploadError={err}
+            onCancel={() => { setSelectedAvatarUrl(null); setErr(null); }}
+            onSave={saveCroppedAvatar}
+          />
+        )}
       </section>
     </main>
   );
