@@ -18,6 +18,9 @@ export const metadata: Metadata = {
   description:
     "Short-form video from creators who teach. Watch, follow, and buy their products, courses, and 1-on-1 calls.",
   applicationName: "CreatorNet",
+  icons: {
+    icon: "/logo.png",
+  },
   openGraph: {
     siteName: "CreatorNet",
     type: "website",
