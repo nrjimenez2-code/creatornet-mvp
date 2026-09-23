@@ -31,10 +31,12 @@ describe("crawler plumbing", () => {
     expect(src).toContain("template");
   });
 
-  test("favicon, OG image, manifest and 404 page all exist", () => {
+  test("browser icons, OG image, manifest and 404 page all exist", () => {
     for (const f of [
-      "app/icon.svg",
-      "app/apple-icon.tsx",
+      "public/favicon.ico",
+      "public/apple-touch-icon.png",
+      "public/creatornet-icon-192.png",
+      "public/creatornet-icon-512.png",
       "app/opengraph-image.tsx",
       "app/manifest.ts",
       "app/not-found.tsx",
@@ -42,6 +44,10 @@ describe("crawler plumbing", () => {
     ]) {
       expect(existsSync(join(ROOT, f))).toBe(true);
     }
+    const layout = read("app/layout.tsx");
+    expect(layout).toContain('url: "/favicon.ico"');
+    expect(layout).toContain('url: "/apple-touch-icon.png"');
+    expect(layout).toContain('url: "/creatornet-icon-192.png"');
   });
 });
 
