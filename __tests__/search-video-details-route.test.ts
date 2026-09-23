@@ -20,7 +20,7 @@ beforeEach(() => {
     }], error: null };
     if (op.table === "profiles") return { data: [{
       id: creatorId, username: "NoahJimenezz", full_name: "Noah Jimenez", avatar_url: "avatar.jpg",
-      stripe_account_id: "acct_123", stripe_onboarding_complete: true,
+      banned_at: null, stripe_account_id: "acct_123", stripe_onboarding_complete: true,
     }], error: null };
     throw new Error(`Unexpected table: ${op.table}`);
   });
@@ -48,6 +48,19 @@ test.each([[], Array(9).fill(id), ["bad.id"], [42], "not-an-array"])(
     expect(db.ops).toHaveLength(0);
   }
 );
+
+test("banned or missing creators cannot be opened by guessing a video id", async () => {
+  db = createMockClient(op => {
+    if (op.table === "posts") return { data: [{ id, creator_id: creatorId, video_url: "video.mp4" }], error: null };
+    if (op.table === "profiles") return { data: [{ id: creatorId, username: "noah", banned_at: "2026-09-23T00:00:00Z" }], error: null };
+    return undefined;
+  });
+  expect((await (await call([id])).json()).items).toEqual([]);
+  db = createMockClient(op => op.table === "posts"
+    ? { data: [{ id, creator_id: creatorId, video_url: "video.mp4" }], error: null }
+    : { data: [], error: null });
+  expect((await (await call([id])).json()).items).toEqual([]);
+});
 
 test("database failure returns a retryable error without exposing database details", async () => {
   const log = jest.spyOn(console, "error").mockImplementation(() => {});

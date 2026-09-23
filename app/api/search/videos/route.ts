@@ -30,13 +30,16 @@ export async function POST(req: Request) {
     const creatorIds = [...new Set((posts ?? []).map(post => post.creator_id).filter((id): id is string => !!id))];
     const profiles = creatorIds.length
       ? await supabaseAdmin.from("profiles")
-        .select(`id,username,full_name,avatar_url,${SELL_READY_COLUMNS}`)
+        .select(`id,username,full_name,avatar_url,banned_at,${SELL_READY_COLUMNS}`)
         .in("id", creatorIds)
       : { data: [], error: null };
     if (profiles.error) throw profiles.error;
     const creators = new Map((profiles.data ?? []).map(profile => [profile.id, profile]));
 
-    return NextResponse.json({ items: (posts ?? []).map(post => {
+    return NextResponse.json({ items: (posts ?? []).filter(post => {
+      const creator = creators.get(post.creator_id);
+      return creator?.banned_at === null && !!creator.username?.trim();
+    }).map(post => {
       const creator = creators.get(post.creator_id);
       return {
         ...post,
