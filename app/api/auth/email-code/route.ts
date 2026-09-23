@@ -1,4 +1,5 @@
 import { handleEmailCode } from "@/lib/emailCode";
+import { emailCodeMessage } from "@/lib/emailCodeMessage";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isIP } from "node:net";
 
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
       const sent = await fetch("https://api.resend.com/emails", {
         method: "POST", signal: AbortSignal.timeout(15_000),
         headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ from, to: [email], subject: "Your CreatorNet sign-in code", text: `Your CreatorNet sign-in code is ${code}.\n\nEnter it on CreatorNet to sign in. It expires in 10 minutes and can only be used once.\n\nIf you did not request this code, you can ignore this email.` }),
+        body: JSON.stringify({ from, to: [email], ...emailCodeMessage(code) }),
       });
       if (!sent.ok) throw new Error("Email delivery unavailable");
     },
