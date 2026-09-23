@@ -5,6 +5,7 @@ export type SearchCreator = {
 export type SearchPost = {
   id: string; caption: string | null; content: string | null; media_url: string | null;
   poster_url: string | null; creator_id: string; creator: { username: string };
+  creator_verified?: boolean;
 };
 export type SearchOffering = {
   id: string; title: string; creator_id: string; creator_username: string; post_id?: string;

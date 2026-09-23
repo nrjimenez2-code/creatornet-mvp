@@ -119,6 +119,32 @@ describe("/api/tag/[hashtag]", () => {
     ]);
     reads.forEach(expectModerationFilter);
   });
+
+  it("includes the creator's feed verification status for an opened tagged video", async () => {
+    db = createMockClient(op => {
+      if (op.table === "posts") return { data: [{
+        id: "video-1", creator_id: "c1", product_id: null, price_cents: null,
+        title: "Tagged video", content: "#yoga", video_url: "video.mp4", poster_url: null,
+        interests: ["yoga"], hashtags: ["yoga"], created_at: "2026-09-22T00:00:00Z",
+      }], error: null };
+      if (op.table === "profiles") return { data: [{
+        id: "c1", username: "noah", full_name: "Noah", avatar_url: null,
+        stripe_account_id: "acct_123", stripe_onboarding_complete: true,
+      }], error: null };
+      return undefined;
+    });
+    const { GET } = await import("@/app/api/tag/[hashtag]/route");
+    const req = {
+      nextUrl: new URL("https://x/api/tag/yoga?limit=5"),
+      headers: new Headers({ "x-forwarded-for": "5.5.5.6" }),
+    } as unknown as NextRequest;
+    const res = await GET(req, { params: Promise.resolve({ hashtag: "yoga" }) });
+    expect(res.status).toBe(200);
+    expect((await res.json()).items).toEqual([
+      expect.objectContaining({ creator: expect.objectContaining({ username: "noah", verified: true }) }),
+    ]);
+    expect(db.opsFor("profiles")[0].columns).toContain("stripe_onboarding_complete");
+  });
 });
 
 describe("/creators/[creatorId] (public profile page)", () => {
@@ -148,4 +174,3 @@ describe("the helper itself", () => {
     ]);
   });
 });
-

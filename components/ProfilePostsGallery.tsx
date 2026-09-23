@@ -7,6 +7,7 @@ import VideoCard from "@/components/VideoCard";
 import { isWithinRenderWindow } from "@/lib/feedV3";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
+import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 
 type Post = {
@@ -36,6 +37,7 @@ type Props = {
   creatorName: string;
   creatorUsername?: string | null;
   creatorAvatarUrl?: string | null;
+  creatorVerified?: boolean;
   /** Ids of these posts the signed-in viewer has already liked. Without it every
    *  heart renders empty, so a viewer who already liked a post taps a hollow
    *  heart and the toggle DELETES their like instead of adding one. */
@@ -48,12 +50,14 @@ export default function ProfilePostsGallery({
   creatorName,
   creatorUsername = null,
   creatorAvatarUrl = null,
+  creatorVerified = false,
   likedPostIds,
 }: Props) {
   const router = useRouter();
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
   const posts = useMemo(() => initialPosts.filter((post) => !deletedIds.has(post.id)), [initialPosts, deletedIds]);
   const likedIds = useMemo(() => new Set(likedPostIds ?? []), [likedPostIds]);
+  const { frameForMedia, rememberMediaRatio } = useOpenedVideoFrames();
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -199,7 +203,7 @@ export default function ProfilePostsGallery({
 
           <div
             ref={scrollRef}
-            className="h-full overflow-y-auto px-4 py-8 space-y-10 snap-y snap-mandatory scroll-smooth"
+            className="h-full overflow-y-auto px-0 lg:px-4 snap-y snap-mandatory scroll-smooth"
           >
             {posts.map((post, index) => {
               // Virtualization (same window as the feed, lib/feedV3): only
@@ -209,26 +213,34 @@ export default function ProfilePostsGallery({
               // snap points, this gallery's IntersectionObserver and the
               // close-to-tile scroll all keep the same geometry.
               const isMounted = isWithinRenderWindow(index, activeIndex);
+              const frame = frameForMedia(post.video_url || post.poster_url || post.id);
 
               return (
               <div
                 key={`modal-${post.id}`}
-                className="max-w-4xl mx-auto text-white snap-center"
+                className="h-[100dvh] w-full flex items-center justify-center text-white snap-start"
                 data-index={index}
                 ref={(el) => {
                   itemRefs.current[index] = el;
                 }}
               >
-                <div className="mx-auto w-full max-w-[420px]">
+                <div className="w-full">
                   {isMounted ? (
                   <VideoCard
                     src={post.video_url || undefined}
                     poster={post.poster_url ?? null}
+                    desktopFeedMediaKey={frame.mediaKey}
+                    desktopFeedRatio={frame.ratio}
+                    desktopFeedUseNaturalFrame={frame.useNaturalFrame}
+                    onDesktopFeedRatio={rememberMediaRatio}
+                    mainFeedMobileLayout
+                    fillMobileViewport
                     creator={creatorName}
                     creatorName={creatorName}
                     creatorAvatarUrl={creatorAvatarUrl}
-                    caption={post.content ?? post.title ?? ""}
-                    title={post.title ?? post.content ?? ""}
+                    creatorVerified={creatorVerified}
+                    caption={post.content || ""}
+                    titleForCheckout={post.title ?? post.content ?? "CreatorNet Video"}
                     hashtags={
                       Array.isArray(post.hashtags) && post.hashtags.length
                         ? post.hashtags
@@ -263,7 +275,7 @@ export default function ProfilePostsGallery({
                   ) : (
                     <div
                       aria-hidden="true"
-                      className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] bg-black"
+                      className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[100dvh] lg:h-[100dvh] lg:min-h-[100dvh] bg-black"
                     />
                   )}
                 </div>
@@ -277,4 +289,3 @@ export default function ProfilePostsGallery({
     </>
   );
 }
-

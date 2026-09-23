@@ -30,6 +30,7 @@ export async function loadSearchVideos(results: SearchPost[]): Promise<PostRow[]
     if (!post || post.creator_id !== result.creator_id) return [];
     const creator = creators.get(post.creator_id);
     return [{ ...post, is_liked: liked.has(post.id),
+      creator_verified: result.creator_verified === true,
       creator_username: creator?.username || result.creator.username,
       creator_name: creator?.full_name || creator?.username || result.creator.username,
       creator_avatar_url: creator?.avatar_url ?? null }];

@@ -21,7 +21,14 @@
 import { act, createElement } from "react";
 import { createRoot, Root } from "react-dom/client";
 
-type StubVideoCardProps = { postId?: string | null; onDeleted?: () => void };
+type StubVideoCardProps = {
+  postId?: string | null; onDeleted?: () => void;
+  mainFeedMobileLayout?: boolean; creatorVerified?: boolean;
+  fillMobileViewport?: boolean;
+  desktopFeedMediaKey?: string; desktopFeedUseNaturalFrame?: boolean;
+  onDesktopFeedRatio?: (mediaKey: string, ratio: number) => void;
+  caption?: string; titleForCheckout?: string;
+};
 
 jest.mock("@/components/VideoCard", () => ({
   __esModule: true,
@@ -29,7 +36,15 @@ jest.mock("@/components/VideoCard", () => ({
     createElement("div", {
       "data-testid": "video-card",
       "data-post-id": props.postId ?? "",
+      "data-feed-style": props.mainFeedMobileLayout,
+      "data-full-mobile-height": props.fillMobileViewport,
+      "data-verified": props.creatorVerified,
+      "data-media-key": props.desktopFeedMediaKey,
+      "data-natural-frame": props.desktopFeedUseNaturalFrame,
+      "data-caption": props.caption,
+      "data-checkout-title": props.titleForCheckout,
       onClick: props.onDeleted,
+      onDoubleClick: () => props.onDesktopFeedRatio?.(props.desktopFeedMediaKey ?? "", 1),
     }),
 }));
 
@@ -168,7 +183,7 @@ describe("ProfilePostsGallery modal render window", () => {
       ?.querySelector('[aria-hidden="true"]');
     expect(placeholder).not.toBeNull();
     for (const cls of [
-      "max-lg:h-[calc(100dvh-56px)]",
+      "max-lg:h-[100dvh]",
       "lg:h-[100dvh]",
       "lg:min-h-[100dvh]",
     ]) {
@@ -183,6 +198,23 @@ describe("ProfilePostsGallery modal render window", () => {
     // Assert
     expect(mountedIndexes()).toEqual([0, 1, 2]);
     expect(placeholderIndexes()).toEqual([]);
+  });
+
+  test("opened profile posts use feed styling and retain a measured square desktop frame", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 900 });
+    await act(async () => window.dispatchEvent(new Event("resize")));
+    await renderAndOpen(3, 1);
+    const card = container.querySelector<HTMLElement>('[data-post-id="post-1"]')!;
+    expect(card.getAttribute("data-feed-style")).toBe("true");
+    expect(card.getAttribute("data-full-mobile-height")).toBe("true");
+    expect(card.getAttribute("data-media-key")).toBe("https://cdn.example/1.mp4");
+    expect(card.getAttribute("data-natural-frame")).toBe("false");
+    expect(card.getAttribute("data-caption")).toBe("");
+    expect(card.getAttribute("data-checkout-title")).toBe("Post 1");
+    expect(card.closest('[data-index="1"]')?.classList.contains("h-[100dvh]")).toBe(true);
+    await act(async () => card.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(container.querySelector('[data-post-id="post-1"]')?.getAttribute("data-natural-frame")).toBe("true");
   });
 
   test("successful deletion closes the player and removes just that profile tile", async () => {

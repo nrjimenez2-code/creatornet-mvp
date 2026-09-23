@@ -12,6 +12,11 @@ jest.mock("@/components/BackButton", () => ({ __esModule: true, default: ({ onCl
 jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: Record<string, unknown>) => createElement("div", {
   "data-video": props.postId, "data-active": props.isActive, "data-liked": props.isLiked,
   "data-product": props.productId, "data-ready": props.purchaseOptionsReady,
+  "data-feed-style": props.mainFeedMobileLayout, "data-verified": props.creatorVerified,
+  "data-full-mobile-height": props.fillMobileViewport,
+  "data-hashtags": props.hashtags, "data-media-key": props.desktopFeedMediaKey,
+  "data-natural-frame": props.desktopFeedUseNaturalFrame,
+  "data-caption": props.caption, "data-checkout-title": props.titleForCheckout,
 }, createElement("a", { href: `/profile/${props.creatorUsername}` }, String(props.creatorName))) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -31,6 +36,7 @@ const metadata = (posts: SearchPost[]): PostRow[] => posts.map(post => ({
   creator_name: post.creator.username, product_id: "offer", purchaseOptionsReady: true,
   price_cents: 500, title: post.caption, content: null, video_url: post.media_url,
   poster_url: null, interests: [], created_at: null, is_liked: true,
+  creator_verified: post.creator_verified === true,
 }));
 const render = async (posts: SearchPost[], initialIndex = 0, hasMore = false) => {
   await act(async () => root.render(createElement(SearchVideoPlayer, {
@@ -53,7 +59,7 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); document.body.style.overflow = ""; });
 
 test("opens the selected result with the shared player and hydrates creator, likes and offer controls", async () => {
-  await render(results(2), 1);
+  await render([{ ...results(2)[0], creator_verified: true }, results(2)[1]], 1);
   expect(host.querySelector('[data-video="p1"]')?.getAttribute("data-active")).toBe("true");
   expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-active")).toBe("false");
   expect(host.querySelector('[data-video="p1"] a')?.getAttribute("href")).toBe("/profile/creator1");
@@ -62,6 +68,14 @@ test("opens the selected result with the shared player and hydrates creator, lik
   expect(host.querySelector('[data-video="p1"]')?.getAttribute("data-ready")).toBe("true");
   expect(scroll).toHaveBeenCalledWith(expect.objectContaining({ behavior: "instant" }));
   expect(host.querySelectorAll("[data-video]")).toHaveLength(2);
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-feed-style")).toBe("true");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-full-mobile-height")).toBe("true");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-verified")).toBe("true");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-hashtags")).toBe("");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-caption")).toBe("");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-checkout-title")).toBe("Video 0");
+  expect(host.querySelector('[data-video="p0"]')?.getAttribute("data-media-key")).toBe("https://example.com/0.mp4");
+  expect(host.querySelector('[data-index="0"]')?.classList.contains("h-[100dvh]")).toBe(true);
 });
 
 test("scrolling changes the active video and only mounts a small window of search results", async () => {

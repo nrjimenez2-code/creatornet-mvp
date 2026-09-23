@@ -6,6 +6,7 @@ import VideoCard from "@/components/VideoCard";
 import { isWithinRenderWindow, type PostRow } from "@/lib/feedV3";
 import { loadSearchVideos } from "@/lib/searchVideoPlayer";
 import { normalizeCategory } from "@/lib/posthog";
+import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import type { SearchPost } from "@/lib/searchTypes";
 
 type Props = {
@@ -25,6 +26,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
   const [metadata, setMetadata] = useState<Record<string, PostRow | null>>({});
   const [loadError, setLoadError] = useState(false);
   const [attempt, setAttempt] = useState(0);
+  const { frameForMedia, rememberMediaRatio } = useOpenedVideoFrames();
   const containerRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -118,16 +120,23 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
       <BackButton onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference" />
     </div>
     <button type="button" aria-label="Close video player" onClick={onClose} className="absolute top-5 right-4 z-10 h-10 w-10 rounded-full bg-black/60 text-white">✕</button>
-    <div ref={containerRef} className="relative h-full overflow-y-auto overscroll-contain px-4 py-8 space-y-10 snap-y snap-mandatory scroll-smooth">
+    <div ref={containerRef} className="relative h-full overflow-y-auto overscroll-contain px-0 lg:px-4 snap-y snap-mandatory scroll-smooth">
       {posts.map((result, index) => {
         const post = metadata[result.id];
-        return <div key={result.id} data-index={index} ref={element => { itemRefs.current[index] = element; }} className="max-w-4xl mx-auto text-white snap-center">
-          <div className="mx-auto w-full max-w-[420px]">
+        const frame = frameForMedia(post?.video_url || post?.poster_url || result.id);
+        return <div key={result.id} data-index={index} ref={element => { itemRefs.current[index] = element; }} className="h-[100dvh] w-full flex items-center justify-center text-white snap-start">
+          <div className="w-full">
             {isWithinRenderWindow(index, activeIndex) && post ? <VideoCard
               postId={post.id} src={post.video_url || undefined} poster={post.poster_url}
+              desktopFeedMediaKey={frame.mediaKey} desktopFeedRatio={frame.ratio}
+              desktopFeedUseNaturalFrame={frame.useNaturalFrame} onDesktopFeedRatio={rememberMediaRatio}
+              mainFeedMobileLayout
+              fillMobileViewport
               isActive={index === activeIndex} creatorId={post.creator_id}
               creatorUsername={post.creator_username} creatorName={post.creator_name || result.creator.username}
-              creatorAvatarUrl={post.creator_avatar_url} caption={post.content ?? post.title ?? ""} title={post.title ?? post.content ?? ""}
+              creatorAvatarUrl={post.creator_avatar_url} creatorVerified={post.creator_verified === true}
+              caption={post.content || ""} titleForCheckout={post.title ?? post.content ?? "CreatorNet Video"}
+              hashtags={(post.hashtags ?? post.interests ?? []).map(tag => tag.startsWith("#") ? tag : `#${tag}`).join(" ")}
               hashtagsList={post.hashtags ?? post.interests ?? []}
               likes={post.likes_count ?? 0} comments={post.comments_count ?? 0} shares={post.shares_count ?? 0} isLiked={post.is_liked === true}
               postCategory={normalizeCategory(post.interests?.[0] ?? null)}
@@ -135,7 +144,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
               purchaseOptionsReady={post.purchaseOptionsReady === true} priceCents={post.price_cents}
               allowBooking={!!post.allow_booking} bookingRedirectUrl={post.allow_booking ? post.booking_url : null}
               onDeleted={() => { onDeleted(post.id); onClose(); }}
-            /> : <div className="relative w-full lg:w-[420px] max-lg:h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] bg-black flex items-center justify-center">
+            /> : <div className="relative w-full lg:w-[420px] max-lg:h-[100dvh] lg:h-[100dvh] lg:min-h-[100dvh] bg-black flex items-center justify-center">
               {isWithinRenderWindow(index, activeIndex) && <div className="text-center text-white/70" role="status">
                 {post === null ? "This video is no longer available." : loadError ? <><p>Couldn’t load this video.</p><button onClick={() => setAttempt(value => value + 1)} className="mt-3 underline">Try again</button></> : "Loading video…"}
               </div>}

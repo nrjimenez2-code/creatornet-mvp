@@ -2,6 +2,8 @@ import { after, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { interpretSearch, SEARCH_PAGE_SIZE } from "@/lib/searchQuery";
+import { isSellReadyProfile, SELL_READY_COLUMNS } from "@/lib/sellReady";
+import type { SearchPost } from "@/lib/searchTypes";
 
 const SEARCH_RATE = { limit: 60, windowMs: 60_000 };
 export const maxDuration = 180;
@@ -30,13 +32,34 @@ export async function POST(req: Request) {
       identity_query: input.raw.replace(/^#/, ""),
     });
     if (error || !data) throw error ?? new Error("Missing search response");
+    const items = (Array.isArray(data.items) ? data.items : []) as SearchPost[];
+    const creatorIds = [...new Set(items.map(item => item.creator_id).filter(Boolean))];
+    const verifiedCreators = new Set<string>();
+    if (creatorIds.length > 0) {
+      const { data: profiles, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .select(`id, ${SELL_READY_COLUMNS}`)
+        .in("id", creatorIds);
+      if (profileError) {
+        console.error("[search/perform] creator verification lookup failed", profileError);
+      } else {
+        for (const profile of profiles ?? []) {
+          if (isSellReadyProfile(profile)) verifiedCreators.add(profile.id);
+        }
+      }
+    }
     // Wake the durable queue after delivering results. A database lease admits
     // only one extraction, regardless of how many visitors search concurrently.
     if (process.env.VERCEL === "1") after(async () => {
       try { const { processNextSearchVideo } = await import("@/lib/searchVideoText"); await processNextSearchVideo(); }
       catch { console.warn("[search/video] queue processing needs retry"); }
     });
-    return NextResponse.json({ ...data, isTagSearch: input.isTagSearch, normalized_query: input.normalized });
+    return NextResponse.json({
+      ...data,
+      items: items.map(item => ({ ...item, creator_verified: verifiedCreators.has(item.creator_id) })),
+      isTagSearch: input.isTagSearch,
+      normalized_query: input.normalized,
+    });
   } catch (error) {
     console.error("[search/perform] search failed", error);
     return NextResponse.json({ error: "Search isn't working right now. Please try again." }, { status: 503 });
