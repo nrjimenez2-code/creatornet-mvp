@@ -8,12 +8,22 @@ const client = { from: () => ({ select: () => ({ eq: () => ({ maybeSingle: read 
 jest.mock('@/lib/supabaseBrowser', () => ({ createBrowserClient: () => client }));
 jest.mock('@/lib/useUser', () => ({ useUser: () => ({session:null}), useRequireUser: () => ({ userId:'viewer', loading:false }) }));
 jest.mock('next/navigation', () => ({ useRouter: () => ({ replace, refresh }) }));
+jest.mock('@/components/AvatarCropDialog', () => ({
+  __esModule: true,
+  default: ({onSave,onCancel}: {onSave:(photo:Blob)=>Promise<void>;onCancel:()=>void}) => {
+    const {createElement} = require('react') as typeof import('react');
+    return createElement('div',{'data-testid':'crop-dialog'},
+      createElement('button',{type:'button',onClick:()=>onSave(new Blob(['cropped'],{type:'image/png'}))},'Save photo'),
+      createElement('button',{type:'button',onClick:onCancel},'Cancel crop'));
+  },
+}));
 import Page from '@/app/profile/edit/page';
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let container: HTMLDivElement; let root: Root;
 const profile = {username:'noah', bio:'hello', tagline:'preserve this', avatar_url:'https://example.test/old.png'};
 beforeEach(() => {
   jest.clearAllMocks(); read.mockResolvedValue({data:profile,error:null}); write.mockResolvedValue({error:null}); upload.mockResolvedValue({error:null});
+  URL.createObjectURL=jest.fn(()=>'blob:test-avatar'); URL.revokeObjectURL=jest.fn();
   container=document.createElement('div'); document.body.appendChild(container); root=createRoot(container);
 });
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();jest.restoreAllMocks();});
@@ -32,14 +42,25 @@ test('blocks editing and submission until the profile loads',async()=>{
 test('failed reads prevent writes and expose an alert',async()=>{
  jest.spyOn(console,'error').mockImplementation(()=>{});read.mockResolvedValue({data:null,error:{message:'offline'}});await render();await submit();expect(update).not.toHaveBeenCalled();expect(container.querySelector('[role=alert]')!.textContent).toContain("Couldn't load");
 });
-test('photo upload updates only avatar_url for this viewer and refreshes its preview',async()=>{
- await render();await choose(new File(['image'],'avatar.png',{type:'image/png'}));expect(upload).toHaveBeenCalled();expect(update).toHaveBeenCalledWith({avatar_url:'https://example.test/new.png'});expect(write).toHaveBeenCalledWith('id','viewer');expect(container.querySelector('img')!.src).toBe('https://example.test/new.png');expect(container.querySelector('[role=status]')!.textContent).toContain('photo is live');
+test('photo waits for crop confirmation, then uploads a square PNG for this viewer',async()=>{
+ await render();await choose(new File(['image'],'avatar.png',{type:'image/png'}));expect(upload).not.toHaveBeenCalled();expect(container.querySelector('[data-testid=crop-dialog]')).not.toBeNull();
+ const save=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Save photo')!;
+ await act(async()=>save.click());
+ expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^viewer\/avatar-.*\.png$/),expect.any(Blob),{cacheControl:'3600',upsert:false,contentType:'image/png'});
+ expect(update).toHaveBeenCalledWith({avatar_url:'https://example.test/new.png'});expect(write).toHaveBeenCalledWith('id','viewer');expect(container.querySelector('img')!.src).toBe('https://example.test/new.png');expect(container.querySelector('[role=status]')!.textContent).toContain('photo is live');
 });
 test('oversized uploads are rejected before storage access',async()=>{
  await render();const file=new File(['image'],'large.png',{type:'image/png'});Object.defineProperty(file,'size',{value:6*1024*1024});await choose(file);expect(upload).not.toHaveBeenCalled();expect(container.querySelector('[role=alert]')!.textContent).toContain('under 5MB');
 });
 test('failed photo writes retain the saved preview and show the error',async()=>{
- await render();write.mockResolvedValue({error:{message:'Upload could not be saved'}});await choose(new File(['image'],'avatar.png',{type:'image/png'}));expect(container.querySelector('img')!.src).toBe(profile.avatar_url);expect(container.querySelector('[role=alert]')!.textContent).toContain('Upload could not be saved');
+ await render();write.mockResolvedValue({error:{message:'Upload could not be saved'}});await choose(new File(['image'],'avatar.png',{type:'image/png'}));
+ const save=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Save photo')!;await act(async()=>save.click());
+ expect(container.querySelector('img')!.src).toBe(profile.avatar_url);expect(container.querySelector('[role=alert]')!.textContent).toContain('Upload could not be saved');
+});
+test('canceling the crop keeps the existing photo',async()=>{
+ await render();await choose(new File(['image'],'avatar.png',{type:'image/png'}));
+ const cancel=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Cancel crop')!;await act(async()=>cancel.click());
+ expect(upload).not.toHaveBeenCalled();expect(container.querySelector('img')!.src).toBe(profile.avatar_url);expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:test-avatar');
 });
 test('cancel returns to profile without updating it',async()=>{
  await render();const cancel=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Cancel')!;await act(async()=>cancel.click());expect(update).not.toHaveBeenCalled();expect(replace).toHaveBeenCalledWith('/profile');

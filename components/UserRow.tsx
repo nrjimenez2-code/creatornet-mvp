@@ -36,7 +36,7 @@ export default function UserRow({ user, onNavigate }: UserRowProps) {
       <div className="rounded-xl border border-white/10 p-3 flex items-center gap-3 opacity-60">
         <div className="h-10 w-10 shrink-0 rounded-full bg-white/10 overflow-hidden">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={DEFAULT_AVATAR_URL} alt="" className="h-full w-full object-cover" />
+          <img src={DEFAULT_AVATAR_URL} alt="" className="avatar-image h-full w-full object-cover" />
         </div>
         <div className="min-w-0">
           <div className="font-medium truncate text-white/70">Account not set up</div>
@@ -54,7 +54,7 @@ export default function UserRow({ user, onNavigate }: UserRowProps) {
     >
       <div className="h-10 w-10 shrink-0 rounded-full bg-white/10 overflow-hidden">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={user.avatar_url || DEFAULT_AVATAR_URL} alt="" className="h-full w-full object-cover" />
+        <img src={user.avatar_url || DEFAULT_AVATAR_URL} alt="" className="avatar-image h-full w-full object-cover" />
       </div>
       <div className="min-w-0">
         <div className="font-medium truncate text-white">@{user.username || "creator"}</div>

@@ -268,7 +268,7 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
             <img
               src={profile?.avatar_url || DEFAULT_AVATAR_URL}
               alt={`${profile?.username || "creator"} avatar`}
-              className="h-full w-full object-cover"
+              className="avatar-image h-full w-full object-cover"
             />
           </div>
 
@@ -421,4 +421,3 @@ export default async function CreatorReviewsPage({ params }: PageProps) {
     </section>
   );
 }
-

@@ -1,0 +1,38 @@
+.dialog {
+  width: min(420px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 24px;
+  overflow: auto;
+  border: 1px solid #393940;
+  border-radius: 20px;
+  color: #f7f7f8;
+  background: #101013;
+  box-shadow: 0 24px 80px #000a;
+}
+.dialog::backdrop { background: #000b; }
+.title { margin: 0; font-size: 21px; font-weight: 600; }
+.hint { margin: 8px 0 20px; color: #bcbcc7; font-size: 14px; line-height: 1.4; }
+.frame {
+  position: relative;
+  width: min(256px, 100%);
+  aspect-ratio: 1;
+  margin: 0 auto 20px;
+  overflow: hidden;
+  border: 2px solid #987fff;
+  border-radius: 50%;
+  background: #222226;
+  cursor: grab;
+  touch-action: none;
+}
+.frame:active { cursor: grabbing; }
+.frame:focus-visible { outline: 2px solid #fff; outline-offset: 4px; }
+.cropImage { position: absolute; max-width: none; max-height: none; user-select: none; pointer-events: none; }
+.zoomLabel { display: block; margin-bottom: 8px; font-size: 14px; }
+.zoom { width: 100%; accent-color: #7659ef; }
+.error { margin: 12px 0 0; color: #fda4af; font-size: 14px; }
+.actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+.actions button { min-height: 44px; padding: 0 18px; border-radius: 10px; cursor: pointer; font-size: 14px; }
+.actions button:disabled { opacity: .5; cursor: not-allowed; }
+.cancel { border: 1px solid #55555d; color: #f7f7f8; background: transparent; }
+.save { border: 1px solid #7659ef; color: #fff; background: #6044df; }

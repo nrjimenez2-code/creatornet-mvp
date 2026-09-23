@@ -199,7 +199,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                   <img
                     src={avatarUrl || DEFAULT_AVATAR_URL}
                     alt=""
-                    className="h-full w-full object-cover"
+                    className="avatar-image h-full w-full object-cover"
                   />
                 </span>
                 <span className="hidden lg:inline">Profile</span>
@@ -373,7 +373,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
               <img
                 src={avatarUrl || DEFAULT_AVATAR_URL}
                 alt=""
-                className="h-full w-full object-cover"
+                className="avatar-image h-full w-full object-cover"
               />
             </span>
             <span>Profile</span>

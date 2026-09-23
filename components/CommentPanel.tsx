@@ -347,11 +347,11 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
               {comments.slice(0, visibleCount).map((comment) => (
                 <div key={comment.id} className="flex gap-3">
                   {/* Avatar */}
-                  <div className="flex-shrink-0">
+                  <div className="h-10 w-10 flex-shrink-0 overflow-hidden rounded-full">
                     <img
                       src={comment.user.avatar_url || DEFAULT_AVATAR_URL}
                       alt=""
-                      className="h-10 w-10 rounded-full object-cover"
+                      className="avatar-image"
                     />
                   </div>
 
@@ -454,11 +454,13 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
         {currentUser && (
           <form onSubmit={handleSubmit} className="px-4 py-3 border-t border-white/10">
             <div className="flex items-center gap-3">
-              <img
-                src={currentUser.avatar_url || DEFAULT_AVATAR_URL}
-                alt={currentUser.username}
-                className="h-8 w-8 rounded-full object-cover flex-shrink-0"
-              />
+              <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full">
+                <img
+                  src={currentUser.avatar_url || DEFAULT_AVATAR_URL}
+                  alt={currentUser.username}
+                  className="avatar-image"
+                />
+              </div>
               <input
                 ref={inputRef}
                 type="text"
@@ -484,4 +486,3 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
     </div>
   );
 }
-
