@@ -52,8 +52,10 @@ test("sends only the application code, with no sign-in link", async () => {
   expect(body.text).not.toMatch(/https?:|href|token_hash/);
   expect(body.subject).toBe("Your CreatorNet verification code");
   expect(body.html).toContain("012345");
-  expect(body.html).toContain("https://www.creatornet.net/logo.png");
-  expect(body.html).toContain("Expires in 10 minutes");
+  expect(body.html).toContain("Scroll, Learn, Earn.");
+  expect(body.html).toContain("background:#f8f5ff");
+  expect(body.html).toContain("Your sign-in code");
+  expect(body.html).toContain("expires in 10 minutes");
   expect(body.html).not.toMatch(/href=|token_hash|ConfirmationURL/);
 });
 test("missing sending credentials and untrusted IPs fail before processing codes", async () => {
