@@ -19,7 +19,11 @@ export const metadata: Metadata = {
     "Short-form video from creators who teach. Watch, follow, and buy their products, courses, and 1-on-1 calls.",
   applicationName: "CreatorNet",
   icons: {
-    icon: "/logo.png",
+    icon: [
+      { url: "/favicon.ico", type: "image/x-icon" },
+      { url: "/creatornet-icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+    apple: [{ url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     siteName: "CreatorNet",
