@@ -1542,7 +1542,7 @@ function VideoCard(props: VideoCardProps) {
           <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"} ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
 
             <div className={`flex-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
-              <div className={`flex items-center gap-2 mb-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mb-0 max-lg:gap-1" : ""}`}>
+              <div className={`flex items-center gap-2 mb-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-2 max-lg:mt-0.5 max-lg:mb-0 max-lg:gap-1" : ""}`}>
                 {creatorProfileHref ? (
                   <Link
                     href={creatorProfileHref}
@@ -1550,12 +1550,12 @@ function VideoCard(props: VideoCardProps) {
                       e.stopPropagation();
                       trackMetric("profile_clicks");
                     }}
-                    className={`text-white font-semibold text-base truncate hover:underline ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:!min-h-0 max-lg:items-center max-lg:py-0.5 max-lg:text-[16px] max-lg:font-bold max-lg:leading-5" : ""}`}
+                    className={`text-white font-semibold text-base truncate hover:underline ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:!min-h-0 max-lg:items-center max-lg:py-0.5 max-lg:text-[16px] max-lg:font-bold max-lg:leading-5 lg:text-[16px] lg:font-bold lg:leading-5" : ""}`}
                   >
                     {displayCreator}
                   </Link>
                 ) : (
-                  <span className={`text-white font-semibold text-base truncate ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:min-h-0 max-lg:items-center max-lg:py-0.5 max-lg:text-[16px] max-lg:font-bold max-lg:leading-5" : ""}`}>
+                  <span className={`text-white font-semibold text-base truncate ${mainFeedMobileLayout ? "max-lg:inline-flex max-lg:min-h-0 max-lg:items-center max-lg:py-0.5 max-lg:text-[16px] max-lg:font-bold max-lg:leading-5 lg:text-[16px] lg:font-bold lg:leading-5" : ""}`}>
                     {displayCreator}
                   </span>
                 )}
@@ -1564,11 +1564,11 @@ function VideoCard(props: VideoCardProps) {
                     spaces it; shrink-0 on the badge keeps it visible. */}
                 <VerifiedCreatorBadge verified={creatorVerified} size="sm" />
               </div>
-              <p className={`text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0 ${mainFeedMobileLayout ? "max-lg:order-3 max-lg:mt-0.5 max-lg:text-[15px] max-lg:font-normal max-lg:leading-5 max-lg:tracking-[-0.01em] max-lg:text-white" : ""}`}>
+              <p className={`text-white/95 text-base line-clamp-2 leading-snug mt-[6px] lg:mt-0 ${mainFeedMobileLayout ? "max-lg:order-3 max-lg:mt-0.5 max-lg:text-[15px] max-lg:font-normal max-lg:leading-5 max-lg:tracking-[-0.01em] max-lg:text-white lg:text-[15px] lg:font-normal lg:leading-5 lg:tracking-[-0.01em] lg:text-white" : ""}`}>
                 {displayTitle}
               </p>
               {hashtags && (
-                <div className={`text-white/70 text-xs mt-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-4 max-lg:mt-0.5 max-lg:flex max-lg:min-h-0 max-lg:items-center max-lg:py-0.5 max-lg:text-[15px] max-lg:font-semibold max-lg:leading-5 max-lg:tracking-[-0.01em] max-lg:text-white/90" : ""}`}>
+                <div className={`text-white/70 text-xs mt-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:order-4 max-lg:mt-0.5 max-lg:flex max-lg:min-h-0 max-lg:items-center max-lg:py-0.5 max-lg:text-[15px] max-lg:font-semibold max-lg:leading-5 max-lg:tracking-[-0.01em] max-lg:text-white/90 lg:text-[15px] lg:font-semibold lg:leading-5 lg:tracking-[-0.01em] lg:text-white/90" : ""}`}>
                   {clickableFromDisplay.length > 0 ? (
                     <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${mainFeedMobileLayout ? "max-lg:gap-x-1.5" : ""}`}>
                       {clickableFromDisplay.map((tag) => (
@@ -1603,7 +1603,7 @@ function VideoCard(props: VideoCardProps) {
             </div>
           </div>
           {(showCTA || allowBooking || onBuy || onBook || (productId && priceCents)) && (
-            <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"} ${mainFeedMobileLayout ? "max-lg:order-2 max-lg:mt-0.5 max-lg:translate-y-0" : ""}`} ref={wrapperRef}>
+            <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"} ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mt-0 max-lg:translate-y-0" : ""}`} ref={wrapperRef}>
               <BuyButton
                 ref={buyButtonRef}
                 onClick={() => setMenuOpen((prev) => !prev)}
