@@ -3,6 +3,7 @@ import { publicMessage } from "@/lib/apiError";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
+import { isSellReadyProfile, SELL_READY_COLUMNS } from "@/lib/sellReady";
 
 type TagPost = {
   id: string;
@@ -27,6 +28,7 @@ type TagPost = {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
+    verified: boolean;
   } | null;
 };
 
@@ -144,7 +146,7 @@ export async function GET(
     ) as string[];
     const profileMap = new Map<
       string,
-      { username: string | null; full_name: string | null; avatar_url: string | null }
+      { username: string | null; full_name: string | null; avatar_url: string | null; verified: boolean }
     >();
     const productMap = new Map<
       string,
@@ -154,7 +156,7 @@ export async function GET(
     if (creatorIds.length > 0) {
       const { data: profs, error: profErr } = await supabaseAdmin
         .from("profiles")
-        .select("id, username, full_name, avatar_url")
+        .select(`id, username, full_name, avatar_url, ${SELL_READY_COLUMNS}`)
         .in("id", creatorIds);
       if (profErr) {
         console.error("[api/tag] profiles lookup error:", profErr.message);
@@ -164,6 +166,7 @@ export async function GET(
             username: p.username ?? null,
             full_name: p.full_name ?? null,
             avatar_url: p.avatar_url ?? null,
+            verified: isSellReadyProfile(p),
           });
         }
       }
@@ -221,4 +224,3 @@ export async function GET(
     );
   }
 }
-

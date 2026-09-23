@@ -7,6 +7,7 @@ import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
+import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 
 type ApiTagPost = {
   id: string;
@@ -30,6 +31,7 @@ type ApiTagPost = {
     username: string | null;
     full_name: string | null;
     avatar_url: string | null;
+    verified: boolean;
   } | null;
 };
 
@@ -51,6 +53,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
+  const { frameForMedia, rememberMediaRatio } = useOpenedVideoFrames();
 
   const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -319,7 +322,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
 
           <div
             ref={modalScrollRef}
-            className="h-full overflow-y-auto px-4 py-8 space-y-10 snap-y snap-mandatory scroll-smooth"
+            className="h-full overflow-y-auto px-0 lg:px-4 snap-y snap-mandatory scroll-smooth"
             style={{
               overscrollBehaviorY: "contain",
               touchAction: "pan-x",
@@ -346,25 +349,32 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                 allowBooking ||
                 !!p.product_id ||
                 (typeof p.price_cents === "number" && p.price_cents > 0);
+              const frame = frameForMedia(p.video_url || p.poster_url || p.id);
 
               return (
                 <div
                   key={`modal-${p.id}`}
-                  className="max-w-4xl mx-auto text-white snap-center"
+                  className="h-[100dvh] w-full flex items-center justify-center text-white snap-start"
                   data-index={idx}
                   ref={(el) => {
                     itemRefs.current[idx] = el;
                   }}
                 >
-                  <div className="mx-auto w-full max-w-[420px]">
+                  <div className="w-full">
                     <VideoCard
                       src={p.video_url || undefined}
                       poster={p.poster_url || undefined}
+                      desktopFeedMediaKey={frame.mediaKey}
+                      desktopFeedRatio={frame.ratio}
+                      desktopFeedUseNaturalFrame={frame.useNaturalFrame}
+                      onDesktopFeedRatio={rememberMediaRatio}
+                      mainFeedMobileLayout
+                      fillMobileViewport
                       creator={displayCreator}
                       creatorName={displayCreator}
                       creatorAvatarUrl={p.creator?.avatar_url ?? null}
-                      caption={p.content ?? ""}
-                      title={p.title ?? p.content ?? "Tagged post"}
+                      creatorVerified={p.creator?.verified === true}
+                      caption={p.content || ""}
                       hashtags={hashtagText}
                       hashtagsList={Array.isArray(p.hashtags) ? p.hashtags : null}
                       likes={p.likes_count ?? 0}
@@ -393,4 +403,3 @@ function TagFeed({ hashtag }: { hashtag: string }) {
     </main>
   );
 }
-

@@ -161,6 +161,7 @@ export default async function ProfilePage() {
               creatorName={displayName}
               creatorUsername={profile?.username ?? null}
               creatorAvatarUrl={avatarUrl}
+              creatorVerified={isVerifiedSeller}
               likedPostIds={likedPostIds}
             />
           </div>

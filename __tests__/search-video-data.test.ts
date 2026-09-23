@@ -20,14 +20,14 @@ beforeEach(() => {
   mockQueries.likes = query([{ post_id: "second" }]);
 });
 test("hydrates only requested visible posts in search order with the viewer's actual likes and current profile", async () => {
-  const posts = await loadSearchVideos(results);
+  const posts = await loadSearchVideos([{ ...results[0], creator_verified: true }, ...results.slice(1)]);
   expect(mockQueries.posts.in).toHaveBeenCalledWith("id", ["second", "first", "removed"]);
   expect(mockQueries.posts.is).toHaveBeenCalledWith("hidden_at", null);
   expect(mockQueries.posts.is).toHaveBeenCalledWith("removed_at", null);
   expect(mockQueries.likes.eq).toHaveBeenCalledWith("user_id", "viewer");
   expect(posts.map(post => post.id)).toEqual(["second", "first"]);
-  expect(posts[0]).toMatchObject({ is_liked: true, creator_username: "current-name", creator_name: "Current Name", creator_avatar_url: "avatar" });
-  expect(posts[1].is_liked).toBe(false);
+  expect(posts[0]).toMatchObject({ is_liked: true, creator_username: "current-name", creator_name: "Current Name", creator_avatar_url: "avatar", creator_verified: true });
+  expect(posts[1]).toMatchObject({ is_liked: false, creator_verified: false });
   expect(loadFeedOffers).toHaveBeenCalledWith(posts);
 });
 test("failed likes hydration does not silently turn an existing like into an empty heart", async () => {

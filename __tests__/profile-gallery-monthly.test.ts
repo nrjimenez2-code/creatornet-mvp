@@ -38,6 +38,7 @@ async function menu(label: string) {
 }
 test("the actual gallery and VideoCard disclose monthly terms and enter the matching review without Checkout", async () => {
   await open();
+  expect(container.querySelector(".feed-mobile-card")?.classList.contains("max-lg:h-[100dvh]")).toBe(true);
   expect(container.textContent).toContain("$100.00/month");
   expect(container.textContent).toContain("3-month minimum commitment");
   expect(container.textContent).toContain("Renews monthly after the minimum until canceled");

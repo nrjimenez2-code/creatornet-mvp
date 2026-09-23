@@ -99,8 +99,10 @@ type VideoCardProps = {
   desktopFeedRatio?: number;
   desktopFeedUseNaturalFrame?: boolean;
   onDesktopFeedRatio?: (mediaKey: string, ratio: number) => void;
-  /** Place the main phone feed's details and actions above its bottom navigation. */
+  /** Use the main feed's details and action presentation in opened post viewers. */
   mainFeedMobileLayout?: boolean;
+  /** Opened viewers have no bottom navigation, so the card fills the phone screen. */
+  fillMobileViewport?: boolean;
 };
 
 /** play() rejects with NotAllowedError when autoplay policy blocks it (unmuted, no gesture yet). */
@@ -180,6 +182,7 @@ function VideoCard(props: VideoCardProps) {
     desktopFeedUseNaturalFrame,
     onDesktopFeedRatio,
     mainFeedMobileLayout = false,
+    fillMobileViewport = false,
   } = props;
 
   const naturalDesktopFrame = desktop && !!desktopFeedMediaKey && desktopFeedUseNaturalFrame === true &&
@@ -1369,7 +1372,7 @@ function VideoCard(props: VideoCardProps) {
   );
 
   return (
-    <div className="feed-mobile-card relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[calc(100dvh-56px)] max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation"
+    <div className={`feed-mobile-card relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] ${fillMobileViewport ? "max-lg:h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)]"} max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation`}
       style={naturalDesktopFrame ? {
         width: `min(100%, ${desktopFeedRatio * 100}dvh)`,
         maxWidth: `calc(100vw - ${2 * DESKTOP_FEED_SIDE_CLEARANCE}px)`,
@@ -1429,7 +1432,7 @@ function VideoCard(props: VideoCardProps) {
         role="group"
         aria-label={`${displayCreator}: ${displayTitle}`}
 
-        className="relative w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] overflow-hidden border border-white/12 bg-black lg:h-[100dvh] lg:min-h-[100dvh]"
+        className={`relative w-full ${fillMobileViewport ? "max-lg:h-[100dvh] max-lg:min-h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)]"} overflow-hidden border border-white/12 bg-black lg:h-[100dvh] lg:min-h-[100dvh]`}
 
         style={{ borderRadius: "16px 16px 20px 20px", ...naturalFrameHeight,
           ...(naturalDesktopFrame ? { position: "absolute" as const, inset: 0 } : {}) }}
@@ -1438,7 +1441,7 @@ function VideoCard(props: VideoCardProps) {
       >
 
       {/* On mobile: absolute inset-0 so video area always fills the card; on desktop: fixed height */}
-      <div className="relative w-full h-full max-lg:absolute max-lg:inset-0 max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]" style={{ borderRadius: "16px 16px 0 0", ...naturalFrameHeight }}>
+      <div className={`relative w-full h-full max-lg:absolute max-lg:inset-0 ${fillMobileViewport ? "max-lg:h-[100dvh] max-lg:min-h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)]"} bg-black overflow-hidden lg:h-[100dvh] lg:min-h-[100dvh]`} style={{ borderRadius: "16px 16px 0 0", ...naturalFrameHeight }}>
 
 
 
@@ -1460,7 +1463,7 @@ function VideoCard(props: VideoCardProps) {
             muted={isMuted}
             preload={preload}
             loop
-            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
+            className={`absolute inset-0 h-full w-full ${fillMobileViewport ? "max-lg:h-[100dvh] max-lg:min-h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)]"} lg:h-[100dvh] lg:min-h-[100dvh] object-cover`}
             style={naturalMediaFit}
           />
         ) : poster ? (
@@ -1470,7 +1473,7 @@ function VideoCard(props: VideoCardProps) {
               ? (event) => reportMediaDimensions(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)
               : undefined}
             alt={displayTitle || "Post media"}
-            className="absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover"
+            className={`absolute inset-0 h-full w-full ${fillMobileViewport ? "max-lg:h-[100dvh] max-lg:min-h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)]"} lg:h-[100dvh] lg:min-h-[100dvh] object-cover`}
 
             style={{ borderRadius: "16px 16px 0 0", ...naturalMediaFit }}
           />
@@ -1533,9 +1536,8 @@ function VideoCard(props: VideoCardProps) {
         style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
       >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
-          {/* The main phone feed card ends above its fixed navigation bar, so
-              its content can sit near the card's bottom edge. Other VideoCard
-              placements retain their existing mobile bottom padding. */}
+          {/* Feed-style viewers place details near the card's bottom edge.
+              Other VideoCard placements retain their mobile bottom padding. */}
           <div className={`relative p-3 sm:p-4 ${mainFeedMobileLayout
             ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-3"
             : "max-lg:pb-[56px] max-lg:translate-y-[7px]"} lg:translate-y-0`}>
