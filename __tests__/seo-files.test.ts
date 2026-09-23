@@ -33,8 +33,10 @@ describe("crawler plumbing", () => {
 
   test("favicon, OG image, manifest and 404 page all exist", () => {
     for (const f of [
-      "app/icon.svg",
-      "app/apple-icon.tsx",
+      "public/favicon.ico",
+      "public/apple-touch-icon.png",
+      "public/creatornet-icon-192.png",
+      "public/creatornet-icon-512.png",
       "app/opengraph-image.tsx",
       "app/manifest.ts",
       "app/not-found.tsx",
