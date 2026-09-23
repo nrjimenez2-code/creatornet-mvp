@@ -111,7 +111,8 @@ describe("LibraryPage states", () => {
 
     await render();
 
-    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+    expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(text()).toContain("Loading your library…");
     expect(text()).not.toContain("Sign in");
     expect(text()).not.toContain("library is empty");
     expect(db.opsFor("purchases")).toHaveLength(0);

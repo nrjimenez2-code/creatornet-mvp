@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import MonthlyBankVerification from "@/components/MonthlyBankVerification";
 import { useSearchParams } from "next/navigation";
 import { MONTHLY_CARD_SETUP_CONSENT_TEXT, MONTHLY_CARD_SETUP_CONSENT_VERSION } from "@/lib/membershipCardSetupConsent";
@@ -70,7 +71,7 @@ function RecoveryPanel({ id }: { id: string }) {
     <Link href="/memberships" className="text-sm underline">Back to monthly mentorships</Link>
     <h1 className="text-3xl font-semibold">Recover a monthly payment</h1>
     <p className="text-sm text-white/65">Check the original renewal or securely save a card. These actions do not change your minimum, service dates or balance, and do not authorize a payment retry.</p>
-    {!uuid.test(id) ? <p role="alert">Select an owned membership to recover.</p> : !current ? <p role="status">Checking the original payment...</p> :
+    {!uuid.test(id) ? <p role="alert">Select an owned membership to recover.</p> : !current ? <PaymentReviewBodySkeleton label="Checking the original payment…" /> :
       current.error ? <p role="alert">{current.error}</p> : value && <section className="space-y-4 rounded-2xl border border-white/20 p-5">
         {!value.renewal ? <p role="status">No original renewal attempt is currently available for recovery. This does not cancel your mentorship or waive a balance.</p> : <>
           <h2 className="text-xl font-semibold">Month {value.renewal.month}</h2>
@@ -98,4 +99,4 @@ function RecoveryPanel({ id }: { id: string }) {
   </main>;
 }
 function Content() { const params = useSearchParams(), id = params.get("membership_id") || ""; return <RecoveryPanel key={id} id={id} />; }
-export default function MonthlyRenewalRecoveryPage() { return <Suspense fallback={<p className="p-8 text-white">Loading payment recovery...</p>}><Content /></Suspense>; }
+export default function MonthlyRenewalRecoveryPage() { return <Suspense fallback={<PaymentDetailSkeleton label="Loading payment recovery…" />}><Content /></Suspense>; }

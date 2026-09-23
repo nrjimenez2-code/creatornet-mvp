@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import { useSearchParams } from "next/navigation";
 import type { CheckoutRecoveryResult } from "@/lib/membershipCheckoutRecovery";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -76,7 +77,7 @@ function RecoveryContent() {
     <Link href="/memberships" className="text-sm underline">Back to monthly mentorships</Link>
     <h1 className="text-3xl font-semibold">Recover your first checkout</h1>
     <p className="text-sm text-white/65">This checks your existing accepted purchase. It does not accept a different offer, change its minimum or create a replacement payment.</p>
-    {!uuid.test(id) ? <p role="alert">Select an owned membership to recover.</p> : !current ? <p role="status">Checking the original payment journal...</p> :
+    {!uuid.test(id) ? <p role="alert">Select an owned membership to recover.</p> : !current ? <PaymentReviewBodySkeleton label="Checking the original payment journal…" /> :
       current.error ? <p role="alert">{current.error}</p> : result && <section className="space-y-4 rounded-2xl border border-white/20 p-5">
         <h2 className="text-xl font-semibold">{result.title}</h2>
         <p>{money(result.monthlyPriceCents)} for the first month. Minimum {result.minimumMonths} month(s), {money(result.minimumTotalCents)} total.</p>
@@ -105,5 +106,5 @@ function RecoveryContent() {
   </main>;
 }
 export default function CheckoutRecoveryPage() {
-  return <Suspense fallback={<p className="p-8 text-white">Loading checkout recovery...</p>}><RecoveryContent /></Suspense>;
+  return <Suspense fallback={<PaymentDetailSkeleton label="Loading checkout recovery…" />}><RecoveryContent /></Suspense>;
 }

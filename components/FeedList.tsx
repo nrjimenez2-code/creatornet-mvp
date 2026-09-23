@@ -15,6 +15,7 @@ import { useDesktopViewport, usePageVisible } from "@/lib/browserVisibility";
 import { naturalDesktopFeedFrameFits } from "@/lib/desktopFeedFrame";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
+import { FeedSkeleton } from "@/components/loading/Skeletons";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -649,11 +650,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   // while changing tabs/accounts or refreshing so they cannot play under the
   // incoming tab's label and controls while its request is still pending.
   if (loading) {
-    return (
-      <div className="w-full flex justify-center py-10 text-sm text-gray-500">
-        Loading…
-      </div>
-    );
+    return <FeedSkeleton />;
   }
 
   // An error must win over stale rows. Switching tabs does not clear `items`,

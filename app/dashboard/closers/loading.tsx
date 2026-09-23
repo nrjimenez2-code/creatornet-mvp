@@ -1,4 +1,3 @@
-export default function Loading() {
-    return <div className="p-6 text-sm text-gray-500">Loading booking targets…</div>;
-  }
-  
+import { ClosersSkeleton } from "@/components/loading/Skeletons";
+
+export default function Loading() { return <ClosersSkeleton />; }

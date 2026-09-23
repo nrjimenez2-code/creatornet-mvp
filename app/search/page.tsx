@@ -11,9 +11,10 @@ import { trackEvent } from "@/lib/posthog";
 import { useSearchResults } from "@/lib/useSearchResults";
 import { readRecentSearches, subscribeRecentSearches, recentSearchesServerSnapshot, parseRecentSearches, saveRecentSearches } from "@/lib/recentSearches";
 import type { SearchCreator, SearchPost, SearchOffering } from "@/lib/searchTypes";
+import { ModalSkeleton, SearchResultsSkeleton, SearchSkeleton } from "@/components/loading/Skeletons";
 
 type Tab = "all" | "creators" | "videos" | "offerings";
-const SearchVideoPlayer = dynamic(() => import("@/components/SearchVideoPlayer"), { ssr: false });
+const SearchVideoPlayer = dynamic(() => import("@/components/SearchVideoPlayer"), { ssr: false, loading: () => <ModalSkeleton kind="player" /> });
 function SearchPage() {
   const params = useSearchParams();
   const router = useRouter();
@@ -82,7 +83,7 @@ function SearchPage() {
           {(["all","creators","videos","offerings"] as Tab[]).map(value=><button key={value} role="tab" aria-selected={tab===value} onClick={()=>setTab(value)}
             className={`py-3 border-b-2 capitalize whitespace-nowrap ${tab===value ? "border-[#7059ef] text-white" : "border-transparent text-white/50"}`}>{value === "offerings" ? "offers" : value}{value!=="all" && !search.loading ? ` (${totals[value]})` : ""}</button>)}
         </div>
-        {search.loading && <p role="status" className="text-sm text-white/60 py-3">Searching…</p>}
+        {search.loading && count === 0 && <SearchResultsSkeleton tab={tab} />}
         {search.error && <div role="alert" className="border border-red-400/30 rounded-xl p-4"><p>{search.error}</p><button onClick={search.retry} className="mt-2 underline">Try again</button></div>}
         {!search.loading && !search.error && count===0 && <p className="py-8 text-white/60">No matches for “{query.trim()}”. Try a broader topic or another spelling.</p>}
         {!search.error && count>0 && <div role="tabpanel" className="space-y-8">
@@ -99,6 +100,7 @@ function SearchPage() {
             {!offerings.length && <p className="text-white/50 text-sm">No matching offers.</p>}
           </section>}
         </div>}
+        {search.loading && count > 0 && <div className="mt-8"><SearchResultsSkeleton tab={tab} append /></div>}
         {search.hasMore && !search.error && <button disabled={search.loading} onClick={search.loadMore} className="mt-8 rounded-full border border-white/25 px-6 py-3 disabled:opacity-50">Load more results</button>}
       </>}
     </div>
@@ -130,6 +132,5 @@ function OfferingCard({offering:o,onOpen}:{offering:SearchOffering;onOpen:()=>vo
   </Link>;
 }
 export default function SearchPageWrapper() {
-  return <Suspense fallback={<p className="bg-black text-white p-6">Loading search…</p>}><SearchPage/></Suspense>;
+  return <Suspense fallback={<SearchSkeleton />}><SearchPage/></Suspense>;
 }
-

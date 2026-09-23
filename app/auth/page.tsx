@@ -1,4 +1,5 @@
 "use client";
+import { AuthSkeleton } from "@/components/loading/Skeletons";
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -303,11 +304,7 @@ export default function AuthPage() {
   }
 
   if (checking) {
-    return (
-      <main className="min-h-screen flex items-center justify-center bg-white">
-        <p className="text-sm text-gray-600">Loading…</p>
-      </main>
-    );
+    return <AuthSkeleton />;
   }
 
   return (

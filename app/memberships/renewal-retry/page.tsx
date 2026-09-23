@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import MonthlyBankVerification from "@/components/MonthlyBankVerification";
 import { useSearchParams } from "next/navigation";
 import { MONTHLY_RETRY_CONSENT_TEXT, MONTHLY_RETRY_CONSENT_VERSION, MONTHLY_FUTURE_CARD_CONSENT_TEXT,
@@ -80,7 +81,7 @@ function Panel({ id, setup }: { id: string; setup: string }) {
     <p className="text-sm text-white/65">This pays the original monthly amount for its original service dates. It does not restart your minimum or change any remaining balance.</p>
     {!valid ? <p role="alert">Select your owned membership and verified card setup.</p> : <>
       {error && <p role="alert">{error}</p>}
-      {!value ? <>{!error && <p role="status">Loading the exact original retry...</p>}
+      {!value ? <>{!error && <PaymentReviewBodySkeleton label="Loading the exact original retry…" />}
         <button onClick={() => setAttempt(n => n + 1)} className="text-sm underline">Reload retry review</button></> : q && <>
         <section className="space-y-4 rounded-2xl border border-white/20 p-5">
           <h2 className="text-xl font-semibold">{q.title}: month {q.month}</h2>
@@ -112,4 +113,4 @@ function Panel({ id, setup }: { id: string; setup: string }) {
   </main>;
 }
 function Content() { const p = useSearchParams(), id = p.get("membership_id") || "", setup = p.get("setup_id") || ""; return <Panel key={id + ":" + setup} id={id} setup={setup} />; }
-export default function MonthlyRenewalRetryPage() { return <Suspense fallback={<p className="p-8 text-white">Loading monthly retry...</p>}><Content /></Suspense>; }
+export default function MonthlyRenewalRetryPage() { return <Suspense fallback={<PaymentDetailSkeleton label="Loading monthly retry…" />}><Content /></Suspense>; }

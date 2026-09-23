@@ -11,7 +11,7 @@ jest.mock('next/navigation', () => ({ useRouter: () => ({ replace, refresh }) })
 jest.mock('@/components/AvatarCropDialog', () => ({
   __esModule: true,
   default: ({onSave,onCancel}: {onSave:(photo:Blob)=>Promise<void>;onCancel:()=>void}) => {
-    const {createElement} = require('react') as typeof import('react');
+    const {createElement} = jest.requireActual<typeof import('react')>('react');
     return createElement('div',{'data-testid':'crop-dialog'},
       createElement('button',{type:'button',onClick:()=>onSave(new Blob(['cropped'],{type:'image/png'}))},'Save photo'),
       createElement('button',{type:'button',onClick:onCancel},'Cancel crop'));
@@ -36,7 +36,7 @@ test('loads accessible fields, hides URL editing, and saves existing data withou
 });
 test('blocks editing and submission until the profile loads',async()=>{
  let finish!: (v:unknown)=>void; read.mockReturnValue(new Promise(resolve=>{finish=resolve;})); await render();
- expect(container.querySelector<HTMLFieldSetElement>('fieldset')!.disabled).toBe(true); await submit();expect(update).not.toHaveBeenCalled();
+ expect(container.querySelector('form')).toBeNull();expect(container.querySelector('[role=status]')?.textContent).toContain('Loading your profile');expect(update).not.toHaveBeenCalled();
  await act(async()=>finish({data:profile,error:null}));expect(container.querySelector<HTMLFieldSetElement>('fieldset')!.disabled).toBe(false);
 });
 test('failed reads prevent writes and expose an alert',async()=>{

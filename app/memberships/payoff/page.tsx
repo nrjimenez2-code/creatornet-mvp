@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import { useSearchParams } from "next/navigation";
 import type { MembershipPayoffTerms } from "@/lib/membershipPayoff";
 type Quote = { terms: MembershipPayoffTerms; fingerprint: string; payoffId: string | null; status: string; checkoutEnabled?: boolean };
@@ -65,7 +66,7 @@ function Payoff() {
   return <main className="mx-auto max-w-3xl space-y-5 p-6">
     <Link href="/dashboard" className="text-sm underline">Back to CreatorNet</Link>
     <h1 className="text-2xl font-semibold">Minimum-term payoff</h1>
-    {invalid ? <p role="alert">Open the payoff from your owned membership.</p> : !current ? <p role="status">Loading your payoff...</p> :
+    {invalid ? <p role="alert">Open the payoff from your owned membership.</p> : !current ? <PaymentReviewBodySkeleton label="Loading your payoff…" /> :
       current.error ? <><p role="alert">{current.error}</p><button onClick={refresh} className="underline">{confirm ? "Retry confirmation" : "Reload payoff"}</button></> :
       current.abandoned ? <section className="space-y-3 rounded-xl border p-5">
         <h2 className="text-xl font-semibold">Payoff abandoned</h2><p>This did not cancel your membership or waive its agreed minimum.</p>
@@ -116,4 +117,4 @@ function Payoff() {
     <p className="text-sm">Questions or a request to stop automatic debits? <a href="mailto:support@creatornet.net" className="underline">support@creatornet.net</a></p>
   </main>;
 }
-export default function MembershipPayoffPage() { return <Suspense fallback={<p role="status">Loading your payoff...</p>}><Payoff /></Suspense>; }
+export default function MembershipPayoffPage() { return <Suspense fallback={<PaymentDetailSkeleton label="Loading your payoff…" />}><Payoff /></Suspense>; }

@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/lib/useUser";
+import { SuccessSkeleton } from "@/components/loading/Skeletons";
 
 type FulfillmentProduct = {
   id: string | null;
@@ -389,7 +390,7 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
             "Heads up" / "Success" reads as "still loading". */}
         <div
           className={`mb-4 text-4xl ${
-            status === "checking" || status === "pending" ? "animate-pulse" : ""
+            status === "checking" || status === "pending" ? "motion-safe:animate-pulse" : ""
           }`}
           aria-hidden="true"
         >
@@ -522,7 +523,7 @@ function SuccessRoute() {
 
 export default function SuccessPageWrapper() {
   return (
-    <Suspense fallback={<main className="min-h-svh bg-white flex items-center justify-center text-sm text-gray-500">Loading…</main>}>
+    <Suspense fallback={<SuccessSkeleton />}>
       <SuccessRoute />
     </Suspense>
   );

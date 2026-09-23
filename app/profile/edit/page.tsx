@@ -8,6 +8,7 @@ import Link from "next/link";
 import styles from "./profile-editor.module.css";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import AvatarCropDialog from "@/components/AvatarCropDialog";
+import { EditorSkeleton } from "@/components/loading/Skeletons";
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -183,6 +184,8 @@ export default function EditProfilePage() {
       setAvatarUploading(false);
     }
   }
+
+  if (!profileLoaded && !loadFailed) return <EditorSkeleton />;
 
   return (
     <main className={styles.page}>

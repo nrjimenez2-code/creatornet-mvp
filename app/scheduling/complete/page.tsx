@@ -1,6 +1,7 @@
 "use client";
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { BookingConnectionSkeleton } from "@/components/loading/Skeletons";
 function Complete() {
   const result = useSearchParams().get("result");
   return <main className="mx-auto max-w-lg space-y-4 p-8 text-white">
@@ -10,4 +11,4 @@ function Complete() {
     <p className="text-sm">If this window stays open, switch back to your original CreatorNet tab.</p>
   </main>;
 }
-export default function CompletePage() { return <Suspense fallback={<p>Checking connection…</p>}><Complete /></Suspense>; }
+export default function CompletePage() { return <Suspense fallback={<BookingConnectionSkeleton complete />}><Complete /></Suspense>; }

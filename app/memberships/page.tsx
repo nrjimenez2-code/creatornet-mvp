@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { MembershipCardsSkeleton } from "@/components/loading/Skeletons";
 import type { MembershipManagementItem, MembershipManagementPage as ManagementResponse, MembershipView } from "@/lib/membershipManagement";
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const money = (cents: number) => new Intl.NumberFormat(undefined, { style: "currency", currency: "USD" }).format(cents / 100);
@@ -106,22 +107,23 @@ export default function MembershipManagementPage() {
   const [activeRequests, setActiveRequests] = useState(0), [notice, setNotice] = useState("");
   const busy = activeRequests > 0;
   const key = JSON.stringify([view, cursor, refresh]);
-  const [loaded, setLoaded] = useState<{ key: string; page?: ManagementResponse; error?: string; signIn?: boolean } | null>(null);
+  const [loaded, setLoaded] = useState<{ key: string; view: MembershipView; page?: ManagementResponse; error?: string; signIn?: boolean } | null>(null);
   useEffect(() => {
     const controller = new AbortController(), search = new URLSearchParams({ view }); if (cursor) search.set("cursor", cursor);
     void fetch(`/api/memberships?${search}`, { credentials: "include", cache: "no-store", signal: controller.signal })
       .then(async response => {
         const body = await response.json();
         if (!response.ok) {
-          if (!controller.signal.aborted) setLoaded({ key, error: body.error || "Membership details need refresh or support review.", signIn: response.status === 401 });
+          if (!controller.signal.aborted) setLoaded({ key, view, error: body.error || "Membership details need refresh or support review.", signIn: response.status === 401 });
           return;
         }
         if (!validPage(body, view)) throw Error("Membership details need review.");
-        if (!controller.signal.aborted) setLoaded({ key, page: body });
-      }).catch(error => { if (!controller.signal.aborted) setLoaded({ key, error: error instanceof Error ? error.message : "Membership details need refresh." }); });
+        if (!controller.signal.aborted) setLoaded({ key, view, page: body });
+      }).catch(error => { if (!controller.signal.aborted) setLoaded({ key, view, error: error instanceof Error ? error.message : "Membership details need refresh." }); });
     return () => controller.abort();
   }, [view, cursor, key]);
   const current = loaded?.key === key ? loaded : null;
+  const visiblePage = current?.page ?? (!notice && loaded?.view === view ? loaded.page : undefined);
   function result(message: string) { setNotice(message); setRefresh(n => n + 1); }
   return <main className="mx-auto max-w-4xl space-y-6 px-4 py-8 text-white sm:px-6">
     <Link href="/library" className="text-sm text-white/60 underline">Back to Library</Link>
@@ -135,16 +137,17 @@ export default function MembershipManagementPage() {
       <button disabled={busy} onClick={() => setRefresh(n => n + 1)} className="text-sm underline disabled:opacity-40">Refresh details</button>
     </div>
     {notice && <p role="status" className="rounded-xl border border-white/20 p-4 text-sm">{notice}</p>}
-    {!current ? <p role="status">Loading owned memberships and payment status...</p> : current.error ? <section className="space-y-3">
+    {!current && !visiblePage ? <MembershipCardsSkeleton /> : current?.error ? <section className="space-y-3">
       <p role="alert">{current.error}</p>{current.signIn && <Link href="/auth" className="underline">Sign in</Link>}
-    </section> : current.page && <>
-      {!current.page.items.length && <p className="rounded-xl border border-white/15 p-6 text-white/65">
+    </section> : visiblePage && <div aria-busy={!current}>
+      {!current && <p role="status" className="mb-3 text-sm text-white/60">Refreshing memberships…</p>}
+      {!visiblePage.items.length && <p className="rounded-xl border border-white/15 p-6 text-white/65">
         {view === "buyer" ? "No monthly mentorships are recorded for your account." : "No monthly mentorship customers are recorded for your account."}</p>}
-      <div className="space-y-5">{current.page.items.map(item => <MembershipCard key={`${key}:${item.id}`} item={item} view={view}
+      <div className="space-y-5">{visiblePage.items.map(item => <MembershipCard key={`${key}:${item.id}`} item={item} view={view}
         onBusy={value => setActiveRequests(n => Math.max(0, n + (value ? 1 : -1)))} onResult={result} />)}</div>
-      <div className="flex gap-5 text-sm">{cursor && <button disabled={busy} onClick={() => setCursor(null)} className="underline">First page</button>}
-        {current.page.nextCursor && <button disabled={busy} onClick={() => setCursor(current.page!.nextCursor)} className="underline">Next page</button>}</div>
-    </>}
+      <div className="flex gap-5 text-sm">{cursor && <button disabled={busy || !current} onClick={() => setCursor(null)} className="underline">First page</button>}
+        {visiblePage.nextCursor && <button disabled={busy || !current} onClick={() => setCursor(visiblePage.nextCursor)} className="underline">Next page</button>}</div>
+    </div>}
     <p className="text-sm text-white/60">Need help with access, a payment, a refund or a remaining balance? <a href="mailto:support@creatornet.net" className="underline">support@creatornet.net</a></p>
   </main>;
 }

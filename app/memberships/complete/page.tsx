@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { MembershipCompleteBodySkeleton, MembershipCompleteSkeleton } from "@/components/loading/Skeletons";
 import { useSearchParams } from "next/navigation";
 type Confirmation = { membershipId: string; title: string; firstPaymentRecorded: boolean; accessGranted: boolean; paidThrough: string | null };
 function Complete() {
@@ -24,7 +25,7 @@ function Complete() {
   return <main className="mx-auto max-w-3xl space-y-5 p-6">
     <h1 className="text-2xl font-semibold">Your monthly mentorship</h1>
     {!validId ? <p role="alert">Open the confirmation for your membership, or contact support.</p> : !current ?
-      <p role="status">Checking payment and paid-period access...</p> : current.error ? <p role="alert">{current.error}</p> : value && <>
+      <MembershipCompleteBodySkeleton /> : current.error ? <p role="alert">{current.error}</p> : value && <>
         <h2 className="text-xl font-semibold">{value.title}</h2>
         <p role="status">{value.firstPaymentRecorded ? "Your first payment is recorded." : "Payment has not been confirmed yet. A checkout redirect alone does not grant access."}</p>
         <p>{value.accessGranted ? "Your current paid-period access is available." : "Access is not currently available. If you paid, retry confirmation or contact support; do not make a second purchase."}</p>
@@ -37,4 +38,4 @@ function Complete() {
     <p className="text-sm">Need help? <a href="mailto:support@creatornet.net" className="underline">support@creatornet.net</a></p>
   </main>;
 }
-export default function MembershipCompletePage() { return <Suspense fallback={<p role="status">Loading confirmation...</p>}><Complete /></Suspense>; }
+export default function MembershipCompletePage() { return <Suspense fallback={<MembershipCompleteSkeleton />}><Complete /></Suspense>; }

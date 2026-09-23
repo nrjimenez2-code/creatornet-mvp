@@ -7,6 +7,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
 import UserRow, { type UserRowUser } from "./UserRow";
+import { FollowerRowsSkeleton } from "@/components/loading/Skeletons";
 
 export type FollowListType = "followers" | "following";
 
@@ -183,7 +184,7 @@ export default function FollowListModal({ userId, type, open, onClose, title }: 
         </div>
 
         <div className="mt-4 min-h-0 overflow-y-auto">
-          {showInitialLoading && <p className="py-6 text-center text-sm text-white/60">Loading…</p>}
+          {showInitialLoading && <FollowerRowsSkeleton />}
 
           {showInitialError && (
             <div className="py-6 text-center">

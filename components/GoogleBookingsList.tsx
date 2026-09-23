@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useState} from "react";
 import {useUser} from "@/lib/useUser";
+import {BookingListSkeleton} from "@/components/loading/Skeletons";
 type Booking={id:string;connection_id:string;title:string;counterparty_name:string;status:string;starts_at:string;desired_starts_at:string|null};
 type Cursor={before:string;before_id:string};
 const statusNames:Record<string,string>={failed:"Not booked — choose another time",creating:"Confirming booking",confirmed:"Confirmed",rescheduling:"Confirming new time",canceling:"Confirming cancellation",canceled:"Canceled"};
@@ -33,7 +34,7 @@ function BookingRows({role,token}:{role:'buyer'|'creator';token?:string}){
    {role==='buyer'?<a className="text-sm underline" href={`/scheduling/book/${row.connection_id}?reservation_id=${row.id}`}>View or manage booking</a>:<a className="text-sm underline" href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noopener noreferrer">Open Google Calendar</a>}
   </article>)}
   {!busy&&!error&&!rows.length&&<p className="text-sm text-white/70">No Google Calendar bookings yet.</p>}
-  {busy&&<p role="status">Loading bookings…</p>}
+  {busy&&(!rows.length?<BookingListSkeleton/>:<p role="status" className="text-sm text-white/70">Refreshing bookings…</p>)}
   <div className="flex gap-3"><button type="button" disabled={busy} className="text-sm underline" onClick={()=>{setCursor(null);setReload(value=>value+1);}}>Refresh bookings</button>{next&&<button type="button" disabled={busy} className="text-sm underline" onClick={()=>setCursor(next)}>Load more</button>}</div>
  </div>;
 }

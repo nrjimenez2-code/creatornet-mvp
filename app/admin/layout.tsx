@@ -1,11 +1,12 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { AdminShell } from "@/components/admin/AdminShell";
 import { fetchAdminInitialData } from "@/lib/admin/data";
 import { adminClient } from "@/lib/admin/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { paymentModeFromKey } from "@/lib/admin/display-context";
+import { AdminFrameSkeleton } from "@/components/loading/Skeletons";
 
 export const metadata: Metadata = {
   title: "CreatorNet Admin",
@@ -42,18 +43,19 @@ export default async function AdminLayout({
     redirect("/");
   }
 
-  // Seed the client store with live rows (React-cached, shared with pages on
-  // the same request). Passing initialData switches the provider out of demo
-  // mode: actions now hit the real /api/admin/* routes.
-  const initialData = await fetchAdminInitialData();
+  return <Suspense fallback={<AdminFrameSkeleton />}><AdminDataShell
+    operatorName={profile.full_name?.trim() || profile.username?.trim() || "Administrator"}
+    paymentMode={paymentModeFromKey(process.env.STRIPE_SECRET_KEY)}
+  >{children}</AdminDataShell></Suspense>;
+}
 
-  return (
-    <AdminShell
-      initialData={initialData}
-      operatorName={profile.full_name?.trim() || profile.username?.trim() || "Administrator"}
-      paymentMode={paymentModeFromKey(process.env.STRIPE_SECRET_KEY)}
-    >
-      {children}
-    </AdminShell>
-  );
+async function AdminDataShell({ children, operatorName, paymentMode }: {
+  children: ReactNode;
+  operatorName: string;
+  paymentMode: ReturnType<typeof paymentModeFromKey>;
+}) {
+  // Only authorized admins reach this fetch or its skeleton. The cached result
+  // is shared with page data and never replaced by sample/demo rows.
+  const initialData = await fetchAdminInitialData();
+  return <AdminShell initialData={initialData} operatorName={operatorName} paymentMode={paymentMode}>{children}</AdminShell>;
 }

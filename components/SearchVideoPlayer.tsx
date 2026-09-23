@@ -8,6 +8,7 @@ import { loadSearchVideos } from "@/lib/searchVideoPlayer";
 import { normalizeCategory } from "@/lib/posthog";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import type { SearchPost } from "@/lib/searchTypes";
+import { SearchPlayerFrameSkeleton } from "@/components/loading/Skeletons";
 
 type Props = {
   posts: SearchPost[];
@@ -33,7 +34,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
   const aligned = useRef(false);
   const requestedLength = useRef(-1);
   const closeRef = useRef(onClose);
-  closeRef.current = onClose;
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
 
   useEffect(() => {
     const overflow = document.body.style.overflow;
@@ -105,7 +106,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
     const pending = posts.filter((post, index) => isWithinRenderWindow(index, activeIndex) && !(post.id in metadata));
     if (!pending.length) return;
     let cancelled = false;
-    setLoadError(false);
+    queueMicrotask(() => { if (!cancelled) setLoadError(false); });
     loadSearchVideos(pending).then(rows => {
       if (cancelled) return;
       const loaded = new Map(rows.map(row => [row.id, row]));
@@ -144,7 +145,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
               purchaseOptionsReady={post.purchaseOptionsReady === true} priceCents={post.price_cents}
               allowBooking={!!post.allow_booking} bookingRedirectUrl={post.allow_booking ? post.booking_url : null}
               onDeleted={() => { onDeleted(post.id); onClose(); }}
-            /> : <div className="relative w-full lg:w-[420px] max-lg:h-[100dvh] lg:h-[100dvh] lg:min-h-[100dvh] bg-black flex items-center justify-center">
+            /> : post === undefined && !loadError && isWithinRenderWindow(index, activeIndex) ? <SearchPlayerFrameSkeleton /> : <div className="relative w-full lg:w-[420px] max-lg:h-[100dvh] lg:h-[100dvh] lg:min-h-[100dvh] bg-black flex items-center justify-center">
               {isWithinRenderWindow(index, activeIndex) && <div className="text-center text-white/70" role="status">
                 {post === null ? "This video is no longer available." : loadError ? <><p>Couldn’t load this video.</p><button onClick={() => setAttempt(value => value + 1)} className="mt-3 underline">Try again</button></> : "Loading video…"}
               </div>}

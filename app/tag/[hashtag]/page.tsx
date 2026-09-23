@@ -8,6 +8,7 @@ import VideoCard from "@/components/VideoCard";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
+import { LoadingLabel, Skeleton, TagGridSkeleton } from "@/components/loading/Skeletons";
 
 type ApiTagPost = {
   id: string;
@@ -251,7 +252,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
         </header>
 
         {loading ? (
-          <div className="py-12 text-center text-white/60">Loading tag feed...</div>
+          <TagGridSkeleton />
         ) : error ? (
           <div className="py-10 text-center">
             <p className="text-red-300 text-sm">{error}</p>
@@ -301,7 +302,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
             ))}
             <div ref={sentinelRef} className="h-8 col-span-full" />
             {loadingMore && (
-              <div className="pb-8 text-center text-sm text-white/60 col-span-full">Loading more...</div>
+              <><LoadingLabel>Loading more tagged videos…</LoadingLabel>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="block aspect-square w-full rounded-none border border-white/10" />)}</>
             )}
             {!hasMore && (
               <div className="pb-8 text-center text-sm text-white/40 col-span-full">You reached the end.</div>

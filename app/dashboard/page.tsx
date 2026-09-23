@@ -5,9 +5,10 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import dynamic from "next/dynamic";
-const PostComposerModal = dynamic(() => import("@/components/PostComposerModal"), { loading: () => null });
+import { DashboardSkeleton, ModalSkeleton } from "@/components/loading/Skeletons";
+const PostComposerModal = dynamic(() => import("@/components/PostComposerModal"), { loading: () => <ModalSkeleton kind="composer" /> });
 // import ContinueWatching from "@/components/ContinueWatching";
-const SearchDrawer = dynamic(() => import("@/components/SearchDrawer"), { loading: () => null });
+const SearchDrawer = dynamic(() => import("@/components/SearchDrawer"), { loading: () => <ModalSkeleton kind="search" /> });
 // import BackButton from "@/components/BackButton";
 import SidebarSignOutButton from "@/components/SidebarSignOutButton";
 import DesktopStripeConnectBanner from "@/components/DesktopStripeConnectBanner";
@@ -414,11 +415,7 @@ export default function DashboardPage() {
   const [highlightPostId, setHighlightPostId] = useState<string | null>(null);
 
   return (
-    <Suspense fallback={
-      <section className="min-h-screen px-0 flex items-center justify-center">
-        <div className="text-gray-500">Loading...</div>
-      </section>
-    }>
+    <Suspense fallback={<DashboardSkeleton />}>
       <DashboardContent highlightPostId={highlightPostId} setHighlightPostId={setHighlightPostId} />
     </Suspense>
   );

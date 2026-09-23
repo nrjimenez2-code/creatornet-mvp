@@ -3,6 +3,7 @@ import { Suspense, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useUser } from "@/lib/useUser";
 import { BOOKING_PROVIDER_NAMES } from "@/lib/schedulingConnectionTypes";
+import { BookingConnectionSkeleton } from "@/components/loading/Skeletons";
 
 function Connect() {
   const provider = useSearchParams().get("provider");
@@ -54,4 +55,4 @@ function Connect() {
     <button type="button" className="rounded bg-white px-4 py-2 text-black" onClick={() => window.close()}>Return to CreatorNet</button>
   </main>;
 }
-export default function ConnectPage() { return <Suspense fallback={<p>Opening connection…</p>}><Connect /></Suspense>; }
+export default function ConnectPage() { return <Suspense fallback={<BookingConnectionSkeleton />}><Connect /></Suspense>; }

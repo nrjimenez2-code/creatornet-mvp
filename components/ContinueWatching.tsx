@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
+import { ContinueSectionSkeleton } from "@/components/loading/Skeletons";
 
 type ProgressRow = {
   post_id: string;
@@ -101,12 +102,7 @@ export default function ContinueWatching() {
   );
 
   if (loading) {
-    return (
-      <section className="mt-6">
-        <h2 className="text-lg font-semibold text-white/90">Continue Watching</h2>
-        <p className="text-sm text-white/60 mt-2">Loading…</p>
-      </section>
-    );
+    return <ContinueSectionSkeleton />;
   }
 
   if (!visible.length) {

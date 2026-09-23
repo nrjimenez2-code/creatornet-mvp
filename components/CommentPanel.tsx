@@ -6,6 +6,7 @@ import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { CommentRowsSkeleton, LoadingLabel } from "@/components/loading/Skeletons";
 
 type Comment = {
   id: string;
@@ -320,11 +321,10 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
         </div>
 
         {/* Comments List */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-white/60">Loading comments...</p>
-            </div>
+        <div aria-busy={loading} className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-4">
+          {loading && comments.length > 0 && <LoadingLabel>Refreshing comments…</LoadingLabel>}
+          {loading && comments.length === 0 ? (
+            <CommentRowsSkeleton />
           ) : loadError && comments.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <p className="text-white/60" role="alert">

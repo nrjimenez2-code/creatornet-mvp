@@ -10,6 +10,7 @@ import BackButton from "@/components/BackButton";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { bindWatchProgress } from "@/lib/watchProgress";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
+import { WatchSkeleton } from "@/components/loading/Skeletons";
 
 type Post = {
   id: string;
@@ -273,14 +274,7 @@ export default function WatchPage() {
     };
   }, [post?.id]);
   if (loading) {
-    return (
-      <main className="relative flex items-center justify-center min-h-screen text-gray-500">
-        <div className="fixed top-4 left-4 z-10">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
-        Loading video…
-      </main>
-    );
+    return <WatchSkeleton />;
   }
 
   if (error) {
