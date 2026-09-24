@@ -1,12 +1,14 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
 import { Ellipsis, EyeOff, Flag, Trash2 } from "lucide-react";
 import { getActionSession } from "@/lib/actionSession";
 import { useUser } from "@/lib/useUser";
 import { REPORT_REASONS, type ReportReason } from "@/lib/postReports";
+
+const emptySubscribe = () => () => {};
 
 export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotInterested }: {
   postId: string;
@@ -31,6 +33,7 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSent, setReportSent] = useState(false);
   const reportInFlight = useRef(false);
+  const mounted = useSyncExternalStore(emptySubscribe, () => true, () => false);
 
   const isOwner = Boolean(userId && userId === creatorId);
 
@@ -99,7 +102,7 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
       }}>
       <Ellipsis className="h-6 w-6" aria-hidden="true" />
     </button>
-    {typeof document !== "undefined" && createPortal(
+    {mounted && createPortal(
       <dialog ref={options} aria-label="Video options" style={menuPosition}
         onClose={() => { setOptionsOpen(false); if (!dialog.current?.open && !reportDialog.current?.open) trigger.current?.focus(); }}
         onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) options.current?.close(); }}
@@ -126,7 +129,7 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
         )}
         <button type="button" onClick={() => options.current?.close()} className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 py-3 text-sm lg:hidden">Cancel</button>
       </dialog>, document.body)}
-    {!isOwner && typeof document !== "undefined" && createPortal(
+    {!isOwner && mounted && createPortal(
       <dialog ref={reportDialog} aria-labelledby={`report-title-${postId}`}
         onClose={() => trigger.current?.focus()}
         onCancel={(event) => { if (reportInFlight.current) event.preventDefault(); }}
@@ -170,7 +173,7 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
           </div>
         </>}
       </dialog>, document.body)}
-    {isOwner && typeof document !== "undefined" && createPortal(
+    {isOwner && mounted && createPortal(
       <dialog ref={dialog} aria-labelledby={`delete-title-${postId}`} aria-describedby={`delete-description-${postId}`}
         onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}
         onWheel={(event) => event.stopPropagation()}

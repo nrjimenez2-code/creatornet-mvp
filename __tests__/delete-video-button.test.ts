@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { renderToStaticMarkup } from "react-dom/server";
 let mockUser: string | null = "owner";
 let mockLoading = false;
 const mockSession = jest.fn();
@@ -22,6 +23,10 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+test("server rendering does not create dialog portals", () => {
+  mockUser = "other";
+  expect(() => renderToStaticMarkup(createElement(DeleteVideoButton, { postId: "post", creatorId: "owner", onDeleted: deleted }))).not.toThrow();
+});
 test("the control offers reporting to viewers, including a sign-in prompt for guests", async () => {
   for (const user of [null, "other"]) { mockUser = user; await render(); expect(container.querySelector("button")).not.toBeNull(); }
   mockUser = "owner"; mockLoading = true; await render(); expect(container.querySelector("button")).toBeNull();
