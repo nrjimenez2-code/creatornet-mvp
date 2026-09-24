@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import { useSearchParams } from "next/navigation";
 import { PURCHASE_POLICY_VERSION } from "@/lib/purchasePolicies";
 import type { ProductPurchaseTerms } from "@/lib/purchaseConsent";
@@ -54,7 +55,7 @@ function Review() {
   return <main className="mx-auto max-w-3xl space-y-5 p-6">
     <Link href="/dashboard" className="text-sm underline">Back to CreatorNet</Link>
     <h1 className="text-2xl font-semibold">Review your purchase</h1>
-    {!current ? <p role="status">Loading the current offer...</p> : current.error ? <>
+    {!current ? <PaymentReviewBodySkeleton label="Loading the current offer…" /> : current.error ? <>
       <p role="alert">{current.error}</p>
       <button onClick={reloadOffer} className="rounded-lg border px-4 py-2">Reload offer</button>
     </> : quote && <>
@@ -86,4 +87,4 @@ function Review() {
     <p className="text-sm">Questions? <a href="mailto:support@creatornet.net" className="underline">support@creatornet.net</a></p>
   </main>;
 }
-export default function PurchaseReviewPage() { return <Suspense fallback={<p role="status">Loading your purchase...</p>}><Review /></Suspense>; }
+export default function PurchaseReviewPage() { return <Suspense fallback={<PaymentDetailSkeleton label="Loading your purchase…" />}><Review /></Suspense>; }

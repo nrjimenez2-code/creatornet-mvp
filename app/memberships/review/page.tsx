@@ -1,6 +1,7 @@
 "use client";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
+import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import { useSearchParams } from "next/navigation";
 import type { MembershipAgreement } from "@/lib/membershipAgreement";
 type Quote = { agreement: MembershipAgreement; fingerprint: string };
@@ -40,7 +41,7 @@ function Review() {
   return <main className="mx-auto max-w-3xl space-y-5 p-6">
     <Link href="/dashboard" className="text-sm underline">Back to CreatorNet</Link>
     <h1 className="text-2xl font-semibold">Review your monthly mentorship</h1>
-    {!current ? <p role="status">Loading the current membership...</p> : current.error ? <>
+    {!current ? <PaymentReviewBodySkeleton label="Loading the current membership…" /> : current.error ? <>
       <p role="alert">{current.error}</p><button onClick={reloadOffer} className="underline">Reload offer</button>
     </> : t && <>
       <section className="space-y-3 rounded-xl border border-gray-500 p-5">
@@ -70,4 +71,4 @@ function Review() {
     <p className="text-sm">Questions? <a href="mailto:support@creatornet.net" className="underline">support@creatornet.net</a></p>
   </main>;
 }
-export default function MembershipReviewPage() { return <Suspense fallback={<p role="status">Loading your membership...</p>}><Review /></Suspense>; }
+export default function MembershipReviewPage() { return <Suspense fallback={<PaymentDetailSkeleton label="Loading your membership…" />}><Review /></Suspense>; }

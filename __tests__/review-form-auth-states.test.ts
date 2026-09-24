@@ -68,7 +68,8 @@ describe("ReviewForm auth states", () => {
 
     await render();
 
-    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+    expect(container.querySelector(".cn-skeleton")).not.toBeNull();
+    expect(container.querySelector("[role=status]")?.textContent).toContain("Checking review sign-in");
     expect(text()).not.toContain("Please sign in");
     expect(container.querySelector("form")).toBeNull();
   });

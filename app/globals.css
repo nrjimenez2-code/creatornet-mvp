@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+/* Loading surfaces inherit each page's geometry and only animate the empty shapes. */
+.cn-skeleton {
+  display: block;
+  background-color: rgba(255, 255, 255, 0.09);
+  animation: cn-skeleton-pulse 1.8s ease-in-out infinite;
+}
+.cn-skeleton--light { background-color: #e9e3f1; }
+@keyframes cn-skeleton-pulse {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cn-skeleton { animation: none; opacity: 1; }
+}
+
 /* -------- Default app appearance -------- */
 /* :root, html, body {
   background: #ffffff;

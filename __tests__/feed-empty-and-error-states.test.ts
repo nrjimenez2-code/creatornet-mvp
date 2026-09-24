@@ -129,23 +129,23 @@ afterEach(async () => {
 });
 
 describe("FeedList states", () => {
-  test("shows Loading… while the RPC is in flight and never flashes an empty state", async () => {
+  test("shows the feed skeleton while the RPC is in flight and never flashes an empty state", async () => {
     mockUser = { userId: "u1", loading: false };
     rpcImpl = () => new Promise(() => {}); // never resolves
 
     await render({ activeTab: "discover" });
 
-    expect(text()).toContain("Loading…");
+    expect(text()).toContain("Loading feed…");
     expect(text()).not.toContain("No posts yet");
     expect(text()).not.toContain("Couldn");
   });
 
-  test("keeps Loading… while auth is still settling (no premature sign-in prompt)", async () => {
+  test("keeps the feed skeleton while auth is still settling (no premature sign-in prompt)", async () => {
     mockUser = { userId: null, loading: true };
 
     await render({ activeTab: "following" });
 
-    expect(text()).toContain("Loading…");
+    expect(text()).toContain("Loading feed…");
     expect(text()).not.toContain("Sign in");
     expect(rpcSpy).not.toHaveBeenCalled();
   });

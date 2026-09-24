@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useUser } from "@/lib/useUser";
 import { getActionSession } from "@/lib/actionSession";
+import { Skeleton, LoadingLabel } from "@/components/loading/Skeletons";
 
 type Status =
   | { loading: true }
@@ -101,7 +102,7 @@ export default function StripeConnectBanner({ appearance = "default" }: { appear
       <a href="/auth" className="mt-2 inline-block underline">Sign in</a>
     </div>
   );
-  if (s.loading) return null;
+  if (s.loading) return <div aria-busy="true" className="rounded-xl border border-white/20 p-3"><LoadingLabel>Checking payout connection…</LoadingLabel><Skeleton className="block h-4 w-40" /><Skeleton className="mt-2 block h-4 w-56 max-w-full" /></div>;
   if (statusFailed) return (
     <div className="rounded-xl border border-white/20 p-3 text-xs text-white" role="status">
       <p>Could not check your Stripe connection.</p>

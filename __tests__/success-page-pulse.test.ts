@@ -63,7 +63,7 @@ describe("SuccessPage sparkle", () => {
     await render();
 
     expect(container.textContent).toContain("Almost there");
-    expect(sparkle()?.classList.contains("animate-pulse")).toBe(true);
+    expect(sparkle()?.classList.contains("motion-safe:animate-pulse")).toBe(true);
     expect(sparkle()?.getAttribute("aria-hidden")).toBe("true");
   });
 
@@ -75,7 +75,7 @@ describe("SuccessPage sparkle", () => {
 
     expect(container.textContent).toContain("Heads up");
     expect(container.textContent).toContain("Missing session id.");
-    expect(sparkle()?.classList.contains("animate-pulse")).toBe(false);
+    expect(sparkle()?.classList.contains("motion-safe:animate-pulse")).toBe(false);
     expect((globalThis as unknown as { fetch?: jest.Mock }).fetch).not.toHaveBeenCalled();
   });
 });

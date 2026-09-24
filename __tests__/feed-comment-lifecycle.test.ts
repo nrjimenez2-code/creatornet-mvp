@@ -65,7 +65,8 @@ test("comments show loading and a late response cannot overwrite another post", 
   const second = deferred<ReturnType<typeof response>>();
   fetchMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
   await act(async () => root.render(createElement(CommentPanel, { postId: "a", isOpen: true, onClose: jest.fn() })));
-  expect(container.textContent).toContain("Loading comments...");
+  expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  expect(container.querySelector(".cn-skeleton")).not.toBeNull();
   const oldSignal = fetchMock.mock.calls[0][1].signal as AbortSignal;
   await act(async () => root.render(createElement(CommentPanel, { postId: "b", isOpen: true, onClose: jest.fn() })));
   expect(oldSignal.aborted).toBe(true);
@@ -97,7 +98,8 @@ test("a comment retry shows loading, then only the successful result", async () 
   const retryButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Try again"));
   expect(retryButton).toBeDefined();
   await act(async () => retryButton!.click());
-  expect(container.textContent).toContain("Loading comments...");
+  expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  expect(container.querySelector(".cn-skeleton")).not.toBeNull();
   await act(async () => retry.resolve(response({ success: true, comments: [] })));
   expect(container.textContent).toContain("No comments yet");
 });

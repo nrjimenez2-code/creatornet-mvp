@@ -3,6 +3,7 @@ import {Suspense,useCallback,useEffect,useRef,useState} from "react";
 import {useParams,useSearchParams} from "next/navigation";
 import GoogleReschedulePicker from "@/components/GoogleReschedulePicker";
 import {useUser} from "@/lib/useUser";
+import {BookingSkeleton,BookingSlotsSkeleton} from "@/components/loading/Skeletons";
 
 type Slot={start:string;end:string};
 type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null;recoveryCode?:string|null;connectionStatus?:string|null};
@@ -79,7 +80,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
   const signInUrl="/auth?next="+encodeURIComponent(`/scheduling/book/${connection}?${returnQuery}`);
   const zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
   const format=(value:string)=>new Intl.DateTimeFormat(undefined,{dateStyle:"full",timeStyle:"short",timeZone:zone}).format(new Date(value));
-  if(loading)return <main className="p-6 text-white"><p role="status">Loading your booking…</p></main>;
+  if(loading)return <BookingSkeleton slots/>;
   if(!userId)return <main className="mx-auto max-w-xl space-y-4 p-6 text-white"><h1 className="text-2xl font-semibold">Sign in to book your call</h1><p>Sign in to CreatorNet to continue with this booking.</p><a href={signInUrl} className="underline">Sign in</a></main>;
   return <main className="mx-auto max-w-2xl space-y-5 p-6 text-white">
     <h1 className="text-2xl font-semibold">{options?.title??"Book your call"}</h1>
@@ -96,7 +97,7 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
       {reservation.status==="confirmed"&&Date.parse(reservation.start)>Date.now()&&!cancelPrompt&&(rescheduling?<GoogleReschedulePicker id={reservation.id} revision={reservation.revision} token={token} onClose={()=>{setRescheduling(false);void checkReservation();}} onChanged={next=>{setReservation(next);setRescheduling(false);}}/>:<button type="button" className="ml-3 underline" onClick={()=>setRescheduling(true)}>Reschedule booking</button>)}
       {pending&&<><p role="status">Your request is saved. This page updates when Google confirms it. You can safely return to this booking link.</p><button type="button" className="underline" onClick={()=>void checkReservation()}>Check status</button></>}
     </section>:<>
-      {checking?<p role="status">Checking available times…</p>:options&&<>
+      {checking?<BookingSlotsSkeleton/>:options&&<>
         <p>{options.durationMinutes}-minute call. Times shown in {zone}.</p>
         <fieldset disabled={busy} className="space-y-2"><legend className="mb-2 font-medium">Choose a time</legend>
           {options.slots.map(slot=><label key={slot.start} className="flex cursor-pointer items-center gap-3 rounded-lg border border-white/20 p-3"><input type="radio" name="time" value={slot.start} checked={selected===slot.start} onChange={()=>setSelected(slot.start)}/>{format(slot.start)}</label>)}
@@ -109,4 +110,4 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
     </>}
   </main>;
 }
-export default function GoogleBuyerBookingPage(){return <Suspense fallback={<p>Loading booking…</p>}><BookingEntry/></Suspense>;}
+export default function GoogleBuyerBookingPage(){return <Suspense fallback={<BookingSkeleton slots/>}><BookingEntry/></Suspense>;}

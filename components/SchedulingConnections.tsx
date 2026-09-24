@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useUser } from "@/lib/useUser";
+import { Skeleton, LoadingLabel } from "@/components/loading/Skeletons";
 import { BOOKING_PROVIDER_NAMES, type BookingConnectionStatus, type BookingProvider } from "@/lib/schedulingConnectionTypes";
 
 type Props = {
@@ -93,7 +94,7 @@ export default function SchedulingConnections({ purpose, value, onSelect }: Prop
     {purpose && !hasConnection && <p className="text-sm text-white/70">Connect once to confirm bookings automatically. Your draft stays here while you authorize your account.</p>}
     {error && <p role="alert" className="text-sm text-red-300">{error} <button type="button" onClick={() => void refresh()} className="underline">Check again</button></p>}
     {!loading && !userId ? <p className="text-sm"><a href="/auth" target="_blank" rel="noopener noreferrer" className="underline">Sign in to CreatorNet</a> to manage your booking connections, then return here.</p>
-      : !items && !error && <p role="status">Checking connections…</p>}
+      : !items && !error && <div aria-busy="true" className="space-y-2"><LoadingLabel>Checking connections…</LoadingLabel><div aria-hidden="true" className="space-y-2"><Skeleton className="block h-14 w-full rounded-lg" /><Skeleton className="block h-14 w-full rounded-lg" /></div></div>}
     {waiting && <p role="status" className="text-sm">Finish connecting in the other window, then return here. {connectionHref && <><a href={connectionHref} target="_blank" rel="noopener noreferrer" className="underline">Open connection page</a>{" · "}</>}<button type="button" className="underline" onClick={() => { setWaiting(false); void refresh(); }}>I’m back</button></p>}
     {items?.map(item => {
       const name = BOOKING_PROVIDER_NAMES[item.provider];

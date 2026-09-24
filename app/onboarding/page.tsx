@@ -19,6 +19,7 @@ export default function Page() {
   const [username, setUsername] = useState("");
   const [usernameOk, setUsernameOk] = useState<boolean | null>(null);
   const [usernameErr, setUsernameErr] = useState<string | null>(null);
+  const [checkedUsername, setCheckedUsername] = useState("");
   const [selected, setSelected] = useState<Interest[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -35,6 +36,7 @@ export default function Page() {
       const valid = /^[a-z0-9._]{3,20}$/.test(lower);
       if (!valid) {
         setUsernameOk(false);
+        setCheckedUsername(`${userId}:${lower}`);
         setUsernameErr(
           "3–20 chars, a–z, 0–9, dot or underscore only (no spaces)."
         );
@@ -50,11 +52,13 @@ export default function Page() {
       if (error) {
         console.error(error);
         setUsernameOk(null);
+        setCheckedUsername(`${userId}:${lower}`);
         setUsernameErr("Couldn't check username. Try again.");
         return;
       }
 
       setUsernameOk(Boolean(data)); // true = available
+      setCheckedUsername(`${userId}:${lower}`);
       setUsernameErr(null);
     })();
 
@@ -65,7 +69,7 @@ export default function Page() {
 
   async function onSave(e: React.FormEvent) {
     e.preventDefault();
-    if (!userId) return;
+    if (!canContinue || !userId) return;
 
     const lower = username.trim().toLowerCase();
     setSaving(true);
@@ -138,14 +142,19 @@ export default function Page() {
     !!userId &&
     username.trim().length >= 3 &&
     usernameOk === true &&
+    checkedUsername === `${userId}:${username.trim().toLowerCase()}` &&
     selected.length > 0;
 
+  const checkingUsername = !!userId && /^[a-z0-9._]{3,20}$/.test(username.trim().toLowerCase()) &&
+    checkedUsername !== `${userId}:${username.trim().toLowerCase()}`;
+
   const helperText = useMemo(() => {
+    if (checkingUsername) return "Checking username…";
     if (usernameErr) return usernameErr;
     if (usernameOk === true) return "✅ Username available";
     if (usernameOk === false) return "❌ Username unavailable";
     return "";
-  }, [usernameErr, usernameOk]);
+  }, [checkingUsername, usernameErr, usernameOk]);
 
   return (
     <main className="min-h-svh bg-white flex items-start sm:items-center justify-center px-4 sm:px-6 py-10 sm:py-12">
@@ -165,7 +174,7 @@ export default function Page() {
             </label>
             <input
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => { setUsername(e.target.value); setUsernameOk(null); setUsernameErr(null); }}
               placeholder="yourname"
               className={`mt-1 w-full rounded-md border px-3 py-2 text-base text-gray-900 focus:ring-4 ${
                 usernameOk === false

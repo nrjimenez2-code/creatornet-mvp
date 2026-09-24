@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import BackButton from "@/components/BackButton";
+import { LibrarySkeleton } from "@/components/loading/Skeletons";
 
 /* ----------------------------- types & utils ----------------------------- */
 
@@ -36,34 +37,6 @@ const fmt = (s?: number | null) => {
 };
 
 /* --------------------------------- UI bits -------------------------------- */
-
-function CardSkeleton() {
-  return (
-    <div className="animate-pulse border rounded-lg overflow-hidden">
-      <div className="h-48 bg-gray-100" />
-      <div className="p-4 space-y-2">
-        <div className="h-4 bg-gray-100 rounded w-2/3" />
-        <div className="h-8 bg-gray-100 rounded w-20" />
-      </div>
-    </div>
-  );
-}
-
-function ContinueSkeleton() {
-  return (
-    <div className="mb-6">
-      <div className="h-6 w-44 bg-gray-100 rounded mb-3 animate-pulse" />
-      <div className="flex gap-3 overflow-x-auto">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="min-w-[220px]">
-            <div className="h-36 bg-gray-100 rounded animate-pulse" />
-            <div className="h-3 w-24 bg-gray-100 rounded mt-2 animate-pulse" />
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 function LibraryCard({
   item,
@@ -366,21 +339,7 @@ export default function LibraryPage() {
   /* ------------------------------- render -------------------------------- */
 
   if (loading) {
-    return (
-      <main className="p-6 relative">
-        <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
-          <ContinueSkeleton />
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <CardSkeleton key={i} />
-            ))}
-          </div>
-        </div>
-      </main>
-    );
+    return <LibrarySkeleton />;
   }
 
   if (error) {

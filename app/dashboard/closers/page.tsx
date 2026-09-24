@@ -6,6 +6,7 @@ import { useUser } from "@/lib/useUser";
 import Link from "next/link";
 import BackButton from "@/components/BackButton";
 import GoogleBookingsList from "@/components/GoogleBookingsList";
+import { BookingListSkeleton, BookingTargetsSkeleton } from "@/components/loading/Skeletons";
 import SchedulingConnections from "@/components/SchedulingConnections";
 import styles from "./bookings.module.css";
 import { bookingLeadStatus, type BookingSchedulingActivity } from '@/lib/bookingSchedulingStatus';
@@ -459,11 +460,9 @@ export default function ClosersManagerPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
+            {loading && targets.length === 0 ? (
               <tr>
-                <td className="px-3 py-4 text-white/70" colSpan={7}>
-                  Loading…
-                </td>
+                <td colSpan={7}><BookingTargetsSkeleton /></td>
               </tr>
             ) : targetsError ? (
               <tr>
@@ -516,8 +515,8 @@ export default function ClosersManagerPage() {
 
         {bookingsError ? (
           <div className="rounded-lg bg-red-900/40 px-3 py-2 text-sm text-red-200">{bookingsError}</div>
-        ) : bookingsLoading ? (
-          <div className="text-sm text-white/70">Loading bookings…</div>
+        ) : bookingsLoading && bookings.length === 0 ? (
+          <BookingListSkeleton />
         ) : bookings.length === 0 ? (
           <EmptyState kind="calendar" title="No bookings yet" description="Saved booking leads will appear here with scheduling and payment status." />
         ) : (

@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import Link from "next/link";
+import { LoadingLabel, Skeleton } from "@/components/loading/Skeletons";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { Star } from "lucide-react";
@@ -110,10 +111,10 @@ export default function ReviewForm({
   // placeholder so a signed-in reviewer never sees "Please sign in" flash first.
   if (authLoading) {
     return (
-      <div
-        aria-hidden="true"
-        className="h-24 rounded-2xl border border-white/10 bg-white/5 animate-pulse"
-      />
+      <div aria-busy="true" className="rounded-2xl border border-white/10 bg-white/5 p-6">
+        <LoadingLabel>Checking review sign-in…</LoadingLabel>
+        <div aria-hidden="true" className="space-y-3"><Skeleton className="h-5 w-40" /><Skeleton className="h-4 w-3/4" /></div>
+      </div>
     );
   }
 
@@ -257,4 +258,3 @@ export default function ReviewForm({
     </form>
   );
 }
-

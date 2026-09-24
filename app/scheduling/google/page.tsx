@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useUser } from "@/lib/useUser";
+import { CalendarFormSkeleton } from "@/components/loading/Skeletons";
 import { validateBookingAvailability, type BookingAvailability } from "@/lib/bookingAvailability";
 
 type Calendar = { id: string; summary: string; timeZone: string; primary?: boolean };
@@ -60,7 +61,7 @@ function GoogleCalendarEditor({userId,token,loading}:{userId:string|null;token?:
     <p className="text-sm text-white/70">Choose where calls appear and when people can book you. Your post draft stays in the original window.</p>
     {error&&<p role="alert">{error} <button type="button" className="underline" onClick={()=>setReload(value=>value+1)}>Try loading again</button></p>}
     {saved?<><p role="status">Google Calendar connected. Your calendar and booking hours are saved.</p><button type="button" className="rounded bg-white px-4 py-2 text-black" onClick={()=>window.close()}>Return to CreatorNet</button><p>If this window stays open, switch to your original tab.</p></>:
-      !setup||!policy?!error&&<p role="status">Loading your calendars…</p>:
+      !setup||!policy?!error&&<CalendarFormSkeleton/>:
       !setup.calendars.length?<p>No calendars owned by this Google account were found. Create a calendar in Google Calendar, then load again.</p>:
       <form onSubmit={event=>void save(event)} className="space-y-5">
         <p>{setup.accountName}</p>
