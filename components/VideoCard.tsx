@@ -1824,10 +1824,10 @@ function VideoCard(props: VideoCardProps) {
             </span>
           )}
         </div>
-        {postId && creatorId && (props.onDeleted || props.onFeedDeleted) && (
+        {postId && (!creatorId || props.onDeleted || props.onFeedDeleted || cachedUserId !== creatorId) && (
           <DeleteVideoButton
             postId={postId}
-            creatorId={creatorId}
+            creatorId={creatorId ?? null}
             onDeleted={deleted}
             onNotInterested={activeTab === "discover" && hasDiscoverSession(postId) ? () => {
               sendDiscoverEvent(postId, "not_interested");

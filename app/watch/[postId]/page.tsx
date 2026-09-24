@@ -11,6 +11,7 @@ import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { bindWatchProgress } from "@/lib/watchProgress";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 import { WatchSkeleton } from "@/components/loading/Skeletons";
+import DeleteVideoButton from "@/components/DeleteVideoButton";
 
 type Post = {
   id: string;
@@ -342,9 +343,10 @@ export default function WatchPage() {
         <div className="lg:hidden">
           <BackButton hrefOverride="/library" />
         </div>
-        <h1 className="text-lg sm:text-xl font-semibold text-white">
+        <h1 className="min-w-0 flex-1 text-lg sm:text-xl font-semibold text-white">
           {post.title ?? "Video"}
         </h1>
+        <DeleteVideoButton postId={post.id} creatorId={post.creator_id} onDeleted={() => router.push("/library")} />
       </div>
 
       {premiumUrl && (

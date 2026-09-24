@@ -22,16 +22,19 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
-test("only the signed-in owner gets the control", async () => {
-  for (const user of [null, "other"]) { mockUser = user; await render(); expect(container.querySelector("button")).toBeNull(); }
+test("the control offers reporting to viewers, including a sign-in prompt for guests", async () => {
+  for (const user of [null, "other"]) { mockUser = user; await render(); expect(container.querySelector("button")).not.toBeNull(); }
   mockUser = "owner"; mockLoading = true; await render(); expect(container.querySelector("button")).toBeNull();
   mockLoading = false; await render(); expect(container.querySelector("button")).not.toBeNull();
+  mockUser = null; await render(); await click("Video options"); await click("Report video");
+  expect(document.body.textContent).toContain("Sign in to report");
 });
-test("a non-owner gets the same options control with only not interested", async () => {
+test("a non-owner gets not interested and report without owner deletion", async () => {
   mockUser = "other";
   await render(notInterested);
   await click("Video options");
   expect(document.body.textContent).toContain("Not interested");
+  expect(document.body.textContent).toContain("Report video");
   expect(document.body.textContent).not.toContain("Delete video");
   await click("Not interested");
   expect(notInterested).toHaveBeenCalledTimes(1);
@@ -42,6 +45,35 @@ test("the owner keeps the delete menu when not interested is also available", as
   await click("Video options");
   expect(document.body.textContent).toContain("Delete video");
   expect(document.body.textContent).not.toContain("Not interested");
+  expect(document.body.textContent).not.toContain("Report video");
+});
+test("a non-owner can report with a reason and optional details", async () => {
+  mockUser = "other";
+  mockSession.mockResolvedValue({ data: { session: { access_token: "other-token", user: { id: "other" } } }, error: null });
+  request.mockResolvedValue({ ok: true, json: async () => ({ ok: true, reportId: "report-1" }) });
+  await render(); await click("Video options"); await click("Report video");
+  const choice = document.querySelector<HTMLInputElement>('input[value="sexual_content"]')!;
+  await act(async () => choice.click());
+  const details = document.querySelector<HTMLTextAreaElement>("textarea")!;
+  const setValue = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!;
+  await act(async () => { setValue.call(details, "Explicit imagery"); details.dispatchEvent(new Event("input", { bubbles: true })); });
+  await click("Submit report");
+  expect(request).toHaveBeenCalledWith("/api/post-reports", expect.objectContaining({
+    method: "POST", headers: expect.objectContaining({ Authorization: "Bearer other-token" }),
+  }));
+  expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({ postId: "post", reason: "sexual_content", details: "Explicit imagery" });
+  expect(document.body.textContent).toContain("Report received");
+  expect(deleted).not.toHaveBeenCalled();
+});
+test("a failed report remains open for retry", async () => {
+  mockUser = "other";
+  mockSession.mockResolvedValue({ data: { session: { access_token: "other-token", user: { id: "other" } } }, error: null });
+  request.mockResolvedValue({ ok: false, json: async () => ({ error: "Could not save this report." }) });
+  await render(); await click("Video options"); await click("Report video");
+  await act(async () => document.querySelector<HTMLInputElement>('input[value="spam"]')!.click());
+  await click("Submit report");
+  expect(document.querySelector('[role="alert"]')?.textContent).toBe("Could not save this report.");
+  expect(document.querySelector<HTMLDialogElement>('dialog[aria-labelledby="report-title-post"]')?.open).toBe(true);
 });
 test("confirmation explains buyer access and cancel sends nothing", async () => {
   await render(); await click("Video options"); await click("Delete video");

@@ -3,6 +3,8 @@
 import { Suspense, useState, type MouseEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import type { AdminVideo, VideoStatus } from "@/types/admin";
+import type { ReportPage } from "@/lib/admin/reports";
+import { AdminReportQueue } from "./AdminReportQueue";
 import { formatCents, formatCompact } from "@/lib/admin/format";
 import { useAdminData } from "@/components/admin/AdminDataContext";
 import { TimeAgo } from "@/components/admin/TimeAgo";
@@ -246,7 +248,7 @@ function VideoDrawer({
   );
 }
 
-function ContentPageInner({ initialQuery }: { initialQuery: string }) {
+function ContentPageInner({ initialQuery, initialReportId, initialReports }: { initialQuery: string; initialReportId: string | null; initialReports: ReportPage }) {
   // Shared session store — mutations propagate to the sidebar badge and
   // Overview page and survive navigation. INTEGRATION notes live in
   // AdminDataContext.tsx (each action maps to a POST /api/admin/* route).
@@ -331,6 +333,8 @@ function ContentPageInner({ initialQuery }: { initialQuery: string }) {
         title="Content"
         subtitle="Review flagged uploads and keep the feed clean before launch."
       />
+
+      <AdminReportQueue initialPage={initialReports} initialReportId={initialReportId} />
 
       {flagged.length > 0 ? (
         <div className="mb-6">
@@ -544,17 +548,18 @@ function ContentPageInner({ initialQuery }: { initialQuery: string }) {
  * Keying the page content on the param seeds the search state fresh on every
  * palette jump without any URL→state sync effect.
  */
-function ContentFromQuery() {
+function ContentFromQuery({ initialReports }: { initialReports: ReportPage }) {
   const searchParams = useSearchParams();
   const initialQuery = searchParams.get("q") ?? "";
-  return <ContentPageInner key={initialQuery} initialQuery={initialQuery} />;
+  const initialReportId = searchParams.get("report");
+  return <ContentPageInner key={initialQuery} initialQuery={initialQuery} initialReportId={initialReportId} initialReports={initialReports} />;
 }
 
 // useSearchParams requires a Suspense boundary in the App Router.
-export function ContentPageClient() {
+export function ContentPageClient({ initialReports }: { initialReports: ReportPage }) {
   return (
     <Suspense fallback={null}>
-      <ContentFromQuery />
+      <ContentFromQuery initialReports={initialReports} />
     </Suspense>
   );
 }
