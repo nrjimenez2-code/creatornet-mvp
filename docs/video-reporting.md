@@ -7,10 +7,11 @@ including reports about posts outside its newest-500-video table.
 
 ## Email configuration
 
-Set `REPORT_NOTIFICATION_EMAIL` to the moderation inbox in each deployed
-environment where report alerts should be delivered. The sender uses the
-existing server-only `RESEND_API_KEY` and `EMAIL_CODE_FROM` configuration. No
-recipient address is hard-coded. The review link uses `getSiteUrl()`.
+Report alerts go to the existing CreatorNet support inbox,
+`support@creatornet.net`, by default. Set `REPORT_NOTIFICATION_EMAIL` only if
+the moderation recipient needs to differ in a deployed environment. The sender
+uses the existing server-only `RESEND_API_KEY` and `EMAIL_CODE_FROM`
+configuration. The review link uses `getSiteUrl()`.
 
 Submission saves the report before attempting email. A missing or failed email
 configuration marks the alert `failed` but does not reject the saved report.

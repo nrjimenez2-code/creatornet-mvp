@@ -20,8 +20,18 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test("without a configured moderation recipient it does not call the email provider", async () => {
+test("an alert uses the CreatorNet support inbox by default", async () => {
   process.env.RESEND_API_KEY = "test-key";
+  process.env.EMAIL_CODE_FROM = "CreatorNet <no-reply@example.invalid>";
+  delete process.env.REPORT_NOTIFICATION_EMAIL;
+  const fetcher = jest.spyOn(global, "fetch").mockResolvedValue({ ok: true } as Response);
+  expect(await sendReportEmail(input)).toBe(true);
+  const body = JSON.parse(String((fetcher.mock.calls[0][1] as RequestInit).body));
+  expect(body.to).toEqual(["support@creatornet.net"]);
+});
+
+test("without the existing sender configuration it does not call the email provider", async () => {
+  delete process.env.RESEND_API_KEY;
   process.env.EMAIL_CODE_FROM = "CreatorNet <no-reply@example.invalid>";
   delete process.env.REPORT_NOTIFICATION_EMAIL;
   const fetcher = jest.spyOn(global, "fetch");

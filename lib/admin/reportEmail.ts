@@ -13,8 +13,8 @@ export interface ReportEmailInput {
 export async function sendReportEmail(input: ReportEmailInput): Promise<boolean> {
   const key = process.env.RESEND_API_KEY;
   const from = process.env.EMAIL_CODE_FROM;
-  const to = process.env.REPORT_NOTIFICATION_EMAIL;
-  if (!key || !from || !to) {
+  const to = process.env.REPORT_NOTIFICATION_EMAIL?.trim() || "support@creatornet.net";
+  if (!key || !from) {
     console.error("[post-reports] moderation email configuration is incomplete");
     return false;
   }
