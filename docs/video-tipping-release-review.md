@@ -4,7 +4,7 @@
 
 - Branch: `codex/video-tipping-current`, rebased onto `main` commit `4447b63ec7bd389db1b70ec9addbdd3a8e66fff8` (video seek-bar spacing PR #226). Local safety refs `codex/video-tipping-pre-rebase`, `codex/video-tipping-pre-pr225`, and `codex/video-tipping-pre-pr226` retain preceding candidates.
 - The transferred Mac work was verified against the handoff SHA-256 manifest before review. The original mentorship checkout and its unrelated files were not changed.
-- Local implementation is committed on the isolated branch. No tipping commit has been pushed, no pull request or Preview has been created, and no provider payment has been made.
+- Local implementation is committed and pushed on the isolated branch. Draft PR #227 is open at `https://github.com/nrjimenez2-code/creatornet-mvp/pull/227`. Vercel built a Ready Preview from commit `47958b5975fe95eb538d4753e46eec171ac65b1b`. No provider payment has been made.
 - `CREATOR_TIPPING_ENABLED` must remain off in Production while the steps below are completed.
 
 ## Local verification
@@ -42,7 +42,11 @@ The local database tests cover the base tipping schema and the follow-up migrati
 4. Register that exact Preview host as a test payment-method domain. Match the test platform webhook endpoint to the Preview, retain existing subscriptions, and add both asynchronous Checkout events.
 5. Complete sandbox acceptance for card, eligible wallets, async outcomes, duplicate/out-of-order webhooks, refunds, disputes, moderation races, Earnings, sent-tip history, notifications, and admin reconciliation. Record provider IDs and observed financial totals without copying secrets into the review.
 
-The Vercel project connector currently returns 403 from this Codex account. The signed-in Codex in-app browser can read the project settings: `CREATOR_TIPPING_ENABLED` is absent, and Preview and Production Stripe variables are present. Their values were not revealed. Preview configuration can use that browser or restored connector access. The known sandbox webhook still points to an older mentorship Preview and lacks the two async Checkout events. No webhook or Vercel setting has been changed by this candidate.
+Staging has the follow-up migration recorded as `20260925072036:video_tipping_checkout_idempotency`; the new `stripe_checkout_params` column, two constraints, and service-role-only function signatures are present. It still has zero tip rows and zero tip-enabled posts. The Preview's public Supabase URL matches Staging, and the stable branch URL loads without Vercel access protection.
+
+The Vercel project connector currently returns 403 from this Codex account. Through the signed-in in-app browser, `NEXT_PUBLIC_SITE_URL` was set to `https://creatornet-mvp-git-codex-video-0e051c-nrjimenez2-codes-projects.vercel.app` and `CREATOR_TIPPING_ENABLED=true` was scoped only to `codex/video-tipping-current`. These settings need a new deployment to take effect. The existing generic Preview publishable key has a `pk_test_` prefix. Preview Stripe secret and webhook signing values were not revealed or matched to the intended sandbox account yet.
+
+Stripe test payment-method domain `pmd_1UJTX8ATzkMaGuMymo6cCI4h` is enabled for the stable branch host. The sandbox has only one enabled webhook endpoint, `we_1TLKzLATzkMaGuMyA8RIIYiT`, still pointed at the mentorship sandbox Preview and lacking both async Checkout events. Since overlapping destinations share an event claim, a second endpoint for the same events could let the older handler claim a tip event first. The webhook has not been changed. No sandbox tip, refund, or dispute has been run.
 
 The Vercel settings page marks the existing Production `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` entries as Config variables needing attention. The owner should review converting these existing entries to Secret without exposing or copying their values into the review. This is separate from the tipping feature flag.
 
@@ -50,4 +54,4 @@ The Vercel settings page marks the existing Production `STRIPE_SECRET_KEY` and `
 
 After sandbox acceptance, review the additive migrations against Production, apply them while the flag is off, deploy the matching app with the flag off, update only the live platform webhook's missing async events, verify the live domain and Connect account behavior, then conduct an internal rollout before broad enablement. Legal wording and operational Stripe configuration need owner review. Production has no tipping schema at this checkpoint.
 
-The staging deployment, hosted migration, Stripe configuration writes, sandbox payment tests, and any production rollout are separate approval steps. This candidate is not yet a production-ready release.
+The staging-only deployment, follow-up migration, test payment domain, webhook configuration, and sandbox acceptance were authorized. Production rollout requires a separate reviewed package and approval. This candidate is not yet a production-ready release.
