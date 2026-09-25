@@ -4,12 +4,12 @@
 
 - Branch: `codex/video-tipping-current`, rebased onto `main` commit `4447b63ec7bd389db1b70ec9addbdd3a8e66fff8` (video seek-bar spacing PR #226). Local safety refs `codex/video-tipping-pre-rebase`, `codex/video-tipping-pre-pr225`, and `codex/video-tipping-pre-pr226` retain preceding candidates.
 - The transferred Mac work was verified against the handoff SHA-256 manifest before review. The original mentorship checkout and its unrelated files were not changed.
-- Local implementation is committed and pushed on the isolated branch. Draft PR #227 is open at `https://github.com/nrjimenez2-code/creatornet-mvp/pull/227`. Vercel built a Ready Preview from commit `47958b5975fe95eb538d4753e46eec171ac65b1b`. No provider payment has been made.
+- Local implementation is committed and pushed on the isolated branch. Draft PR #227 is open at `https://github.com/nrjimenez2-code/creatornet-mvp/pull/227`. CI #425 passed on `d93ce273d8ce6c1cc5f223854135d428736d0c8f`. Vercel deployment `D4tt8UDXYc6zktX5RsxKy389K57V` is a Ready Preview from that commit. No provider tip payment has been made.
 - `CREATOR_TIPPING_ENABLED` must remain off in Production while the steps below are completed.
 
 ## Local verification
 
-- The complete Jest suite passed on the candidate based on PR #225: 349 suites and 6,220 tests. The subsequent PR #226 change adjusts only CSS spacing in `VideoCard` and `VideoSeekBar`. After rebasing onto PR #226, the affected seek-bar, creator UI, tip modal, feed mapping, and admin reconciliation suites passed (5 suites, 38 tests). The complete suite has not been repeated after this CSS-only rebase.
+- The complete Jest suite passed in CI #425 on the current PR candidate: 349 suites and 6,220 tests. The earlier local run on the candidate based on PR #225 had the same counts; after rebasing onto PR #226, the affected seek-bar, creator UI, tip modal, feed mapping, and admin reconciliation suites passed locally (5 suites, 38 tests).
 - TypeScript `tsc --noEmit` and changed-file lint passed after PR #226. The admin reconciliation route returns an error if its dispute-recovery lookup fails, instead of reporting zero failures.
 - The Next.js 16.3.5 webpack production build passed on the PR #226 candidate with placeholder configuration and `CREATOR_TIPPING_ENABLED=false`. This is a local build, not a hosted payment test.
 - Repository-wide ESLint: 61 errors and 295 warnings. The errors found in
@@ -44,19 +44,18 @@ The local database tests cover the base tipping schema and the follow-up migrati
 
 Staging has the follow-up migration recorded as `20260925072036:video_tipping_checkout_idempotency`; the new `stripe_checkout_params` column, two constraints, and service-role-only function signatures are present. It still has zero tip rows. The Preview's public Supabase URL matches Staging. The stable branch URL loads for a signed-in Vercel member, but an external unauthenticated POST returns Vercel's `Protected deployment` response.
 
-The Vercel project connector currently returns 403 from this Codex account. Through the signed-in in-app browser, `NEXT_PUBLIC_SITE_URL` was set to `https://creatornet-mvp-git-codex-video-0e051c-nrjimenez2-codes-projects.vercel.app` only for `codex/video-tipping-current`. Deployment `4iuqoNc79AKXKYLCHJjc4nYTVJEQ` is Ready from commit `c46f094`. The branch-only `CREATOR_TIPPING_ENABLED` was briefly true for signed-out UI verification, then set back to `false` while webhook setup is pending; a new deployment is required for that change to take effect. The existing generic Preview publishable key has a `pk_test_` prefix. Preview Stripe secret and webhook signing values were not revealed or matched to the intended sandbox account yet.
+The Vercel project connector currently returns 403 from this Codex account. Through the signed-in browser, `NEXT_PUBLIC_SITE_URL` is scoped to `codex/video-tipping-current` and set to `https://creatornet-mvp-git-codex-video-0e051c-nrjimenez2-codes-projects.vercel.app`. The generic Preview Stripe publishable key belongs to a different TEST account. After checking that there were no branch-specific Stripe values, the intended sandbox's TEST `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`, TEST `STRIPE_SECRET_KEY`, and existing TEST `STRIPE_WEBHOOK_SECRET` were added for `codex/video-tipping-current` only. The two secret values were saved as Secret variables; no values are copied into this review. Deployment `D4tt8UDXYc6zktX5RsxKy389K57V` redeployed `d93ce27` with the latest settings and is Ready. The branch-only `CREATOR_TIPPING_ENABLED` was checked after redeployment and remains `false` while webhook setup is pending.
 
 An inactive Staging fixture post `5842d226-e9c6-4399-8531-90e076a3be1c` uses an eligible free video under the sandbox-connected creator. During a brief activation, the Preview displayed `Tip Creator` and sent a signed-out viewer to sign-in with a return link. The post is inactive again; there are zero active tip-enabled posts. No Checkout session was started. The Supabase security advisor reported only the expected RLS-without-policy informational notices for the service-role-only tip tables.
 
-Stripe test payment-method domain `pmd_1UJTX8ATzkMaGuMymo6cCI4h` is enabled for the stable branch host. A separate temporary Vercel automation bypass was created for hosted test delivery, then revoked unused when Stripe sign-in and webhook routing remained pending. The two pre-existing bypasses were untouched. The sandbox has only one enabled webhook endpoint, `we_1TLKzLATzkMaGuMyA8RIIYiT`, still pointed at the mentorship sandbox Preview and lacking both async Checkout events. Since overlapping destinations share an event claim, a second endpoint for the same events could let the older handler claim a tip event first. The webhook has not been changed. No sandbox tip, refund, or dispute has been run.
+Stripe test payment-method domain `pmd_1UJTX8ATzkMaGuMymo6cCI4h` is enabled for the stable branch host. A separate temporary Vercel automation bypass was created for hosted test delivery, then revoked unused when Stripe sign-in and webhook routing remained pending. The two pre-existing bypasses were untouched. The sandbox has only one enabled webhook endpoint, `we_1TLKzLATzkMaGuMyA8RIIYiT`, still pointed at the mentorship sandbox Preview and lacking both async Checkout events. Stripe showed 13 failed mentorship webhook deliveries this week. The old Vercel deployment's runtime logs show 500 responses with `Buyer installment receipt processing is not ready; review required`. The available mentorship checkout source claims event IDs before routing by event type; the deployed source is too large for Vercel's preview, so a second overlapping endpoint is not proven safe. Repointing the existing endpoint could instead redirect pending mentorship retries to a handler that has not been accepted for them. Neither endpoint change is safe without a reviewed routing and recovery plan. The webhook has not been changed. No sandbox tip, refund, or dispute has been run.
 
 The Vercel settings page marks the existing Production `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` entries as Config variables needing attention. The owner should review converting these existing entries to Secret without exposing or copying their values into the review. This is separate from the tipping feature flag.
 
 ## Production gate
 
-Read-only preflight on 2026-09-25: GitHub `main` remains
-`4447b63ec7bd389db1b70ec9addbdd3a8e66fff8`; this review branch is at
-`43521d2d4f046d64583ea3a2c0cdc93825876263`. Production Supabase
+Earlier read-only preflight on 2026-09-25 recorded GitHub `main` at
+`4447b63ec7bd389db1b70ec9addbdd3a8e66fff8`. That source checkpoint is stale: Vercel Production now shows an unrelated #228 deployment from `6422414`; recheck current GitHub `main` before any Production migration. Production Supabase
 `rvkqxgghqitkwzdsuclz` has no tipping tables, `posts.tips_enabled` column,
 tipping functions, or tipping migration versions. The post and fee-ledger
 columns required by the base migration exist. Its current
@@ -70,7 +69,7 @@ lacks both asynchronous Checkout events. The separate live connected-account
 endpoint `we_1UEasbAPff7wDYc9aICVRDaV` subscribes to `account.updated` and
 must remain distinct. Live payment-method domain `www.creatornet.net` is
 registered and enabled as `pmd_1UJP1yAPff7wDYc9OAbfpfSA`. No live webhook,
-domain, charge, deployment, flag, or database setting was changed.
+domain, charge, deployment, flag, or database setting was changed by the tipping work.
 
 After sandbox acceptance, review the additive migrations against Production, apply them while the flag is off, deploy the matching app with the flag off, update only the live platform webhook's missing async events, verify the live domain and Connect account behavior, then conduct an internal rollout before broad enablement. Legal wording and operational Stripe configuration need owner review. Production has no tipping schema at this checkpoint.
 
