@@ -223,6 +223,10 @@ function TagFeed({ hashtag }: { hashtag: string }) {
   );
 
   const handleModalTouchStart = useCallback((e: React.TouchEvent<HTMLDivElement>) => {
+    if (e.target instanceof Element && e.target.closest("[data-no-playback-toggle]")) {
+      modalTouchStartYRef.current = null;
+      return;
+    }
     modalTouchStartYRef.current = e.touches[0]?.clientY ?? null;
   }, []);
 

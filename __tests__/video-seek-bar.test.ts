@@ -82,3 +82,41 @@ test("the time readout appears only while seeking with a pointer or keyboard", a
   await act(async () => slider.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true })));
   expect(container.textContent).not.toContain("0:00 / 1:30");
 });
+
+test("touch preview follows the finger and resumes playback tracking after an outside release", async () => {
+  const video = container.querySelector("video")!;
+  const slider = container.querySelector<HTMLInputElement>('input[aria-label="Seek video"]')!;
+  const touchTarget = container.querySelector<HTMLElement>(".video-seek-touch-target")!;
+  Object.defineProperty(video, "duration", { configurable: true, value: 90 });
+  Object.defineProperty(touchTarget, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ left: 0, width: 300 }),
+  });
+  await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+
+  const pointer = (type: string, clientX: number) => Object.assign(new Event(type, { bubbles: true }), {
+    pointerId: 7,
+    clientX,
+  });
+  await act(async () => touchTarget.dispatchEvent(pointer("pointerdown", 30)));
+  expect(slider.value).toBe("9");
+  expect(container.textContent).toContain("0:09 / 1:30");
+
+  await act(async () => touchTarget.dispatchEvent(pointer("pointermove", 240)));
+  expect(slider.value).toBe("72");
+  await act(async () => window.dispatchEvent(pointer("pointermove", 270)));
+  expect(slider.value).toBe("81");
+  await act(async () => window.dispatchEvent(pointer("pointerup", 270)));
+  expect(video.currentTime).toBe(81);
+  expect(container.textContent).not.toContain("1:21 / 1:30");
+
+  video.currentTime = 82;
+  await act(async () => video.dispatchEvent(new Event("timeupdate")));
+  expect(slider.value).toBe("82");
+
+  await act(async () => touchTarget.dispatchEvent(pointer("pointerdown", 60)));
+  await act(async () => window.dispatchEvent(new Event("blur")));
+  video.currentTime = 83;
+  await act(async () => video.dispatchEvent(new Event("timeupdate")));
+  expect(slider.value).toBe("83");
+});
