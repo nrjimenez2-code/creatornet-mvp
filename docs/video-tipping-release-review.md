@@ -54,6 +54,24 @@ The Vercel settings page marks the existing Production `STRIPE_SECRET_KEY` and `
 
 ## Production gate
 
+Read-only preflight on 2026-09-25: GitHub `main` remains
+`4447b63ec7bd389db1b70ec9addbdd3a8e66fff8`; this review branch is at
+`43521d2d4f046d64583ea3a2c0cdc93825876263`. Production Supabase
+`rvkqxgghqitkwzdsuclz` has no tipping tables, `posts.tips_enabled` column,
+tipping functions, or tipping migration versions. The post and fee-ledger
+columns required by the base migration exist. Its current
+`discover_inventory_batch_v1(uuid[])` function differs from Staging only by
+the tip-flag field that the base migration adds. This is a compatibility
+inventory, not authorization to run Production DDL.
+
+The live Stripe platform webhook `we_1U7MxjAPff7wDYc9b3W6fcw8` remains enabled
+at `https://www.creatornet.net/api/stripe/webhook` with 11 existing events; it
+lacks both asynchronous Checkout events. The separate live connected-account
+endpoint `we_1UEasbAPff7wDYc9aICVRDaV` subscribes to `account.updated` and
+must remain distinct. Live payment-method domain `www.creatornet.net` is
+registered and enabled as `pmd_1UJP1yAPff7wDYc9OAbfpfSA`. No live webhook,
+domain, charge, deployment, flag, or database setting was changed.
+
 After sandbox acceptance, review the additive migrations against Production, apply them while the flag is off, deploy the matching app with the flag off, update only the live platform webhook's missing async events, verify the live domain and Connect account behavior, then conduct an internal rollout before broad enablement. Legal wording and operational Stripe configuration need owner review. Production has no tipping schema at this checkpoint.
 
 The staging-only deployment, follow-up migration, test payment domain, webhook configuration, and sandbox acceptance were authorized. Production rollout requires a separate reviewed package and approval. This candidate is not yet a production-ready release.
