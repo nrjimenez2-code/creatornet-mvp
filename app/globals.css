@@ -75,6 +75,16 @@ body {
   outline-offset: 2px;
 }
 
+/* Keep the existing seek lane, but give touch devices a reliable drag surface. */
+.video-seek-touch-target { display: none; }
+@media (hover: none) and (pointer: coarse) {
+  .video-seek-range { pointer-events: none; }
+  .video-seek-touch-target { display: block; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .video-seek-control:hover .video-seek-thumb { opacity: 1; }
+}
+
 /* Slide in from right animation */
 @keyframes slideInRight {
   from {
