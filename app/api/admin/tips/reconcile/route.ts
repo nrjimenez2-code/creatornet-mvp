@@ -103,24 +103,24 @@ export async function POST(req: NextRequest) {
   const recoveryFailures: Array<{ disputeId: string; code: string }> = [];
   if (failedRecoveries.error) {
     console.error("[tips:reconcile] dispute recovery lookup failed:", failedRecoveries.error.message);
-  } else {
-    for (const row of failedRecoveries.data ?? []) {
-      try {
-        const dispute = await stripe.disputes.retrieve(row.stripe_dispute_id);
-        const chargeId = objectId(dispute.charge);
-        const paymentIntentId = objectId(dispute.payment_intent);
-        if (!chargeId || !paymentIntentId) throw new Error("Dispute linkage is incomplete.");
-        await reconcileTipDisputeRecovery({
-          admin: context.admin, stripe, dispute, chargeId, paymentIntentId,
-          eventCreated: Number(row.stripe_event_created || 0),
-        });
-      } catch (error) {
-        const code = publicFailure(error);
-        recoveryFailures.push({ disputeId: row.stripe_dispute_id, code });
-        console.error("[tips:reconcile] dispute recovery failed:", {
-          disputeId: row.stripe_dispute_id, code,
-        });
-      }
+    return NextResponse.json({ error: "Tip dispute recovery lookup failed." }, { status: 500 });
+  }
+  for (const row of failedRecoveries.data ?? []) {
+    try {
+      const dispute = await stripe.disputes.retrieve(row.stripe_dispute_id);
+      const chargeId = objectId(dispute.charge);
+      const paymentIntentId = objectId(dispute.payment_intent);
+      if (!chargeId || !paymentIntentId) throw new Error("Dispute linkage is incomplete.");
+      await reconcileTipDisputeRecovery({
+        admin: context.admin, stripe, dispute, chargeId, paymentIntentId,
+        eventCreated: Number(row.stripe_event_created || 0),
+      });
+    } catch (error) {
+      const code = publicFailure(error);
+      recoveryFailures.push({ disputeId: row.stripe_dispute_id, code });
+      console.error("[tips:reconcile] dispute recovery failed:", {
+        disputeId: row.stripe_dispute_id, code,
+      });
     }
   }
 

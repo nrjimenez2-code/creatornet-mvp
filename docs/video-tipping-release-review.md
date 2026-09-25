@@ -2,29 +2,21 @@
 
 ## Candidate
 
-- Branch: `codex/video-tipping-current`, rebased onto `main` commit `83ab7df6125752a3a92b10c5cbe8e55b9b78374e` (video timeline PR #224). A local safety ref `codex/video-tipping-pre-rebase` retains the preceding candidate.
+- Branch: `codex/video-tipping-current`, rebased onto `main` commit `4447b63ec7bd389db1b70ec9addbdd3a8e66fff8` (video seek-bar spacing PR #226). Local safety refs `codex/video-tipping-pre-rebase`, `codex/video-tipping-pre-pr225`, and `codex/video-tipping-pre-pr226` retain preceding candidates.
 - The transferred Mac work was verified against the handoff SHA-256 manifest before review. The original mentorship checkout and its unrelated files were not changed.
 - Local implementation is committed on the isolated branch. No tipping commit has been pushed, no pull request or Preview has been created, and no provider payment has been made.
 - `CREATOR_TIPPING_ENABLED` must remain off in Production while the steps below are completed.
 
 ## Local verification
 
-- TypeScript `tsc --noEmit`: passed.
-- Full Jest suite after the dispute-race repair, before the rebase onto video timeline PR #224: 348 suites, 6,215 tests passed.
-- After that rebase, video timeline, creator UI, tip modal, and feed mapping suites passed: 4 suites, 34 tests. TypeScript `tsc --noEmit` and the Next.js webpack production build passed on the rebased candidate. The full suite has not been rerun after the rebase.
-- Focused database, dispute, and admin reconciliation suites: 3 suites,
-  15 tests passed. TypeScript and focused lint passed on the changed modules.
-- Focused tipping and API-error suites: 7 suites, 52 tests passed after the error-sanitization fix. The last checkout retry change then passed all 22 checkout tests on its own.
-- Focused lint of the changed Checkout and modal modules: passed.
+- The complete Jest suite passed on the candidate based on PR #225: 349 suites and 6,220 tests. The subsequent PR #226 change adjusts only CSS spacing in `VideoCard` and `VideoSeekBar`. After rebasing onto PR #226, the affected seek-bar, creator UI, tip modal, feed mapping, and admin reconciliation suites passed (5 suites, 38 tests). The complete suite has not been repeated after this CSS-only rebase.
+- TypeScript `tsc --noEmit` and changed-file lint passed after PR #226. The admin reconciliation route returns an error if its dispute-recovery lookup fails, instead of reporting zero failures.
+- The Next.js 16.3.5 webpack production build passed on the PR #226 candidate with placeholder configuration and `CREATOR_TIPPING_ENABLED=false`. This is a local build, not a hosted payment test.
 - Repository-wide ESLint: 61 errors and 295 warnings. The errors found in
   changed files are existing dashboard/feed/video hook patterns outside this
   branch's modified lines; other errors are in existing tests and scripts.
   No new tipping module produced an ESLint error. The repository-wide lint
   command does not currently pass.
-- Next.js 16.3.5 production build with webpack: passed after the rebase
-  using placeholder configuration and `CREATOR_TIPPING_ENABLED=false`.
-  Existing dynamic-route warnings and the placeholder sitemap lookup did not
-  fail the build.
 - Staging read-only check: zero tip-enabled posts and zero tip-enabled posts with a null booking flag.
 - Dispute recovery now records event status and provider progress monotonically,
   rereads reversal/restoration objects before provider writes, and can repair a
@@ -50,7 +42,9 @@ The local database tests cover the base tipping schema and the follow-up migrati
 4. Register that exact Preview host as a test payment-method domain. Match the test platform webhook endpoint to the Preview, retain existing subscriptions, and add both asynchronous Checkout events.
 5. Complete sandbox acceptance for card, eligible wallets, async outcomes, duplicate/out-of-order webhooks, refunds, disputes, moderation races, Earnings, sent-tip history, notifications, and admin reconciliation. Record provider IDs and observed financial totals without copying secrets into the review.
 
-The Vercel project connector currently returns 403 from this Codex account; a signed-in Edge tab also timed out during a read-only inspection. Preview configuration needs restored project access or an owner-assisted handoff. The known sandbox webhook still points to an older mentorship Preview and lacks the two async Checkout events. No webhook or Vercel setting has been changed by this candidate.
+The Vercel project connector currently returns 403 from this Codex account. The signed-in Codex in-app browser can read the project settings: `CREATOR_TIPPING_ENABLED` is absent, and Preview and Production Stripe variables are present. Their values were not revealed. Preview configuration can use that browser or restored connector access. The known sandbox webhook still points to an older mentorship Preview and lacks the two async Checkout events. No webhook or Vercel setting has been changed by this candidate.
+
+The Vercel settings page marks the existing Production `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` entries as Config variables needing attention. The owner should review converting these existing entries to Secret without exposing or copying their values into the review. This is separate from the tipping feature flag.
 
 ## Production gate
 

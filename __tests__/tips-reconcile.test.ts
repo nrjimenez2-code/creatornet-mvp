@@ -5,6 +5,7 @@ const sessionRetrieve = jest.fn();
 const checkoutUpdate = jest.fn();
 let db: MockClient;
 let tips: Array<Record<string, unknown>> = [];
+let recoveryLookupError = false;
 
 jest.mock("@/lib/admin/server", () => ({
   requireAdmin: async () => ({ admin: db }),
@@ -23,9 +24,14 @@ import { POST } from "@/app/api/admin/tips/reconcile/route";
 beforeEach(() => {
   jest.clearAllMocks();
   tips = [];
+  recoveryLookupError = false;
   db = createMockClient((op: Op) => {
     if (op.table === "tips" && op.kind === "select") return { data: tips, error: null };
-    if (op.table === "tip_dispute_recoveries" && op.kind === "select") return { data: [], error: null };
+    if (op.table === "tip_dispute_recoveries" && op.kind === "select") {
+      return recoveryLookupError
+        ? { data: null, error: { message: "lookup unavailable" } }
+        : { data: [], error: null };
+    }
     return { data: null, error: null };
   });
 });
@@ -56,4 +62,16 @@ test("flags a stale attempt with no Stripe Session for operator review", async (
     failures: [{ tipId: "tip-2", code: "missing_checkout_session" }],
   });
   expect(sessionRetrieve).not.toHaveBeenCalled();
+});
+
+test("does not report a clean reconciliation when dispute recovery lookup fails", async () => {
+  recoveryLookupError = true;
+  const errorLog = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const response = await POST(request());
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({ error: "Tip dispute recovery lookup failed." });
+  } finally {
+    errorLog.mockRestore();
+  }
 });
