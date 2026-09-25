@@ -1,8 +1,11 @@
 # Video tipping rollout
 
-Video tipping is guarded by `CREATOR_TIPPING_ENABLED=true`. Keep it false until the
-database migration, webhook configuration, and payment-method domains are live in the
-same Stripe mode as the deployment.
+Video tipping is guarded by `CREATOR_TIPPING_ENABLED=true`. Keep it false in
+Production until the database migration, webhook configuration, and payment-method
+domains are live in the same Stripe mode as the deployment. The Staging review
+branch briefly had the flag enabled to verify rendering, then it was set back
+to false while webhook coverage is pending. Its only tip fixture is inactive,
+and Staging has zero active tip-enabled posts.
 
 Staging schema status (2026-09-24): installed on **CreatorNet Staging**
 `nwqfofezfzljhxolkycz` as remote migrations `20260924234559_video_tipping_v1`,
@@ -30,8 +33,8 @@ dispute-status writes atomic with event ordering and allows a reversal or
 restoration provider ID to be saved after a newer dispute event arrives.
 Provider reconciliation checks for an existing reversal or restoration before
 retrying a write.
-This follow-up migration is **local only**. Apply it to Staging before any matched
-Preview test. Staging's four earlier remote migration versions already installed
+The follow-up migration was applied to Staging as remote version
+`20260925072036_video_tipping_checkout_idempotency`. Staging's four earlier remote migration versions already installed
 the final base schema in stages; reconcile that migration history before using a
 CLI migration push so the older local base file is not blindly replayed. For
 Production, review the current schema and apply the base and follow-up changes
@@ -75,10 +78,11 @@ Before enabling broadly:
 5. Start with internal creators, monitoring stuck attempts, paid tips missing credit or
    ledger timestamps, frozen-term mismatches, and failed reversal/restoration rows.
 
-The Stripe connector still returned `UNAUTHORIZED` after reconnection on
-2026-09-24, but the signed-in Stripe Dashboard allowed read-only verification
-and payment-method-domain registration. Webhook subscriptions were deliberately
-left unchanged while production still runs the old application. Sandbox charges,
+The Stripe connector works for the intended test sandbox on 2026-09-25. Its stable
+video-tipping Preview host is registered as test payment-method domain
+`pmd_1UJTX8ATzkMaGuMymo6cCI4h`. The single sandbox webhook endpoint remains
+on the older mentorship Preview while the test-routing decision is pending.
+Sandbox charges,
 wallet-device behavior, and legacy Express transfer-reversal compatibility remain
 unverified. Do not claim the rollout complete or enable the flag until those
 checks and the production schema migration are done.
@@ -88,17 +92,20 @@ webpack build. The default Turbopack build could not start its CSS worker in
 this restricted workspace (`Operation not permitted` while binding a port), so
 the webpack build is the usable local build result. The connected Vercel app
 returned 403 for the existing `nrjimenez2-codes-projects` scope, but the owner
-opened the signed-in Vercel Dashboard in the Codex browser. There the
-`creatornet-mvp` project was confirmed to have separate Preview and Production
-Stripe keys and webhook secrets, Preview Supabase credentials, and no
-`CREATOR_TIPPING_ENABLED` variable yet. This is configuration inventory, not
-proof that a specific Preview deployment uses the expected Stripe account or
-webhook. No tipping build has been deployed from this workspace.
+opened the signed-in Vercel Dashboard in the Codex browser. The tipping branch
+Preview is Ready at deployment `4iuqoNc79AKXKYLCHJjc4nYTVJEQ`; its Supabase
+URL points to Staging, and the exact return origin is scoped only to
+`codex/video-tipping-current`. Its feature flag was set back to false after
+the signed-out UI check; a new deployment must pick up that setting. The generic Preview
+publishable key has a test-mode prefix. The Preview secret and webhook signing
+values have not yet been matched to the intended Stripe sandbox account.
 
-The Vercel Dashboard shows `NEXT_PUBLIC_SITE_URL`/`NEXT_PUBLIC_BASE_URL` only
-for Production and an older branch-scoped Preview. A new Preview branch uses
-Vercel's trusted `VERCEL_URL` as its Checkout return origin; register that exact
-Preview host as a test payment-method domain before wallet-device testing.
+The branch-specific `NEXT_PUBLIC_SITE_URL` now names the stable Preview host.
+Vercel Authentication protects that host from external requests, even though a
+signed-in Vercel member can browse it. A separate temporary automation bypass
+was created for Stripe test webhook delivery, then revoked unused while sign-in
+and routing decisions remained pending. The sandbox webhook still needs an agreed routing change, matching
+branch signing secret, and both async Checkout events before test payments.
 
 Do not change the isolated membership Stripe API version as part of this rollout. The
 general server SDK and current typed Stripe.js custom Checkout API are used as-is.
