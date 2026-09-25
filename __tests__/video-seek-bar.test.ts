@@ -64,3 +64,21 @@ test("unavailable or changing duration never leaves an active stale seek control
   await act(async () => video.dispatchEvent(new Event("durationchange")));
   expect(slider.disabled).toBe(true);
 });
+
+test("the time readout appears only while seeking with a pointer or keyboard", async () => {
+  const video = container.querySelector("video")!;
+  const slider = container.querySelector<HTMLInputElement>('input[aria-label="Seek video"]')!;
+  Object.defineProperty(video, "duration", { configurable: true, value: 90 });
+  await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+
+  expect(container.textContent).not.toContain("0:00 / 1:30");
+  await act(async () => slider.dispatchEvent(new Event("pointerdown", { bubbles: true })));
+  expect(container.textContent).toContain("0:00 / 1:30");
+  await act(async () => slider.dispatchEvent(new Event("pointerup", { bubbles: true })));
+  expect(container.textContent).not.toContain("0:00 / 1:30");
+
+  await act(async () => slider.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+  expect(container.textContent).toContain("0:00 / 1:30");
+  await act(async () => slider.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true })));
+  expect(container.textContent).not.toContain("0:00 / 1:30");
+});
