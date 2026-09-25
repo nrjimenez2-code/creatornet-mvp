@@ -1371,6 +1371,8 @@ function VideoCard(props: VideoCardProps) {
     [creatorProfileHref, postId, router]
   );
 
+  const hasPurchaseControls = !!(showCTA || allowBooking || onBuy || onBook || (productId && priceCents));
+
   return (
     <div className={`feed-mobile-card relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] ${fillMobileViewport ? "max-lg:h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)]"} max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation`}
       style={naturalDesktopFrame ? {
@@ -1536,11 +1538,10 @@ function VideoCard(props: VideoCardProps) {
         style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
       >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
-          {/* Feed-style viewers place details near the card's bottom edge.
-              Other VideoCard placements retain their mobile bottom padding. */}
+          {/* Keep all details above the seek control's clear bottom lane. */}
           <div className={`relative p-3 sm:p-4 ${mainFeedMobileLayout
-            ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-3"
-            : "max-lg:pb-[56px] max-lg:translate-y-[7px]"} lg:translate-y-0`}>
+            ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-[44px]"
+            : `${hasPurchaseControls ? "max-lg:pb-[56px]" : "max-lg:pb-[88px]"} max-lg:translate-y-[7px]`} ${hasPurchaseControls ? "lg:pb-[52px]" : "lg:pb-[80px]"} lg:translate-y-0`}>
           <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"} ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
 
             <div className={`flex-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
@@ -1604,7 +1605,7 @@ function VideoCard(props: VideoCardProps) {
               )}
             </div>
           </div>
-          {(showCTA || allowBooking || onBuy || onBook || (productId && priceCents)) && (
+          {hasPurchaseControls && (
             <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"} ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mt-0 max-lg:translate-y-0" : ""}`} ref={wrapperRef}>
               <BuyButton
                 ref={buyButtonRef}
