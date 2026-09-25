@@ -74,3 +74,5 @@ supabase/migrations/*
 !supabase/migrations/20260913010141_discover_verified_sales.sql
 !supabase/migrations/20260913011108_discover_eligibility_and_measurement.sql
 !supabase/migrations/20260924004400_video_reports.sql
+!supabase/migrations/20260924120000_video_tipping.sql
+!supabase/migrations/20260925040000_video_tipping_checkout_idempotency.sql

@@ -46,6 +46,7 @@ async function enforceUploadSize(url: string | null, folder: UploadFolder): Prom
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
+import { getStripe } from "@/lib/stripeClient";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 /**
@@ -96,6 +97,7 @@ export async function POST(req: Request) {
         : null;
     const price_cents = typeof body?.price_cents === "number" ? body.price_cents : null;
     const allow_booking = Boolean(body?.allow_booking);
+    const tips_enabled = body?.tips_enabled === true;
     const bookingRaw = (body?.booking_url ?? "")?.trim() || null;
     if (bookingRaw && !isSafeBookingTarget(bookingRaw)) {
       return NextResponse.json(
@@ -156,6 +158,23 @@ export async function POST(req: Request) {
 
     const selling =
       !!finalProductId || (typeof price_cents === "number" && price_cents > 0);
+    if (tips_enabled && (
+      product_id || selling || premium_path || price_cents !== null && price_cents !== 0 ||
+      allow_booking || booking_url || body?.offering_id || body?.fulfillment_url ||
+      body?.display_price || body?.booking_url_override ||
+      body?.cta_type && body.cta_type !== "none"
+    )) {
+      return NextResponse.json(
+        { success: false, error: "Tips can only be enabled on a completely free video.", code: "TIP_ONLY_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    if (tips_enabled && process.env.CREATOR_TIPPING_ENABLED !== "true") {
+      return NextResponse.json(
+        { success: false, error: "Tipping is not available yet.", code: "TIPPING_UNAVAILABLE" },
+        { status: 409 }
+      );
+    }
     if (selling && !(await isCreatorSellReady(user.id))) {
       return NextResponse.json(
         {
@@ -165,6 +184,22 @@ export async function POST(req: Request) {
         },
         { status: 403 }
       );
+    }
+    if (tips_enabled) {
+      if (!(await isCreatorSellReady(user.id))) {
+        return NextResponse.json({ error: "Connect Stripe before enabling tips.", code: "STRIPE_CONNECT_REQUIRED" }, { status: 403 });
+      }
+      const profile = await supabaseAdmin.from("profiles")
+        .select("stripe_account_id,banned_at").eq("id", user.id).maybeSingle();
+      const accountId = profile.data?.stripe_account_id;
+      if (profile.error || profile.data?.banned_at || typeof accountId !== "string" ||
+          !/^acct_[A-Za-z0-9]+$/.test(accountId)) {
+        return NextResponse.json({ error: "Your Stripe account cannot receive tips right now.", code: "CONNECT_UNAVAILABLE" }, { status: 409 });
+      }
+      const account = await getStripe().accounts.retrieve(accountId);
+      if (!account.charges_enabled || !account.payouts_enabled) {
+        return NextResponse.json({ error: "Your Stripe account cannot receive tips right now.", code: "CONNECT_UNAVAILABLE" }, { status: 409 });
+      }
     }
 
     const postRow = {
@@ -180,6 +215,7 @@ export async function POST(req: Request) {
       price_cents,
       allow_booking,
       booking_url,
+      tips_enabled,
       hashtags,
     };
 

@@ -18,6 +18,7 @@ type TagPost = {
   price_cents: number | null;
   allow_booking: boolean | null;
   booking_url: string | null;
+  tips_enabled: boolean;
   created_at: string;
   likes_count?: number | null;
   comments_count?: number | null;
@@ -45,6 +46,7 @@ const BASE_SELECT = `
   price_cents,
   allow_booking,
   booking_url,
+  tips_enabled,
   created_at,
   likes_count,
   comments_count,
@@ -196,8 +198,10 @@ export async function GET(
       }
     }
 
-    const enriched = merged.map((row) => ({
-      ...row,
+    const enriched = merged.map((row) => {
+      const { tips_enabled: tipsEnabled, ...publicRow } = row;
+      return ({
+      ...publicRow,
       product_type: row.product_id ? (productMap.get(row.product_id)?.type ?? null) : null,
       price_cents:
         (typeof row.price_cents === "number" && row.price_cents > 0
@@ -205,7 +209,9 @@ export async function GET(
           : null) ??
         (row.product_id ? (productMap.get(row.product_id)?.price ?? null) : null),
       creator: profileMap.get(row.creator_id) ?? null,
-    }));
+      tips_available: process.env.CREATOR_TIPPING_ENABLED === "true" && tipsEnabled === true && profileMap.get(row.creator_id)?.verified === true,
+    });
+    });
     const paged = enriched.slice(offset, offset + limit);
     const nextOffset = offset + paged.length;
     const hasMore = nextOffset < enriched.length;

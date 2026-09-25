@@ -144,6 +144,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
               productId={post.product_id} productType={post.product_type} monthlyTerms={post.monthlyTerms}
               purchaseOptionsReady={post.purchaseOptionsReady === true} priceCents={post.price_cents}
               allowBooking={!!post.allow_booking} bookingRedirectUrl={post.allow_booking ? post.booking_url : null}
+              tipsEnabled={post.tips_enabled === true}
               onDeleted={() => { onDeleted(post.id); onClose(); }}
             /> : post === undefined && !loadError && isWithinRenderWindow(index, activeIndex) ? <SearchPlayerFrameSkeleton /> : <div className="relative w-full lg:w-[420px] max-lg:h-[100dvh] lg:h-[100dvh] lg:min-h-[100dvh] bg-black flex items-center justify-center">
               {isWithinRenderWindow(index, activeIndex) && <div className="text-center text-white/70" role="status">

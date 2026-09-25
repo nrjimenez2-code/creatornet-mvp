@@ -31,6 +31,8 @@ type FeedListProps = {
   activeTab: Tab;
   onChangeTab: (t: Tab) => void; // used by the empty state's "Browse Discover"
   highlightPostId?: string | null;
+  openTipPostId?: string | null;
+  resumeTipId?: string | null;
 };
 
 const PAGE_SIZE = 20;
@@ -46,7 +48,7 @@ function useFeedViewportSize() {
   return { width, height };
 }
 
-export default function FeedList({ activeTab, onChangeTab, highlightPostId }: FeedListProps) {
+export default function FeedList({ activeTab, onChangeTab, highlightPostId, openTipPostId, resumeTipId }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId, loading: authLoading } = useUser();
   const desktop = useDesktopViewport();
@@ -372,6 +374,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                 allow_booking:
                   row.allow_booking ?? next[i].allow_booking ?? false,
                 booking_url: row.booking_url ?? next[i].booking_url,
+                tips_enabled: next[i].tips_enabled,
                 interests: stringArrayOrNull(row.interests) ?? next[i].interests,
                 hashtags: stringArrayOrNull(row.hashtags) ?? next[i].hashtags,
                 purchase_count:
@@ -403,6 +406,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               product_type: (row.product_type as string | null) ?? null,
               allow_booking: row.allow_booking ?? false,
               booking_url: row.booking_url ?? null,
+              tips_enabled: false,
               creator_name: null,
               creator_username: null,
               creator_avatar_url: null,
@@ -426,6 +430,43 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  // Auth and redirect round trips can land on a post outside the current feed
+  // page. Hydrate that visible post through the existing public video endpoint
+  // so the return lands on the same video without changing feed pagination.
+  const highlightFetchRef = useRef<string | null>(null);
+  const hasHighlightedPost = Boolean(highlightPostId && items.some(post => post.id === highlightPostId));
+  useEffect(() => {
+    if (!highlightPostId || loading || hasHighlightedPost ||
+        highlightFetchRef.current === highlightPostId) return;
+    highlightFetchRef.current = highlightPostId;
+    const controller = new AbortController();
+    let finished = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/search/videos", {
+          method: "POST", credentials: "include", cache: "no-store",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids: [highlightPostId] }), signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json();
+        const row = Array.isArray(payload.items) ? payload.items[0] : null;
+        if (controller.signal.aborted || row?.id !== highlightPostId || !row.video_url) return;
+        const targeted = {
+          ...row, tips_enabled: row.tips_available === true,
+          monthlyTerms: null, purchaseOptionsReady: false,
+        } as PostRow;
+        setItems(current => current.some(post => post.id === targeted.id) ? current : [targeted, ...current]);
+        enrichPosts([targeted], fetchGenRef.current);
+      } catch { /* An unavailable or moderated video remains absent from the feed. */ }
+      finally { finished = true; }
+    })();
+    return () => {
+      controller.abort();
+      if (!finished && highlightFetchRef.current === highlightPostId) highlightFetchRef.current = null;
+    };
+  }, [highlightPostId, loading, hasHighlightedPost, enrichPosts]);
 
   // Track video_impression when a new post enters view
   useEffect(() => {
@@ -801,6 +842,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     // booking
                     allowBooking={allowBooking}
                     bookingRedirectUrl={allowBooking ? p.booking_url! : null}
+                    tipsEnabled={p.tips_enabled === true}
+                    openTipOnMount={openTipPostId === p.id}
+                    resumeTipId={openTipPostId === p.id ? resumeTipId : null}
                     soundEnabled={isSoundOn}
                     isActive={isActive}
                     preload={!pageVisible ? "none" : idx === activeIndex || idx === activeIndex + 1 || warmingPostId === p.id ? "auto" : "metadata"}

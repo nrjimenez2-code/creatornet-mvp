@@ -22,7 +22,7 @@ export async function POST(req: Request) {
 
   try {
     const { data: posts, error: postsError } = await onlyVisiblePosts(supabaseAdmin.from("posts")
-      .select("id,creator_id,product_id,price_cents,title,content,video_url,poster_url,interests,hashtags,created_at,likes_count,comments_count,shares_count,allow_booking,booking_url")
+      .select("id,creator_id,product_id,price_cents,title,content,video_url,poster_url,interests,hashtags,created_at,likes_count,comments_count,shares_count,allow_booking,booking_url,tips_enabled")
       .in("id", ids)
       .eq("active", true));
     if (postsError) throw postsError;
@@ -41,12 +41,14 @@ export async function POST(req: Request) {
       return creator?.banned_at === null && !!creator.username?.trim();
     }).map(post => {
       const creator = creators.get(post.creator_id);
+      const { tips_enabled: tipsEnabled, ...publicPost } = post;
       return {
-        ...post,
+        ...publicPost,
         creator_username: creator?.username ?? null,
         creator_name: creator?.full_name || creator?.username || null,
         creator_avatar_url: creator?.avatar_url ?? null,
         creator_verified: isSellReadyProfile(creator),
+        tips_available: process.env.CREATOR_TIPPING_ENABLED === "true" && tipsEnabled === true && isSellReadyProfile(creator),
       };
     }) }, { headers });
   } catch (error) {

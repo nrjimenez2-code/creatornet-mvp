@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     "What CreatorNet collects, how it's used, who processes it, and the choices you have.",
 };
 
-const LAST_UPDATED = "September 14, 2026";
+const LAST_UPDATED = "September 24, 2026";
 
 function Section({ title, children, id }: { title: string; children: React.ReactNode; id?: string }) {
   return (
@@ -53,8 +53,10 @@ export default function PrivacyPolicyPage() {
             reviews.
           </li>
           <li>
-            <strong>Purchase and booking records</strong> — what you bought or booked, from
-            which creator, and its fulfillment status. Your card details never touch our
+            <strong>Payment and booking records</strong> — what you bought, booked, or tipped,
+            the creator and video involved, payment/refund/dispute status, and fulfillment status
+            where applicable. Tip amounts are private to the tipper, creator, and CreatorNet
+            administrators. Your card details never touch our
             servers: payment is completed on Stripe&apos;s hosted checkout pages.
           </li>
           <li>

@@ -334,6 +334,7 @@ export default function PostComposer({ onPosted }: Props) {
   // Booking (optional)
   const [attachBooking, setAttachBooking] = useState<boolean>(false);
   const [bookingUrl, setBookingUrl] = useState<string>("");
+  const [tipsEnabled, setTipsEnabled] = useState(false);
 
   // Inline product creation
   const [newProdOpen, setNewProdOpen] = useState(false);
@@ -365,6 +366,7 @@ export default function PostComposer({ onPosted }: Props) {
   const loadingProducts = !!userId && productsLoadedFor !== userId;
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
+  const [tippingAvailable, setTippingAvailable] = useState(false);
 
   // Derived: hashtags from caption (kept up to date as you type)
   const hashtags = useMemo(() => extractHashtags(caption), [caption]);
@@ -396,7 +398,10 @@ export default function PostComposer({ onPosted }: Props) {
         if (!cancelled) {
           const ready = !!data?.onboarding_complete;
           setStripeSellReady(ready);
+          setTippingAvailable(data?.tipping_enabled === true);
+          if (data?.tipping_enabled !== true) setTipsEnabled(false);
           if (!ready) {
+            setTipsEnabled(false);
             setAttachBuy(false);
             setProductId(null);
             setNewProdOpen(false);
@@ -406,6 +411,7 @@ export default function PostComposer({ onPosted }: Props) {
       } catch {
         if (!cancelled) {
           setStripeSellReady(false);
+          setTipsEnabled(false);
           setAttachBuy(false);
           setProductId(null);
           setNewProdOpen(false);
@@ -516,7 +522,7 @@ export default function PostComposer({ onPosted }: Props) {
 
       // 3) optional premium file → Supabase (stays private)
       let premium_path: string | null = null;
-      if (premiumFile) {
+      if (premiumFile && !tipsEnabled) {
         setUploadStage("Uploading premium file");
         setUploadPct(null); // Supabase path has no granular progress
         premium_path = await uploadPremiumToSupabase(supabase, premiumFile, userId);
@@ -526,15 +532,15 @@ export default function PostComposer({ onPosted }: Props) {
       const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const validProductId = productId && uuidLike.test(String(productId)) ? productId : null;
       const attached = validProductId ? products.find((p) => p.id === validProductId) : null;
-      const price_cents =
+      const price_cents = tipsEnabled ? null :
         attached?.membership_terms ? attached.price_cents : dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
 
       // 4b) Send selected product id when user chose one; API will verify it exists and belongs to user
-      const postProductId = attachBuy && validProductId ? validProductId : null;
+      const postProductId = !tipsEnabled && attachBuy && validProductId ? validProductId : null;
 
       // 5) Compute final booking target
       const finalBookingUrl =
-        attachBooking
+        !tipsEnabled && attachBooking
           ? bookingNormalized || `/api/book?creator_id=${userId}`
           : null;
 
@@ -555,8 +561,9 @@ export default function PostComposer({ onPosted }: Props) {
           topics: normalizeTopics(topicInput.split(",")),
           product_id: postProductId,
           price_cents,
-          allow_booking: !!attachBooking,
+          allow_booking: !tipsEnabled && !!attachBooking,
           booking_url: finalBookingUrl,
+          tips_enabled: tipsEnabled,
           hashtags,
         }),
       });
@@ -585,6 +592,7 @@ export default function PostComposer({ onPosted }: Props) {
       setAttachBuy(false);
       setAttachBooking(false);
       setBookingUrl("");
+      setTipsEnabled(false);
 
       onPosted?.();
     } catch (err: unknown) {
@@ -647,7 +655,7 @@ export default function PostComposer({ onPosted }: Props) {
             value={priceDollars}
             onChange={(e) => setPriceDollars(e.target.value)}
             placeholder="Optional, e.g. 25 for $25"
-            disabled={stripeSellReady === false}
+            disabled={stripeSellReady === false || tipsEnabled}
             className="flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80 disabled:opacity-50"
           />
         </div>
@@ -658,6 +666,25 @@ export default function PostComposer({ onPosted }: Props) {
         )}
       </div>
 
+      {/* Tips are a mutually exclusive monetization mode for free videos. */}
+      {stripeSellReady === true && tippingAvailable && <div className="mt-4 rounded-xl border border-white/15 bg-white/5 p-3">
+        <label className="inline-flex items-center gap-2 text-sm font-semibold text-white/90">
+          <input type="checkbox" checked={tipsEnabled} disabled={stripeSellReady !== true}
+            onChange={(event) => {
+              const next = event.target.checked;
+              setTipsEnabled(next);
+              if (next) {
+                setPriceDollars(""); setAttachBuy(false); setProductId(null); setNewProdOpen(false);
+                setAttachBooking(false); setBookingUrl(""); setPremiumFile(null);
+              }
+            }} />
+          Enable tips on this free video
+        </label>
+        <p className="mt-2 text-xs leading-5 text-white/55">
+          Viewers can optionally tip $5–$500. CreatorNet’s platform fee is 12%; payment processing may be deducted separately. Tips do not unlock content.
+        </p>
+      </div>}
+
       {/* Product attach */}
       <div className="mt-4 space-y-2">
         <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
@@ -665,8 +692,8 @@ export default function PostComposer({ onPosted }: Props) {
             type="checkbox"
             className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
             checked={attachBuy}
-            disabled={stripeSellReady === false}
-            onChange={(e) => setAttachBuy(e.target.checked)}
+            disabled={stripeSellReady === false || tipsEnabled}
+            onChange={(e) => { setAttachBuy(e.target.checked); if (e.target.checked) setTipsEnabled(false); }}
           />
           Attach &quot;Buy / Book&quot; to this post
         </label>
@@ -823,7 +850,8 @@ export default function PostComposer({ onPosted }: Props) {
             type="checkbox"
             className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
             checked={attachBooking}
-            onChange={(e) => setAttachBooking(e.target.checked)}
+            disabled={tipsEnabled}
+            onChange={(e) => { setAttachBooking(e.target.checked); if (e.target.checked) setTipsEnabled(false); }}
           />
           Offer &quot;Book a free call&quot; on this post
         </label>
@@ -901,7 +929,7 @@ export default function PostComposer({ onPosted }: Props) {
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60 sm:col-span-2">
+        <label className={`flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm sm:col-span-2 ${tipsEnabled ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-black/60"}`}>
           <span className="truncate">
             {premiumFile ? `🔒 premium: ${premiumFile.name}` : "🔒 Premium .mp4 (private, optional)"}
           </span>
@@ -909,6 +937,7 @@ export default function PostComposer({ onPosted }: Props) {
             type="file"
             accept="video/mp4"
             className="hidden"
+            disabled={tipsEnabled}
             onChange={(e) => setPremiumFile(e.target.files?.[0] ?? null)}
           />
         </label>

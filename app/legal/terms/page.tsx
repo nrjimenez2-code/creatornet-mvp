@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     "The terms that govern using CreatorNet — accounts, content, purchases, creator payouts, and acceptable use.",
 };
 
-const LAST_UPDATED = "September 9, 2026";
+const LAST_UPDATED = "September 24, 2026";
 const BUSINESS_LEGAL_NAME = "CREATORNET LLC NOAH RAY JIMENEZ SOLE MBR % NOAH RAY JIMENEZ SOLE MBR";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -87,6 +87,12 @@ export default function TermsPage() {
           creator&apos;s net earnings are the sale amount minus those two separate deductions.
           Creators are responsible for
           delivering what they sell, for the accuracy of their listings, and for their own taxes.
+        </p>
+        <p>
+          Signed-in viewers may voluntarily tip an eligible free video in USD. A tip does not
+          purchase or unlock content, and tip amounts are not displayed publicly. CreatorNet
+          applies the same 12% platform fee and any separately disclosed creator-funded payment
+          processing deduction. Tips may be refunded or reversed for disputes.
         </p>
         <p>
           When a payment is refunded, CreatorNet does not keep its 12% fee on the refunded
