@@ -65,7 +65,7 @@ export default function VideoSeekBar({ videoRef }: Props) {
   const timeLabelPosition = `clamp(44px, ${progress}%, calc(100% - 44px))`;
 
   return (
-    <div className="group/seek absolute inset-x-3 bottom-0 z-40 h-9 lg:inset-x-4" data-no-playback-toggle>
+    <div className="group/seek absolute inset-x-3 bottom-0 z-40 h-7 lg:inset-x-4" data-no-playback-toggle>
       {isScrubbing && duration > 0 && (
         <div
           aria-hidden="true"
