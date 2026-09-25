@@ -1540,8 +1540,8 @@ function VideoCard(props: VideoCardProps) {
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
           {/* Keep all details above the seek control's clear bottom lane. */}
           <div className={`relative p-3 sm:p-4 ${mainFeedMobileLayout
-            ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-[44px]"
-            : `${hasPurchaseControls ? "max-lg:pb-[56px]" : "max-lg:pb-[88px]"} max-lg:translate-y-[7px]`} ${hasPurchaseControls ? "lg:pb-[52px]" : "lg:pb-[80px]"} lg:translate-y-0`}>
+            ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-[30px]"
+            : `${hasPurchaseControls ? "max-lg:pb-[42px]" : "max-lg:pb-[74px]"} max-lg:translate-y-[7px]`} ${hasPurchaseControls ? "lg:pb-[38px]" : "lg:pb-[66px]"} lg:translate-y-0`}>
           <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"} ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
 
             <div className={`flex-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
