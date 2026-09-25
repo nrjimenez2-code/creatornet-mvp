@@ -43,6 +43,12 @@ Android Chrome, and desktop browsers:
 - Switch accounts on the same browser; verify separate preferences and guest state.
 - Watch-page native controls and feed controls agree on the saved preference.
 
-No application can permanently override the browser's autoplay policy. Reusing
-one media element across feed cards is a separate architectural change to consider
-only if actual device testing identifies repeated per-video prompts.
+No application can permanently override the browser's autoplay policy. The main
+phone feed now reuses one media element across active cards and a client-side
+trip to the profile page. This preserves the element that received the sound
+gesture; desktop cards and opened post viewers retain their own players. The
+shared player changes source for each post, so actual iPhone Safari testing is
+still required for sound continuity and startup smoothness.
+The phone feed also restores a short-lived in-memory snapshot after an in-app
+profile visit and refreshes it in the background. See
+`docs/mobile-feed-safari-acceptance.md` for the device check before release.
