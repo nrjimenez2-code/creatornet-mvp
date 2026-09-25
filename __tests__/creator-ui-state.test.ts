@@ -70,6 +70,24 @@ test("mute responds to local interaction and subsequent global sound changes", a
   expect(container.querySelector("video")?.muted).toBe(true);
 });
 
+test("seeking on a video card does not trigger its tap-to-pause gesture", async () => {
+  await act(async () => root.render(createElement(VideoCard, {
+    src: "https://example.test/video.mp4", isActive: false,
+  })));
+  const video = container.querySelector("video")!;
+  Object.defineProperty(video, "duration", { configurable: true, value: 60 });
+  await act(async () => video.dispatchEvent(new Event("loadedmetadata")));
+  const slider = container.querySelector<HTMLInputElement>('input[aria-label="Seek video"]')!;
+  expect(slider.disabled).toBe(false);
+
+  const playCalls = jest.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
+  await act(async () => {
+    slider.click();
+    await new Promise((resolve) => setTimeout(resolve, 350));
+  });
+  expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(playCalls);
+});
+
 test("follow success survives unchanged props and a different creator resets the button", async () => {
   fetchMock.mockResolvedValue(response({ success: true, following: true }));
   await act(async () => root.render(createElement(FollowButton, { creatorId: "creator-a", initialFollowing: false })));
