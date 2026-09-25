@@ -1541,7 +1541,7 @@ function VideoCard(props: VideoCardProps) {
           {/* Keep all details above the seek control's clear bottom lane. */}
           <div className={`relative p-3 sm:p-4 ${mainFeedMobileLayout
             ? "max-lg:flex max-lg:flex-col max-lg:pr-[76px] max-lg:pb-[44px]"
-            : `${hasPurchaseControls ? "max-lg:pb-[56px]" : "max-lg:pb-[88px]"} max-lg:translate-y-[7px]`} ${hasPurchaseControls ? "lg:pb-[44px]" : "lg:pb-[80px]"} lg:translate-y-0`}>
+            : `${hasPurchaseControls ? "max-lg:pb-[56px]" : "max-lg:pb-[88px]"} max-lg:translate-y-[7px]`} ${hasPurchaseControls ? "lg:pb-[52px]" : "lg:pb-[80px]"} lg:translate-y-0`}>
           <div className={`flex items-start gap-3 mb-3 ${monthlyTerms ? "" : "translate-y-[44px] lg:translate-y-[45px]"} ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
 
             <div className={`flex-1 min-w-0 ${mainFeedMobileLayout ? "max-lg:contents" : ""}`}>
