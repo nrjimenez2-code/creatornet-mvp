@@ -26,6 +26,7 @@ import { DESKTOP_FEED_SIDE_CLEARANCE, ORIGINAL_DESKTOP_FEED_WIDTH } from "@/lib/
 import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
 import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
+import VideoSeekBar from "./VideoSeekBar";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
@@ -285,7 +286,6 @@ function VideoCard(props: VideoCardProps) {
     setPlaybackFeedback(false);
     resumeFeedbackRef.current = false;
   }, [isActive, src]);
-  const progressBarRef = useRef<HTMLDivElement | null>(null);
   const [lk, setLk] = useState(() => toNum(likeCount ?? likes ?? 0));
   const [cm, setCm] = useState(() => toNum(commentCount ?? comments ?? 0));
   const [sh, setSh] = useState(() => toNum(shareCount ?? shares ?? 0));
@@ -598,7 +598,6 @@ function VideoCard(props: VideoCardProps) {
       const eligible = activeRef.current !== false && !document.hidden && !video.paused && !video.seeking && video.readyState >= 2;
       const seconds = watch.sample(performance.now(), video.currentTime, eligible, video.playbackRate);
       if (!eligible || !Number.isFinite(video.duration) || video.duration <= 0) return;
-      if (progressBarRef.current) progressBarRef.current.style.transform = `scaleX(${video.currentTime / video.duration})`;
       if (!hasTrackedViewRef.current && seconds >= qualifiedThreshold(video.duration)) {
         hasTrackedViewRef.current = true;
         trackEvent("video_viewed", {post_id:pid,creator_id:creatorIdRef.current,watch_time_seconds:seconds,qualified:true});
@@ -1709,13 +1708,7 @@ function VideoCard(props: VideoCardProps) {
           </div>
       </div>
 
-      <div className="absolute inset-x-0 bottom-0 h-0.5 bg-white/20 z-30" style={{ height: "2px" }}>
-        <div
-          ref={progressBarRef}
-          className="h-full bg-white/60 origin-left transition-transform duration-150 motion-reduce:transition-none"
-          style={{ width: "100%", transform: "scaleX(0)", height: "2px" }}
-        />
-      </div>
+      {src && <VideoSeekBar key={`${src}:${retryVersion}`} videoRef={videoRef} />}
     </div>
 
       <div
