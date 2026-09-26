@@ -14,10 +14,15 @@ export async function POST(req: NextRequest) {
   if (!allowRequest(`post-view-counts:${clientKey(req)}`, { limit: 90, windowMs: 60_000 })) return tooManyRequests();
   const body = await req.json().catch(() => null);
   if (!Array.isArray(body?.postIds) || body.postIds.length > POST_VIEW_COUNT_BATCH_SIZE ||
-      body.postIds.some((id: unknown) => typeof id !== "string" || !UUID.test(id))) {
+      body.postIds.some((id: unknown) => typeof id !== "string" || !UUID.test(id)) ||
+      (body.purchaseIds !== undefined && (!Array.isArray(body.purchaseIds) ||
+        body.purchaseIds.length > POST_VIEW_COUNT_BATCH_SIZE ||
+        body.purchaseIds.some((id: unknown) => typeof id !== "string" || !UUID.test(id))))) {
     return Response.json({ error: "Invalid videos." }, { status: 400, headers });
   }
   const ids = [...new Set<string>(body.postIds.map((id: string) => id.toLowerCase()))];
+  const purchaseIds = body.purchaseIds === undefined ? null :
+    [...new Set<string>(body.purchaseIds.map((id: string) => id.toLowerCase()))];
   if (!ids.length) return Response.json({ items: [] }, { headers });
   try {
     const user = await getAuthenticatedUser(req);
@@ -34,9 +39,13 @@ export async function POST(req: NextRequest) {
     if (user) {
       for (const post of posts) if (post.creator_id === user.id && post.removed_at === null) allowed.add(post.id);
       const privateIds = posts.filter(post => !allowed.has(post.id)).map(post => post.id);
-      if (privateIds.length) {
-        const purchases = await supabaseAdmin.from("purchases").select("id,post_id,buyer_id,status,access_granted")
-          .eq("buyer_id", user.id).in("post_id", privateIds).limit(100);
+      if (privateIds.length && (purchaseIds === null || purchaseIds.length)) {
+        // Library supplies the eligible rows it already loaded. Recheck those exact
+        // purchases so unrelated retries cannot crowd an older entitlement out of a batch.
+        let purchaseQuery = supabaseAdmin.from("purchases").select("id,post_id,buyer_id,status,access_granted")
+          .eq("buyer_id", user.id).in("post_id", privateIds);
+        if (purchaseIds !== null) purchaseQuery = purchaseQuery.in("id", purchaseIds);
+        const purchases = await purchaseQuery.limit(POST_VIEW_COUNT_BATCH_SIZE);
         if (purchases.error) throw purchases.error;
         for (const purchase of purchases.data ?? []) {
           if (!allowed.has(purchase.post_id) && await isLibraryPurchaseEligible(supabaseAdmin, purchase, user.id)) allowed.add(purchase.post_id);

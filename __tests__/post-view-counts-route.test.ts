@@ -17,13 +17,16 @@ beforeEach(() => {
   db = createMockClient(op => {
     if(op.table === "posts") return { data: rows, error: readError ? {} : null };
     if(op.table === "profiles") return { data: profiles, error: null };
-    if(op.table === "purchases") return { data: purchases, error: null };
+    if(op.table === "purchases") {
+      const selected = op.inFilters.find(filter => filter.column === "id")?.values;
+      return { data: selected ? purchases.filter(p => selected.includes(p.id)) : purchases, error: null };
+    }
     if(op.table === "get_post_view_counts_v1") return { data: (op.payload as {p_post_ids:string[]}).p_post_ids.map(post_id => ({ post_id, view_count: 1395 })), error: null };
     if(op.kind === "rpc") return { data: { applicable: true, allowed: true, maxAgeSeconds: 10 }, error: null };
     return undefined;
   });
 });
-const request = (postIds: unknown = rows.map(row => row.id)) => POST(new NextRequest("https://site.invalid/api/posts/view-counts", { method:"POST",body:JSON.stringify({ postIds, buyer_id:"creator" }) }));
+const request = (postIds: unknown = rows.map(row => row.id), purchaseIds?: unknown) => POST(new NextRequest("https://site.invalid/api/posts/view-counts", { method:"POST",body:JSON.stringify({ postIds, purchaseIds, buyer_id:"creator" }) }));
 test("anonymous ids expose only public published videos and counts, never identities/events", async () => {
   const res = await request();
   expect(res.headers.get("cache-control")).toBe("private, no-store");
@@ -46,6 +49,23 @@ test("eligible Library access permits moderated posts and is bound to the authen
 });
 test.each([null,["not-a-uuid"],Array(101).fill(id(1))])("invalid ids %p never reach storage", async postIds => {
   expect((await request(postIds)).status).toBe(400); expect(db.ops).toHaveLength(0);
+});
+test("Library selects its older eligible purchase even when over 100 unrelated attempts exist", async () => {
+  user = { id:"buyer" };
+  purchases = Array.from({length:120},(_,i) => ({id:id(200+i),post_id:id(2),buyer_id:"buyer",status:"refunded",access_granted:true}));
+  purchases.push({id:id(999),post_id:id(2),buyer_id:"buyer",status:"paid",access_granted:true});
+  expect(await (await request([id(2)],[id(999)])).json()).toEqual({items:[{post_id:id(2),view_count:1395}]});
+  expect(db.opsFor("purchases")[0].inFilters).toContainEqual({column:"id",values:[id(999)]});
+  expect(db.opsFor("purchases")[0].filters.buyer_id).toBe("buyer");
+});
+test("supplied purchase IDs cannot authorize another buyer or an expired purchase", async () => {
+  user = {id:"buyer"};
+  purchases = [{id:id(900),post_id:id(2),buyer_id:"other",status:"paid",access_granted:true},
+    {id:id(901),post_id:id(3),buyer_id:"buyer",status:"refunded",access_granted:true}];
+  expect(await (await request([id(2),id(3)],[id(900),id(901)])).json()).toEqual({items:[]});
+});
+test.each([null,["not-a-uuid"],Array(101).fill(id(1))])("invalid purchase ids %p never reach storage", async purchaseIds => {
+  expect((await request([id(2)],purchaseIds)).status).toBe(400); expect(db.ops).toHaveLength(0);
 });
 test("unknown ids are omitted and failed authorization reads are errors", async () => {
   expect(await (await request([id(99)])).json()).toEqual({items:[]});

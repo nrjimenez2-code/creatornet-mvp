@@ -42,3 +42,14 @@ test("client batches only on reload and reads counts without event writes or ret
   expect((await loadPostViewCounts(["p0"])).get("p0")).toBeNull();
   expect(fetchMock).toHaveBeenCalledTimes(1);
 });
+test("Library purchase references stay within their matching count batch", async () => {
+  const ids = Array.from({length:101},(_,i)=>`post-${i}`);
+  const purchaseIdByPost = new Map([...ids.map((id,i)=>[id,`purchase-${i}`] as const),["unloaded","unrelated"]]);
+  const fetchMock = jest.fn().mockResolvedValue({ok:true,json:async()=>({items:[]})});
+  global.fetch = fetchMock;
+  await loadPostViewCounts(ids,{purchaseIdByPost});
+  const payloads = fetchMock.mock.calls.map(([,init])=>JSON.parse(init.body));
+  expect(payloads.map(p=>p.purchaseIds.length)).toEqual([100,1]);
+  expect(payloads[1]).toEqual({postIds:["post-100"],purchaseIds:["purchase-100"]});
+  expect(payloads[0].purchaseIds).not.toContain("unrelated");
+});

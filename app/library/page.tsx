@@ -308,7 +308,9 @@ export default function LibraryPage() {
           }
         }
 
-        const counts = await loadPostViewCounts(base.filter(b => !!b.video_url).map(b => b.post_id));
+        const counts = await loadPostViewCounts(base.filter(b => !!b.video_url).map(b => b.post_id), {
+          purchaseIdByPost: new Map(base.map(b => [b.post_id, b.id])),
+        });
         const merged = base.map((b) => ({
           view_count: counts.get(b.post_id) ?? null,
           ...b,
