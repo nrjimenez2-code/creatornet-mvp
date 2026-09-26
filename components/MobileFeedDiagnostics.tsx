@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { exportFeedTrace, resetFeedTrace, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
 
 type Props = {
@@ -17,6 +17,9 @@ type Reading = {
   readyState: number;
   muted: boolean;
 };
+
+const captureFields = ["runId", "buildCommit", "surface", "iosVersion", "instagramVersion", "network", "powerMode", "temperature", "recordingId"] as const;
+type CaptureContext = Partial<Record<typeof captureFields[number], string>>;
 
 export function readMobileFeedDiagnostics(video: HTMLVideoElement): Reading {
   let ahead = 0;
@@ -43,17 +46,38 @@ export default function MobileFeedDiagnostics({ activePostId, getVideo }: Props)
   const [reading, setReading] = useState<Reading | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState("");
+  const [context, setContext] = useState<CaptureContext>({});
+  const [exporting, setExporting] = useState(false);
+  const [download, setDownload] = useState<{ url: string; name: string } | null>(null);
+  const downloadUrl = useRef<string | null>(null);
+  const clearDownload = () => {
+    if (downloadUrl.current) URL.revokeObjectURL(downloadUrl.current);
+    downloadUrl.current = null;
+    setDownload(null);
+  };
+  useEffect(() => () => {
+    if (downloadUrl.current) URL.revokeObjectURL(downloadUrl.current);
+  }, []);
   const exportRun = async () => {
-    const file = new File([JSON.stringify(exportFeedTrace(), null, 2)], `creatornet-feed-${Date.now()}.json`, { type: "application/json" });
+    clearDownload();
+    setExporting(true);
     try {
-      if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file], title: "CreatorNet feed trace" });
-      else {
-        const url = URL.createObjectURL(file);
-        const link = document.createElement("a"); link.href = url; link.download = file.name; link.click();
-        setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      const file = new File([JSON.stringify(exportFeedTrace(), null, 2)], `creatornet-feed-${Date.now()}.json`, { type: "application/json" });
+      const url = URL.createObjectURL(file);
+      downloadUrl.current = url;
+      setDownload({ url, name: file.name });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: "CreatorNet feed trace" });
+        setStatus("Trace shared. Download JSON is also available.");
+      } else {
+        setStatus("Trace ready. Tap Download JSON to save it.");
       }
-      setStatus("Trace exported");
-    } catch { setStatus("Export cancelled or unavailable. Try Safari's share/download controls."); }
+    } catch (error) {
+      const cancelled = error instanceof Error && error.name === "AbortError";
+      setStatus(downloadUrl.current
+        ? `${cancelled ? "Sharing cancelled" : "Sharing unavailable"}. Your trace is retained; tap Download JSON to save it.`
+        : "Could not prepare the export. Your trace is retained; try Export trace again.");
+    } finally { setExporting(false); }
   };
   useEffect(() => {
     if (!activePostId) return;
@@ -75,12 +99,17 @@ export default function MobileFeedDiagnostics({ activePostId, getVideo }: Props)
     </> : <div>Waiting for video…</div>}
     <button type="button" onClick={() => setExpanded(!expanded)} className="underline">{expanded ? "Hide capture controls" : "Capture controls"}</button>
     {expanded && <div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pt-2">
-      {(["runId", "buildCommit", "surface", "iosVersion", "instagramVersion", "network", "powerMode", "temperature", "recordingId"] as const).map(field => <label key={field}>
-        {field}<input aria-label={field} className="block w-full bg-white/10 p-1" onChange={event => setFeedRunContext({ [field]: event.target.value.slice(0, 160) })} />
+      {captureFields.map(field => <label key={field}>
+        {field}<input aria-label={field} value={context[field] ?? ""} className="block w-full bg-white/10 p-1" onChange={event => {
+          const value = event.target.value.slice(0, 160);
+          setContext(previous => ({ ...previous, [field]: value }));
+          setFeedRunContext({ [field]: value });
+        }} />
       </label>)}
       <div>Sound, visible output and memory need phone evidence. Hide these controls before swiping.</div>
-      <button type="button" className="rounded border p-1" onClick={() => { resetFeedTrace(); setStatus("New run; swipe to the first scored post"); }}>Start new run</button>
-      <button type="button" className="rounded border p-1" onClick={() => void exportRun()}>Export trace</button>
+      <button type="button" disabled={exporting} className="rounded border p-1" onClick={() => { clearDownload(); resetFeedTrace(); setStatus("New run; swipe to the first scored post"); }}>Start new run</button>
+      <button type="button" disabled={exporting} className="rounded border p-1" onClick={() => void exportRun()}>Export trace</button>
+      {download && <a className="rounded border p-1 text-center underline" href={download.url} download={download.name} onClick={() => setStatus("Download requested. Confirm the JSON file was saved before closing this page.")}>Download JSON</a>}
       <div role="status">{status}</div>
     </div>}
   </div>;
