@@ -27,8 +27,8 @@ import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
 import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import VideoSeekBar from "./VideoSeekBar";
-import { claimMobileFeedPlayer, mobileFeedPlaybackReady, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
-import { recordFeedEvent, playableBuffer } from "@/lib/mobileFeedDiagnostics";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, recentMobileFeedPosition, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { recordFeedEvent, recordLegacyPreparation, measuredPreparation } from "@/lib/mobileFeedDiagnostics";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
@@ -286,7 +286,7 @@ function VideoCard(props: VideoCardProps) {
   useLayoutEffect(() => {
     if (!useSharedMobilePlayer || !src || !sharedVideoHostRef.current) return;
     const owner = sharedVideoOwnerRef.current;
-    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src);
+    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src, measuredPreparation(previewVideoRef.current, src, recentMobileFeedPosition(postId ?? src, src)));
     videoRef.current = video;
     video.className = `absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover`;
     video.preload = preload;
@@ -870,8 +870,8 @@ function VideoCard(props: VideoCardProps) {
         video.pause();
       }
     };
-    const ready = () => {
-      if (mobileFeedPlayer) recordFeedEvent("legacy-preview-frame", { postId: postId ?? "", position: video.currentTime, buffer: playableBuffer(video), readyState: video.readyState, seeking: video.seeking });
+    const ready = (_event?: Event | number, metadata?: VideoFrameCallbackMetadata) => {
+      if (mobileFeedPlayer) recordLegacyPreparation(video, postId ?? "", metadata);
       video.dataset.warmedFrame = "true";
       setPreviewFrameReady(true);
       stop();

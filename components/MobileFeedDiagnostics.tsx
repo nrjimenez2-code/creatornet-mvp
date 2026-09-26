@@ -79,7 +79,7 @@ export default function MobileFeedDiagnostics({ activePostId, getVideo }: Props)
         {field}<input aria-label={field} className="block w-full bg-white/10 p-1" onChange={event => setFeedRunContext({ [field]: event.target.value.slice(0, 160) })} />
       </label>)}
       <div>Sound, visible output and memory need phone evidence. Hide these controls before swiping.</div>
-      <button type="button" className="rounded border p-1" onClick={() => { resetFeedTrace(); setStatus("New run; enter the feed again for a complete activation"); }}>Start new run</button>
+      <button type="button" className="rounded border p-1" onClick={() => { resetFeedTrace(); setStatus("New run; swipe to the first scored post"); }}>Start new run</button>
       <button type="button" className="rounded border p-1" onClick={() => void exportRun()}>Export trace</button>
       <div role="status">{status}</div>
     </div>}

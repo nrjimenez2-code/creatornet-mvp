@@ -34,6 +34,12 @@ function takeRecentPosition(postId: string, src: string): number | null {
   return saved.time;
 }
 
+/** Read-only measurement of the existing return policy; never consumes a position. */
+export function recentMobileFeedPosition(postId: string, src: string): number {
+  const saved = recentPositions.get(postId);
+  return saved && saved.src === src && Date.now() - saved.savedAt <= RESUME_WINDOW_MS ? saved.time : 0;
+}
+
 function cancelPendingSeek(): void {
   if (pendingSeek && player) recordFeedEvent("resume-seek-cancel", {}, player);
   pendingSeek?.cancel();
@@ -88,7 +94,7 @@ function getParkingPlace(): HTMLDivElement {
   return parkingPlace;
 }
 
-export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src): HTMLVideoElement {
+export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, warmEligible: boolean | null = null): HTMLVideoElement {
   if (!player) {
     player = document.createElement("video");
     player.playsInline = true;
@@ -102,7 +108,7 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
   if (changedPost || changedSource) cancelPendingSeek();
   owner = token;
   host.appendChild(player);
-  beginFeedVideoTrace(player, postId, src);
+  beginFeedVideoTrace(player, postId, src, warmEligible);
   if (changedSource) {
     player.src = src;
   }

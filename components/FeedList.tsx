@@ -18,7 +18,7 @@ import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
 import { FeedSkeleton } from "@/components/loading/Skeletons";
 import { clearMobileFeedSnapshot, readMobileFeedSnapshot, saveMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
-import { observeFeedScroll, recordFeedEvent } from "@/lib/mobileFeedDiagnostics";
+import { feedTraceEnabled, observeFeedScroll, recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -44,7 +44,7 @@ function subscribeViewportSize(notify: () => void) {
   return () => window.removeEventListener("resize", notify);
 }
 const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
-const debugSnapshot = () => new URLSearchParams(window.location.search).get("feedDebug") === "1";
+const debugSnapshot = () => feedTraceEnabled();
 function subscribeDebug(notify: () => void) {
   window.addEventListener("popstate", notify);
   return () => window.removeEventListener("popstate", notify);
@@ -87,6 +87,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const showDiagnostics = useSyncExternalStore(subscribeDebug, debugSnapshot, () => false);
+  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: "baseline" }); }, [desktop, activeTab]);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
