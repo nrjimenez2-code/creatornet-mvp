@@ -929,7 +929,7 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("playing", ready);
       stop();
     };
-  }, [props.prepareFrame, isActive, pageVisible, previewFrameReady, src, retryVersion, controlledMobilePlayer, postId]);
+  }, [props.prepareFrame, isActive, pageVisible, previewFrameReady, src, retryVersion, controlledMobilePlayer, postId, mobileFeedPlayer]);
 
   // Local diagnostics only: inspect the video element to distinguish download
   // readiness from activation-to-first-frame delay without extra React renders.
@@ -969,7 +969,7 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("playing", recordFrame);
       video.removeEventListener("waiting", onWaiting);
     };
-  }, [isActive, src, retryVersion, useSharedMobilePlayer]);
+  }, [isActive, src, retryVersion, useSharedMobilePlayer, mobileFeedPlayer]);
 
   // Readiness is observed, never inferred from the preload hint (especially on iOS).
   useEffect(() => {
