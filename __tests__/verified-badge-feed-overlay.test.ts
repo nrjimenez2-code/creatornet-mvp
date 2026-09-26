@@ -376,6 +376,82 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     }
   });
 
+  test("updating a phone poster does not interrupt the shared player", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      const props = {
+        src: "https://cdn.example.com/stable.mp4", postId: "poster-stable",
+        isActive: true, sharedMobileFeedPlayer: true,
+      };
+      await render({ ...props, poster: "/poster-one.jpg" });
+      const video = container.querySelector("video")!;
+      pause.mockClear();
+      await render({ ...props, poster: "/poster-two.jpg" });
+      expect(container.querySelector("video")).toBe(video);
+      expect(pause).not.toHaveBeenCalled();
+      expect(video.poster).toContain("/poster-two.jpg");
+    } finally {
+      play.mockRestore(); pause.mockRestore();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  test("a quick phone return seeks before requesting playback", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      const base = { sharedMobileFeedPlayer: true, isActive: true, soundEnabled: true };
+      await render({ ...base, postId: "quick-return-a", src: "https://cdn.example.com/quick-a.mp4" });
+      const video = container.querySelector("video")!;
+      video.currentTime = 7;
+      await render({ ...base, postId: "quick-return-b", src: "https://cdn.example.com/quick-b.mp4" });
+      video.currentTime = 1;
+      play.mockClear();
+
+      await render({ ...base, postId: "quick-return-a", src: "https://cdn.example.com/quick-a.mp4" });
+      expect(container.querySelector("video")).toBe(video);
+      expect(play).not.toHaveBeenCalled();
+      await act(async () => {
+        video.dispatchEvent(new Event("loadedmetadata"));
+        video.dispatchEvent(new Event("seeked"));
+      });
+      expect(video.currentTime).toBe(7);
+      expect(play).toHaveBeenCalledTimes(1);
+    } finally {
+      play.mockRestore(); pause.mockRestore();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  test("entering the phone layout starts its newly attached player", async () => {
+    const originalMatchMedia = window.matchMedia;
+    let desktop = true;
+    const listeners = new Set<() => void>();
+    window.matchMedia = jest.fn(() => ({
+      get matches() { return desktop; },
+      addEventListener: (_event: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_event: string, listener: () => void) => listeners.delete(listener),
+    })) as unknown as typeof window.matchMedia;
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/resize.mp4", postId: "resize", isActive: true, sharedMobileFeedPlayer: true });
+      const desktopVideo = container.querySelector("video")!;
+      play.mockClear();
+      await act(async () => { desktop = false; listeners.forEach(listener => listener()); });
+      expect(container.querySelector("video")).not.toBe(desktopVideo);
+      expect(play).toHaveBeenCalledTimes(1);
+    } finally {
+      play.mockRestore(); pause.mockRestore();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   test("warmup cleanup never pauses a video that has become active", async () => {
     jest.useFakeTimers();
     const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
