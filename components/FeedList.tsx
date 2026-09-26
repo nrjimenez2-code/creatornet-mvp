@@ -18,6 +18,7 @@ import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
 import { FeedSkeleton } from "@/components/loading/Skeletons";
 import { clearMobileFeedSnapshot, readMobileFeedSnapshot, saveMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
+import { feedTraceEnabled, observeFeedScroll, recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -43,7 +44,7 @@ function subscribeViewportSize(notify: () => void) {
   return () => window.removeEventListener("resize", notify);
 }
 const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
-const debugSnapshot = () => new URLSearchParams(window.location.search).get("feedDebug") === "1";
+const debugSnapshot = () => feedTraceEnabled();
 function subscribeDebug(notify: () => void) {
   window.addEventListener("popstate", notify);
   return () => window.removeEventListener("popstate", notify);
@@ -86,6 +87,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const showDiagnostics = useSyncExternalStore(subscribeDebug, debugSnapshot, () => false);
+  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: "baseline" }); }, [desktop, activeTab]);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
@@ -142,6 +144,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
   const getFeedVideo = useCallback((postId: string) => sectionRefs.current.get(postId)?.querySelector("video") ?? null, []);
   const feedScrollTopRef = useRef(0);
+  useEffect(() => {
+    const root = feedScrollRef.current;
+    if (!desktop && root) return observeFeedScroll(root, activeTab);
+  }, [desktop, activeTab, loading]);
   const snapshotEligibleRef = useRef(true);
   const initialRestoreRef = useRef(true);
   const pendingScrollRestoreRef = useRef<{ scrollTop?: number; postId?: string } | null>(null);
@@ -582,7 +588,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
         const delta = root.scrollTop - scrollPositionRef.current;
         if (Math.abs(delta) > 1) scrollDirectionRef.current = delta > 0 ? 1 : -1;
         scrollPositionRef.current = root.scrollTop;
-        entries.forEach(entry => ratios.set(entry.target, entry));
+        entries.forEach(entry => {
+          ratios.set(entry.target, entry);
+          if (!desktop) recordFeedEvent("visibility", { postId: (entry.target as HTMLElement).dataset.postId ?? "", ratio: entry.intersectionRatio });
+        });
         const visible = [...ratios.values()]
           .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];

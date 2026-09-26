@@ -27,7 +27,8 @@ import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
 import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import VideoSeekBar from "./VideoSeekBar";
-import { claimMobileFeedPlayer, mobileFeedPlaybackReady, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, recentMobileFeedPosition, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { recordFeedEvent, recordLegacyPreparation, measuredPreparation } from "@/lib/mobileFeedDiagnostics";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
@@ -285,12 +286,13 @@ function VideoCard(props: VideoCardProps) {
   useLayoutEffect(() => {
     if (!useSharedMobilePlayer || !src || !sharedVideoHostRef.current) return;
     const owner = sharedVideoOwnerRef.current;
-    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src);
+    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src, measuredPreparation(previewVideoRef.current, src, recentMobileFeedPosition(postId ?? src, src)));
     videoRef.current = video;
     video.className = `absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover`;
     video.preload = preload;
     video.muted = mutedRef.current;
     const onError = () => {
+      recordFeedEvent("fallback", { code: video.error?.code ?? null, position: video.currentTime, from: adaptiveSrc ? "hls" : "mp4", terminal: src === originalSrc }, video);
       if (adaptiveSrc) setFailedAdaptiveSource(originalSrc);
       else if (src !== originalSrc) setFailedMediaSource(originalSrc);
       else setMediaError(true);
@@ -718,7 +720,8 @@ function VideoCard(props: VideoCardProps) {
 
   useEffect(() => {
     if (frameReady && isActive && postId) firstFrame?.(postId);
-  }, [frameReady, isActive, postId, firstFrame]);
+    if (frameReady && useSharedMobilePlayer && videoRef.current) recordFeedEvent("cover-removal", {}, videoRef.current);
+  }, [frameReady, isActive, postId, firstFrame, useSharedMobilePlayer]);
 
   // Browser refused unmuted playback (no gesture yet on this page): keep the
   // video moving muted and offer a one-tap unmute. The saved preference is
@@ -777,6 +780,7 @@ function VideoCard(props: VideoCardProps) {
     const tryPlay = (retried = false) => {
       if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
       video.muted = mutedRef.current;
+      if (useSharedMobilePlayer) recordFeedEvent("play-request", { muted: video.muted, retried }, video);
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         void playPromise.then(() => {
@@ -866,7 +870,8 @@ function VideoCard(props: VideoCardProps) {
         video.pause();
       }
     };
-    const ready = () => {
+    const ready = (_event?: Event | number, metadata?: VideoFrameCallbackMetadata) => {
+      if (mobileFeedPlayer) recordLegacyPreparation(video, postId ?? "", metadata);
       video.dataset.warmedFrame = "true";
       setPreviewFrameReady(true);
       stop();
@@ -892,7 +897,7 @@ function VideoCard(props: VideoCardProps) {
   // readiness from activation-to-first-frame delay without extra React renders.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !isActive) return;
+    if (!video || !isActive || mobileFeedPlayer) return;
     const started = performance.now();
     let frame: number | undefined;
     let stalls = 0;
