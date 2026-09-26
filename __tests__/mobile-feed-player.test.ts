@@ -1,10 +1,11 @@
 /** @jest-environment jsdom */
 
-import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedSeekFailed, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, mobileFeedSeekFailed, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
 
 describe("mobile feed media element", () => {
   beforeEach(() => {
     jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
     jest.spyOn(HTMLMediaElement.prototype, "currentSrc", "get").mockImplementation(function (this: HTMLMediaElement) { return this.src; });
   });
 
@@ -103,5 +104,89 @@ describe("mobile feed media element", () => {
     jest.advanceTimersByTime(2_000); await ready;
     expect(mobileFeedSeekFailed(token)).toBe(true);
     releaseMobileFeedPlayer(token);
+  });
+});
+
+describe("fixed departure snapshots", () => {
+  beforeEach(() => {
+    jest.useFakeTimers(); jest.setSystemTime(100_000);
+    jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+  });
+  afterEach(() => { jest.restoreAllMocks(); jest.useRealTimers(); });
+  function depart(id: string, position = 12.4, version = id) {
+    const token = Symbol(id);
+    const video = claimMobileFeedPlayer(document.createElement("div"), token, `https://example.test/${id}.mp4`, id, { contentVersion: version });
+    video.currentTime = position; releaseMobileFeedPlayer(token);
+    return video;
+  }
+  test.each([4_999, 5_000, 5_001])("return at %i ms uses a synchronously checked snapshot", delay => {
+    const id = `boundary-${delay}`; depart(id);
+    const saved = mobileFeedResumeSnapshot(id, id);
+    // Advance the wall clock without delivering the expiry callback.
+    jest.setSystemTime(100_000 + delay);
+    expect(mobileFeedResumeSnapshot(id, id).position).toBe(delay < 5_000 ? 12.4 : 0);
+    const token = Symbol(id);
+    const video = claimMobileFeedPlayer(document.createElement("div"), token, `https://example.test/${id}.mp4`, id, { contentVersion: id, snapshot: saved });
+    Object.defineProperty(video, "currentSrc", { configurable: true, get: () => video.src });
+    video.dispatchEvent(new Event("loadedmetadata"));
+    expect(video.currentTime).toBe(delay < 5_000 ? 12.4 : 0);
+    expect(mobileFeedResumeSnapshot(id, id).position).toBe(0);
+    releaseMobileFeedPlayer(token);
+  });
+  test("one timer expires parked media but keeps the audible element", () => {
+    const video = depart("park-expiry");
+    jest.advanceTimersByTime(5_000);
+    expect(video.hasAttribute("src")).toBe(false);
+    expect(video.isConnected).toBe(true);
+    const token = Symbol("new");
+    expect(claimMobileFeedPlayer(document.createElement("div"), token, "next.mp4", "new")).toBe(video);
+    releaseMobileFeedPlayer(token);
+  });
+  test("expiry of another saved post never rewinds the watched post", () => {
+    depart("offscreen");
+    const token = Symbol("watching");
+    const video = claimMobileFeedPlayer(document.createElement("div"), token, "watching.mp4", "watching");
+    video.currentTime = 24;
+    jest.advanceTimersByTime(5_001);
+    expect(video.currentTime).toBe(24); expect(video.getAttribute("src")).toBe("watching.mp4");
+    releaseMobileFeedPlayer(token);
+  });
+  test("two-entry eviction and overwritten content cannot inherit an old position", () => {
+    depart("evicted"); depart("second"); depart("third");
+    expect(mobileFeedResumeSnapshot("evicted", "evicted").position).toBe(0);
+    expect(mobileFeedResumeSnapshot("second", "second").position).toBe(12.4);
+    expect(mobileFeedResumeSnapshot("second", "replacement").position).toBe(0);
+  });
+  test("preparation reads and rendition changes do not extend a departure deadline", () => {
+    depart("versioned", 8, "content-v1");
+    const first = mobileFeedResumeSnapshot("versioned", "content-v1");
+    jest.advanceTimersByTime(4_999);
+    expect(mobileFeedResumeSnapshot("versioned", "content-v1")).toEqual(first);
+    jest.advanceTimersByTime(1);
+    const token = Symbol("replacement-source");
+    const video = claimMobileFeedPlayer(document.createElement("div"), token, "other-rendition.mp4", "versioned", { contentVersion: "content-v1", snapshot: first });
+    video.dispatchEvent(new Event("loadedmetadata")); expect(video.currentTime).toBe(0);
+    releaseMobileFeedPlayer(token);
+  });
+  test("a consumed return and subsequent departure start a fresh window", () => {
+    depart("repeat", 8); jest.advanceTimersByTime(4_000);
+    const token = Symbol("repeat");
+    const video = claimMobileFeedPlayer(document.createElement("div"), token, "repeat.mp4", "repeat", { contentVersion: "repeat" });
+    video.currentTime = 9; releaseMobileFeedPlayer(token);
+    jest.advanceTimersByTime(2_000);
+    expect(mobileFeedResumeSnapshot("repeat", "repeat").position).toBe(9);
+    jest.advanceTimersByTime(3_000);
+    expect(mobileFeedResumeSnapshot("repeat", "repeat").position).toBe(0);
+  });
+  test("active source replacement retains position without a new departure", () => {
+    const first = Symbol("replace-first"), second = Symbol("replace-second");
+    const video = claimMobileFeedPlayer(document.createElement("div"), first, "v1.mp4", "replace", { contentVersion: "v1" });
+    video.currentTime = 8; releaseMobileFeedPlayer(first, false);
+    claimMobileFeedPlayer(document.createElement("div"), second, "other-v1.mp4", "replace", { contentVersion: "v1" });
+    Object.defineProperty(video, "currentSrc", { configurable: true, get: () => video.src });
+    video.dispatchEvent(new Event("loadedmetadata")); expect(video.currentTime).toBe(8);
+    expect(mobileFeedResumeSnapshot("replace", "v1").expiresAt).toBeNull();
+    releaseMobileFeedPlayer(second);
   });
 });

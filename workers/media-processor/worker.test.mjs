@@ -5,7 +5,7 @@ import worker,{processMessage,validKey} from './worker.mjs';
 
 class Bucket {
   objects=new Map();
-  async get(k){const v=this.objects.get(k);return v?{json:async()=>JSON.parse(v.body)}:null;}
+  async get(k){const v=this.objects.get(k);return v?{size:v.body.length,json:async()=>JSON.parse(v.body)}:null;}
   async head(k){return this.objects.get(k)||null;}
   async put(k,body,options={}){if(options.onlyIf&&this.objects.has(k))return null; const v={body,etag:'etag',size:typeof body==='string'?body.length:4};this.objects.set(k,v);return v;}
 }
@@ -126,4 +126,75 @@ test('metadata starts independent storage reads together and bounds retained rea
  const previous=reads;
  assert.equal((await worker.fetch(f.request(),f.env)).status,200);
  assert.equal(reads,previous+1);
+});
+
+function playbackFixture() {
+  const f=fixture(), key='videos/test.mp4', id=createHash('sha256').update(key+'\nsource').digest('hex');
+  const outputKey='feed-auto/'+id+'.mp4', streamId='b'.repeat(32);
+  f.env.STATE.objects.set('ready/'+key+'.json',{body:JSON.stringify({etag:'source',outputKey,durationSeconds:12.5})});
+  f.env.STATE.objects.set('jobs/'+id+'.json',{body:JSON.stringify({id,key,etag:'source',streamId,phase:'done',outputKey})});
+  f.env.MEDIA.objects.set(outputKey,{etag:'output',size:4,httpMetadata:{contentType:'video/mp4'}});
+  f.env.STREAM.video=uid=>({details:async()=>({meta:{creatornetJob:id},readyToStream:true,requireSignedURLs:false,duration:12.5,hlsPlaybackUrl:'https://customer-test.cloudflarestream.com/'+uid+'/manifest/video.m3u8'})});
+  return {...f,id,key,outputKey,streamId,request:()=>new Request('https://media.creatornet.net/auto/playback/'+key)};
+}
+test('public descriptor recovers existing Stream and never writes, imports, generates or proxies',async()=>{
+ const f=playbackFixture();let sourceHeads=0,stateReads=0,streamReads=0;
+ const head=f.env.MEDIA.head.bind(f.env.MEDIA),get=f.env.STATE.get.bind(f.env.STATE),video=f.env.STREAM.video;
+ f.env.MEDIA.head=async key=>{if(key===f.key)sourceHeads++;return head(key)};
+ f.env.STATE.get=async key=>{stateReads++;return get(key)};
+ f.env.STREAM.video=uid=>{streamReads++;return video(uid)};
+ f.env.STATE.put=f.env.MEDIA.put=async()=>{throw Error('unexpected write')};
+ f.env.STREAM.upload=async()=>{throw Error('unexpected import')};
+ const old=globalThis.fetch;globalThis.fetch=async()=>{throw Error('unexpected manifest or download fetch')};
+ try{
+  for(let i=0;i<2;i++){
+   const response=await worker.fetch(f.request(),f.env),descriptor=await response.json();
+   assert.equal(response.status,200);assert.equal(response.headers.get('cache-control'),'no-store');
+   assert.equal(response.headers.get('access-control-allow-origin'),'*');assert.equal(response.headers.get('access-control-allow-credentials'),null);
+   assert.equal(descriptor.contentVersion,'sha256:'+f.id);assert.equal(descriptor.processedMp4Url,'https://media.creatornet.net/'+f.outputKey);
+   assert.equal(descriptor.hlsUrl,'https://customer-test.cloudflarestream.com/'+f.streamId+'/manifest/video.m3u8');
+   assert.equal(descriptor.timelineProofId,undefined);
+  }
+  assert.equal(sourceHeads,2);assert.equal(stateReads,2);assert.equal(streamReads,1);
+ }finally{globalThis.fetch=old}
+});
+test('stale ETag or wrong output association never survives the resolver metadata cache',async()=>{
+ const f=playbackFixture();await worker.fetch(f.request(),f.env);
+ f.env.MEDIA.objects.set(f.key,{etag:'overwritten',size:4});
+ const descriptor=await (await worker.fetch(f.request(),f.env)).json();
+ assert.notEqual(descriptor.contentVersion,'sha256:'+f.id);assert.equal(descriptor.processedMp4Url,null);assert.equal(descriptor.hlsUrl,undefined);
+ const wrong=playbackFixture();
+ wrong.env.STATE.objects.set('ready/'+wrong.key+'.json',{body:JSON.stringify({etag:'source',outputKey:'feed-auto/'+'a'.repeat(64)+'.mp4',durationSeconds:12.5})});
+ assert.equal((await (await worker.fetch(wrong.request(),wrong.env)).json()).processedMp4Url,null);
+});
+test('missing processing state returns original; unavailable Stream preserves verified MP4',async()=>{
+ const f=playbackFixture();f.env.STATE.objects.clear();
+ let descriptor=await (await worker.fetch(f.request(),f.env)).json();
+ assert.equal(descriptor.originalUrl,'https://media.creatornet.net/videos/test.mp4');assert.equal(descriptor.processedMp4Url,null);assert.equal(descriptor.durationSeconds,null);
+ const available=playbackFixture();available.env.STREAM.video=()=>({details:async()=>{throw Error('unavailable')}});
+ descriptor=await (await worker.fetch(available.request(),available.env)).json();
+ assert.equal(descriptor.processedMp4Url,'https://media.creatornet.net/'+available.outputKey);assert.equal(descriptor.hlsUrl,undefined);
+});
+test('resolver rejects foreign Stream, signed URLs, false readiness and arbitrary manifest origins',async()=>{
+ for(const change of [{meta:{creatornetJob:'wrong'}},{requireSignedURLs:true},{readyToStream:false},{hlsPlaybackUrl:'https://evil.test/video.m3u8'}]){
+  const f=playbackFixture(),video=f.env.STREAM.video;
+  f.env.STREAM.video=uid=>({details:async()=>({...await video(uid).details(),...change})});
+  assert.equal((await (await worker.fetch(f.request(),f.env)).json()).hlsUrl,undefined);
+ }
+});
+test('resolver verifies MP4 existence on every lookup and rejects nonpublic paths and methods',async()=>{
+ const f=playbackFixture();await worker.fetch(f.request(),f.env);f.env.MEDIA.objects.delete(f.outputKey);
+ assert.equal((await (await worker.fetch(f.request(),f.env)).json()).processedMp4Url,null);
+ for(const path of ['premium/test.mp4','videos/test.mp4?token=private','videos/%2e%2e/private.mp4','videos//test.mp4']){
+  assert.equal((await worker.fetch(new Request('https://media.creatornet.net/auto/playback/'+path),f.env)).status,404);
+ }
+ assert.equal((await worker.fetch(new Request(f.request(),{method:'POST'}),f.env)).status,405);
+ assert.equal((await worker.fetch(new Request(f.request(),{method:'OPTIONS'}),f.env)).status,204);
+});
+test('legacy duration recovery in the descriptor is read-only',async()=>{
+ const f=playbackFixture(),recordKey='ready/'+f.key+'.json';
+ f.env.STATE.objects.set(recordKey,{body:JSON.stringify({etag:'source',outputKey:f.outputKey})});
+ const before=f.env.STATE.objects.get(recordKey).body;
+ assert.equal((await (await worker.fetch(f.request(),f.env)).json()).durationSeconds,12.5);
+ assert.equal(f.env.STATE.objects.get(recordKey).body,before);
 });

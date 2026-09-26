@@ -26,12 +26,13 @@ function prepare(id: string, src = `https://example.test/${id}.mp4`) {
   return { host, video, present, src };
 }
 function activate(id: string, src: string) {
-  const ready = jest.fn(), present = jest.fn(), token = Symbol(id);
+  const ready = jest.fn(), failed = jest.fn(), present = jest.fn(), token = Symbol(id);
   const host = document.createElement("div"), previewHost = document.createElement("div"); document.body.append(host, previewHost);
-  const video = controller.activate({ postId: id, src, host, previewHost, token, ready, present }); media(video);
+  const video = controller.activate({ postId: id, src, host, previewHost, token, ready, failed, present }); media(video);
   video.dispatchEvent(new Event("loadedmetadata")); video.dispatchEvent(new Event("seeked"));
   void video.play();
-  return { video, token, host, previewHost, ready, present };
+  video.dispatchEvent(new Event("playing"));
+  return { video, token, host, previewHost, ready, failed, present };
 }
 beforeEach(() => {
   jest.useFakeTimers(); nextId = 0; frames = new Map(); paused = new WeakMap();
@@ -43,6 +44,95 @@ beforeEach(() => {
   HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) { const id = ++nextId; if (!frames.has(this)) frames.set(this, new Map()); frames.get(this)!.set(id, callback); return id; };
   HTMLVideoElement.prototype.cancelVideoFrameCallback = function (id) { frames.get(this)?.delete(id); };
   controller = new MobileFeedController();
+});
+
+test("a first frame at 0.2 seeks back once rather than widening the target tolerance", () => {
+  const p = prepare("corrective"); frame(p.video, 0.2);
+  expect(p.video.currentTime).toBe(0); expect(p.present).not.toHaveBeenCalledWith(true);
+  frame(p.video, 0.2); expect(p.video.currentTime).toBe(0.2);
+  frame(p.video, 0.033); expect(p.present).toHaveBeenCalledWith(true);
+});
+test("one retry keeps the same buffered source and rejects callbacks from the first attempt", () => {
+  const p = prepare("retry-buffer"); const stale = [...frames.get(p.video)!.values()][0];
+  jest.advanceTimersByTime(2_500); expect(p.video.src).toBe(p.src);
+  jest.advanceTimersByTime(249); expect(frames.get(p.video)!.size).toBe(0);
+  jest.advanceTimersByTime(1); stale(0, { mediaTime: 0.033 } as VideoFrameCallbackMetadata);
+  expect(p.present).not.toHaveBeenCalledWith(true);
+  frame(p.video, 0.033); expect(p.present).toHaveBeenCalledWith(true);
+  jest.advanceTimersByTime(5_000); expect(p.video.src).toBe(p.src);
+});
+test("reversal during the retry delay releases the obsolete slot and timer", () => {
+  const p = prepare("retry-old"); jest.advanceTimersByTime(2_500);
+  const next = prepare("retry-next"); jest.advanceTimersByTime(250);
+  expect(p.present).not.toHaveBeenCalledWith(true);
+  expect(next.video.src).toBe(next.src); frame(next.video, 0.033);
+  expect(next.present).toHaveBeenCalledWith(true);
+});
+test("loading starts before main presentation; decoding waits for the main playable buffer", () => {
+  const active = activate("loading-main", "https://example.test/loading-main.mp4"); media(active.video, 0.2);
+  const p = prepare("loading-neighbor");
+  expect(p.video.src).toBe(p.src); expect(frames.get(p.video)?.size ?? 0).toBe(0);
+  expect(p.video.paused).toBe(true);
+  media(active.video, 2); active.video.dispatchEvent(new Event("progress"));
+  expect(frames.get(p.video)?.size).toBe(1); frame(p.video, 0.033);
+  expect(p.present).toHaveBeenCalledWith(true); expect(active.ready).not.toHaveBeenCalled();
+});
+test("incomplete activation retains its element and can recover into a qualified bridge", () => {
+  const p = prepare("partial"); media(p.video, 0.2); frame(p.video, 0.033);
+  const active = activate("partial", p.src);
+  expect(active.previewHost.querySelector("video")).toBe(p.video);
+  expect(active.present).toHaveBeenLastCalledWith(false);
+  media(p.video, 2); p.video.dispatchEvent(new Event("progress"));
+  expect(active.present).toHaveBeenLastCalledWith(true);
+  frame(p.video, 0.066); frame(active.video, 0.033); frame(active.video, 0.066);
+  expect(active.ready).toHaveBeenCalledTimes(1); expect(active.previewHost.querySelector("video")).toBeNull();
+});
+test("the watchdog removes a stalled bridge, exposes Retry and cancels its frame callbacks", () => {
+  const p = prepare("stalled"); frame(p.video, 0.033);
+  const active = activate("stalled", p.src); jest.advanceTimersByTime(3_000);
+  expect(active.failed).toHaveBeenCalledTimes(1); expect(active.ready).not.toHaveBeenCalled();
+  expect(active.previewHost.querySelector("video")).toBeNull(); expect(frames.get(p.video)?.size).toBe(0);
+  expect(active.video.paused).toBe(true);
+  const next = prepare("after-stall"); expect(next.video.src).toBe(next.src);
+});
+test("the watchdog releases a misaligned bridge only when the main is valid and recently moving", () => {
+  const p = prepare("valid-main"); frame(p.video, 0.033);
+  const active = activate("valid-main", p.src); jest.advanceTimersByTime(2_900);
+  frame(p.video, 1.2);
+  frame(active.video, 0.033); frame(active.video, 0.066);
+  expect(active.ready).not.toHaveBeenCalled(); jest.advanceTimersByTime(100);
+  expect(active.ready).toHaveBeenCalledTimes(1); expect(active.failed).not.toHaveBeenCalled();
+  expect(active.previewHost.querySelector("video")).toBeNull();
+});
+test("expiry releases offscreen preparation and activation never inherits its expired frame", () => {
+  const token = Symbol("expiring");
+  const video = claimMobileFeedPlayer(document.createElement("div"), token, "https://example.test/expiring.mp4", "expiring");
+  video.currentTime = 12.4; releaseMobileFeedPlayer(token);
+  const p = prepare("expiring"); frame(p.video, 12.4);
+  jest.advanceTimersByTime(5_000); expect(p.video.hasAttribute("src")).toBe(false);
+  const active = activate("expiring", p.src);
+  expect(active.present).toHaveBeenLastCalledWith(false); expect(active.video.currentTime).toBe(0);
+});
+test("a near-end resume needs only its remaining playable media", () => {
+  const token = Symbol("near-end");
+  const video = claimMobileFeedPlayer(document.createElement("div"), token, "https://example.test/near-end.mp4", "near-end");
+  video.currentTime = 59.9; releaseMobileFeedPlayer(token);
+  const p = prepare("near-end"); media(p.video, 60); frame(p.video, 59.9);
+  expect(p.present).toHaveBeenCalledWith(true);
+});
+
+test("a same-version retry aligns its target with the retained active position", () => {
+  const active = activate("retry-position", "https://example.test/retry-position.mp4");
+  active.video.currentTime = 8; controller.release(active.token, false);
+  const returned = activate("retry-position", "https://example.test/retry-position.mp4");
+  frame(returned.video, 8.033); frame(returned.video, 8.066);
+  expect(returned.ready).toHaveBeenCalledTimes(1);
+});
+test("partial recovery never starts a moving preview while the user paused the main", () => {
+  const p = prepare("paused-partial"); media(p.video, 0.2); frame(p.video, 0.033);
+  const active = activate("paused-partial", p.src); active.video.pause();
+  media(p.video, 2); p.video.dispatchEvent(new Event("progress"));
+  expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
 });
 afterEach(() => { controller.dispose(); document.body.innerHTML = ""; jest.restoreAllMocks(); jest.useRealTimers(); });
 
@@ -58,6 +148,8 @@ test("a timer and metadata-only frame cannot declare a preparation successful", 
   const p = prepare("timeout"); Object.defineProperty(p.video, "readyState", { value: 1 }); frame(p.video, 0);
   jest.advanceTimersByTime(2_500);
   expect(p.present).not.toHaveBeenCalledWith(true);
+  expect(p.video.hasAttribute("src")).toBe(true);
+  jest.advanceTimersByTime(2_750);
   expect(p.video.hasAttribute("src")).toBe(false);
 });
 
