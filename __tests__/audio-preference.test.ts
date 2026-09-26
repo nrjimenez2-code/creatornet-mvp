@@ -144,6 +144,33 @@ describe("audio preference", () => {
     container.remove();
   });
 
+  test("candidate preparation survives its readiness render and retains the same element on activation", async () => {
+    const load = jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    const callbacks = new Map<HTMLVideoElement, VideoFrameRequestCallback>();
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function (cb) { callbacks.set(this, cb); return 1; };
+    HTMLVideoElement.prototype.cancelVideoFrameCallback = function () { callbacks.delete(this); };
+    const cards = (active: string) => createElement("div", null, ...["prepared-a", "prepared-b", "distant"].map(id => createElement(VideoCard, {
+      key: id, postId: id, src: `https://example.test/${id}.mp4`, sharedMobileFeedPlayer: true, mobileHandoff: true,
+      isActive: id === active, prepareFrame: id === "prepared-b" && active === "prepared-a", soundEnabled: false,
+    })));
+    await act(async () => root.render(cards("prepared-a")));
+    const prepared = container.querySelector<HTMLVideoElement>("video[data-mobile-preparation]")!;
+    expect(prepared).not.toBeNull();
+    Object.defineProperties(prepared, { readyState: { value: 4 }, currentSrc: { get: () => prepared.src }, duration: { value: 30 }, buffered: { value: { length: 1, start: () => 0, end: () => 5 } } });
+    await act(async () => {
+      prepared.dispatchEvent(new Event("loadedmetadata")); prepared.currentTime = 0.033;
+      callbacks.get(prepared)!(performance.now(), { mediaTime: 0.033 } as VideoFrameCallbackMetadata);
+    });
+    expect(prepared.getAttribute("src")).toBe("https://example.test/prepared-b.mp4");
+    await act(async () => root.render(cards("prepared-b")));
+    expect(container.querySelector("video[data-mobile-preparation]")).toBe(prepared);
+    expect(container.querySelectorAll("video")).toHaveLength(2);
+    await act(async () => root.render(null));
+    load.mockRestore();
+    delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).requestVideoFrameCallback;
+    delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).cancelVideoFrameCallback;
+  });
+
   test("readSoundOn/writeSoundOn round-trip through localStorage; new visitors prefer sound", () => {
     expect(readSoundOn()).toBe(true);
 
@@ -155,7 +182,7 @@ describe("audio preference", () => {
     expect(readSoundOn()).toBe(false);
   });
 
-  test("main mobile feed reuses its player across cards and a profile return", async () => {
+  test.each([false, true])("main mobile feed reuses its player across cards and a profile return (candidate %s)", async (mobileHandoff) => {
     gestureSeen = true;
     const renderCard = async (id: string) => {
       await act(async () => {
@@ -167,6 +194,7 @@ describe("audio preference", () => {
           soundEnabled: true,
           mainFeedMobileLayout: true,
           sharedMobileFeedPlayer: true,
+          mobileHandoff,
         }));
       });
       return container.querySelector("video");

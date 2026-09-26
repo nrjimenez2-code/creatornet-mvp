@@ -18,6 +18,8 @@ import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
 import { FeedSkeleton } from "@/components/loading/Skeletons";
 import { clearMobileFeedSnapshot, readMobileFeedSnapshot, saveMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
+import { feedTraceEnabled, observeFeedScroll, recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
+import { mobileFeedController } from "@/lib/mobileFeedController";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -45,7 +47,13 @@ function subscribeViewportSize(notify: () => void) {
   return () => window.removeEventListener("resize", notify);
 }
 const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
-const debugSnapshot = () => new URLSearchParams(window.location.search).get("feedDebug") === "1";
+const debugSnapshot = () => feedTraceEnabled();
+let handoffForThisPageSession = false;
+const handoffSnapshot = () => {
+  const value = new URLSearchParams(window.location.search).get("feedBridge");
+  if (value !== null) handoffForThisPageSession = value === "1";
+  return handoffForThisPageSession;
+};
 function subscribeDebug(notify: () => void) {
   window.addEventListener("popstate", notify);
   return () => window.removeEventListener("popstate", notify);
@@ -88,6 +96,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const showDiagnostics = useSyncExternalStore(subscribeDebug, debugSnapshot, () => false);
+  const handoffRequested = useSyncExternalStore(subscribeDebug, handoffSnapshot, () => false);
+  const mobileHandoff = handoffRequested && !desktop;
+  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: mobileHandoff ? "candidate" : "baseline" }); }, [desktop, activeTab, mobileHandoff]);
+  useLayoutEffect(() => {
+    if (!mobileHandoff) return;
+    const hide = () => { if (document.hidden) mobileFeedController.suspend(); };
+    document.addEventListener("visibilitychange", hide);
+    return () => { document.removeEventListener("visibilitychange", hide); mobileFeedController.dispose(); };
+  }, [mobileHandoff, activeTab]);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
@@ -144,6 +161,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
   const getFeedVideo = useCallback((postId: string) => sectionRefs.current.get(postId)?.querySelector("video") ?? null, []);
   const feedScrollTopRef = useRef(0);
+  useEffect(() => {
+    const root = feedScrollRef.current;
+    if (!desktop && root) return observeFeedScroll(root, activeTab);
+  }, [desktop, activeTab, loading]);
   const snapshotEligibleRef = useRef(true);
   const initialRestoreRef = useRef(true);
   const pendingScrollRestoreRef = useRef<{ scrollTop?: number; postId?: string } | null>(null);
@@ -599,6 +620,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const observerRef = useRef<IntersectionObserver | null>(null);
   const observedRootRef = useRef<HTMLDivElement | null>(null);
   const observedDesktopRef = useRef(desktop);
+  const observedHandoffRef = useRef(mobileHandoff);
   const observedNodesRef = useRef(new Set<HTMLElement>());
   const ratiosRef = useRef(new Map<Element, IntersectionObserverEntry>());
   const scrollPositionRef = useRef(0);
@@ -620,8 +642,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
       if (pending) pendingHighlightScrollRef.current = null;
       setActivePostId(prev => prev === id ? prev : id);
     };
-    if (!observerRef.current || observedRootRef.current !== root || observedDesktopRef.current !== desktop) {
+    if (!observerRef.current || observedRootRef.current !== root || observedDesktopRef.current !== desktop || observedHandoffRef.current !== mobileHandoff) {
       observedDesktopRef.current = desktop;
+      observedHandoffRef.current = mobileHandoff;
       observerRef.current?.disconnect();
       observedNodesRef.current.clear();
       ratios.clear();
@@ -631,7 +654,10 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
         const delta = root.scrollTop - scrollPositionRef.current;
         if (Math.abs(delta) > 1) scrollDirectionRef.current = delta > 0 ? 1 : -1;
         scrollPositionRef.current = root.scrollTop;
-        entries.forEach(entry => ratios.set(entry.target, entry));
+        entries.forEach(entry => {
+          ratios.set(entry.target, entry);
+          if (!desktop) recordFeedEvent("visibility", { postId: (entry.target as HTMLElement).dataset.postId ?? "", ratio: entry.intersectionRatio });
+        });
         const visible = [...ratios.values()]
           .filter((entry) => entry.isIntersecting && entry.intersectionRatio >= 0.51)
           .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
@@ -642,7 +668,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
         const neighbor = itemsRef.current[selectedIndex + scrollDirectionRef.current];
         const neighborNode = neighbor && sectionRefs.current.get(neighbor.id);
         const entry = neighborNode && ratios.get(neighborNode);
-        const warmId = !desktop && entry?.isIntersecting && entry.intersectionRatio >= 0.08 ? neighbor.id : null;
+        const warmId = !desktop && neighbor && (mobileHandoff || (entry?.isIntersecting && entry.intersectionRatio >= 0.08)) ? neighbor.id : null;
         setWarmingPostId(prev => prev === warmId ? prev : warmId);
         if (visible) {
           const id = (visible.target as HTMLElement).dataset.postId;
@@ -670,7 +696,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
       if (!observedNodesRef.current.has(node)) observerRef.current.observe(node);
     }
     observedNodesRef.current = nodes;
-  }, [sectionMembership, feedError, desktop, loading]);
+  }, [sectionMembership, feedError, desktop, loading, mobileHandoff]);
   useEffect(() => () => {
     observerRef.current?.disconnect();
     observerRef.current = null;
@@ -879,6 +905,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
                 {isMounted ? (
                   <VideoCard
                     activeTab={activeTab}
+                    mobileHandoff={mobileHandoff}
                     onInteractionChange={handleInteractionChange}
                     onFirstFrame={!desktop ? handleFirstFrame : undefined}
                     prepareFrame={!desktop && pageVisible && activeFrameReady && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1)}
