@@ -6,6 +6,8 @@
  * This module owns the element and two short-lived playback positions. Feed
  * cards own their presentation, listeners and muted previews. Desktop never calls it.
  */
+import { beginFeedVideoTrace, endFeedVideoTrace, recordFeedEvent } from "./mobileFeedDiagnostics";
+
 let player: HTMLVideoElement | null = null;
 let parkingPlace: HTMLDivElement | null = null;
 let owner: symbol | null = null;
@@ -33,11 +35,13 @@ function takeRecentPosition(postId: string, src: string): number | null {
 }
 
 function cancelPendingSeek(): void {
+  if (pendingSeek && player) recordFeedEvent("resume-seek-cancel", {}, player);
   pendingSeek?.cancel();
   pendingSeek = null;
 }
 
 function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number): void {
+  recordFeedEvent("resume-seek-request", { target: time }, video);
   let settle!: () => void;
   const promise = new Promise<void>(resolve => { settle = resolve; });
   let done = false;
@@ -51,7 +55,7 @@ function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number
     if (pendingSeek?.token === token) pendingSeek = null;
     settle();
   };
-  const timer = setTimeout(finish, 2_000);
+  const timer = setTimeout(() => { recordFeedEvent("resume-seek-timeout", { target: time }, video); finish(); }, 2_000);
   const seek = () => {
     if (owner !== token || done) return finish();
     try {
@@ -98,6 +102,7 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
   if (changedPost || changedSource) cancelPendingSeek();
   owner = token;
   host.appendChild(player);
+  beginFeedVideoTrace(player, postId, src);
   if (changedSource) {
     player.src = src;
   }
@@ -115,6 +120,7 @@ export function releaseMobileFeedPlayer(token: symbol): void {
   player.pause();
   rememberPosition();
   cancelPendingSeek();
+  endFeedVideoTrace(player);
   owner = null;
   getParkingPlace().appendChild(player);
 }
