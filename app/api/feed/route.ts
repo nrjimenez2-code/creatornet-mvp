@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
+import { isSellReadyProfile, SELL_READY_COLUMNS } from "@/lib/sellReady";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
 import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
@@ -37,7 +38,24 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
    if(offset>=2000)return NextResponse.json({items:[],nextOffset:offset,hasMore:false,session:null});
    const {data,error}=await createServerClient().rpc('get_feed_v3',{p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
    if(error)throw error;
-   return NextResponse.json({items:data??[],nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
+   let items = data ?? [];
+   if (process.env.CREATOR_TIPPING_ENABLED === "true" && items.length) {
+    const { supabaseAdmin } = await import("@/lib/supabaseAdmin");
+    const ids = items.map((row: { post_id: string }) => row.post_id);
+    const posts = await supabaseAdmin.from("posts").select("id,creator_id,tips_enabled").in("id", ids);
+    if (posts.error) throw posts.error;
+    const tipped = (posts.data ?? []).filter((post) => post.tips_enabled === true);
+    const creatorIds = [...new Set(tipped.map((post) => post.creator_id))];
+    const profiles = creatorIds.length
+      ? await supabaseAdmin.from("profiles").select(`id,${SELL_READY_COLUMNS},banned_at`).in("id", creatorIds)
+      : { data: [], error: null };
+    if (profiles.error) throw profiles.error;
+    const ready = new Set((profiles.data ?? []).filter((profile) =>
+      !profile.banned_at && isSellReadyProfile(profile)).map((profile) => profile.id));
+    const available = new Set(tipped.filter((post) => ready.has(post.creator_id)).map((post) => post.id));
+    items = items.map((row: { post_id: string }) => ({ ...row, tips_available: available.has(row.post_id) }));
+   }
+   return NextResponse.json({items,nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
   const identity=await measured('identity',()=>discoverIdentity(req));
   const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab,identity.newAnonymous));

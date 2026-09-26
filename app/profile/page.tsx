@@ -34,7 +34,7 @@ export default async function ProfilePage() {
       .maybeSingle(),
     supabase
       .from("posts")
-      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
+      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, tips_enabled")
       .eq("creator_id", user.id)
       .is("removed_at", null)
       .order("created_at", { ascending: false }),
@@ -156,6 +156,8 @@ export default async function ProfilePage() {
         ) : (
           <div className="mt-5.5">
             <ProfilePostsGallery
+              tippingAvailable={process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller}
+              viewerIsOwner
               posts={mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, user.id)}
               creatorId={user.id}
               creatorName={displayName}

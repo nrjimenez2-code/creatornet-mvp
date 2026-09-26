@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { getImageProps } from "next/image";
 import { useRouter } from "next/navigation";
-import { Heart, Volume2, VolumeX, Plus } from "lucide-react";
+import { Gift, Heart, Volume2, VolumeX, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlacement";
 import BuyButton from "./BuyButton";
@@ -15,6 +15,7 @@ import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 import dynamic from "next/dynamic";
 import { ModalSkeleton } from "@/components/loading/Skeletons";
 const CommentPanel = dynamic(() => import("./CommentPanel"), { loading: () => <ModalSkeleton kind="comments" /> });
+const TipModal = dynamic(() => import("./TipModal"), { loading: () => <ModalSkeleton kind="composer" /> });
 import VerifiedCreatorBadge from "./VerifiedCreatorBadge";
 import { useUser } from "@/lib/useUser";
 import { useSoundPreference } from "@/lib/audioPreference";
@@ -79,6 +80,10 @@ type VideoCardProps = {
   planPriceCents?: number | null;
   allowBooking?: boolean;
   bookingRedirectUrl?: string | null;
+  tipsEnabled?: boolean;
+  /** Reopen the tip flow after authentication returns to this video. */
+  openTipOnMount?: boolean;
+  resumeTipId?: string | null;
   productType?: string | null;
   /** posts.purchase_count; renders social proof only above SOCIAL_PROOF_MIN_COUNT. */
   purchaseCount?: number | null;
@@ -165,6 +170,9 @@ function VideoCard(props: VideoCardProps) {
     planPriceCents = null,
     allowBooking = false,
     bookingRedirectUrl = null,
+    tipsEnabled = false,
+    openTipOnMount = false,
+    resumeTipId = null,
     productType = null,
     purchaseCount = null,
     showFollowButton = false,
@@ -423,6 +431,26 @@ function VideoCard(props: VideoCardProps) {
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
   const { userId: cachedUserId, loading: authLoading } = useUser();
+  const [tipOpen, setTipOpen] = useState(false);
+  const canTip = tipsEnabled && !authLoading && Boolean(postId) && Boolean(creatorId) && cachedUserId !== creatorId;
+  // A redirect return must still show the existing payment's status if tipping
+  // was disabled or the creator's Connect readiness changed in the meantime.
+  const canResumeTip = Boolean(resumeTipId) && !authLoading && Boolean(cachedUserId) && Boolean(postId) && cachedUserId !== creatorId;
+  const openedReturnedTipRef = useRef(false);
+  const openTip = useCallback(() => {
+    if (!postId) return;
+    if (!cachedUserId) {
+      router.push(`/auth?next=${encodeURIComponent(`/dashboard?postId=${postId}&tip=1`)}`);
+      return;
+    }
+    setTipOpen(true);
+  }, [cachedUserId, postId, router]);
+
+  useEffect(() => {
+    if (!openTipOnMount || authLoading || !cachedUserId || !(canTip || canResumeTip) || openedReturnedTipRef.current) return;
+    openedReturnedTipRef.current = true;
+    setTipOpen(true);
+  }, [authLoading, cachedUserId, canTip, canResumeTip, openTipOnMount]);
 
   // Refs for analytics (allow stable event-listener closures to access latest prop values)
   const postIdRef = useRef(postId);
@@ -1830,6 +1858,14 @@ function VideoCard(props: VideoCardProps) {
           </span>
         </div>
 
+        {canTip && <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
+          <button type="button" onClick={openTip} aria-label={`Tip ${displayCreator}`}
+            className="h-[48px] w-[48px] rounded-full border border-white/10 bg-[#1A1F22] text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60 max-lg:h-auto max-lg:w-auto max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent">
+            <Gift className="h-6 w-6" />
+          </button>
+          <span className={`text-[12px] font-semibold leading-none text-white ${mainFeedMobileLayout ? "max-lg:-mt-1 max-lg:text-[13px]" : ""}`}>Tip</span>
+        </div>}
+
         <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
           <button
             type="button"
@@ -1906,6 +1942,7 @@ function VideoCard(props: VideoCardProps) {
           onCommentAdded={handleCommentAdded}
         />
       )}
+      {postId && (canTip || (tipOpen && canResumeTip)) && <TipModal open={tipOpen} postId={postId} creatorName={displayCreator} resumeTipId={resumeTipId} onClose={() => setTipOpen(false)} />}
     </div>
   );
 }

@@ -61,6 +61,7 @@ interface PurchaseRow {
 
 interface LedgerRow {
   id: string;
+  tip_id: string | null;
   creator_id: string;
   purchase_id: string | null;
   order_id: string | null;
@@ -72,8 +73,22 @@ interface LedgerRow {
   processing_fee_cents: number;
   creator_net_cents: number;
   refunded_amount_cents: number;
+  stripe_dispute_id: string | null;
+  dispute_status: string | null;
   status: string;
   created_at: string;
+}
+
+interface TipRow {
+  id: string;
+  tipper_id: string;
+  post_id: string;
+}
+
+interface TipRecoveryRow {
+  tip_id: string;
+  reversal_status: string;
+  restoration_status: string | null;
 }
 
 interface RefundOperationRow {
@@ -139,6 +154,7 @@ function paymentKind(
   purchase: PurchaseRow | undefined,
   bookingPayment: BookingPaymentRow | undefined,
 ): OrderKind {
+  if (ledger.tip_id) return "tip";
   if (
     ledger.stripe_invoice_id ||
     purchase?.subscription_id ||
@@ -181,7 +197,7 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
       admin
         .from("payment_fee_ledger")
         .select(
-          "id, creator_id, purchase_id, order_id, booking_payment_id, stripe_payment_intent_id, stripe_invoice_id, gross_amount_cents, platform_fee_cents, processing_fee_cents, creator_net_cents, refunded_amount_cents, status, created_at",
+          "id, tip_id, creator_id, purchase_id, order_id, booking_payment_id, stripe_payment_intent_id, stripe_invoice_id, gross_amount_cents, platform_fee_cents, processing_fee_cents, creator_net_cents, refunded_amount_cents, stripe_dispute_id, dispute_status, status, created_at",
         )
         .order("created_at", { ascending: false })
         .limit(MAX_ROWS)
@@ -209,6 +225,27 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
   const bookingPaymentRows = bookingPaymentsResult.data ?? [];
   const ledgerRows = ledgersResult.data ?? [];
   const refundRows = refundsResult.data ?? [];
+  const tipIds = uniqueIds(ledgerRows.map((row) => row.tip_id));
+  const tipsResult = tipIds.length
+    ? await admin
+        .from("tips")
+        .select("id, tipper_id, post_id")
+        .in("id", tipIds)
+        .returns<TipRow[]>()
+    : { data: [] as TipRow[], error: null };
+  if (tipsResult.error) {
+    throw new Error(`Commerce tips query failed: ${tipsResult.error.message}`);
+  }
+  const tipRows = tipsResult.data ?? [];
+  const recoveriesResult = tipIds.length
+    ? await admin.from("tip_dispute_recoveries")
+        .select("tip_id,reversal_status,restoration_status")
+        .in("tip_id", tipIds)
+        .returns<TipRecoveryRow[]>()
+    : { data: [] as TipRecoveryRow[], error: null };
+  if (recoveriesResult.error) {
+    throw new Error(`Commerce tip recoveries query failed: ${recoveriesResult.error.message}`);
+  }
   const purchaseIds = uniqueIds(ledgerRows.map((row) => row.purchase_id));
   const purchasesResult = purchaseIds.length
     ? await admin
@@ -230,6 +267,7 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
     ...bookingPaymentRows.map((row) => row.buyer_id),
     ...ledgerRows.map((row) => row.creator_id),
     ...purchaseRows.map((row) => row.buyer_id ?? row.buyer_user_id),
+    ...tipRows.map((row) => row.tipper_id),
   ]);
   const profilesResult = profileIds.length
     ? await admin
@@ -254,6 +292,8 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
   const bookingById = new Map(bookingRows.map((row) => [row.id, row]));
   const bookingPaymentById = new Map(bookingPaymentRows.map((row) => [row.id, row]));
   const purchaseById = new Map(purchaseRows.map((row) => [row.id, row]));
+  const tipById = new Map(tipRows.map((row) => [row.id, row]));
+  const recoveryByTipId = new Map((recoveriesResult.data ?? []).map((row) => [row.tip_id, row]));
   const refundsByLedger = new Map<string, RefundOperationRow[]>();
   for (const refund of refundRows) {
     const current = refundsByLedger.get(refund.payment_fee_ledger_id) ?? [];
@@ -270,7 +310,10 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
     const bookingId =
       order?.booking_id ?? purchase?.booking_id ?? bookingPayment?.booking_id ?? null;
     const booking = bookingId ? bookingById.get(bookingId) : undefined;
+    const tip = ledger.tip_id ? tipById.get(ledger.tip_id) : undefined;
+    const recovery = tip ? recoveryByTipId.get(tip.id) : undefined;
     const buyerId =
+      tip?.tipper_id ??
       order?.buyer_id ??
       order?.buyer_user_id ??
       purchase?.buyer_id ??
@@ -313,15 +356,17 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
         ? `Installment ${shortId(ledger.id)}`
         : kind === "booking"
           ? `Booking ${shortId(labelId)}`
+          : kind === "tip"
+            ? `Tip ${shortId(tip?.id ?? ledger.id)}`
           : `Order ${shortId(labelId)}`);
 
     return {
-      id: order?.id ?? `payment-${ledger.id}`,
+      id: tip ? `tip-${tip.id}` : order?.id ?? `payment-${ledger.id}`,
       buyerUserId: buyerId ?? "",
       buyerUsername: usernameFor(buyerId),
       creatorId: ledger.creator_id,
       creatorUsername: usernameFor(ledger.creator_id),
-      postId: order?.post_id ?? null,
+      postId: tip?.post_id ?? order?.post_id ?? null,
       offerTitle,
       kind,
       grossCents: safeCents(ledger.gross_amount_cents),
@@ -357,6 +402,12 @@ export async function fetchCommerceInitialData(): Promise<AdminInitialData> {
             createdAt: latest.created_at,
           }
         : null,
+      disputeStatus: ledger.dispute_status,
+      disputeRecoveryStatus: recovery
+        ? recovery.restoration_status === "succeeded"
+          ? "restored"
+          : `reversal ${recovery.reversal_status}${recovery.restoration_status ? ` · restoration ${recovery.restoration_status}` : ""}`
+        : ledger.stripe_dispute_id ? "recovery pending" : null,
     };
   });
 

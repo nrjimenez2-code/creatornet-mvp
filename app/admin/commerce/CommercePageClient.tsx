@@ -42,6 +42,7 @@ const KIND_CHIP_STYLES: Record<OrderKind, string> = {
   product: "bg-gray-100 text-gray-600",
   installments: "bg-blue-50 text-blue-700",
   booking: "bg-[#f3eefc] text-[#7c5cbf]",
+  tip: "bg-emerald-50 text-emerald-700",
 };
 
 const TD = "px-4 py-3";
@@ -143,6 +144,9 @@ function OrdersTable({
                         Awaiting payment update. Totals and access may not yet reflect this refund.
                       </p>
                     ) : null}
+                    {order.disputeStatus ? <p className="max-w-40 text-[10px] font-semibold text-red-700">
+                      Dispute: {order.disputeStatus}{order.disputeRecoveryStatus ? ` · ${order.disputeRecoveryStatus}` : ""}
+                    </p> : null}
                   </div>
                 </td>
                 <td className={`${TD} whitespace-nowrap text-gray-400`}>
