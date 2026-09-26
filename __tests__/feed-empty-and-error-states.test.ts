@@ -53,7 +53,7 @@ jest.mock("@/lib/posthog", () => ({
 }));
 // VideoCard is never mounted in these states; stub it so its imports
 // (Stripe-adjacent fetches, portals) stay out of the test.
-jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { postId: string; activeTab?: string; onFeedDeleted?: (id: string) => void }) => createElement("button", { "data-active-tab": props.activeTab, onClick: () => props.onFeedDeleted?.(props.postId) }, "Simulate deletion") }));
+jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: { postId: string; activeTab?: string; isActive?: boolean; prepareFrame?: boolean; preload?: string; onFirstFrame?: (id: string) => void; onFeedDeleted?: (id: string) => void }) => createElement("button", { "data-active-tab": props.activeTab, "data-is-active": props.isActive, "data-prepare-frame": props.prepareFrame, "data-preload": props.preload, onDoubleClick: () => props.onFirstFrame?.(props.postId), onClick: () => props.onFeedDeleted?.(props.postId) }, "Simulate deletion") }));
 jest.mock("next/link", () => ({
   __esModule: true,
   default: ({ href, children, className }: { href: string; children?: unknown; className?: string }) =>
@@ -72,6 +72,8 @@ jest.mock("@/lib/discoverClient", () => ({
   },
 }));
 import FeedList from "@/components/FeedList";
+import { saveMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
+import type { PostRow } from "@/lib/feedV3";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -195,6 +197,79 @@ describe("FeedList states", () => {
     expect(text()).toContain("No posts yet");
     expect(text()).not.toContain("Sign in to see posts");
     expect(text()).not.toContain("not following anyone");
+  });
+
+  test("mobile profile return restores the feed while its fresh request is pending", async () => {
+    mockUser = { userId: "profile-return-viewer", loading: false };
+    rpcImpl = async () => ({ data: [
+      { post_id: "return-post", creator_id: "creator", video_url: "https://example.invalid/return.mp4", title: "Return video" },
+    ], error: null });
+    await render({ activeTab: "discover" });
+    const scroll = container.querySelector<HTMLElement>('[tabindex="0"]');
+    expect(scroll).not.toBeNull();
+    scroll!.scrollTop = 731;
+    await act(async () => scroll!.dispatchEvent(new Event("scroll", { bubbles: true })));
+    await act(async () => root.unmount());
+
+    rpcImpl = () => new Promise(() => {});
+    root = createRoot(container);
+    await render({ activeTab: "discover" });
+    expect(buttonNamed("Simulate deletion")).not.toBeNull();
+    expect(text()).not.toContain("Loading feed…");
+    expect(container.querySelector<HTMLElement>('[tabindex="0"]')?.scrollTop).toBe(731);
+  });
+
+  test("mobile revalidation keeps the visible post when ranking order changes", async () => {
+    mockUser = { userId: "return-ranking-viewer", loading: false };
+    const cached = (id: string): PostRow => ({
+      id, creator_id: "creator", product_id: null, price_cents: null,
+      title: id, video_url: `https://example.invalid/${id}.mp4`, poster_url: null,
+      content: id, interests: null, created_at: null,
+    });
+    saveMobileFeedSnapshot("discover", mockUser.userId, [cached("first"), cached("third")], "third", 700);
+    let finishRequest!: (result: RpcResult) => void;
+    rpcImpl = () => new Promise(resolve => { finishRequest = resolve; });
+    await render({ activeTab: "discover" });
+    expect(container.querySelector('[data-post-id="third"] [data-is-active]')?.getAttribute("data-is-active")).toBe("true");
+
+    await act(async () => finishRequest({ data: [
+      { post_id: "third", creator_id: "creator", video_url: "https://example.invalid/third.mp4", title: "third" },
+      { post_id: "first", creator_id: "creator", video_url: "https://example.invalid/first.mp4", title: "first" },
+    ], error: null }));
+    expect(container.querySelector('[data-post-id="third"] [data-is-active]')?.getAttribute("data-is-active")).toBe("true");
+  });
+
+  test("a failed revalidation cannot revive stale rows on the next return", async () => {
+    mockUser = { userId: "return-error-viewer", loading: false };
+    saveMobileFeedSnapshot("discover", mockUser.userId, [{
+      id: "old", creator_id: "creator", product_id: null, price_cents: null,
+      title: "Old", video_url: "https://example.invalid/old.mp4", poster_url: null,
+      content: "Old", interests: null, created_at: null,
+    }], "old", 0);
+    rpcImpl = async () => ({ data: null, error: { message: "boom" } });
+    await render({ activeTab: "discover" });
+    expect(text()).toContain("Couldn't load the feed");
+    await act(async () => root.unmount());
+    rpcImpl = () => new Promise(() => {});
+    root = createRoot(container);
+    await render({ activeTab: "discover" });
+    expect(text()).toContain("Loading feed…");
+  });
+
+  test("phone feed warms only the next card after the active frame is ready", async () => {
+    mockUser = { userId: "warmup-viewer", loading: false };
+    rpcImpl = async () => ({ data: ["one", "two", "three"].map(id => ({
+      post_id: id, creator_id: "creator", video_url: `https://example.invalid/${id}.mp4`, title: id,
+    })), error: null });
+    await render({ activeTab: "discover" });
+    const card = (id: string) => container.querySelector<HTMLButtonElement>(`[data-post-id="${id}"] button`);
+    expect(card("two")?.getAttribute("data-prepare-frame")).toBe("false");
+    expect(card("two")?.getAttribute("data-preload")).toBe("metadata");
+    expect(card("three")?.getAttribute("data-preload")).toBe("metadata");
+    await act(async () => card("one")?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
+    expect(card("two")?.getAttribute("data-prepare-frame")).toBe("true");
+    expect(card("two")?.getAttribute("data-preload")).toBe("auto");
+    expect(card("three")?.getAttribute("data-prepare-frame")).toBe("false");
   });
 
   test("RPC error: error text and a Try again control, not an empty state", async () => {

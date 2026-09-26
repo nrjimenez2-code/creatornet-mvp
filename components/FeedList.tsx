@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useRef, useState, useMemo, useSyncExternalStore } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, useSyncExternalStore } from "react";
+import dynamic from "next/dynamic";
 import { fetchDiscoverPage, rememberDiscoverSession } from "@/lib/discoverClient";
 import { DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import FeedVideoCard from "./VideoCard";
@@ -16,6 +17,7 @@ import { naturalDesktopFeedFrameFits } from "@/lib/desktopFeedFrame";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import { scheduleFeedBackground } from "@/lib/feedBackground";
 import { FeedSkeleton } from "@/components/loading/Skeletons";
+import { clearMobileFeedSnapshot, readMobileFeedSnapshot, saveMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -23,6 +25,7 @@ import {
   type FeedTab,
   type PostRow,
 } from "@/lib/feedV3";
+const MobileFeedDiagnostics = dynamic(() => import("@/components/MobileFeedDiagnostics"), { ssr: false });
 
 export type Tab = FeedTab;
 export type { PostRow } from "@/lib/feedV3";
@@ -42,6 +45,11 @@ function subscribeViewportSize(notify: () => void) {
   return () => window.removeEventListener("resize", notify);
 }
 const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
+const debugSnapshot = () => new URLSearchParams(window.location.search).get("feedDebug") === "1";
+function subscribeDebug(notify: () => void) {
+  window.addEventListener("popstate", notify);
+  return () => window.removeEventListener("popstate", notify);
+}
 function useFeedViewportSize() {
   const snapshot = useSyncExternalStore(subscribeViewportSize, viewportSizeSnapshot, () => "0:0");
   const [width, height] = snapshot.split(":").map(Number);
@@ -79,6 +87,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const [moreError, setMoreError] = useState<"retry" | "refresh" | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
+  const showDiagnostics = useSyncExternalStore(subscribeDebug, debugSnapshot, () => false);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
@@ -133,6 +142,37 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const itemsRef = useRef<PostRow[]>([]);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
   const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const getFeedVideo = useCallback((postId: string) => sectionRefs.current.get(postId)?.querySelector("video") ?? null, []);
+  const feedScrollTopRef = useRef(0);
+  const snapshotEligibleRef = useRef(true);
+  const initialRestoreRef = useRef(true);
+  const pendingScrollRestoreRef = useRef<{ scrollTop?: number; postId?: string } | null>(null);
+  // Apply a restored position before paint, so the first card cannot flash
+  // before the profile-return card is shown.
+  useLayoutEffect(() => {
+    const pending = pendingScrollRestoreRef.current;
+    const root = feedScrollRef.current;
+    if (loading || !pending || !root) return;
+    if (pending.postId) {
+      const section = sectionRefs.current.get(pending.postId);
+      if (!section) return;
+      root.scrollTop += section.getBoundingClientRect().top - root.getBoundingClientRect().top;
+    } else {
+      root.scrollTop = pending.scrollTop ?? 0;
+    }
+    feedScrollTopRef.current = root.scrollTop;
+    pendingScrollRestoreRef.current = null;
+  }, [loading, items]);
+  useEffect(() => () => {
+    if (authLoading || desktop || !snapshotEligibleRef.current) return;
+    saveMobileFeedSnapshot(activeTab, viewerId ?? null, itemsRef.current, activeIdRef.current, feedScrollRef.current?.scrollTop ?? feedScrollTopRef.current);
+  }, [activeTab, viewerId, authLoading, desktop]);
+  useEffect(() => {
+    if (!desktop && !loading && !feedError && items.length === 0) {
+      snapshotEligibleRef.current = false;
+      clearMobileFeedSnapshot(activeTab, viewerId ?? null);
+    }
+  }, [activeTab, viewerId, desktop, loading, feedError, items.length]);
   const offerRefreshesRef = useRef(new Map<string, number>());
   const backgroundRef = useRef(new Set<() => void>());
   useEffect(() => () => {
@@ -220,6 +260,28 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
       controller.abort();
       if (fetchControllerRef.current === controller) fetchControllerRef.current = null;
     };
+    if (refreshKey > 0 && !desktopRef.current) {
+      snapshotEligibleRef.current = false;
+      clearMobileFeedSnapshot(activeTab, viewerId ?? null);
+    }
+
+    // A profile return shows the recent phone feed immediately. The request
+    // below still refreshes rank, moderation and interactions in the background.
+    const restoredSnapshot = initialRestoreRef.current && !desktopRef.current && refreshKey === 0
+      ? readMobileFeedSnapshot(activeTab, viewerId ?? null)
+      : null;
+    initialRestoreRef.current = false;
+    if (restoredSnapshot) {
+      snapshotEligibleRef.current = true;
+      itemsRef.current = restoredSnapshot.items;
+      setItems(restoredSnapshot.items);
+      setActivePostId(restoredSnapshot.activePostId);
+      feedScrollTopRef.current = restoredSnapshot.scrollTop;
+      pendingScrollRestoreRef.current = { scrollTop: restoredSnapshot.scrollTop };
+      // The old ranked session must not receive watch events after a return.
+      rememberDiscoverSession(restoredSnapshot.items.map(item => item.id), null);
+      setLoading(false);
+    }
 
     (async () => {
       try {
@@ -248,6 +310,12 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
         const mapped = mapFeedV3Rows(data).map(post => ({ ...post, monthlyTerms: null, purchaseOptionsReady: false }));
 
         if (!cancelled) {
+          const activeBeforeRefresh = activeIdRef.current;
+          const restoredActive = restoredSnapshot && activeBeforeRefresh && mapped.some(post => post.id === activeBeforeRefresh)
+            ? activeBeforeRefresh
+            : mapped[0]?.id ?? null;
+          if (restoredSnapshot && restoredActive) pendingScrollRestoreRef.current = { postId: restoredActive };
+          itemsRef.current = mapped;
           setItems(mapped);
           enrichPosts(mapped, fetchGenRef.current);
           setFeedError(null);
@@ -257,14 +325,25 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
           offsetRef.current = page.nextOffset;
           hasMoreRef.current = page.hasMore;
           if (mapped.length) {
-            setActivePostId(mapped[0]?.id ?? null);
-            feedScrollRef.current?.scrollTo?.({ top: 0, behavior: "instant" });
+            snapshotEligibleRef.current = true;
+            setActivePostId(restoredActive);
+            if (!restoredSnapshot) {
+              feedScrollTopRef.current = 0;
+              feedScrollRef.current?.scrollTo?.({ top: 0, behavior: "instant" });
+            }
+          } else {
+            snapshotEligibleRef.current = false;
+            setActivePostId(null);
+            pendingScrollRestoreRef.current = null;
+            if (!desktopRef.current) clearMobileFeedSnapshot(activeTab, viewerId ?? null);
           }
         }
       } catch (err) {
         if (cancelled) return;
         console.error("[Feed] FeedList error:", err);
         if (!cancelled) {
+          snapshotEligibleRef.current = false;
+          if (!desktopRef.current) clearMobileFeedSnapshot(activeTab, viewerId ?? null);
           setFeedError(err instanceof Error ? err.message : "Failed to load feed");
           setLoading(false);
         }
@@ -729,9 +808,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const activeIndex = activePostId
     ? items.findIndex((p) => p.id === activePostId)
     : 0;
+  const activeFrameReady = !!activePostId && readyPostId === activePostId;
 
   return (
     <div className="relative h-full min-h-0 feed-mobile-viewport">
+      {showDiagnostics && !desktop && <MobileFeedDiagnostics activePostId={activePostId} getVideo={getFeedVideo} />}
       {hasNewPosts && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
         {moreError === "refresh" ? <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }}>Refresh feed to continue</button>
@@ -746,6 +827,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
           touchAction: "pan-y pinch-zoom",
         }}
         onKeyDown={handleFeedKeyDown}
+        onScroll={(event) => { feedScrollTopRef.current = event.currentTarget.scrollTop; }}
         tabIndex={0}
       >
         {items.map((p, idx) => {
@@ -791,7 +873,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
                     activeTab={activeTab}
                     onInteractionChange={handleInteractionChange}
                     onFirstFrame={!desktop ? handleFirstFrame : undefined}
-                    prepareFrame={!desktop && pageVisible && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1 && readyPostId === activePostId)}
+                    prepareFrame={!desktop && pageVisible && activeFrameReady && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1)}
                     preferAdaptive={!desktop}
                     commentDraft={draftsRef.current.get(p.id) ?? ""}
                     onCommentDraftChange={handleDraftChange}
@@ -804,6 +886,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
                     desktopFeedUseNaturalFrame={useNaturalDesktopFrame}
                     onDesktopFeedRatio={rememberMediaRatio}
                     mainFeedMobileLayout
+                    sharedMobileFeedPlayer
                     // meta
                     creator={p.creator_name ?? "Creator"}
                     creatorAvatarUrl={p.creator_avatar_url ?? null}
@@ -847,7 +930,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
                     resumeTipId={openTipPostId === p.id ? resumeTipId : null}
                     soundEnabled={isSoundOn}
                     isActive={isActive}
-                    preload={!pageVisible ? "none" : idx === activeIndex || idx === activeIndex + 1 || warmingPostId === p.id ? "auto" : "metadata"}
+                    preload={!pageVisible ? "none" : desktop
+                      ? idx === activeIndex || idx === activeIndex + 1 || warmingPostId === p.id ? "auto" : "metadata"
+                      : isActive || (activeFrameReady && (idx === activeIndex + 1 || warmingPostId === p.id)) ? "auto" : "metadata"}
                     onToggleSound={toggleSound}
                     mobileMuteButtonSide="left"
                     tapToTogglePlayback

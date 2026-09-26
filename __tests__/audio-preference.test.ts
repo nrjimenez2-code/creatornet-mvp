@@ -155,6 +155,33 @@ describe("audio preference", () => {
     expect(readSoundOn()).toBe(false);
   });
 
+  test("main mobile feed reuses its player across cards and a profile return", async () => {
+    gestureSeen = true;
+    const renderCard = async (id: string) => {
+      await act(async () => {
+        root.render(createElement(VideoCard, {
+          key: id,
+          src: `https://cdn.example/${id}.mp4`,
+          postId: id,
+          isActive: true,
+          soundEnabled: true,
+          mainFeedMobileLayout: true,
+          sharedMobileFeedPlayer: true,
+        }));
+      });
+      return container.querySelector("video");
+    };
+
+    const player = await renderCard("first");
+    expect(player).not.toBeNull();
+    expect(await renderCard("second")).toBe(player);
+    expect(await renderCard("third")).toBe(player);
+    await act(async () => root.unmount());
+    expect(player?.isConnected).toBe(true);
+    root = createRoot(container);
+    expect(await renderCard("first")).toBe(player);
+  });
+
   test("blocked localStorage: reads false, writes do not throw, the choice still applies in-page", () => {
     const blocked = () => {
       throw new DOMException("blocked", "SecurityError");
