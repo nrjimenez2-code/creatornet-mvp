@@ -1,10 +1,11 @@
 /** @jest-environment jsdom */
 
-import { claimMobileFeedPlayer, mobileFeedPlaybackReady, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedSeekFailed, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
 
 describe("mobile feed media element", () => {
   beforeEach(() => {
     jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "currentSrc", "get").mockImplementation(function (this: HTMLMediaElement) { return this.src; });
   });
 
   afterEach(() => { jest.restoreAllMocks(); jest.useRealTimers(); });
@@ -78,5 +79,29 @@ describe("mobile feed media element", () => {
     await ready;
     expect(video.currentTime).toBe(0);
     releaseMobileFeedPlayer(returned);
+  });
+
+  it("does not complete a requested seek on a mismatched seeked event", async () => {
+    jest.useFakeTimers();
+    const token = Symbol("strict-seek");
+    const video = claimMobileFeedPlayer(document.createElement("div"), token, "/strict.mp4", "strict", { position: 12 });
+    const ready = mobileFeedPlaybackReady(token)!;
+    video.currentTime = 0; video.dispatchEvent(new Event("seeked"));
+    expect(mobileFeedPlaybackReady(token)).toBe(ready);
+    video.dispatchEvent(new Event("loadedmetadata"));
+    expect(video.currentTime).toBe(12);
+    video.dispatchEvent(new Event("seeked")); await ready;
+    expect(mobileFeedSeekFailed(token)).toBe(false);
+    releaseMobileFeedPlayer(token);
+  });
+
+  it("reports a failed seek separately from successful readiness", async () => {
+    jest.useFakeTimers();
+    const token = Symbol("failed-seek");
+    claimMobileFeedPlayer(document.createElement("div"), token, "/bad-seek.mp4", "bad-seek", { position: 12 });
+    const ready = mobileFeedPlaybackReady(token);
+    jest.advanceTimersByTime(2_000); await ready;
+    expect(mobileFeedSeekFailed(token)).toBe(true);
+    releaseMobileFeedPlayer(token);
   });
 });
