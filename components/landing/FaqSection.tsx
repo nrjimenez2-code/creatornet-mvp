@@ -12,7 +12,7 @@ const ITEMS: FaqItem[] = [
   },
   {
     q: "How do creators get paid?",
-    a: "Creators connect a payout account through Stripe. CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted separately. The creator's net earnings are routed to their Stripe account.",
+    a: "Creators connect a payout account through Stripe. CreatorNet charges a 12% platform fee. Any creator-funded payment-processing deduction is disclosed separately. The creator's net earnings are routed to their Stripe account.",
   },
   {
     q: "What happens after a customer buys?",

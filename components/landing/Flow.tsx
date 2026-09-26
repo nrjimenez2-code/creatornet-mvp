@@ -1,7 +1,6 @@
 import { InfoIcon } from "./icons";
 
-// Section 5: the transaction model, stated exactly. CreatorNet's 12% fee and
-// payment processing are separate creator deductions; Stripe handles payouts.
+// Section 5: describe both listed purchases and voluntary free-video tips.
 export default function Flow() {
   return (
     <section className="cn-site-marketplace-flow" id="cn-site-flow">
@@ -50,10 +49,10 @@ export default function Flow() {
           <p className="cn-site-flow-note">
             <InfoIcon />
             <span>
-              CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted
-              separately. The creator&apos;s net earnings are routed to their connected Stripe
-              account. Every payment corresponds to a listed product or service — CreatorNet is a
-              marketplace, not a way to send money between people.
+              CreatorNet charges a 12% platform fee. Any creator-funded payment-processing
+              deduction is disclosed separately. The creator&apos;s net earnings are routed to
+              their connected Stripe account. Purchases are for listed products or services.
+              Eligible free videos may accept voluntary tips; tips do not unlock content.
             </span>
           </p>
         </div>
