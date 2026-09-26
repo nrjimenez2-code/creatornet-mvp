@@ -27,7 +27,7 @@ import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
 import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import VideoSeekBar from "./VideoSeekBar";
-import { claimMobileFeedPlayer, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
@@ -285,10 +285,9 @@ function VideoCard(props: VideoCardProps) {
   useLayoutEffect(() => {
     if (!useSharedMobilePlayer || !src || !sharedVideoHostRef.current) return;
     const owner = sharedVideoOwnerRef.current;
-    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src);
+    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src);
     videoRef.current = video;
     video.className = `absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover`;
-    video.poster = displayPoster || "";
     video.preload = preload;
     video.muted = mutedRef.current;
     const onError = () => {
@@ -310,7 +309,10 @@ function VideoCard(props: VideoCardProps) {
       setPreviewFrameReady(false);
     };
   // Preload changes with page visibility; keep ownership through that change.
-  }, [useSharedMobilePlayer, src, displayPoster, adaptiveSrc, originalSrc, reportMediaDimensions]);
+  }, [useSharedMobilePlayer, src, postId, adaptiveSrc, originalSrc, reportMediaDimensions]);
+  useEffect(() => {
+    if (useSharedMobilePlayer && videoRef.current) videoRef.current.poster = displayPoster || "";
+  }, [useSharedMobilePlayer, displayPoster]);
   useEffect(() => {
     if (useSharedMobilePlayer && videoRef.current) videoRef.current.preload = preload;
   }, [useSharedMobilePlayer, preload]);
@@ -689,8 +691,9 @@ function VideoCard(props: VideoCardProps) {
     const video = videoRef.current;
     if (!video || (mobileFeedPlayer && !useSharedMobilePlayer)) return;
     let frame: number | undefined;
+    let cancelled = false;
     const ready = () => {
-      if (videoRef.current !== video) return;
+      if (cancelled || videoRef.current !== video) return;
       if (useSharedMobilePlayer && (video.readyState < 2 || video.currentSrc !== video.src)) {
         if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(ready);
         return;
@@ -698,12 +701,19 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("playing", ready);
       setFrameReady(true);
     };
-    if (video.requestVideoFrameCallback) {
-      frame = video.requestVideoFrameCallback(ready);
-      return () => { if (frame !== undefined) video.cancelVideoFrameCallback(frame); };
-    }
-    video.addEventListener("playing", ready);
-    return () => video.removeEventListener("playing", ready);
+    const observeFirstFrame = () => {
+      if (cancelled || videoRef.current !== video) return;
+      if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(ready);
+      else video.addEventListener("playing", ready);
+    };
+    const resume = useSharedMobilePlayer ? mobileFeedPlaybackReady(sharedVideoOwnerRef.current) : null;
+    if (resume) void resume.then(observeFirstFrame);
+    else observeFirstFrame();
+    return () => {
+      cancelled = true;
+      if (frame !== undefined) video.cancelVideoFrameCallback(frame);
+      video.removeEventListener("playing", ready);
+    };
   }, [src, retryVersion, useSharedMobilePlayer, mobileFeedPlayer]);
 
   useEffect(() => {
@@ -825,7 +835,11 @@ function VideoCard(props: VideoCardProps) {
         video.pause();
       };
     } else if (isActive) {
-      tryPlay();
+      const resume = useSharedMobilePlayer ? mobileFeedPlaybackReady(sharedVideoOwnerRef.current) : null;
+      if (resume) void resume.then(() => {
+        if (!cancelled && videoRef.current === video) tryPlay();
+      });
+      else tryPlay();
     } else {
       video.pause();
     }
