@@ -53,6 +53,7 @@ export default function Flow() {
               deduction is disclosed separately. The creator&apos;s net earnings are routed to
               their connected Stripe account. Purchases are for listed products or services.
               Eligible free videos may accept voluntary tips; tips do not unlock content.
+              CreatorNet is a marketplace, not a way to send money between people.
             </span>
           </p>
         </div>
