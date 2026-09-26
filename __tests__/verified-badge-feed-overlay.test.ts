@@ -313,7 +313,8 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
       container.querySelector("video")!.currentTime = 0.4;
       await act(async () => [...frames.values()].forEach(callback => callback(1, {} as VideoFrameCallbackMetadata)));
       expect(pause).toHaveBeenCalled();
-      expect(container.querySelector("video")!.currentTime).toBe(0);
+      // Preserve the decoded frame so it can cover the shared-player handoff.
+      expect(container.querySelector("video")!.currentTime).toBe(0.4);
       await act(async () => jest.advanceTimersByTime(1500));
       expect(global.fetch).not.toHaveBeenCalled();
       expect(container.querySelector("video")?.dataset.warmedFrame).toBe("true");
@@ -323,6 +324,55 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
       HTMLVideoElement.prototype.requestVideoFrameCallback = originalRequest;
       HTMLVideoElement.prototype.cancelVideoFrameCallback = originalCancel;
       jest.useRealTimers();
+    }
+  });
+
+  test("a warmed phone frame covers the shared player until its own first frame", async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as unknown as typeof window.matchMedia;
+    const callbacks = new Map<HTMLVideoElement, VideoFrameRequestCallback[]>();
+    const originalRequest = HTMLVideoElement.prototype.requestVideoFrameCallback;
+    const originalCancel = HTMLVideoElement.prototype.cancelVideoFrameCallback;
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function (callback) {
+      callbacks.set(this, [...(callbacks.get(this) ?? []), callback]);
+      return callbacks.get(this)!.length;
+    };
+    HTMLVideoElement.prototype.cancelVideoFrameCallback = () => {};
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      const props = {
+        src: "https://cdn.example.com/next.mp4", poster: "/poster.jpg",
+        isActive: false, prepareFrame: true, sharedMobileFeedPlayer: true,
+        soundEnabled: true,
+      };
+      await render(props);
+      const preview = container.querySelector("video")!;
+      preview.currentTime = 0.2;
+      await act(async () => (callbacks.get(preview) ?? []).forEach(callback => callback(1, {} as VideoFrameCallbackMetadata)));
+      expect(container.querySelector('img[aria-hidden="true"]')).toBeNull();
+
+      await render({ ...props, isActive: true, prepareFrame: false });
+      const videos = Array.from(container.querySelectorAll("video"));
+      const shared = videos.find(video => video !== preview)!;
+      expect(videos).toHaveLength(2);
+      expect(preview.isConnected).toBe(true);
+      expect(preview.currentTime).toBe(0.2);
+      expect(shared.muted).toBe(false);
+      expect(preview.muted).toBe(true);
+
+      Object.defineProperty(shared, "readyState", { configurable: true, value: 3 });
+      Object.defineProperty(shared, "currentSrc", { configurable: true, get: () => shared.src });
+      await act(async () => (callbacks.get(shared) ?? []).forEach(callback => callback(2, {} as VideoFrameCallbackMetadata)));
+      expect(container.querySelectorAll("video")).toHaveLength(1);
+      expect(container.querySelector("video")).toBe(shared);
+      expect(container.querySelector('img[aria-hidden="true"]')).toBeNull();
+    } finally {
+      await act(async () => root.render(null));
+      play.mockRestore(); pause.mockRestore();
+      HTMLVideoElement.prototype.requestVideoFrameCallback = originalRequest;
+      HTMLVideoElement.prototype.cancelVideoFrameCallback = originalCancel;
+      window.matchMedia = originalMatchMedia;
     }
   });
 
@@ -506,7 +556,10 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     try {
       await render({ src: "https://cdn.example.com/one.mp4", poster: "/poster.jpg", isActive: true });
       expect(container.querySelector('img[aria-hidden="true"]')).not.toBeNull();
-      await act(async () => container.querySelector("video")!.dispatchEvent(new Event("playing")));
+      const video = container.querySelector("video")!;
+      Object.defineProperty(video, "readyState", { configurable: true, value: 3 });
+      Object.defineProperty(video, "currentSrc", { configurable: true, get: () => video.src });
+      await act(async () => video.dispatchEvent(new Event("playing")));
       expect(container.querySelector('img[aria-hidden="true"]')).toBeNull();
       await render({ src: "https://cdn.example.com/two.mp4", poster: "/poster.jpg", isActive: true });
       expect(container.querySelector('img[aria-hidden="true"]')).not.toBeNull();

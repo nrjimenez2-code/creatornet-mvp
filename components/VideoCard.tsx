@@ -220,7 +220,9 @@ function VideoCard(props: VideoCardProps) {
   const [mediaError, setMediaError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
+  const [previewFrameReady, setPreviewFrameReady] = useState(false);
   const [posterFailed, setPosterFailed] = useState(false);
+  const [posterUnavailable, setPosterUnavailable] = useState(false);
   const displayPoster = useMemo(() => {
     const cdn = feedPosterUrl(poster);
     if (posterFailed || !cdn?.startsWith("https://media.creatornet.net/thumbnails/")) return poster || undefined;
@@ -231,13 +233,15 @@ function VideoCard(props: VideoCardProps) {
     else props.onDeleted?.();
   }, [postId, props.onFeedDeleted, props.onDeleted]);
   useEffect(() => { setMediaError(false); setFrameReady(false); }, [src, retryVersion]);
-  useEffect(() => { setPosterFailed(false); }, [poster]);
+  useEffect(() => { setPosterFailed(false); setPosterUnavailable(false); }, [poster]);
 
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
+  const previewVideoRef = useRef<HTMLVideoElement>(null);
   const sharedVideoHostRef = useRef<HTMLDivElement>(null);
   const sharedVideoOwnerRef = useRef(Symbol("feed-card"));
-  const useSharedMobilePlayer = props.sharedMobileFeedPlayer === true && !desktop && isActive === true && !!src;
+  const mobileFeedPlayer = props.sharedMobileFeedPlayer === true && !desktop;
+  const useSharedMobilePlayer = mobileFeedPlayer && isActive === true && !!src;
   const containerRef = useRef<HTMLDivElement>(null);
   // Subscribed read of the saved per-device preference. This MUST come from the
   // hook, not a bare readSoundOn(): the hook renders the muted server snapshot
@@ -300,6 +304,10 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       if (videoRef.current === video) videoRef.current = null;
       releaseMobileFeedPlayer(owner);
+      // The retained preview is no longer guaranteed to match this card.
+      // Reset before the next paint when ownership or source changes.
+      setFrameReady(false);
+      setPreviewFrameReady(false);
     };
   // Preload changes with page visibility; keep ownership through that change.
   }, [useSharedMobilePlayer, src, displayPoster, adaptiveSrc, originalSrc, reportMediaDimensions]);
@@ -675,19 +683,28 @@ function VideoCard(props: VideoCardProps) {
     };
   }, [scoreInterest, trackMetric, retryVersion, src, useSharedMobilePlayer]);
 
-  // Keep the poster until a decoded frame can actually be displayed, also in
-  // profile viewers where this card owns its own visibility observer.
+  // A frame from the inactive preview cannot uncover the shared player's
+  // source. Wait for the current element and source to reach the compositor.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video) return;
-    const ready = () => setFrameReady(true);
+    if (!video || (mobileFeedPlayer && !useSharedMobilePlayer)) return;
+    let frame: number | undefined;
+    const ready = () => {
+      if (videoRef.current !== video) return;
+      if (useSharedMobilePlayer && (video.readyState < 2 || video.currentSrc !== video.src)) {
+        if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(ready);
+        return;
+      }
+      video.removeEventListener("playing", ready);
+      setFrameReady(true);
+    };
     if (video.requestVideoFrameCallback) {
-      const frame = video.requestVideoFrameCallback(ready);
-      return () => video.cancelVideoFrameCallback(frame);
+      frame = video.requestVideoFrameCallback(ready);
+      return () => { if (frame !== undefined) video.cancelVideoFrameCallback(frame); };
     }
-    video.addEventListener("playing", ready, { once: true });
+    video.addEventListener("playing", ready);
     return () => video.removeEventListener("playing", ready);
-  }, [src, retryVersion, useSharedMobilePlayer]);
+  }, [src, retryVersion, useSharedMobilePlayer, mobileFeedPlayer]);
 
   useEffect(() => {
     if (frameReady && isActive && postId) firstFrame?.(postId);
@@ -819,24 +836,25 @@ function VideoCard(props: VideoCardProps) {
 
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || !props.prepareFrame || isActive !== false || !pageVisible || frameReady || manuallyPausedRef.current) return;
-    const startingTime = video.currentTime;
+    if (!video || !props.prepareFrame || isActive !== false || !pageVisible || previewFrameReady || manuallyPausedRef.current) return;
     let stopped = false;
     let frame: number | undefined;
     const stop = () => {
       if (stopped) return;
       stopped = true;
       // Activation can happen while the warm play promise is still pending.
-      // Never pause or reset the now-active video during that transition.
+      // Keep the decoded preview frame on screen for the shared-player handoff.
       if (activeRef.current === false) {
         video.pause();
-        // A decoded preview must not consume the opening of the real view.
-        if (video.currentTime !== startingTime) video.currentTime = startingTime;
+      } else if (videoRef.current !== video) {
+        // The preview remains over the newly claimed shared player until its
+        // first frame, but it must no longer play or consume a decoder.
+        video.pause();
       }
     };
     const ready = () => {
       video.dataset.warmedFrame = "true";
-      setFrameReady(true);
+      setPreviewFrameReady(true);
       stop();
     };
     if (video.requestVideoFrameCallback) frame = video.requestVideoFrameCallback(ready);
@@ -854,7 +872,7 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("playing", ready);
       stop();
     };
-  }, [props.prepareFrame, isActive, pageVisible, frameReady, src, retryVersion]);
+  }, [props.prepareFrame, isActive, pageVisible, previewFrameReady, src, retryVersion]);
 
   // Local diagnostics only: inspect the video element to distinguish download
   // readiness from activation-to-first-frame delay without extra React renders.
@@ -1408,6 +1426,9 @@ function VideoCard(props: VideoCardProps) {
   );
 
   const hasPurchaseControls = !!(showCTA || allowBooking || onBuy || onBook || (productId && priceCents));
+  const waitingForVisibleFrame = mobileFeedPlayer ? !frameReady && !previewFrameReady : !frameReady;
+  const showPosterCover = !!src && !!displayPoster && !(mobileFeedPlayer && posterUnavailable) && waitingForVisibleFrame && !mediaError;
+  const showFallbackCover = !!src && mobileFeedPlayer && (!displayPoster || posterUnavailable) && waitingForVisibleFrame && !mediaError;
 
   return (
     <div className={`feed-mobile-card relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] ${fillMobileViewport ? "max-lg:h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)]"} max-lg:flex max-lg:flex-col lg:h-[100dvh] lg:min-h-[100dvh] touch-manipulation`}
@@ -1483,30 +1504,31 @@ function VideoCard(props: VideoCardProps) {
 
 
 
-        {src && useSharedMobilePlayer ? (
+        {src && useSharedMobilePlayer && (
           <div ref={sharedVideoHostRef} className="absolute inset-0 h-full w-full" />
-        ) : src ? (
+        )}
+        {src && (!useSharedMobilePlayer || !frameReady) ? (
           <video
             key={retryVersion}
-            ref={videoRef}
+            ref={useSharedMobilePlayer ? previewVideoRef : videoRef}
             src={src}
             onLoadedMetadata={desktopFeedMediaKey
               ? (event) => reportMediaDimensions(event.currentTarget.videoWidth, event.currentTarget.videoHeight)
               : undefined}
-            onError={() => {
+            onError={useSharedMobilePlayer ? undefined : () => {
               if (adaptiveSrc) setFailedAdaptiveSource(originalSrc);
               else if (src !== originalSrc) setFailedMediaSource(originalSrc);
               else setMediaError(true);
             }}
             poster={displayPoster}
             playsInline
-            muted={isMuted}
+            muted={useSharedMobilePlayer || isMuted}
             preload={preload}
             loop
-            className={`absolute inset-0 h-full w-full ${fillMobileViewport ? "max-lg:h-[100dvh] max-lg:min-h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)]"} lg:h-[100dvh] lg:min-h-[100dvh] object-cover`}
+            className={`absolute inset-0 h-full w-full ${useSharedMobilePlayer ? "z-10 pointer-events-none" : ""} ${fillMobileViewport ? "max-lg:h-[100dvh] max-lg:min-h-[100dvh]" : "max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)]"} lg:h-[100dvh] lg:min-h-[100dvh] object-cover`}
             style={naturalMediaFit}
           />
-        ) : poster ? (
+        ) : !src && poster ? (
           <img
             src={poster}
             onLoad={desktopFeedMediaKey
@@ -1519,7 +1541,11 @@ function VideoCard(props: VideoCardProps) {
           />
         ) : null}
 
-        {src && displayPoster && !frameReady && !mediaError && <img src={displayPoster} alt="" aria-hidden="true" style={{ width: "100%", height: "100%", objectFit: naturalDesktopFrame ? "contain" : "cover" }} onError={() => setPosterFailed(true)} className="pointer-events-none absolute inset-0 h-full w-full object-cover" />}
+        {showPosterCover && <img src={displayPoster} alt="" aria-hidden="true" style={{ width: "100%", height: "100%", objectFit: naturalDesktopFrame ? "contain" : "cover" }} onError={() => {
+          if (mobileFeedPlayer && (posterFailed || displayPoster === poster)) setPosterUnavailable(true);
+          else setPosterFailed(true);
+        }} className={`pointer-events-none absolute inset-0 h-full w-full object-cover ${useSharedMobilePlayer ? "z-20" : ""}`} />}
+        {showFallbackCover && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-br from-[#232039] via-[#151325] to-[#07070c]" />}
         {src && mediaError && <div role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/75 text-white">
           <p>This video couldn’t load.</p>
           <button type="button" className="rounded-full border border-white/40 px-4 py-2" onClick={() => { manuallyPausedRef.current = false; setMediaError(false); setRetryVersion(value => value + 1); }}>Retry video</button>
