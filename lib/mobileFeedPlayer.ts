@@ -17,6 +17,7 @@ const RESUME_WINDOW_MS = 5_000;
 const MAX_RECENT_POSITIONS = 2;
 const recentPositions = new Map<string, { src: string; time: number; savedAt: number }>();
 let pendingSeek: { token: symbol; promise: Promise<void>; cancel: () => void } | null = null;
+let seekOutcome: { token: symbol; failed: boolean } | null = null;
 
 function rememberPosition(): void {
   if (!player || !currentPostId) return;
@@ -34,6 +35,16 @@ function takeRecentPosition(postId: string, src: string): number | null {
   return saved.time;
 }
 
+/** Non-consuming read lets preparation use exactly the active player's return policy. */
+export function recentMobileFeedPosition(postId: string, src: string): number {
+  const saved = recentPositions.get(postId);
+  return saved && saved.src === src && Date.now() - saved.savedAt <= RESUME_WINDOW_MS ? saved.time : 0;
+}
+
+export function ownsMobileFeedPlayer(token: symbol, video: HTMLVideoElement, src?: string): boolean {
+  return owner === token && player === video && (src === undefined || video.getAttribute("src") === src);
+}
+
 function cancelPendingSeek(): void {
   if (pendingSeek && player) recordFeedEvent("resume-seek-cancel", {}, player);
   pendingSeek?.cancel();
@@ -45,30 +56,38 @@ function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number
   let settle!: () => void;
   const promise = new Promise<void>(resolve => { settle = resolve; });
   let done = false;
-  const finish = () => {
+  let target = time;
+  const finish = (failed = false) => {
     if (done) return;
     done = true;
     video.removeEventListener("loadedmetadata", seek);
-    video.removeEventListener("seeked", finish);
-    video.removeEventListener("error", finish);
+    video.removeEventListener("seeked", seeked);
+    video.removeEventListener("error", failedSeek);
     clearTimeout(timer);
     if (pendingSeek?.token === token) pendingSeek = null;
+    if (owner === token) seekOutcome = { token, failed };
     settle();
   };
-  const timer = setTimeout(() => { recordFeedEvent("resume-seek-timeout", { target: time }, video); finish(); }, 2_000);
+  const failedSeek = () => finish(true);
+  const seeked = () => {
+    if (owner !== token || video.seeking || video.currentSrc !== video.src || Math.abs(video.currentTime - target) > 0.05) return;
+    finish();
+  };
+  const timer = setTimeout(() => { recordFeedEvent("resume-seek-timeout", { target: time }, video); failedSeek(); }, 2_000);
   const seek = () => {
-    if (owner !== token || done) return finish();
+    if (owner !== token || done) return failedSeek();
+    if (video.currentSrc !== video.src) return;
     try {
-      const target = Number.isFinite(video.duration) && video.duration > 0
+      target = Number.isFinite(video.duration) && video.duration > 0
         ? Math.min(time, Math.max(0, video.duration - 0.01)) : time;
       if (Math.abs(video.currentTime - target) < 0.05) return finish();
       video.currentTime = target;
-    } catch { finish(); }
+    } catch { failedSeek(); }
   };
-  pendingSeek = { token, promise, cancel: finish };
+  pendingSeek = { token, promise, cancel: failedSeek };
   video.addEventListener("loadedmetadata", seek);
-  video.addEventListener("seeked", finish);
-  video.addEventListener("error", finish);
+  video.addEventListener("seeked", seeked);
+  video.addEventListener("error", failedSeek);
   // A bad stream must never leave the card unable to attempt playback.
   if (video.readyState >= 1) seek();
 }
@@ -77,6 +96,7 @@ function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number
 export function mobileFeedPlaybackReady(token: symbol): Promise<void> | null {
   return pendingSeek?.token === token ? pendingSeek.promise : null;
 }
+export function mobileFeedSeekFailed(token: symbol): boolean { return seekOutcome?.token === token && seekOutcome.failed; }
 
 function getParkingPlace(): HTMLDivElement {
   if (!parkingPlace || !parkingPlace.isConnected) {
@@ -88,28 +108,29 @@ function getParkingPlace(): HTMLDivElement {
   return parkingPlace;
 }
 
-export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src): HTMLVideoElement {
+export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; warmEligible?: boolean; reload?: boolean }): HTMLVideoElement {
   if (!player) {
     player = document.createElement("video");
     player.playsInline = true;
     player.loop = true;
   }
   const changedPost = currentPostId !== postId;
-  const changedSource = player.getAttribute("src") !== src;
+  const changedSource = player.getAttribute("src") !== src || options?.reload === true;
   const returningFromAnotherPage = owner === null && currentPostId === postId;
   if (owner !== token) player.pause();
   if (owner && changedPost) rememberPosition();
   if (changedPost || changedSource) cancelPendingSeek();
   owner = token;
+  seekOutcome = null;
   host.appendChild(player);
-  beginFeedVideoTrace(player, postId, src);
+  beginFeedVideoTrace(player, postId, src, options?.warmEligible ?? null);
   if (changedSource) {
     player.src = src;
   }
   currentPostId = postId;
   if (changedPost || changedSource || returningFromAnotherPage) {
-    const saved = takeRecentPosition(postId, src);
-    if (saved !== null) seekBeforePlayback(player, token, saved);
+    const saved = options?.position ?? takeRecentPosition(postId, src);
+    if (saved !== null && (saved > 0 || !changedSource)) seekBeforePlayback(player, token, saved);
     else if (!changedSource && player.currentTime > 0) seekBeforePlayback(player, token, 0);
   }
   return player;

@@ -10,7 +10,7 @@ export class FeedTrace {
   private sequence = 0;
   private activation = 0;
   constructor(readonly capacity = 24_000, private now = () => performance.now()) {
-    this.events = new Array(capacity);
+    this.events = [];
   }
   begin(postId: string): FeedTraceIdentity { return { activation: ++this.activation, postId, source: 0, seek: 0 }; }
   record(kind: string, identity: FeedTraceIdentity | null, detail: Detail = {}) {
@@ -22,11 +22,11 @@ export class FeedTrace {
     const start = this.count === this.capacity ? this.cursor : 0;
     return { droppedEvents: this.sequence - this.count, events: Array.from({ length: this.count }, (_, i) => this.events[(start + i) % this.capacity]) };
   }
-  clear() { this.events = new Array(this.capacity); this.cursor = this.count = this.sequence = 0; }
+  clear() { this.events = []; this.cursor = this.count = this.sequence = 0; }
 }
 
 const trace = new FeedTrace();
-const states = new WeakMap<HTMLVideoElement, { identity: FeedTraceIdentity; stop: () => void }>();
+const states = new WeakMap<HTMLVideoElement, { identity: FeedTraceIdentity; stop: () => void; target: (time: number) => void }>();
 let runContext: Detail = {};
 let captureEnabled: boolean | undefined;
 export function feedTraceEnabled() {
@@ -34,6 +34,7 @@ export function feedTraceEnabled() {
   return captureEnabled ??= new URLSearchParams(window.location.search).get("feedDebug") === "1";
 }
 export function recordFeedEvent(kind: string, detail: Detail = {}, video?: HTMLVideoElement) {
+  if (video && kind === "resume-seek-request" && typeof detail.target === "number") states.get(video)?.target(detail.target);
   if (feedTraceEnabled()) trace.record(kind, video ? states.get(video)?.identity ?? null : null, detail);
 }
 export function setFeedRunContext(context: Detail) { runContext = { ...runContext, ...context }; }
@@ -53,6 +54,19 @@ export function playableBuffer(video: HTMLVideoElement, position = video.current
   return 0;
 }
 export function sourceKind(src: string) { return src.includes(".m3u8") ? "hls" : src.includes("/auto/") ? "resolver" : src.includes(".mp4") ? "mp4" : "other"; }
+
+export function recordLegacyPreparation(video: HTMLVideoElement, postId: string, metadata?: VideoFrameCallbackMetadata) {
+  if (!feedTraceEnabled()) return;
+  const valid = !!metadata && video.readyState >= 2 && !video.seeking && video.currentSrc === video.src && Math.abs(video.currentTime - metadata.mediaTime) <= 0.1;
+  video.dataset.measuredPreparedSource = valid ? video.src : "";
+  video.dataset.measuredPreparedTime = valid ? String(metadata.mediaTime) : "";
+  recordFeedEvent("legacy-preview-frame", { postId, valid, position: video.currentTime, buffer: playableBuffer(video), readyState: video.readyState, seeking: video.seeking });
+}
+export function measuredPreparation(video: HTMLVideoElement | null, src: string, target: number): boolean {
+  if (!video || !video.dataset.measuredPreparedTime || video.dataset.measuredPreparedSource !== new URL(src, document.baseURI).href) return false;
+  const remaining = Number.isFinite(video.duration) ? video.duration - target : 1;
+  return !video.seeking && video.readyState >= 2 && Math.abs(Number(video.dataset.measuredPreparedTime) - target) <= 0.1 && remaining > 0 && playableBuffer(video, target) + 0.001 >= Math.min(1, remaining);
+}
 
 /** Two advancing submissions, with no seek/source/owner change, establish moving media. */
 export function validFeedFrame(video: HTMLVideoElement, source: string, mediaTime: number, previousTime: number | null) {
@@ -77,6 +91,8 @@ export function beginFeedVideoTrace(video: HTMLVideoElement, postId: string, src
   let waitingAt: number | null = null;
   let sampleAt = -Infinity;
   let seekTimer: ReturnType<typeof setTimeout> | undefined;
+  let intendedPosition = 0;
+  let targetObserved = false;
   const record = (kind: string, detail: Detail = {}) => { if (alive) trace.record(kind, identity, detail); };
   const cancelFrame = () => { if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; };
   const observe = () => {
@@ -84,7 +100,8 @@ export function beginFeedVideoTrace(video: HTMLVideoElement, postId: string, src
     const generation = `${identity.source}:${identity.seek}`;
     frame = video.requestVideoFrameCallback((now, metadata) => {
       if (!alive || states.get(video)?.identity !== identity || generation !== `${identity.source}:${identity.seek}`) return;
-      const valid = validFeedFrame(video, expectedSource, metadata.mediaTime, previousTime);
+      if (!video.seeking && video.currentSrc === expectedSource && metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (now - started) / 1_000 + 0.25) targetObserved = true;
+      const valid = targetObserved && validFeedFrame(video, expectedSource, metadata.mediaTime, previousTime);
       if (video.readyState >= 2 && !video.seeking && video.currentSrc === expectedSource) previousTime = metadata.mediaTime;
       else previousTime = null;
       if (valid) {
@@ -111,6 +128,7 @@ export function beginFeedVideoTrace(video: HTMLVideoElement, postId: string, src
   on("loadeddata", () => record("loadeddata", { buffer: playableBuffer(video) }));
   on("canplay", () => record("playable-buffer", { buffer: playableBuffer(video), readyState: video.readyState }));
   on("seeking", () => {
+    intendedPosition = video.currentTime; targetObserved = false;
     identity.seek++; record("seek-start", { target: video.currentTime }); invalidate();
     clearTimeout(seekTimer);
     const seek = identity.seek;
@@ -131,7 +149,7 @@ export function beginFeedVideoTrace(video: HTMLVideoElement, postId: string, src
     listeners.forEach(([name, fn]) => video.removeEventListener(name, fn));
     if (states.get(video)?.identity === identity) states.delete(video);
   };
-  states.set(video, { identity, stop });
+  states.set(video, { identity, stop, target: time => { intendedPosition = time; targetObserved = false; identity.seek++; invalidate(); } });
   delete video.dataset.startupMs;
   delete video.dataset.firstFrameReadyState;
   record("activation", { sourceKind: sourceKind(src), warmEligible, readyState: video.readyState, buffer: playableBuffer(video), frameCallbackAvailable: !!video.requestVideoFrameCallback });
@@ -149,29 +167,37 @@ export function observeFeedScroll(root: HTMLElement, tab: string) {
   let previous = 0;
   let raf = 0;
   let settling: ReturnType<typeof setTimeout> | undefined;
+  let touching = false;
   const intervals: number[] = [];
   const sample = (now: number) => {
     if (previous) { intervals.push(now - previous); if (intervals.length > 600) intervals.shift(); }
     previous = now; raf = requestAnimationFrame(sample);
   };
-  const settle = () => {
-    if (gestureAt === null) return;
+  const settle = (method = "120ms-scroll-quiet") => {
+    if (gestureAt === null || touching) return;
     cancelAnimationFrame(raf);
     const sorted = [...intervals].sort((a, b) => a - b);
     const median = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
-    recordFeedEvent("scroll-settle", { tab, gestureMs: performance.now() - gestureAt, settleMethod: "120ms-scroll-quiet", rafMedianMs: median, observedRafHz: median ? 1_000 / median : null, rafMaxMs: sorted.at(-1) ?? null, rafSamples: sorted.length, gapsAbove1_5Cadence: median ? intervals.filter(ms => ms > median * 1.5).length : null });
+    recordFeedEvent("scroll-settle", { tab, gestureMs: performance.now() - gestureAt, settleMethod: method, rafMedianMs: median, observedRafHz: median ? 1_000 / median : null, rafMaxMs: sorted.at(-1) ?? null, rafSamples: sorted.length, gapsAbove1_5Cadence: median ? intervals.filter(ms => ms > median * 1.5).length : null });
     gestureAt = null; previous = 0;
   };
-  const begin = () => {
-    if (gestureAt === null) { gestureAt = performance.now(); intervals.length = 0; previous = 0; raf = requestAnimationFrame(sample); recordFeedEvent("gesture-start", { tab }); }
+  const begin = (origin: string) => {
+    if (gestureAt === null) { gestureAt = performance.now(); intervals.length = 0; previous = 0; raf = requestAnimationFrame(sample); recordFeedEvent("gesture-start", { tab, origin }); }
     clearTimeout(settling); settling = setTimeout(settle, 120);
   };
-  const scroll = () => { begin(); clearTimeout(settling); settling = setTimeout(settle, 120); };
-  const visibility = () => { recordFeedEvent("page-visibility", { hidden: document.hidden }); if (document.hidden) settle(); };
-  root.addEventListener("touchstart", begin, { passive: true });
+  const touchStart = () => { touching = true; begin("touch"); clearTimeout(settling); };
+  const touchEnd = () => { touching = false; clearTimeout(settling); settling = setTimeout(settle, 120); };
+  const scroll = () => { begin("scroll"); };
+  const scrollEnd = () => settle("native-scrollend");
+  const visibility = () => { recordFeedEvent("page-visibility", { hidden: document.hidden }); if (document.hidden) { touching = false; settle("page-hidden"); } };
+  root.addEventListener("touchstart", touchStart, { passive: true });
+  root.addEventListener("touchend", touchEnd, { passive: true });
+  root.addEventListener("touchcancel", touchEnd, { passive: true });
   root.addEventListener("scroll", scroll, { passive: true });
+  root.addEventListener("scrollend", scrollEnd);
   document.addEventListener("visibilitychange", visibility);
   let resources: PerformanceObserver | undefined;
+  let longTasks: PerformanceObserver | undefined;
   try {
     resources = new PerformanceObserver(list => {
       for (const item of list.getEntries() as PerformanceResourceTiming[]) {
@@ -181,5 +207,11 @@ export function observeFeedScroll(root: HTMLElement, tab: string) {
     });
     resources.observe({ type: "resource" });
   } catch { recordFeedEvent("measurement-unavailable", { measurement: "resource-timing" }); }
-  return () => { settle(); cancelAnimationFrame(raf); clearTimeout(settling); resources?.disconnect(); root.removeEventListener("touchstart", begin); root.removeEventListener("scroll", scroll); document.removeEventListener("visibilitychange", visibility); };
+  try {
+    if (PerformanceObserver.supportedEntryTypes.includes("longtask")) {
+      longTasks = new PerformanceObserver(list => { for (const task of list.getEntries()) recordFeedEvent("long-task", { start: task.startTime, durationMs: task.duration }); });
+      longTasks.observe({ type: "longtask" });
+    } else recordFeedEvent("measurement-unavailable", { measurement: "long-tasks" });
+  } catch { recordFeedEvent("measurement-unavailable", { measurement: "long-tasks" }); }
+  return () => { touching = false; settle("feed-exit"); cancelAnimationFrame(raf); clearTimeout(settling); resources?.disconnect(); longTasks?.disconnect(); root.removeEventListener("touchstart", touchStart); root.removeEventListener("touchend", touchEnd); root.removeEventListener("touchcancel", touchEnd); root.removeEventListener("scroll", scroll); root.removeEventListener("scrollend", scrollEnd); document.removeEventListener("visibilitychange", visibility); };
 }

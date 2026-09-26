@@ -27,8 +27,10 @@ import { QualifiedWatch, qualifiedThreshold } from "@/lib/qualifiedWatch";
 import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import VideoSeekBar from "./VideoSeekBar";
-import { claimMobileFeedPlayer, mobileFeedPlaybackReady, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
-import { recordFeedEvent, playableBuffer } from "@/lib/mobileFeedDiagnostics";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedSeekFailed, ownsMobileFeedPlayer, recentMobileFeedPosition, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { recordFeedEvent, recordLegacyPreparation, measuredPreparation } from "@/lib/mobileFeedDiagnostics";
+import { mobileFeedController } from "@/lib/mobileFeedController";
+import { planMobileFallback } from "@/lib/mobileFeedRecovery";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
@@ -107,6 +109,8 @@ type VideoCardProps = {
   mainFeedMobileLayout?: boolean;
   /** Keep one audible media element across cards in the main phone feed only. */
   sharedMobileFeedPlayer?: boolean;
+  /** Measurement candidate, enabled only on the main mobile feed. */
+  mobileHandoff?: boolean;
   /** Opened viewers have no bottom navigation, so the card fills the phone screen. */
   fillMobileViewport?: boolean;
 };
@@ -242,7 +246,12 @@ function VideoCard(props: VideoCardProps) {
   const sharedVideoHostRef = useRef<HTMLDivElement>(null);
   const sharedVideoOwnerRef = useRef(Symbol("feed-card"));
   const mobileFeedPlayer = props.sharedMobileFeedPlayer === true && !desktop;
+  const controlledMobilePlayer = mobileFeedPlayer && props.mobileHandoff === true;
   const useSharedMobilePlayer = mobileFeedPlayer && isActive === true && !!src;
+  const preparationHostRef = useRef<HTMLDivElement>(null);
+  const recoveryPositionRef = useRef<number | undefined>(undefined);
+  const fallbackAttemptsRef = useRef(new Set<string>());
+  useEffect(() => { fallbackAttemptsRef.current.clear(); recoveryPositionRef.current = undefined; }, [originalSrc, postId]);
   const containerRef = useRef<HTMLDivElement>(null);
   // Subscribed read of the saved per-device preference. This MUST come from the
   // hook, not a bare readSoundOn(): the hook renders the muted server snapshot
@@ -285,14 +294,28 @@ function VideoCard(props: VideoCardProps) {
   // element survives a card change and a trip to a profile page.
   useLayoutEffect(() => {
     if (!useSharedMobilePlayer || !src || !sharedVideoHostRef.current) return;
-    const owner = sharedVideoOwnerRef.current;
-    const video = claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src);
+    const owner = Symbol("feed-activation");
+    sharedVideoOwnerRef.current = owner;
+    const video = controlledMobilePlayer && preparationHostRef.current
+      ? mobileFeedController.activate({ postId: postId ?? src, src, host: sharedVideoHostRef.current, previewHost: preparationHostRef.current, token: owner, present: setPreviewFrameReady, ready: () => setFrameReady(true), position: recoveryPositionRef.current, reload: retryVersion > 0 })
+      : claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src, { warmEligible: measuredPreparation(previewVideoRef.current, src, recentMobileFeedPosition(postId ?? src, src)) });
+    recoveryPositionRef.current = undefined;
     videoRef.current = video;
     video.className = `absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover`;
     video.preload = preload;
     video.muted = mutedRef.current;
     const onError = () => {
+      if (!ownsMobileFeedPlayer(owner, video, src)) return;
       recordFeedEvent("fallback", { code: video.error?.code ?? null, position: video.currentTime, from: adaptiveSrc ? "hls" : "mp4", terminal: src === originalSrc }, video);
+      if (controlledMobilePlayer) {
+        const next = adaptiveSrc ? feedMediaUrl(originalSrc) : src !== originalSrc ? originalSrc : undefined;
+        const recovery = planMobileFallback(src, next, video.currentTime, fallbackAttemptsRef.current);
+        if (recovery.kind === "terminal") {
+          recordFeedEvent("fallback-held", { reason: recovery.reason, position: video.currentTime }, video);
+          mobileFeedController.suspend(); setMediaError(true); return;
+        }
+        recoveryPositionRef.current = recovery.position;
+      }
       if (adaptiveSrc) setFailedAdaptiveSource(originalSrc);
       else if (src !== originalSrc) setFailedMediaSource(originalSrc);
       else setMediaError(true);
@@ -304,14 +327,15 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("error", onError);
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       if (videoRef.current === video) videoRef.current = null;
-      releaseMobileFeedPlayer(owner);
+      if (controlledMobilePlayer) mobileFeedController.release(owner);
+      else releaseMobileFeedPlayer(owner);
       // The retained preview is no longer guaranteed to match this card.
       // Reset before the next paint when ownership or source changes.
       setFrameReady(false);
       setPreviewFrameReady(false);
     };
   // Preload changes with page visibility; keep ownership through that change.
-  }, [useSharedMobilePlayer, src, postId, adaptiveSrc, originalSrc, reportMediaDimensions]);
+  }, [useSharedMobilePlayer, src, postId, adaptiveSrc, originalSrc, reportMediaDimensions, controlledMobilePlayer, retryVersion]);
   useEffect(() => {
     if (useSharedMobilePlayer && videoRef.current) videoRef.current.poster = displayPoster || "";
   }, [useSharedMobilePlayer, displayPoster]);
@@ -691,7 +715,7 @@ function VideoCard(props: VideoCardProps) {
   // source. Wait for the current element and source to reach the compositor.
   useEffect(() => {
     const video = videoRef.current;
-    if (!video || (mobileFeedPlayer && !useSharedMobilePlayer)) return;
+    if (!video || controlledMobilePlayer || (mobileFeedPlayer && !useSharedMobilePlayer)) return;
     let frame: number | undefined;
     let cancelled = false;
     const ready = () => {
@@ -716,7 +740,7 @@ function VideoCard(props: VideoCardProps) {
       if (frame !== undefined) video.cancelVideoFrameCallback(frame);
       video.removeEventListener("playing", ready);
     };
-  }, [src, retryVersion, useSharedMobilePlayer, mobileFeedPlayer]);
+  }, [src, retryVersion, useSharedMobilePlayer, mobileFeedPlayer, controlledMobilePlayer]);
 
   useEffect(() => {
     if (frameReady && isActive && postId) firstFrame?.(postId);
@@ -726,13 +750,14 @@ function VideoCard(props: VideoCardProps) {
   // Browser refused unmuted playback (no gesture yet on this page): keep the
   // video moving muted and offer a one-tap unmute. The saved preference is
   // deliberately NOT touched — the user asked for sound, the browser said no.
-  const fallBackToMuted = useCallback((video: HTMLVideoElement) => {
+  const fallBackToMuted = useCallback((video: HTMLVideoElement, requestedOwner = sharedVideoOwnerRef.current) => {
     if (!pageVisibleRef.current || manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video) return;
+    if (controlledMobilePlayer && !ownsMobileFeedPlayer(requestedOwner, video, src)) return;
     video.muted = true;
     // isMuted is derived from this flag, so setting it is the whole mute.
     setAutoplayBlocked(true);
     video.play().catch(() => {});
-  }, []);
+  }, [controlledMobilePlayer, src]);
 
   const activationRef = useRef(isActive);
   useEffect(() => {
@@ -749,13 +774,15 @@ function VideoCard(props: VideoCardProps) {
     // card becomes active). Without user activation Chrome/WebKit pause it;
     // re-requesting play() surfaces that as NotAllowedError so the same muted
     // fallback + chip applies as in tryPlay below.
+    const playOwner = sharedVideoOwnerRef.current;
     const playPromise = video.play();
+    const currentPlay = () => !controlledMobilePlayer || ownsMobileFeedPlayer(playOwner, video, src);
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch((err: unknown) => {
-        if (isAutoplayBlockedError(err)) fallBackToMuted(video);
+        if (currentPlay() && isAutoplayBlockedError(err)) fallBackToMuted(video, playOwner);
       });
     }
-  }, [isMuted, isActive, fallBackToMuted]);
+  }, [isMuted, isActive, fallBackToMuted, controlledMobilePlayer, src]);
 
   // No effect mirrors soundEnabled or the stored preference into state any more:
   // isMuted is computed from both above, so the feed prop and the saved choice
@@ -770,6 +797,7 @@ function VideoCard(props: VideoCardProps) {
     // restarts this effect, but must not undo an intentional manual pause.
     let cancelled = false;
     let visible = isActive === true;
+    const playOwner = sharedVideoOwnerRef.current;
     let retry: (() => void) | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
@@ -779,17 +807,20 @@ function VideoCard(props: VideoCardProps) {
     };
     const tryPlay = (retried = false) => {
       if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
+      if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
+      if (controlledMobilePlayer && mobileFeedSeekFailed(playOwner)) { mobileFeedController.suspend(); setMediaError(true); return; }
       video.muted = mutedRef.current;
       if (useSharedMobilePlayer) recordFeedEvent("play-request", { muted: video.muted, retried }, video);
       const playPromise = video.play();
       if (playPromise && typeof playPromise.catch === "function") {
         void playPromise.then(() => {
-          if (!cancelled && visible && !video.paused) playbackStartedRef.current?.();
+          if (!cancelled && visible && !video.paused && (!controlledMobilePlayer || ownsMobileFeedPlayer(playOwner, video, src))) playbackStartedRef.current?.();
         }, () => {});
         playPromise.catch((err: unknown) => {
           if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
+          if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
           if (isAutoplayBlockedError(err) && !video.muted) {
-            fallBackToMuted(video);
+            fallBackToMuted(video, playOwner);
             return;
           }
           if (retried || isAutoplayBlockedError(err)) return;
@@ -853,6 +884,13 @@ function VideoCard(props: VideoCardProps) {
   }, [isActive, src, retryVersion, trackMetric, fallBackToMuted, pageVisible, useSharedMobilePlayer]);
 
   useEffect(() => {
+    if (!controlledMobilePlayer || !src || !postId || !props.prepareFrame || isActive !== false || !pageVisible || !preparationHostRef.current) return;
+    mobileFeedController.prepare({ postId, src, host: preparationHostRef.current, present: setPreviewFrameReady });
+    return () => mobileFeedController.cancelPreparation(postId);
+  }, [controlledMobilePlayer, src, postId, props.prepareFrame, isActive, pageVisible, retryVersion]);
+
+  useEffect(() => {
+    if (controlledMobilePlayer) return;
     const video = videoRef.current;
     if (!video || !props.prepareFrame || isActive !== false || !pageVisible || previewFrameReady || manuallyPausedRef.current) return;
     let stopped = false;
@@ -870,8 +908,8 @@ function VideoCard(props: VideoCardProps) {
         video.pause();
       }
     };
-    const ready = () => {
-      if (mobileFeedPlayer) recordFeedEvent("legacy-preview-frame", { postId: postId ?? "", position: video.currentTime, buffer: playableBuffer(video), readyState: video.readyState, seeking: video.seeking });
+    const ready = (_event?: Event | number, metadata?: VideoFrameCallbackMetadata) => {
+      if (mobileFeedPlayer) recordLegacyPreparation(video, postId ?? "", metadata);
       video.dataset.warmedFrame = "true";
       setPreviewFrameReady(true);
       stop();
@@ -891,7 +929,7 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("playing", ready);
       stop();
     };
-  }, [props.prepareFrame, isActive, pageVisible, previewFrameReady, src, retryVersion]);
+  }, [props.prepareFrame, isActive, pageVisible, previewFrameReady, src, retryVersion, controlledMobilePlayer, postId]);
 
   // Local diagnostics only: inspect the video element to distinguish download
   // readiness from activation-to-first-frame delay without extra React renders.
@@ -991,13 +1029,15 @@ function VideoCard(props: VideoCardProps) {
     if (!video) return;
     video.muted = false;
     manuallyPausedRef.current = false;
+    const playOwner = sharedVideoOwnerRef.current;
     video.play().catch((err: unknown) => {
+      if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
       if (isAutoplayBlockedError(err) && !mutedRef.current) {
         setMutedOverride(null);
-        fallBackToMuted(video);
+        fallBackToMuted(video, playOwner);
       }
     });
-  }, [soundEnabled, setStoredSoundOn, onToggleSound, fallBackToMuted]);
+  }, [soundEnabled, setStoredSoundOn, onToggleSound, fallBackToMuted, controlledMobilePlayer, src]);
 
   // True only while this card is muted *solely* because the browser refused
   // unmuted autoplay: the parent (feed) or the saved preference still says
@@ -1526,7 +1566,8 @@ function VideoCard(props: VideoCardProps) {
         {src && useSharedMobilePlayer && (
           <div ref={sharedVideoHostRef} className="absolute inset-0 h-full w-full" />
         )}
-        {src && (!useSharedMobilePlayer || !frameReady) ? (
+        {src && controlledMobilePlayer && <div ref={preparationHostRef} className="absolute inset-0 h-full w-full z-10 pointer-events-none" />}
+        {src && !controlledMobilePlayer && (!useSharedMobilePlayer || !frameReady) ? (
           <video
             key={retryVersion}
             ref={useSharedMobilePlayer ? previewVideoRef : videoRef}
