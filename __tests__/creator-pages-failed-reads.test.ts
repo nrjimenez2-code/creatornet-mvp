@@ -5,9 +5,8 @@
  * Both are async server components. Each test calls the REAL page function
  * with a stub data layer and renders the element it returns with
  * react-dom/server, then asserts on the markup:
- *  - profile page: posts query error → "Couldn't load this creator's posts",
- *    never "hasn't posted yet"; genuinely no posts → the empty line plus a
- *    Browse the feed link
+ *  - profile page: posts query error → "Couldn't load posts", never
+ *    "No posts yet"; genuinely no posts → empty states with persistent tabs
  *  - reviews page: rating/reviews query error → "Couldn't load reviews" and
  *    a "—" rating, never "0.0 · No written reviews yet"; genuinely none →
  *    the existing empty line
@@ -130,7 +129,7 @@ describe("profile offer schema readiness", () => {
 });
 
 describe("creator profile page: posts read", () => {
-  test("posts query error renders an error line, not 'hasn't posted yet'", async () => {
+  test("posts query error renders an error line, not an empty state", async () => {
     db = createMockClient((op) => {
       if (op.table === "posts") return { data: null, error: { message: "timeout" } };
       return profileResponder(op);
@@ -138,13 +137,14 @@ describe("creator profile page: posts read", () => {
 
     const html = await renderPage(CreatorPublicProfilePage);
 
-    expect(html).toContain("Couldn&#x27;t load this creator&#x27;s posts");
+    expect(html).toContain("Couldn&#x27;t load posts");
     expect(html).toContain('role="alert"');
-    expect(html).not.toContain("hasn&#x27;t posted yet");
+    expect(html).not.toContain("No posts yet");
+    expect(html).toContain('role="tablist"');
     expect(html).not.toContain('data-testid="gallery"');
   });
 
-  test("genuinely no posts renders the empty line with a Browse the feed link", async () => {
+  test("genuinely no posts renders empty states and both tabs", async () => {
     db = createMockClient((op) => {
       if (op.table === "posts") return { data: [], error: null };
       return profileResponder(op);
@@ -152,9 +152,9 @@ describe("creator profile page: posts read", () => {
 
     const html = await renderPage(CreatorPublicProfilePage);
 
-    expect(html).toContain("This creator hasn&#x27;t posted yet.");
-    expect(html).toContain('href="/dashboard"');
-    expect(html).toContain("Browse the feed");
+    expect(html).toContain("No posts yet");
+    expect(html).toContain("No offers yet");
+    expect(html.match(/role="tab"/g)).toHaveLength(2);
     expect(html).not.toContain("Couldn&#x27;t load");
   });
 

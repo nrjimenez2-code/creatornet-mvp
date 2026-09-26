@@ -402,9 +402,12 @@ describe("migration refund invariants", () => {
       expect(source).toContain('"/api/library/eligibility"');
     }
     const eligibility = readFileSync(path.join(process.cwd(), "app/api/library/eligibility/route.ts"), "utf8");
-    expect(eligibility).toContain('row.access_granted === true');
-    expect(eligibility).toContain('["paid", "active", "complete"].includes(row.status');
-    expect(eligibility).toContain('membershipAccessSeconds(supabaseAdmin, row.id, user.id) > 0');
+    const viewCounts = readFileSync(path.join(process.cwd(), "app/api/posts/view-counts/route.ts"), "utf8");
+    const sharedAccess = readFileSync(path.join(process.cwd(), "lib/libraryAccess.ts"), "utf8");
+    for (const source of [eligibility, viewCounts]) expect(source).toContain('isLibraryPurchaseEligible(supabaseAdmin,');
+    expect(sharedAccess).toContain('purchase.access_granted === true');
+    expect(sharedAccess).toContain('["paid", "active", "complete"].includes(purchase.status');
+    expect(sharedAccess).toContain('membershipAccessSeconds(admin, purchase.id, userId) > 0');
   });
 });
 
