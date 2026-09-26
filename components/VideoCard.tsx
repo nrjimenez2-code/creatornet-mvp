@@ -846,7 +846,7 @@ function VideoCard(props: VideoCardProps) {
     return cleanup;
   // Mute-only changes are handled above, without restarting activation.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isActive, src, retryVersion, trackMetric, fallBackToMuted, pageVisible]);
+  }, [isActive, src, retryVersion, trackMetric, fallBackToMuted, pageVisible, useSharedMobilePlayer]);
 
   useEffect(() => {
     const video = videoRef.current;

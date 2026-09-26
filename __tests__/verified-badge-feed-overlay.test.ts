@@ -428,6 +428,30 @@ describe("VideoCard shows the Verified creator badge on the feed overlay", () =>
     }
   });
 
+  test("entering the phone layout starts its newly attached player", async () => {
+    const originalMatchMedia = window.matchMedia;
+    let desktop = true;
+    const listeners = new Set<() => void>();
+    window.matchMedia = jest.fn(() => ({
+      get matches() { return desktop; },
+      addEventListener: (_event: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_event: string, listener: () => void) => listeners.delete(listener),
+    })) as unknown as typeof window.matchMedia;
+    const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      await render({ src: "https://cdn.example.com/resize.mp4", postId: "resize", isActive: true, sharedMobileFeedPlayer: true });
+      const desktopVideo = container.querySelector("video")!;
+      play.mockClear();
+      await act(async () => { desktop = false; listeners.forEach(listener => listener()); });
+      expect(container.querySelector("video")).not.toBe(desktopVideo);
+      expect(play).toHaveBeenCalledTimes(1);
+    } finally {
+      play.mockRestore(); pause.mockRestore();
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   test("warmup cleanup never pauses a video that has become active", async () => {
     jest.useFakeTimers();
     const play = jest.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
