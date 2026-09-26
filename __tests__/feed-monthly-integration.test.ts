@@ -23,6 +23,7 @@ jest.mock("@/lib/discoverClient", () => ({
   },
 }));
 import FeedList from "@/components/FeedList";
+import { clearMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let observe: (entries: any[]) => void;
 class Observer {
@@ -39,6 +40,10 @@ const response = (ids: string[], monthlyTerms: unknown = terms) => ({ ok: true, 
 const props = (id: string) => JSON.parse(container.querySelector(`[data-card="${id}"]`)!.getAttribute("data-props")!);
 beforeEach(() => {
   viewerId = "buyer";
+  for (const id of ["buyer", "another-buyer"]) {
+    clearMobileFeedSnapshot("discover", id);
+    clearMobileFeedSnapshot("following", id);
+  }
   cardProps.clear(); observeNode.mockClear();
   window.matchMedia = jest.fn(() => ({ matches: true, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
   rpc = jest.fn(async () => ({ data: [row("one")], error: null }));
@@ -48,16 +53,17 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); jest.useRealTimers(); });
 const render = async (activeTab: "discover" | "following" = "discover") => act(async () => root.render(createElement(FeedList, { activeTab, onChangeTab: jest.fn() })));
 
-test("mobile preloads its next video immediately and prepares an entering card without delaying activation", async () => {
+test("mobile warms the next video after the active first frame without delaying activation", async () => {
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
   rpc.mockResolvedValue({ data: [row("one"), row("two"), row("three")], error: null });
   await render();
   expect(props("one").mainFeedMobileLayout).toBe(true);
   expect(props("one").preload).toBe("auto");
-  expect(props("two").preload).toBe("auto");
+  expect(props("two").preload).toBe("metadata");
   expect(props("three").preload).toBe("metadata");
   expect(props("two").prepareFrame).toBe(false);
   await act(async () => cardProps.get("one").onFirstFrame("one"));
+  expect(props("two").preload).toBe("auto");
   expect(props("two").prepareFrame).toBe(true);
   expect(props("three").prepareFrame).toBe(false);
   const target = container.querySelector('[data-post-id="two"]');
@@ -68,21 +74,23 @@ test("mobile preloads its next video immediately and prepares an entering card w
   await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 0.55 }]));
   expect(props("two").isActive).toBe(true);
   expect(props("two").prepareFrame).toBe(false);
-  expect(props("three").preload).toBe("auto");
+  expect(props("three").preload).toBe("metadata");
   expect(props("three").prepareFrame).toBe(false);
   await act(async () => cardProps.get("two").onFirstFrame("two"));
+  expect(props("three").preload).toBe("auto");
   expect(props("three").prepareFrame).toBe(true);
 });
 
-test("mobile cancels preparation when the swipe reverses before activation", async () => {
+test("mobile keeps the active card while a partial swipe reverses", async () => {
   window.matchMedia = jest.fn(() => ({ matches: false, addEventListener: jest.fn(), removeEventListener: jest.fn() })) as any;
   rpc.mockResolvedValue({ data: [row("one"), row("two")], error: null });
   await render();
+  await act(async () => cardProps.get("one").onFirstFrame("one"));
   const target = container.querySelector('[data-post-id="two"]');
   await act(async () => observe([{ target, isIntersecting: true, intersectionRatio: 0.2 }]));
   expect(props("two").prepareFrame).toBe(true);
   await act(async () => observe([{ target, isIntersecting: false, intersectionRatio: 0 }]));
-  expect(props("two").prepareFrame).toBe(false);
+  expect(props("two").prepareFrame).toBe(true);
   expect(props("one").isActive).toBe(true);
 });
 
