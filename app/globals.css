@@ -94,15 +94,17 @@ body {
     transform: translateX(0);
   }
 }
-/* Stable snap slots on phones, including when browser chrome/keyboard changes.
+/* Keep the phone feed and its fixed nav in the same changing Safari viewport.
    Scoped to the main feed; profile viewers and desktop retain their geometry. */
 @media (max-width: 1023px) {
   .dashboard-feed-shell {
     --feed-nav-height: calc(53px + max(env(safe-area-inset-bottom, 0px), 0.5rem));
+    height: 100dvh;
+    min-height: 100dvh;
   }
   .dashboard-feed-column { padding-bottom: var(--feed-nav-height); }
   .dashboard-feed-nav { height: var(--feed-nav-height); }
-  .feed-mobile-viewport { --feed-card-height: calc(100svh - var(--feed-nav-height, 61px)); }
+  .feed-mobile-viewport { --feed-card-height: calc(100dvh - var(--feed-nav-height, 61px)); }
   .feed-mobile-viewport .feed-mobile-slot,
   .feed-mobile-viewport .feed-mobile-card,
   .feed-mobile-viewport .feed-mobile-card > [role="group"],
