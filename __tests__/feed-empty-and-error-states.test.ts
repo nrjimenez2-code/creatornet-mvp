@@ -89,6 +89,8 @@ class StubIntersectionObserver {
 }
 (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver =
   (globalThis as { IntersectionObserver?: unknown }).IntersectionObserver ?? StubIntersectionObserver;
+// jsdom also lacks the browser scrolling API used by tip-return highlighting.
+HTMLElement.prototype.scrollIntoView = jest.fn();
 
 let container: HTMLDivElement;
 let root: Root;

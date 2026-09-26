@@ -3,12 +3,76 @@
  * autoplay grant belongs to the element, so replacing it for each post or
  * after a route change can ask for the same sound gesture again.
  *
- * This module owns only the element. Feed cards still own their presentation,
- * event listeners and muted neighbor previews. Desktop cards never call it.
+ * This module owns the element and two short-lived playback positions. Feed
+ * cards own their presentation, listeners and muted previews. Desktop never calls it.
  */
 let player: HTMLVideoElement | null = null;
 let parkingPlace: HTMLDivElement | null = null;
 let owner: symbol | null = null;
+let currentPostId: string | null = null;
+
+const RESUME_WINDOW_MS = 5_000;
+const MAX_RECENT_POSITIONS = 2;
+const recentPositions = new Map<string, { src: string; time: number; savedAt: number }>();
+let pendingSeek: { token: symbol; promise: Promise<void>; cancel: () => void } | null = null;
+
+function rememberPosition(): void {
+  if (!player || !currentPostId) return;
+  const time = player.currentTime;
+  if (!Number.isFinite(time) || time <= 0) return;
+  recentPositions.delete(currentPostId);
+  recentPositions.set(currentPostId, { src: player.getAttribute("src") || "", time, savedAt: Date.now() });
+  while (recentPositions.size > MAX_RECENT_POSITIONS) recentPositions.delete(recentPositions.keys().next().value!);
+}
+
+function takeRecentPosition(postId: string, src: string): number | null {
+  const saved = recentPositions.get(postId);
+  recentPositions.delete(postId);
+  if (!saved || saved.src !== src || Date.now() - saved.savedAt > RESUME_WINDOW_MS) return null;
+  return saved.time;
+}
+
+function cancelPendingSeek(): void {
+  pendingSeek?.cancel();
+  pendingSeek = null;
+}
+
+function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number): void {
+  let settle!: () => void;
+  const promise = new Promise<void>(resolve => { settle = resolve; });
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    video.removeEventListener("loadedmetadata", seek);
+    video.removeEventListener("seeked", finish);
+    video.removeEventListener("error", finish);
+    clearTimeout(timer);
+    if (pendingSeek?.token === token) pendingSeek = null;
+    settle();
+  };
+  const timer = setTimeout(finish, 2_000);
+  const seek = () => {
+    if (owner !== token || done) return finish();
+    try {
+      const target = Number.isFinite(video.duration) && video.duration > 0
+        ? Math.min(time, Math.max(0, video.duration - 0.01)) : time;
+      if (Math.abs(video.currentTime - target) < 0.05) return finish();
+      video.currentTime = target;
+    } catch { finish(); }
+  };
+  pendingSeek = { token, promise, cancel: finish };
+  video.addEventListener("loadedmetadata", seek);
+  video.addEventListener("seeked", finish);
+  video.addEventListener("error", finish);
+  // A bad stream must never leave the card unable to attempt playback.
+  if (video.readyState >= 1) seek();
+}
+
+/** The active card waits for a short return seek before starting playback. */
+export function mobileFeedPlaybackReady(token: symbol): Promise<void> | null {
+  return pendingSeek?.token === token ? pendingSeek.promise : null;
+}
 
 function getParkingPlace(): HTMLDivElement {
   if (!parkingPlace || !parkingPlace.isConnected) {
@@ -20,17 +84,28 @@ function getParkingPlace(): HTMLDivElement {
   return parkingPlace;
 }
 
-export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string): HTMLVideoElement {
+export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src): HTMLVideoElement {
   if (!player) {
     player = document.createElement("video");
     player.playsInline = true;
     player.loop = true;
   }
+  const changedPost = currentPostId !== postId;
+  const changedSource = player.getAttribute("src") !== src;
+  const returningFromAnotherPage = owner === null && currentPostId === postId;
   if (owner !== token) player.pause();
+  if (owner && changedPost) rememberPosition();
+  if (changedPost || changedSource) cancelPendingSeek();
   owner = token;
   host.appendChild(player);
-  if (player.getAttribute("src") !== src) {
+  if (changedSource) {
     player.src = src;
+  }
+  currentPostId = postId;
+  if (changedPost || changedSource || returningFromAnotherPage) {
+    const saved = takeRecentPosition(postId, src);
+    if (saved !== null) seekBeforePlayback(player, token, saved);
+    else if (!changedSource && player.currentTime > 0) seekBeforePlayback(player, token, 0);
   }
   return player;
 }
@@ -38,6 +113,8 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
 export function releaseMobileFeedPlayer(token: symbol): void {
   if (!player || owner !== token) return;
   player.pause();
+  rememberPosition();
+  cancelPendingSeek();
   owner = null;
   getParkingPlace().appendChild(player);
 }

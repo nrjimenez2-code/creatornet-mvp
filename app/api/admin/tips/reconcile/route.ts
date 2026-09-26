@@ -16,6 +16,7 @@ type ReconcileTip = {
   status: string;
   stripe_checkout_session_id: string | null;
   stripe_payment_intent_id: string | null;
+  created_at: string;
   updated_at: string;
 };
 
@@ -47,11 +48,12 @@ export async function POST(req: NextRequest) {
   if (body.cursor && !cursor) return NextResponse.json({ error: "Invalid cursor." }, { status: 400 });
 
   let query = context.admin.from("tips")
-    .select("id,status,stripe_checkout_session_id,stripe_payment_intent_id,updated_at")
+    .select("id,status,stripe_checkout_session_id,stripe_payment_intent_id,created_at,updated_at")
     .in("status", ["creating", "open", "processing", "paid", "failed", "canceled"])
-    .order("updated_at", { ascending: true }).order("id", { ascending: true })
+    // Finalization changes updated_at; a page cursor must use an immutable key.
+    .order("created_at", { ascending: true }).order("id", { ascending: true })
     .limit(limit);
-  if (cursor) query = query.or(`updated_at.gt.${cursor.at},and(updated_at.eq.${cursor.at},id.gt.${cursor.id})`);
+  if (cursor) query = query.or(`created_at.gt.${cursor.at},and(created_at.eq.${cursor.at},id.gt.${cursor.id})`);
   const result = await query.returns<ReconcileTip[]>();
   if (result.error) {
     console.error("[tips:reconcile] list failed:", result.error.message);
@@ -131,6 +133,7 @@ export async function POST(req: NextRequest) {
     failureCount: failures.length + recoveryFailures.length,
     failures,
     recoveryFailures,
-    nextCursor: rows.length === limit && rows.length ? encodeTipCursor(rows[rows.length - 1]) : null,
+    nextCursor: rows.length === limit && rows.length
+      ? encodeTipCursor({ id: rows[rows.length - 1].id, created_at: rows[rows.length - 1].created_at }) : null,
   });
 }

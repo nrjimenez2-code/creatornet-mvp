@@ -14,6 +14,7 @@ import { TimeAgo } from "@/components/admin/TimeAgo";
 import { useAdminData } from "@/components/admin/AdminDataContext";
 import { useToast } from "@/components/admin/Toast";
 import { RefundDialog } from "./RefundDialog";
+import { TipReconciliationControl } from "./TipReconciliationControl";
 import { Sparkline, SplitBar } from "@/components/admin/charts";
 import {
   IconAlert,
@@ -351,9 +352,12 @@ function CommerceInner({ initialQuery }: { initialQuery: string }) {
         title="Commerce"
         subtitle="Every payment moving through the platform — orders, fees, refunds, and bookings."
         actions={
-          <ActionButton variant="neutral" onClick={() => startRefresh(() => router.refresh())} disabled={refreshing}>
-            {refreshing ? "Refreshing…" : "Refresh records"}
-          </ActionButton>
+          <div className="flex flex-wrap items-start gap-2">
+            <TipReconciliationControl onComplete={() => router.refresh()} />
+            <ActionButton variant="neutral" onClick={() => startRefresh(() => router.refresh())} disabled={refreshing}>
+              {refreshing ? "Refreshing…" : "Refresh records"}
+            </ActionButton>
+          </div>
         }
       />
 

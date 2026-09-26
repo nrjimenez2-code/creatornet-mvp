@@ -37,6 +37,57 @@ afterEach(async () => {
   await act(async () => root.unmount());
   container.remove();
   globalThis.fetch = originalFetch;
+  jest.useRealTimers();
+});
+
+test.each([401, 403, 404])("an inaccessible tip (%s) stops polling without offering another payment", async (status) => {
+  jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status, json: async () => ({ error: "PRIVATE_DETAIL", status: "paid", amountCents: 500 }) });
+  await render(true);
+  expect(container.textContent).toContain("Tip status unavailable");
+  expect(container.textContent).not.toContain("Confirming your tip");
+  expect(container.textContent).not.toContain("Tip sent");
+  expect(container.textContent).not.toContain("PRIVATE_DETAIL");
+  expect(container.textContent).not.toContain("Start a new tip");
+  expect(container.querySelector('a[href="/payments"]')).not.toBeNull();
+  await act(async () => jest.advanceTimersByTime(30_000));
+  expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  expect((globalThis.fetch as jest.Mock).mock.calls[0][1].method).toBeUndefined();
+});
+
+test("closing a pending return stops status reads and reopening resumes the same tip", async () => {
+  jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+  await render(true);
+  expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  await render(false);
+  await act(async () => jest.advanceTimersByTime(30_000));
+  expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  await render(true);
+  expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+  expect((globalThis.fetch as jest.Mock).mock.calls.every(([url]) => url === `/api/tips/${tipId}/status`)).toBe(true);
+  expect(container.textContent).toContain("Confirming your tip");
+});
+
+test("a transient status error keeps the original pending tip instead of claiming payment", async () => {
+  jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ status: "paid" }) });
+  await render(true);
+  expect(container.textContent).toContain("Confirming your tip");
+  expect(container.textContent).not.toContain("Tip sent");
+  await act(async () => jest.advanceTimersByTime(1500));
+  expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+});
+
+test("a denial after reopening clears the earlier processing timeout message", async () => {
+  jest.useFakeTimers({ doNotFake: ["queueMicrotask"] });
+  await render(true);
+  await act(async () => jest.advanceTimersByTimeAsync(30_000));
+  expect(container.textContent).toContain("Payment is still processing");
+  await render(false);
+  globalThis.fetch = jest.fn().mockResolvedValue({ ok: false, status: 404 });
+  await render(true);
+  expect(container.textContent).toContain("Tip status unavailable");
+  expect(container.textContent).not.toContain("Payment is still processing");
 });
 
 test("reopening a returned active tip keeps its payment status", async () => {

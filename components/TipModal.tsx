@@ -12,7 +12,7 @@ type Props = {
   onClose: () => void;
 };
 
-type Stage = "amount" | "review" | "payment" | "processing" | "paid" | "failed" | "canceled";
+type Stage = "amount" | "review" | "payment" | "processing" | "paid" | "failed" | "canceled" | "unavailable";
 
 export default function TipModal({ open, postId, creatorName, resumeTipId = null, onClose }: Props) {
   const [stage, setStage] = useState<Stage>("amount");
@@ -134,25 +134,31 @@ export default function TipModal({ open, postId, creatorName, resumeTipId = null
   }, [clientSecret, open, stage]);
 
   useEffect(() => {
-    if (stage !== "processing" || !tipId) return;
+    if (!open || stage !== "processing" || !tipId) return;
     let cancelled = false, attempts = 0;
+    let timer: number | undefined;
     const poll = async () => {
       if (cancelled) return;
       attempts += 1;
       try {
         const response = await fetch(`/api/tips/${encodeURIComponent(tipId)}/status`, { credentials: "include", cache: "no-store" });
+        if (cancelled) return;
+        if ([401, 403, 404].includes(response.status)) { setError(null); setStage("unavailable"); return; }
+        if (!response.ok) throw new Error("Tip status could not be read.");
         const data = await response.json();
+        if (cancelled) return;
         if (Number.isSafeInteger(data.amountCents)) setAmountCents(data.amountCents);
         if (data.status === "paid") { setStage("paid"); return; }
         if (data.status === "failed") { setStage("failed"); setError("The tip was not completed."); return; }
         if (data.status === "canceled") { setStage("canceled"); return; }
       } catch { /* keep the webhook-authoritative pending state */ }
-      if (attempts < 20) window.setTimeout(poll, 1500);
+      if (cancelled) return;
+      if (attempts < 20) timer = window.setTimeout(poll, 1500);
       else setError("Payment is still processing. It will appear in your payment history when confirmed.");
     };
     void poll();
-    return () => { cancelled = true; };
-  }, [stage, tipId]);
+    return () => { cancelled = true; if (timer !== undefined) window.clearTimeout(timer); };
+  }, [open, stage, tipId]);
 
   if (!open) return null;
   const parseCustom = () => {
@@ -211,6 +217,7 @@ export default function TipModal({ open, postId, creatorName, resumeTipId = null
       </div>}
       {stage === "payment" && <div className="mt-6 space-y-4"><div ref={walletMount} aria-label="Express payment options" /><div ref={paymentMount} /><button type="button" disabled={submitting || !paymentReady} onClick={() => void confirmRef.current?.()} className="w-full rounded-full bg-[#655BFF] py-3 font-semibold disabled:opacity-50">{submitting ? "Confirming…" : `Tip $${(amountCents / 100).toFixed(2)}`}</button></div>}
       {stage === "processing" && <div className="py-10 text-center"><p className="text-lg font-semibold">Confirming your tip…</p><p className="mt-2 text-sm text-white/60">This is finalized securely by Stripe.</p></div>}
+      {stage === "unavailable" && <div className="py-8 text-center"><p className="text-lg font-semibold">Tip status unavailable</p><p className="mt-2 text-sm text-white/60">This tip is not available for this account. Check your payment history or sign in with the account that sent it.</p><a href="/payments" className="mt-5 inline-block text-sm text-white/80 underline">View payment history</a></div>}
       {stage === "paid" && <div className="py-10 text-center"><p className="text-2xl font-semibold">Tip sent</p><p className="mt-2 text-white/60">You tipped {creatorName} ${(amountCents / 100).toFixed(2)}.</p><button type="button" onClick={close} className="mt-6 rounded-full bg-[#655BFF] px-8 py-3 font-semibold">Done</button></div>}
       {stage === "failed" && <div className="py-8 text-center"><p className="text-lg font-semibold">Tip not completed</p><button type="button" onClick={retry} className="mt-5 rounded-full bg-[#655BFF] px-8 py-3 font-semibold">Try again</button></div>}
       {stage === "canceled" && <div className="py-8 text-center"><p className="text-lg font-semibold">Tip canceled</p><p className="mt-2 text-sm text-white/60">No payment was completed.</p><button type="button" onClick={retry} className="mt-5 rounded-full bg-[#655BFF] px-8 py-3 font-semibold">Start a new tip</button></div>}
