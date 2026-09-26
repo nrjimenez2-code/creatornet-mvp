@@ -239,6 +239,40 @@ describe("FeedList states", () => {
     expect(container.querySelector('[data-post-id="third"] [data-is-active]')?.getAttribute("data-is-active")).toBe("true");
   });
 
+  test("a background refresh keeps a hydrated tip return outside the first feed page", async () => {
+    mockUser = { userId: "tip-return-viewer", loading: false };
+    saveMobileFeedSnapshot("discover", mockUser.userId, [{
+      id: "cached", creator_id: "creator", product_id: null, price_cents: null,
+      title: "cached", video_url: "https://example.invalid/cached.mp4", poster_url: null,
+      content: "cached", interests: null, created_at: null,
+    }], "cached", 0);
+    let finishRequest!: (result: RpcResult) => void;
+    rpcImpl = () => new Promise(resolve => { finishRequest = resolve; });
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({ items: [{
+        id: "tip-target", creator_id: "creator", title: "tip target",
+        video_url: "https://example.invalid/tip-target.mp4", tips_available: true,
+      }] }),
+    })) as unknown as typeof fetch;
+    try {
+      await act(async () => root.render(createElement(FeedList, {
+        activeTab: "discover", onChangeTab: () => {},
+        highlightPostId: "tip-target", openTipPostId: "tip-target", resumeTipId: "tip-1",
+      })));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)); });
+      expect(container.querySelector('[data-post-id="tip-target"]')).not.toBeNull();
+
+      await act(async () => finishRequest({ data: [
+        { post_id: "cached", creator_id: "creator", video_url: "https://example.invalid/cached.mp4", title: "cached" },
+      ], error: null }));
+      expect(container.querySelector('[data-post-id="tip-target"]')).not.toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("a failed revalidation cannot revive stale rows on the next return", async () => {
     mockUser = { userId: "return-error-viewer", loading: false };
     saveMobileFeedSnapshot("discover", mockUser.userId, [{

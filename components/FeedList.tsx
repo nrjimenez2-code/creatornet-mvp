@@ -521,6 +521,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
     highlightFetchRef.current = highlightPostId;
     const controller = new AbortController();
     let finished = false;
+    let hydrated = false;
     void (async () => {
       try {
         const response = await fetch("/api/search/videos", {
@@ -537,15 +538,22 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
           monthlyTerms: null, purchaseOptionsReady: false,
         } as PostRow;
         setItems(current => current.some(post => post.id === targeted.id) ? current : [targeted, ...current]);
+        hydrated = true;
         enrichPosts([targeted], fetchGenRef.current);
       } catch { /* An unavailable or moderated video remains absent from the feed. */ }
-      finally { finished = true; }
+      finally {
+        finished = true;
+        // A restored mobile feed can revalidate after this insert and replace
+        // its rows. Permit one fresh lookup if that later refresh drops the
+        // highlighted post from the first ranked page.
+        if (hydrated && highlightFetchRef.current === highlightPostId) highlightFetchRef.current = null;
+      }
     })();
     return () => {
       controller.abort();
       if (!finished && highlightFetchRef.current === highlightPostId) highlightFetchRef.current = null;
     };
-  }, [highlightPostId, loading, hasHighlightedPost, enrichPosts]);
+  }, [highlightPostId, loading, hasHighlightedPost, enrichPosts, items]);
 
   // Track video_impression when a new post enters view
   useEffect(() => {
