@@ -7,13 +7,15 @@ import { createServerClient as createServerClientLib } from "@supabase/ssr";
  * - Works when cookies() can't be mutated (RSC renders) by swallowing writes.
  * - Supports async cookie access shapes expected by @supabase/ssr.
  */
-export function createServerClient() {
+export type ServerClientOptions = { readOnlyAuthCookies?: boolean };
+export function createServerClient({ readOnlyAuthCookies = false }: ServerClientOptions = {}) {
   const cookieAdapter = {
     get: async (name: string) => {
       const store = await cookies();
       return store.get(name)?.value;
     },
     set: async (name: string, value: string, options?: any) => {
+      if (readOnlyAuthCookies) return;
       try {
         const store = await cookies();
         store.set(name, value, options as any);
@@ -22,6 +24,7 @@ export function createServerClient() {
       }
     },
     remove: async (name: string, options?: any) => {
+      if (readOnlyAuthCookies) return;
       try {
         const store = await cookies();
         store.set(name, "", { ...(options || {}), maxAge: 0 } as any);

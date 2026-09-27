@@ -28,13 +28,14 @@ function useProvideUser(): UserContextValue {
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
+    let authEvents = 0;
 
-    // Seed once from the persisted session (local read in supabase-js v2 — no
-    // network round trip). All later state comes from the subscription below.
+    // Seed once from persisted storage; the SDK may refresh an expired session.
+    // A newer auth event takes precedence over this asynchronous seed.
     supabase.auth
       .getSession()
       .then(({ data }) => {
-        if (cancelled) return;
+        if (cancelled || authEvents > 0) return;
         setSession(data.session);
         setLoading(false);
         const id = data.session?.user?.id;
@@ -48,7 +49,7 @@ function useProvideUser(): UserContextValue {
       })
       .catch((err: unknown) => {
         console.error("Error reading persisted session:", err);
-        if (!cancelled) {
+        if (!cancelled && authEvents === 0) {
           setSession(null);
           setLoading(false);
         }
@@ -59,6 +60,9 @@ function useProvideUser(): UserContextValue {
     const { data: sub } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
         if (cancelled) return;
+        // INITIAL_SESSION can also finish after a refresh was superseded.
+        if (_event === "INITIAL_SESSION" && authEvents > 0) return;
+        authEvents += 1;
         setSession(nextSession);
         setLoading(false);
         const id = nextSession?.user?.id ?? null;

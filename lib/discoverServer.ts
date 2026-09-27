@@ -2,7 +2,7 @@ import "server-only";
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
-import { createServerClient } from "@/lib/supabaseServer";
+import { createServerClient, type ServerClientOptions } from "@/lib/supabaseServer";
 import {
   rankDiscover,
   type DiscoverCandidate,
@@ -26,8 +26,8 @@ function sign(value: string) {
     .update("discover-actor:" + value)
     .digest("hex");
 }
-export async function discoverIdentity(req: NextRequest) {
-  return resolveDiscoverIdentity(req, false);
+export async function discoverIdentity(req: NextRequest, clientOptions?: ServerClientOptions) {
+  return resolveDiscoverIdentity(req, false, clientOptions);
 }
 // An event candidate cannot create/read feed sessions. Its anonymous claim check
 // is resolved by loadDiscoverEventContext before it becomes an event actor.
@@ -41,8 +41,8 @@ export async function discoverEventIdentity(req: NextRequest): Promise<DiscoverE
   const identity = await resolveDiscoverIdentity(req, deferred);
   return { actorCandidate: identity.actor, userId: identity.userId, anonymousClaimCheck: deferred ? 'context' : 'complete' };
 }
-async function resolveDiscoverIdentity(req: NextRequest, deferAnonymousClaimCheck: boolean) {
-  const { data, error } = await createServerClient().auth.getUser();
+async function resolveDiscoverIdentity(req: NextRequest, deferAnonymousClaimCheck: boolean, clientOptions?: ServerClientOptions) {
+  const { data, error } = await createServerClient(clientOptions).auth.getUser();
   if (error && error.name !== "AuthSessionMissingError")
     throw new Error("Could not verify feed identity");
   const anonymous = verifiedAnonymousIdentity(req);

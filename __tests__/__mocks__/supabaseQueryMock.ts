@@ -28,6 +28,9 @@ export type Op = {
   payload?: unknown;
   /** Columns passed to .select(). */
   columns?: string;
+  orders?: Array<{ column: string; ascending: boolean }>;
+  limit?: number;
+  filterOps?: Array<{ column: string; operator: string; value: unknown }>;
 };
 
 export type Responder = (op: Op) => { data: unknown; error: unknown } | undefined;
@@ -103,10 +106,17 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
         op.notFilters.push({ column, op: o, value });
         return chain;
       },
-      order() {
+      order(column: string, options?: { ascending?: boolean }) {
+        (op.orders ??= []).push({ column, ascending: options?.ascending ?? true });
         return chain;
       },
-      limit() {
+      filter(column: string, operator: string, value: unknown) {
+        op.filters[column] = value;
+        (op.filterOps ??= []).push({ column, operator, value });
+        return chain;
+      },
+      limit(value: number) {
+        op.limit = value;
         return chain;
       },
       returns() {
