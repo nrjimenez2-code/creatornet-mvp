@@ -5,7 +5,7 @@ type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
 type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
 type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; decode: () => void; onReady?: () => void; present: Presentation };
-type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; stop: () => void };
+type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; playRequested: () => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 
@@ -186,12 +186,14 @@ export class MobileFeedController {
     let mainStep: number | null = null;
     let complete = false;
     let resyncAt = -Infinity;
+    let bridgeSeekEpoch = 0;
+    let bridgeSeekTarget: number | null = null;
     let epoch = 0;
     let intendedPosition = target;
     let targetObserved = false;
     let bridgeMoving = false;
     const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
-    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, stop: () => {} };
+    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, playRequested: () => {}, stop: () => {} };
     this.active = active;
     input.present(!!bridge);
     const finish = () => {
@@ -208,19 +210,33 @@ export class MobileFeedController {
       const preview = active.bridge;
       const frameStep = mainStep ?? preview.frameStep;
       if (preview.frameTime !== null && frameStep !== null && !preview.video.seeking && Math.abs(lastMain - preview.frameTime) <= frameStep + 0.001) return finish();
+      // A completed seek still needs to present its frame. Restarting it from
+      // main callbacks can continually invalidate the decoder's pending work.
+      if (bridgeSeekTarget !== null) return;
       if (performance.now() - resyncAt > 150 && !preview.video.seeking) {
-        resyncAt = performance.now(); preview.frameTime = null;
-        try { preview.video.currentTime = video.currentTime; } catch { /* Stay covered until valid alignment. */ }
+        resyncAt = performance.now(); preview.frameTime = preview.frameCount = null;
+        bridgeSeekTarget = video.currentTime; bridgeSeekEpoch++;
+        if (bridgeFrame !== undefined) preview.video.cancelVideoFrameCallback?.(bridgeFrame);
+        bridgeFrame = undefined;
+        try { preview.video.currentTime = bridgeSeekTarget; } catch { bridgeSeekTarget = null; /* Stay covered until valid alignment. */ }
         recordFeedEvent("bridge-align-seek", { target: video.currentTime }, video);
+        observeBridge();
       }
     };
     const observeBridge = () => {
       const preview = active.bridge;
-      if (!current() || !preview || !preview.video.requestVideoFrameCallback) return;
+      if (!current() || !preview || bridgeFrame !== undefined || !preview.video.requestVideoFrameCallback) return;
       const generation = preview.generation;
+      const seekEpoch = bridgeSeekEpoch;
       bridgeFrame = preview.video.requestVideoFrameCallback((now, metadata) => {
-        if (!current() || preview !== active.bridge || generation !== preview.generation) return;
-        if (!preview.video.seeking && preview.video.readyState >= 2 && preview.video.currentSrc === preview.video.src) {
+        if (!current() || preview !== active.bridge || generation !== preview.generation || seekEpoch !== bridgeSeekEpoch) return;
+        bridgeFrame = undefined;
+        const alignmentFrame = bridgeSeekTarget === null || (metadata.mediaTime >= bridgeSeekTarget - 0.1 && metadata.mediaTime <= bridgeSeekTarget + (now - resyncAt) / 1_000 + 0.25);
+        if (alignmentFrame && !preview.video.seeking && preview.video.readyState >= 2 && preview.video.currentSrc === preview.video.src && Math.abs(preview.video.currentTime - metadata.mediaTime) <= 0.25) {
+          if (bridgeSeekTarget !== null) {
+            recordFeedEvent("bridge-align-frame", { target: bridgeSeekTarget, mediaTime: metadata.mediaTime, seekMs: now - resyncAt }, video);
+            bridgeSeekTarget = null;
+          }
           const delta = preview.frameTime === null ? null : metadata.mediaTime - preview.frameTime;
           const count = preview.frameCount === null ? 0 : metadata.presentedFrames - preview.frameCount;
           if (delta !== null && delta > 0 && count > 0 && delta / count <= 1) preview.frameStep = Math.min(preview.frameStep ?? Infinity, delta / count);
@@ -260,10 +276,11 @@ export class MobileFeedController {
       if (!current() || document.hidden || video.paused) return;
       if (active.bridge) {
         active.bridge.video.style.visibility = "visible"; input.present(true);
-        void active.bridge.video.play()?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
+        if (active.bridge.video.paused) void active.bridge.video.play()?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
       }
       this.resumePreparation();
     };
+    active.playRequested = play;
     if (partial) partial.onReady = () => {
       if (!current() || complete || active.partial !== partial) return;
       active.partial = null; active.bridge = partial; partial.present = input.present;
@@ -288,12 +305,16 @@ export class MobileFeedController {
         recordFeedEvent("handoff-recovery", { result: "retry" }, video);
       }
     }, 3_000);
-    active.stop = () => { alive = false; epoch++; clearTimeout(watchdog); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); if (bridgeFrame !== undefined) active.bridge?.video.cancelVideoFrameCallback?.(bridgeFrame); video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play); video.removeEventListener("timeupdate", unsupported); video.removeEventListener("progress", progress); video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting); video.removeEventListener("stalled", waiting); };
+    active.stop = () => { alive = false; epoch++; bridgeSeekEpoch++; bridgeSeekTarget = null; clearTimeout(watchdog); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); if (bridgeFrame !== undefined) active.bridge?.video.cancelVideoFrameCallback?.(bridgeFrame); video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play); video.removeEventListener("timeupdate", unsupported); video.removeEventListener("progress", progress); video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting); video.removeEventListener("stalled", waiting); };
     if (bridge) { bridge.video.muted = true; bridge.video.style.visibility = "visible"; play(); observeBridge(); }
     const pending = mobileFeedPlaybackReady(input.token);
     if (pending) void pending.then(() => { if (current()) observeMain(); }); else observeMain();
     recordFeedEvent("resource-count", { videoElements: this.slots.length + 1, preparationDecoders: bridge ? 1 : 0 }, video);
     return video;
+  }
+  /** The main play call updates paused before its queued play event arrives. */
+  playRequested(token: symbol) {
+    if (this.active?.token === token) this.active.playRequested();
   }
   release(token: symbol, departure = true) {
     if (this.active?.token !== token) return;
