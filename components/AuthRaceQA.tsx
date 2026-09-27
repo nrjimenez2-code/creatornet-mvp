@@ -5,10 +5,11 @@
 import { useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
-import { prepareSessionNavigation, signOutThisDevice, syncBrowserSession } from "@/lib/browserSession";
+import { prepareSessionNavigation, signOutThisDevice } from "@/lib/browserSession";
+import { readQAAuthState, refreshQAOnce, signoutDuringQARefresh, signoutDuringQACallback } from "@/lib/authStagingQA";
+import { useUser } from "@/lib/useUser";
 
 const prefix = "23602700-0000-4000-8000-00000000000";
-const pause = () => new Promise(resolve => setTimeout(resolve, 250));
 type Check = { tag: string; offset: number; limit: number; ids: number[]; hasMore: boolean };
 const checks: Check[] = [
   { tag: "cnqa_hashtag_20260927", offset: 0, limit: 2, ids: [8,7], hasMore: true },
@@ -25,18 +26,13 @@ export default function AuthRaceQA() {
   const [status, setStatus] = useState("Ready");
   const [result, setResult] = useState<unknown>(null);
   const client = createClient();
+  const { session, loading } = useUser();
   async function run(name: string, action: () => Promise<unknown>) {
     setStatus(name + " pending"); setResult(null);
     try { setResult(await action()); setStatus(name + " settled"); }
     catch (error) { setResult({ errorName: error instanceof Error ? error.name : "Error" }); setStatus(name + " failed"); }
   }
-  async function currentState() {
-    const { data, error } = await client.auth.getSession();
-    const cookie = await fetch("/auth/callback", { credentials: "include", cache: "no-store" });
-    const cookieResult = await cookie.json();
-    return { browserHasSession: !!data.session, errorName: error?.name, serverHasUser: !!cookieResult.userId,
-      sameUser: !!data.session && cookieResult.userId === data.session.user.id };
-  }
+  const currentState = () => readQAAuthState(client);
   async function hashtagChecks() {
     const results = [];
     for (const check of checks) {
@@ -49,26 +45,6 @@ export default function AuthRaceQA() {
     }
     return { checkedAt: new Date().toISOString(), project: "nwqfofezfzljhxolkycz", pass: results.every(r => r.pass), results };
   }
-  async function refresh() {
-    const result = await client.auth.refreshSession();
-    return { errorName: result.error?.name ?? null, status: result.error?.status, returnedSession: !!result.data.session, state: await currentState() };
-  }
-  async function signoutDuringRefresh() {
-    const pendingRefresh = client.auth.refreshSession();
-    await pause();
-    await signOutThisDevice(client);
-    const result = await pendingRefresh;
-    return { errorName: result.error?.name ?? null, status: result.error?.status, state: await currentState() };
-  }
-  async function signoutDuringCallback() {
-    const { data } = await client.auth.getSession();
-    if (!data.session) return { needsSignIn: true };
-    const pendingSync = syncBrowserSession(data.session, "SIGNED_IN", client);
-    await pause();
-    await signOutThisDevice(client);
-    await pendingSync;
-    return currentState();
-  }
   const buttons: [string, () => Promise<unknown>][] = [
     ["Run hashtag API checks", hashtagChecks],
     ["Check email sign-in configuration", async () => {
@@ -76,15 +52,16 @@ export default function AuthRaceQA() {
       return { status: response.status, configurationUnavailable: response.status === 503, input: "empty body; no email or credentials supplied" };
     }],
     ["Read current auth state", currentState],
-    ["Refresh current session once", refresh],
+    ["Refresh current session once", () => refreshQAOnce(client)],
     ["Verify session navigation", async () => ({ verified: await prepareSessionNavigation(client), state: await currentState() })],
     ["Sign out this device", async () => { await signOutThisDevice(client); return currentState(); }],
-    ["Test sign-out during refresh", signoutDuringRefresh],
-    ["Test sign-out during cookie sync", signoutDuringCallback],
+    ["Test sign-out during refresh", () => signoutDuringQARefresh(client)],
+    ["Test sign-out during cookie sync", () => signoutDuringQACallback(client)],
   ];
   return <main className="mx-auto max-w-3xl space-y-4 p-6">
     <h1 className="text-xl font-semibold">PR 236 Staging verification</h1>
     <p>Staging project nwqfofezfzljhxolkycz. Temporary controls use the current tab session and normal application APIs.</p>
+    <p>Provider session: {session ? "present" : "absent"}; initializing: {loading ? "yes" : "no"}.</p>
     <p><Link href="/auth?authTrace=1">Normal email sign-in</Link> · <Link href="/?authTrace=1">Open feed</Link></p>
     <div className="flex flex-wrap gap-3">{buttons.map(([name, action]) => <button className="rounded border px-3 py-2" key={name} onClick={() => void run(name, action)}>{name}</button>)}</div>
     <p role="status">{status}</p>

@@ -32,8 +32,8 @@ function useProvideUser(): UserContextValue {
     let authEvents = 0;
     const finishSeed = startAuthTrace("provider-seed");
 
-    // Seed once from the persisted session (local read in supabase-js v2 — no
-    // network round trip). All later state comes from the subscription below.
+    // Seed once from persisted storage; the SDK may refresh an expired session.
+    // A newer auth event takes precedence over this asynchronous seed.
     supabase.auth
       .getSession()
       .then(({ data }) => {
