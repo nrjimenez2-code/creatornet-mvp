@@ -31,9 +31,9 @@ export function traceAuth(trace: AuthTrace): void {
     tabId ??= window.sessionStorage.getItem("cn.auth.trace.tab") ?? crypto.randomUUID();
     window.sessionStorage.setItem("cn.auth.trace.tab", tabId);
     // Explicit projection: no arbitrary object or raw error can reach the console.
-    console.info("[auth-trace]", { at: Date.now(), tabId, operationId: trace.operationId,
+    console.info("[auth-trace]", JSON.stringify({ at: Date.now(), tabId, operationId: trace.operationId,
       operation: trace.operation, phase: trace.phase, event: trace.event,
-      hasSession: trace.hasSession, status: trace.status, errorName: trace.errorName });
+      hasSession: trace.hasSession, status: trace.status, errorName: trace.errorName }));
   } catch { /* diagnostics must not affect authentication */ }
 }
 type TraceResult = { hasSession?: boolean; status?: number; errorName?: string };

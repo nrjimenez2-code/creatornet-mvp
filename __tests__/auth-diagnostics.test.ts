@@ -10,9 +10,10 @@ test("opt-in auth tracing projects metadata without credentials or raw provider 
     finish({ status: 200 });
     const serialized = JSON.stringify(info.mock.calls);
     for (const value of ["ACCESS_SENTINEL", "REFRESH_SENTINEL", "PRIVATE_SENTINEL"]) expect(serialized).not.toContain(value);
-    expect(info.mock.calls[0][1]).toMatchObject({ operation: "fixture", hasSession: true, tabId: expect.any(String), at: expect.any(Number) });
+    const projected = JSON.parse(info.mock.calls[0][1]);
+    expect(projected).toMatchObject({ operation: "fixture", hasSession: true, tabId: expect.any(String), at: expect.any(Number) });
     expect(finish.headers["X-CN-Auth-Operation"]).toMatch(/^fixture-operation:/);
-    expect(finish.headers["X-CN-Auth-Tab"]).toBe(info.mock.calls[0][1].tabId);
+    expect(finish.headers["X-CN-Auth-Tab"]).toBe(projected.tabId);
   } finally { sessionStorage.clear(); info.mockRestore(); }
 });
 

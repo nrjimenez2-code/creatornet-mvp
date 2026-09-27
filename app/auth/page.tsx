@@ -28,6 +28,13 @@ export default function AuthPage() {
     if (loading) return;
     let mounted = true;
     (async () => {
+      // Temporary Staging-only reauthentication control for the hosted replacement race.
+      const qaParameters = new URLSearchParams(window.location.search);
+      if (process.env.NEXT_PUBLIC_SUPABASE_URL === "https://nwqfofezfzljhxolkycz.supabase.co" &&
+          qaParameters.get("authTrace") === "1" && qaParameters.get("authStay") === "1") {
+        setChecking(false);
+        return;
+      }
       if (!session) {
         setChecking(false);
         return;
