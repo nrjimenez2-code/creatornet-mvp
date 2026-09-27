@@ -763,7 +763,7 @@ function VideoCard(props: VideoCardProps) {
   // deliberately NOT touched — the user asked for sound, the browser said no.
   const fallBackToMuted = useCallback((video: HTMLVideoElement, requestedOwner = sharedVideoOwnerRef.current) => {
     if (!pageVisibleRef.current || manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video) return;
-    if (controlledMobilePlayer && !ownsMobileFeedPlayer(requestedOwner, video, src)) return;
+    if (controlledMobilePlayer && !mobileFeedController.canPlay(requestedOwner)) return;
     video.muted = true;
     // isMuted is derived from this flag, so setting it is the whole mute.
     setAutoplayBlocked(true);
@@ -786,8 +786,9 @@ function VideoCard(props: VideoCardProps) {
     // re-requesting play() surfaces that as NotAllowedError so the same muted
     // fallback + chip applies as in tryPlay below.
     const playOwner = sharedVideoOwnerRef.current;
+    if (controlledMobilePlayer && !mobileFeedController.canPlay(playOwner)) return;
     const playPromise = video.play();
-    const currentPlay = () => !controlledMobilePlayer || ownsMobileFeedPlayer(playOwner, video, src);
+    const currentPlay = () => !controlledMobilePlayer || mobileFeedController.canPlay(playOwner);
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch((err: unknown) => {
         if (currentPlay() && isAutoplayBlockedError(err)) fallBackToMuted(video, playOwner);
@@ -818,7 +819,7 @@ function VideoCard(props: VideoCardProps) {
     };
     const tryPlay = (retried = false) => {
       if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
-      if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
+      if (controlledMobilePlayer && !mobileFeedController.canPlay(playOwner)) return;
       if (controlledMobilePlayer && mobileFeedSeekFailed(playOwner)) { mobileFeedController.suspend(); setMediaError(true); return; }
       video.muted = mutedRef.current;
       if (useSharedMobilePlayer) recordFeedEvent("play-request", { muted: video.muted, retried }, video);
@@ -826,11 +827,11 @@ function VideoCard(props: VideoCardProps) {
       if (controlledMobilePlayer) mobileFeedController.playRequested(playOwner);
       if (playPromise && typeof playPromise.catch === "function") {
         void playPromise.then(() => {
-          if (!cancelled && visible && !video.paused && (!controlledMobilePlayer || ownsMobileFeedPlayer(playOwner, video, src))) playbackStartedRef.current?.();
+          if (!cancelled && visible && !video.paused && (!controlledMobilePlayer || mobileFeedController.canPlay(playOwner))) playbackStartedRef.current?.();
         }, () => {});
         playPromise.catch((err: unknown) => {
           if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
-          if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
+          if (controlledMobilePlayer && !mobileFeedController.canPlay(playOwner)) return;
           if (isAutoplayBlockedError(err) && !video.muted) {
             fallBackToMuted(video, playOwner);
             return;
@@ -1003,6 +1004,7 @@ function VideoCard(props: VideoCardProps) {
   const handleVideoClick = useCallback(() => {
     const video = videoRef.current;
     if (!video || !tapToTogglePlayback) return;
+    if (controlledMobilePlayer && !mobileFeedController.canPlay(sharedVideoOwnerRef.current)) return;
 
     if (video.paused) {
       manuallyPausedRef.current = false;
@@ -1014,7 +1016,7 @@ function VideoCard(props: VideoCardProps) {
       setPlaybackFeedback(true);
       video.pause();
     }
-  }, [tapToTogglePlayback]);
+  }, [tapToTogglePlayback, controlledMobilePlayer]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1039,11 +1041,12 @@ function VideoCard(props: VideoCardProps) {
     else setStoredSoundOn(true);
     const video = videoRef.current;
     if (!video) return;
+    if (controlledMobilePlayer && !mobileFeedController.canPlay(sharedVideoOwnerRef.current)) return;
     video.muted = false;
     manuallyPausedRef.current = false;
     const playOwner = sharedVideoOwnerRef.current;
     video.play().catch((err: unknown) => {
-      if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
+      if (controlledMobilePlayer && !mobileFeedController.canPlay(playOwner)) return;
       if (isAutoplayBlockedError(err) && !mutedRef.current) {
         setMutedOverride(null);
         fallBackToMuted(video, playOwner);

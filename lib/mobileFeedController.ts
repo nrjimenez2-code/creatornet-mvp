@@ -5,7 +5,7 @@ type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
 type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
 type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: () => void; decode: () => void; onReady?: () => void; present: Presentation };
-type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; playRequested: () => void; stop: () => void };
+type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; current: () => boolean; playRequested: () => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 
@@ -216,7 +216,7 @@ export class MobileFeedController {
     let targetObserved = false;
     let bridgeMoving = false;
     const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
-    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, playRequested: () => {}, stop: () => {} };
+    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, current, playRequested: () => {}, stop: () => {} };
     this.active = active;
     input.present(!!bridge);
     const finish = () => {
@@ -334,6 +334,10 @@ export class MobileFeedController {
     if (pending) void pending.then(() => { if (current()) observeMain(); }); else observeMain();
     recordFeedEvent("resource-count", { videoElements: this.slots.length + 1, preparationDecoders: bridge ? 1 : 0 }, video);
     return video;
+  }
+  /** Shared-player ownership survives watchdog Retry; stopped activations may not play. */
+  canPlay(token: symbol) {
+    return this.active?.token === token && this.active.current();
   }
   /** The main play call updates paused before its queued play event arrives. */
   playRequested(token: symbol) {
