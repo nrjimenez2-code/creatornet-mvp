@@ -198,7 +198,7 @@ describe("candidate resume seek recovery", () => {
     jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
     jest.spyOn(HTMLMediaElement.prototype, "currentSrc", "get").mockImplementation(function (this: HTMLMediaElement) { return this.src; });
-    jest.isolateModules(() => { api = require("@/lib/mobileFeedPlayer"); });
+    jest.isolateModules(() => { api = jest.requireActual<typeof import("@/lib/mobileFeedPlayer")>("@/lib/mobileFeedPlayer"); });
   });
   afterEach(() => { jest.clearAllTimers(); jest.restoreAllMocks(); jest.useRealTimers(); });
 
