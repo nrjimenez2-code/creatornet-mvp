@@ -1,8 +1,9 @@
+import type { VideoPreviewCounts } from "@/lib/postViewCounts";
 export type SearchCreator = {
   id: string; username: string; full_name: string | null; avatar_url: string | null;
   tagline: string | null; match_reason: string; match_evidence: string; related_match: boolean;
 };
-export type SearchPost = {
+export type SearchPost = VideoPreviewCounts & {
   id: string; caption: string | null; content: string | null; media_url: string | null;
   poster_url: string | null; creator_id: string; creator: { username: string };
   creator_verified?: boolean;

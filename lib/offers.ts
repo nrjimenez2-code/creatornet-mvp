@@ -1,3 +1,4 @@
+import type { VideoPreviewCounts } from "@/lib/postViewCounts";
 // lib/offers.ts
 //
 // Pure, server-safe mapping from a creator's `products` + visible `posts`
@@ -34,7 +35,8 @@ export type OfferProduct = {
   active?: boolean | null;
 };
 
-export type OfferPost = {
+export type OfferPost = VideoPreviewCounts & {
+  video_url?: string | null;
   id: string;
   title?: string | null;
   poster_url?: string | null;
@@ -45,7 +47,8 @@ export type OfferPost = {
 
 export type OfferKind = "course" | "mentorship" | "video" | "consultation";
 
-export type OfferCard = {
+export type OfferCard = VideoPreviewCounts & {
+  imagePreviewsVideo?: boolean;
   /** Stable React key: `product:<id>` or `booking:<postId>`. */
   key: string;
   kind: OfferKind;
@@ -169,6 +172,8 @@ function productCard(product: OfferProduct, post: OfferPost): OfferCard | null {
     priceCents: resolvePriceCents(product),
     currency: (product.currency ?? "").trim().toLowerCase() || DEFAULT_CURRENCY,
     imageUrl: post.poster_url || product.thumbnail_url || null,
+    imagePreviewsVideo: !!post.video_url && !!post.poster_url,
+    view_count: post.view_count ?? null,
     postId: post.id,
     productId: product.id,
     bookingUrl: null,
@@ -187,6 +192,8 @@ function bookingCard(post: OfferPost): OfferCard {
     priceCents: null,
     currency: DEFAULT_CURRENCY,
     imageUrl: post.poster_url || null,
+    imagePreviewsVideo: !!post.video_url && !!post.poster_url,
+    view_count: post.view_count ?? null,
     postId: post.id,
     productId: null,
     bookingUrl: (post.booking_url ?? "").trim() || null,

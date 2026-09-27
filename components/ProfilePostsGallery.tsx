@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
@@ -9,8 +9,10 @@ import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
+import VideoViewCount from "@/components/VideoViewCount";
+import type { VideoPreviewCounts } from "@/lib/postViewCounts";
 
-type Post = {
+type Post = VideoPreviewCounts & {
   id: string;
   creator_id?: string | null;
   title?: string | null;
@@ -64,20 +66,40 @@ export default function ProfilePostsGallery({
   const gridRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
   const alignedRef = useRef(false);
+  const modalRef = useRef<HTMLDivElement | null>(null);
+  const openedTileRef = useRef<HTMLElement | null>(null);
+  const gridPositionRef = useRef(0);
+
+  const closeModal = useCallback(() => {
+    setIsOpen(false);
+    alignedRef.current = false;
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: gridPositionRef.current, behavior: "instant" });
+      openedTileRef.current?.focus({ preventScroll: true });
+    });
+  }, []);
 
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setIsOpen(false);
+      if (e.key === "Escape") closeModal();
+      if (e.key === "Tab") {
+        const focusable = Array.from(modalRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], [tabindex="0"]') ?? [])
+          .filter(el => el.getClientRects().length > 0);
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && (document.activeElement === first || document.activeElement === modalRef.current)) { e.preventDefault(); last?.focus(); }
+        else if (!e.shiftKey && (document.activeElement === last || document.activeElement === modalRef.current)) { e.preventDefault(); first?.focus(); }
+      }
     };
     document.addEventListener("keydown", handler);
+    const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
+    modalRef.current?.focus({ preventScroll: true });
     return () => {
       document.removeEventListener("keydown", handler);
-      // Page default, not the captured value — see FollowListModal.
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousOverflow;
     };
-  }, [isOpen]);
+  }, [isOpen, closeModal]);
 
   useEffect(() => {
     if (!isOpen || alignedRef.current) return;
@@ -115,22 +137,11 @@ export default function ProfilePostsGallery({
   }, [isOpen, posts.length]);
 
   const openModal = (index: number) => {
+    openedTileRef.current = gridRef.current?.children[index] as HTMLElement | null;
+    gridPositionRef.current = window.scrollY;
     setActiveIndex(index);
     alignedRef.current = false;
     setIsOpen(true);
-  };
-
-  const closeModal = () => {
-    setIsOpen(false);
-    alignedRef.current = false;
-    const grid = gridRef.current;
-    const tile = grid?.children?.[activeIndex] as HTMLElement | undefined;
-    if (tile) {
-      requestAnimationFrame(() => {
-        tile.scrollIntoView({ block: "center" });
-        tile.focus?.();
-      });
-    }
   };
 
   const primeVideoThumbnail = (videoEl: HTMLVideoElement | null) => {
@@ -156,29 +167,32 @@ export default function ProfilePostsGallery({
     <>
       <div
         ref={gridRef}
-        className="grid grid-cols-2 gap-0 sm:grid-cols-3 lg:grid-cols-4"
+        className="grid grid-cols-3 gap-px lg:grid-cols-4"
       >
         {posts.map((post, index) => (
           <button
             key={post.id}
             type="button"
             onClick={() => openModal(index)}
+            aria-describedby={post.video_url ? `profile-views-${post.id}` : undefined}
             aria-label={`Open post: ${post.title || post.content || "untitled"}`}
-            className="group relative flex aspect-square items-center justify-center overflow-hidden bg-white/5 border border-white/10 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
+            className="group relative flex aspect-[9/16] items-center justify-center overflow-hidden rounded-none bg-white/5 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/80"
           >
             {post.poster_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={feedPosterUrl(post.poster_url)}
                 alt=""
-                className="h-full w-full object-cover transition group-hover:scale-105"
+                style={{ height: "100%" }}
+                className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105"
                 loading="lazy"
               />
             ) : post.video_url ? (
               <video
                 ref={primeVideoThumbnail}
                 src={feedMediaUrl(post.video_url)}
-                className="h-full w-full object-cover transition group-hover:scale-105"
+                style={{ height: "100%" }}
+                className="absolute inset-0 h-full w-full object-cover transition group-hover:scale-105"
                 muted
                 loop
                 playsInline
@@ -187,12 +201,13 @@ export default function ProfilePostsGallery({
             ) : (
               <div className="text-xs text-white/60">No media</div>
             )}
+            {post.video_url ? <VideoViewCount id={`profile-views-${post.id}`} count={post.view_count} /> : null}
           </button>
         ))}
       </div>
 
       {isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
+        <div ref={modalRef} role="dialog" aria-modal="true" aria-label="Profile video player" tabIndex={-1} className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
           <div className="absolute top-5 md:top-4 left-4 z-10 [&>div]:mb-0">
             <BackButton 
               hrefOverride={undefined}

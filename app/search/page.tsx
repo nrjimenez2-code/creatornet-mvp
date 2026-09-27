@@ -3,6 +3,7 @@ import { Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } 
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
+import VideoViewCount from "@/components/VideoViewCount";
 import BackButton from "@/components/BackButton";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import SearchSuggestions from "@/components/SearchSuggestions";
@@ -120,8 +121,8 @@ function CreatorCard({creator:c,onOpen}:{creator:SearchCreator;onOpen:()=>void})
   </Link>;
 }
 function PostCard({post:p,onOpen}:{post:SearchPost;onOpen:()=>void}) {
-  return <button type="button" aria-label={`Open video: ${p.caption || p.content || p.creator.username}`} onClick={onOpen} className="text-left rounded-xl overflow-hidden border border-white/10 hover:bg-white/5">
-    <div className="aspect-[3/4] bg-white/5">{p.poster_url ? <img src={feedPosterUrl(p.poster_url)} alt="" loading="lazy" style={{height:'100%'}} className="w-full object-cover"/> : p.media_url ? <video src={feedMediaUrl(p.media_url)} muted playsInline preload="none" style={{height:'100%'}} className="w-full object-cover"/> : <div className="h-full flex items-center justify-center text-white/40">View post</div>}</div>
+  return <button type="button" aria-label={`Open video: ${p.caption || p.content || p.creator.username}`} aria-describedby={p.media_url ? `search-views-${p.id}` : undefined} onClick={onOpen} className="text-left rounded-xl overflow-hidden border border-white/10 hover:bg-white/5">
+    <div className="relative aspect-[3/4] bg-white/5">{p.poster_url ? <img src={feedPosterUrl(p.poster_url)} alt="" loading="lazy" style={{height:'100%'}} className="w-full object-cover"/> : p.media_url ? <video src={feedMediaUrl(p.media_url)} muted playsInline preload="none" style={{height:'100%'}} className="w-full object-cover"/> : <div className="h-full flex items-center justify-center text-white/40">View post</div>}{p.media_url ? <VideoViewCount id={`search-views-${p.id}`} count={p.view_count} /> : null}</div>
     <div className="p-3"><p className="text-xs text-white/50">@{p.creator.username}</p><p className="text-sm line-clamp-2 mt-1">{p.caption || p.content || "View video"}</p></div>
   </button>;
 }

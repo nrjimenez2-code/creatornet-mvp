@@ -5,6 +5,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
+import { loadPostViewCounts } from "@/lib/postViewCountsClient";
+import type { VideoPreviewCounts } from "@/lib/postViewCounts";
+import VideoViewCount from "@/components/VideoViewCount";
 import { ContinueSectionSkeleton } from "@/components/loading/Skeletons";
 
 type ProgressRow = {
@@ -13,7 +16,7 @@ type ProgressRow = {
   updated_at: string;
 };
 
-type Post = {
+type Post = VideoPreviewCounts & {
   id: string;
   title: string | null;
   poster_url: string | null;
@@ -27,7 +30,7 @@ type Item = {
 };
 
 export default function ContinueWatching() {
-  const supabase = createClient();
+  const supabase = useMemo(() => createClient(), []);
   const { userId, loading: authLoading } = useUser();
 
   const [items, setItems] = useState<Item[]>([]);
@@ -77,8 +80,9 @@ export default function ContinueWatching() {
         console.debug("posts fetch:", pErr.message);
       }
 
+      const counts = await loadPostViewCounts((posts ?? []).filter(p => !!p.video_url).map(p => p.id));
       const postMap = new Map<string, Post>();
-      (posts ?? []).forEach((p) => postMap.set(p.id, p as Post));
+      (posts ?? []).forEach((p) => postMap.set(p.id, { ...p, view_count: counts.get(p.id) ?? null } as Post));
 
       const combined: Item[] = (progress ?? []).map((pr) => ({
         progress: pr as ProgressRow,
@@ -136,7 +140,7 @@ export default function ContinueWatching() {
               className="block rounded-xl overflow-hidden bg-white/5 hover:bg-white/10 transition border border-white/10"
             >
               {/* Thumbnail */}
-              <div className="aspect-[9/16] bg-black">
+              <div className="relative aspect-[9/16] bg-black">
                 {post?.poster_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
@@ -150,6 +154,7 @@ export default function ContinueWatching() {
                     No thumbnail
                   </div>
                 )}
+                {post?.video_url ? <VideoViewCount count={post.view_count} /> : null}
               </div>
 
               {/* Meta */}

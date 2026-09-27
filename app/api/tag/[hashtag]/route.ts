@@ -1,3 +1,4 @@
+import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import { NextRequest, NextResponse } from "next/server";
 import { publicMessage } from "@/lib/apiError";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
@@ -211,7 +212,7 @@ export async function GET(
     const hasMore = nextOffset < enriched.length;
 
     return NextResponse.json({
-      items: paged,
+      items: await enrichPostViewCounts(supabaseAdmin, paged),
       hasMore,
       nextOffset,
       tag: normalizedTag,

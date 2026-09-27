@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
+import { isLibraryPurchaseEligible } from "@/lib/libraryAccess";
 
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "private, no-store" };
@@ -20,13 +20,7 @@ export async function POST(req: NextRequest) {
     if (result.error) throw result.error;
     const allowed: string[] = [];
     for (const row of result.data ?? []) {
-      if (row.buyer_id !== user.id) continue;
-      // Preserve the legacy listing's status restriction. Timed purchases are
-      // instead governed by their current paid entitlement, including paid exit.
-      if (row.access_granted === true && !["paid", "active", "complete"].includes(row.status ?? "")) continue;
-      const eligible = membershipLedgerReady()
-        ? await membershipAccessSeconds(supabaseAdmin, row.id, user.id) > 0
-        : row.access_granted === true;
+      const eligible = await isLibraryPurchaseEligible(supabaseAdmin, row, user.id);
       if (eligible) allowed.push(row.id);
     }
     return Response.json({ purchaseIds: allowed }, { headers });
