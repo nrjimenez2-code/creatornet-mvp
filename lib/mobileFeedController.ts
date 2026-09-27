@@ -170,7 +170,15 @@ export class MobileFeedController {
       sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && remaining > 0 && playableBuffer(prepared.video, target) + 0.001 >= Math.min(BUFFER_TARGET, remaining);
     const bridge = eligible ? prepared : null;
     const partial = prepared && !eligible && prepared.postId === input.postId && prepared.src === input.src && sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && !input.reload ? prepared : null;
-    if (prepared && !bridge && !partial) this.clear(prepared);
+    if (prepared && !bridge && !partial) {
+      if (prepared.postId === input.postId) this.clear(prepared);
+      else {
+        // This is still the selected neighbor. Another card can finish resolving
+        // after its preparation effect ran; selection changes own cancellation.
+        prepared.video.pause();
+        recordFeedEvent("preparation-retained", { postId: prepared.postId, activatedPostId: input.postId, phase: prepared.phase, position: prepared.target });
+      }
+    }
     if (partial) { partial.video.pause(); partial.video.style.visibility = "hidden"; partial.present(false); this.preparing = null; input.previewHost.appendChild(partial.video); }
     if (bridge) { bridge.stop(); bridge.stop = () => {}; this.preparing = null; bridge.present = input.present; input.previewHost.appendChild(bridge.video); }
     const video = claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, { position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: eligible, reload: input.reload });
