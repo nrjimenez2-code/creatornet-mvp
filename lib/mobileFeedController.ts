@@ -196,7 +196,7 @@ export class MobileFeedController {
     }
     if (partial) { partial.pause(); partial.video.style.visibility = "hidden"; partial.present(false); this.preparing = null; input.previewHost.appendChild(partial.video); }
     if (bridge) { bridge.stop(); bridge.stop = () => {}; this.preparing = null; bridge.present = input.present; input.previewHost.appendChild(bridge.video); }
-    const video = claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, { position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: eligible, reload: input.reload });
+    const video = claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, { position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: eligible, reload: input.reload, boundedSeekRecovery: true });
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
     const activatedAt = performance.now();
     let alive = true;
