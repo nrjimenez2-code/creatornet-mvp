@@ -134,6 +134,70 @@ test("partial recovery never starts a moving preview while the user paused the m
   media(p.video, 2); p.video.dispatchEvent(new Event("progress"));
   expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
 });
+
+test("an accepted main play request starts the muted bridge before the queued play event", () => {
+  const p = prepare("queued-play"); frame(p.video, 0.033);
+  const active = activate("queued-play", p.src); active.video.pause();
+  const play = jest.mocked(HTMLMediaElement.prototype.play).mockImplementation(function (this: HTMLMediaElement) {
+    paused.set(this, false); return Promise.resolve();
+  });
+  void active.video.play();
+  controller.playRequested(Symbol("obsolete")); expect(p.video.paused).toBe(true);
+  controller.playRequested(active.token);
+  expect(p.video.paused).toBe(false); expect(p.video.muted).toBe(true);
+  const calls = play.mock.calls.length;
+  controller.playRequested(active.token); active.video.dispatchEvent(new Event("play"));
+  expect(play.mock.calls.length).toBe(calls); expect(frames.get(p.video)?.size).toBe(1);
+  active.video.pause(); active.video.dispatchEvent(new Event("play"));
+  controller.playRequested(active.token);
+  expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
+});
+
+test("a rejected main play request cannot start the muted bridge", async () => {
+  const p = prepare("rejected-play"); frame(p.video, 0.033);
+  const active = activate("rejected-play", p.src); active.video.pause();
+  jest.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new DOMException("gesture required", "NotAllowedError"));
+  const rejection = active.video.play().catch(error => error);
+  controller.playRequested(active.token);
+  expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
+  expect((await rejection).name).toBe("NotAllowedError");
+});
+
+function clockedFrame(video: HTMLVideoElement, time: number, clock: number, count: number) {
+  video.currentTime = clock;
+  const callbacks = [...(frames.get(video)?.values() ?? [])]; frames.get(video)?.clear();
+  callbacks.forEach(cb => cb(performance.now(), { mediaTime: time, presentedFrames: count } as VideoFrameCallbackMetadata));
+}
+
+test("alignment waits for the sought frame instead of restarting a pending decoder seek", () => {
+  const p = prepare("pending-align"); frame(p.video, 0.033);
+  const active = activate("pending-align", p.src);
+  clockedFrame(p.video, 0.066, 0.066, 2); clockedFrame(p.video, 0.633, 0.633, 19);
+  const obsolete = [...frames.get(p.video)!.values()][0];
+  clockedFrame(active.video, 0, 0.12, 1); clockedFrame(active.video, 0.033, 0.153, 2);
+  expect(p.video.currentTime).toBe(0.153);
+  obsolete(performance.now(), { mediaTime: 0.033, presentedFrames: 20 } as VideoFrameCallbackMetadata);
+  expect(active.ready).not.toHaveBeenCalled(); expect(frames.get(p.video)?.size).toBe(1);
+  jest.advanceTimersByTime(170);
+  clockedFrame(active.video, 0.133, 0.253, 5);
+  expect(p.video.currentTime).toBe(0.153); expect(active.ready).not.toHaveBeenCalled();
+  clockedFrame(p.video, 0.153, 0.153, 21);
+  expect(active.ready).toHaveBeenCalledTimes(1); expect(active.failed).not.toHaveBeenCalled();
+  expect(active.previewHost.querySelector("video")).toBeNull(); expect(frames.get(p.video)?.size).toBe(0);
+  jest.advanceTimersByTime(3_000); expect(active.failed).not.toHaveBeenCalled();
+});
+
+test("reversal during alignment cancels the pending frame and rejects its late callback", () => {
+  const p = prepare("reversed-align"); frame(p.video, 0.033);
+  const active = activate("reversed-align", p.src);
+  clockedFrame(p.video, 0.633, 0.633, 19);
+  clockedFrame(active.video, 0, 0.12, 1); clockedFrame(active.video, 0.033, 0.153, 2);
+  const obsolete = [...frames.get(p.video)!.values()][0];
+  const next = activate("after-align", "https://example.test/after-align.mp4");
+  obsolete(performance.now(), { mediaTime: 0.153, presentedFrames: 20 } as VideoFrameCallbackMetadata);
+  expect(frames.get(p.video)?.size).toBe(0); expect(p.video.hasAttribute("src")).toBe(false);
+  expect(active.ready).not.toHaveBeenCalled(); expect(next.ready).not.toHaveBeenCalled();
+});
 afterEach(() => { controller.dispose(); document.body.innerHTML = ""; jest.restoreAllMocks(); jest.useRealTimers(); });
 
 test("warmup needs a valid target frame and one second of actual playable media", () => {
