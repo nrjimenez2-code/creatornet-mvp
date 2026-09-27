@@ -9,7 +9,10 @@ beforeEach(() => {
   request.mockResolvedValue({ ok: true, json: async () => ({ ok: true, userId: "u" }) });
   auth.getUser.mockResolvedValue({ data: { user: session.user }, error: null });
   auth.getSession.mockResolvedValue({ data: { session }, error: null });
-  auth.signOut.mockResolvedValue({ error: null });
+  auth.signOut.mockImplementation(async () => {
+    auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+    return { error: null };
+  });
 });
 test("ordinary sign-out is device-local and waits for cookie clearing", async () => {
   await signOutThisDevice(client);
@@ -54,4 +57,36 @@ test("only known local Profile destinations are accepted", () => {
   expect(authNextPath("?next=/profile")).toBe("/profile");
   expect(authNextPath("?next=/profile/edit")).toBe("/profile/edit");
   for (const target of ["//evil.test", "https://evil.test", "/\\evil.test", "/unknown"]) expect(authNextPath("?next="+encodeURIComponent(target))).toBeNull();
+});
+
+test("sign-out during user verification cancels navigation without restoring cookies", async () => {
+  let complete!: (value: unknown) => void;
+  auth.getUser.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+  const navigation = prepareSessionNavigation(client);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+  complete({ data: { user: session.user }, error: null });
+  expect(await navigation).toBe(false);
+  expect(request).not.toHaveBeenCalled();
+});
+
+test("an old invalid-user response cannot sign out a replacement session", async () => {
+  let complete!: (value: unknown) => void;
+  const replacement = { ...session, access_token: "replacement", user: { id: "new-user" } } as Session;
+  auth.getUser.mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }));
+  const navigation = prepareSessionNavigation(client);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  auth.getSession.mockResolvedValue({ data: { session: replacement }, error: null });
+  auth.getUser.mockResolvedValue({ data: { user: replacement.user }, error: null });
+  request.mockResolvedValue({ ok: true, json: async () => ({ ok: true, userId: "new-user" }) });
+  complete({ data: { user: null }, error: { status: 401 } });
+  expect(await navigation).toBe(true);
+  expect(auth.getUser).toHaveBeenLastCalledWith("replacement");
+  expect(auth.signOut).not.toHaveBeenCalled();
+});
+
+test("a queued old sign-in event cannot sync a session that has been cleared", async () => {
+  auth.getSession.mockResolvedValue({ data: { session: null }, error: null });
+  await syncBrowserSession(session, "SIGNED_IN", client);
+  expect(request).not.toHaveBeenCalled();
 });

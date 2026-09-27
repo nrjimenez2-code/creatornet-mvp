@@ -36,7 +36,9 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
  try{
   if(!discoverEnabled()){
    if(offset>=2000)return NextResponse.json({items:[],nextOffset:offset,hasMore:false,session:null});
-   const {data,error}=await createServerClient().rpc('get_feed_v3',{p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
+   // A late feed refresh must not restore cookies after a newer sign-out/login.
+   // Browser auth and its serialized callback own session-cookie synchronization.
+   const {data,error}=await createServerClient({readOnlyAuthCookies:true}).rpc('get_feed_v3',{p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
    if(error)throw error;
    let items = data ?? [];
    if (process.env.CREATOR_TIPPING_ENABLED === "true" && items.length) {
@@ -57,7 +59,7 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
    }
    return NextResponse.json({items,nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
-  const identity=await measured('identity',()=>discoverIdentity(req));
+  const identity=await measured('identity',()=>discoverIdentity(req,{readOnlyAuthCookies:true}));
   const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab,identity.newAnonymous));
   const result=await measured('page',()=>readDiscoverPage(session,identity.actor,offset,limit,identity.userId));
   return finish(setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie));

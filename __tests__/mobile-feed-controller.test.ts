@@ -25,10 +25,18 @@ function prepare(id: string, src = `https://example.test/${id}.mp4`) {
   const video = host.querySelector("video")!; media(video); video.dispatchEvent(new Event("loadedmetadata"));
   return { host, video, present, src };
 }
-function activate(id: string, src: string) {
+function pendingPreparation(id: string) {
+  let reject!: (reason: DOMException) => void;
+  const pending = new Promise<void>((_resolve, fail) => { reject = fail; });
+  jest.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(function (this: HTMLMediaElement) {
+    paused.set(this, false); this.dispatchEvent(new Event("play")); return pending;
+  });
+  return { ...prepare(id), reject };
+}
+function activate(id: string, src: string, buffer = 10) {
   const ready = jest.fn(), failed = jest.fn(), present = jest.fn(), token = Symbol(id);
   const host = document.createElement("div"), previewHost = document.createElement("div"); document.body.append(host, previewHost);
-  const video = controller.activate({ postId: id, src, host, previewHost, token, ready, failed, present }); media(video);
+  const video = controller.activate({ postId: id, src, host, previewHost, token, ready, failed, present }); media(video, buffer);
   video.dispatchEvent(new Event("loadedmetadata")); video.dispatchEvent(new Event("seeked"));
   void video.play();
   video.dispatchEvent(new Event("playing"));
@@ -76,6 +84,141 @@ test("loading starts before main presentation; decoding waits for the main playa
   media(active.video, 2); active.video.dispatchEvent(new Event("progress"));
   expect(frames.get(p.video)?.size).toBe(1); frame(p.video, 0.033);
   expect(p.present).toHaveBeenCalledWith(true); expect(active.ready).not.toHaveBeenCalled();
+});
+
+test("activating another post preserves the still-selected ready return neighbor", () => {
+  const selected = prepare("selected-return"); frame(selected.video, 0.033);
+  const incoming = activate("incoming-other", "https://example.test/incoming-other.mp4");
+  expect(selected.video.getAttribute("src")).toBe(selected.src);
+  expect(selected.video.paused).toBe(true);
+  expect(incoming.previewHost.querySelector("video")).toBeNull();
+  expect(incoming.present).toHaveBeenLastCalledWith(false);
+  const returned = activate("selected-return", selected.src);
+  expect(returned.video).toBe(incoming.video);
+  expect(returned.previewHost.querySelector("video")).toBe(selected.video);
+  expect(returned.present).toHaveBeenLastCalledWith(true);
+});
+
+test("retained partial preparation pauses for a new main buffer and resumes without another slot", () => {
+  const selected = prepare("selected-partial"); media(selected.video, 0.2);
+  const token = Symbol("buffer-gated-incoming");
+  const video = controller.activate({ postId: "buffer-gated-incoming", src: "https://example.test/buffer-gated-incoming.mp4",
+    host: document.createElement("div"), previewHost: document.createElement("div"), token, present: jest.fn(), ready: jest.fn() });
+  media(video, 0.2); void video.play(); video.dispatchEvent(new Event("playing"));
+  expect(selected.video.src).toBe(selected.src); expect(selected.video.paused).toBe(true);
+  media(selected.video, 2); selected.video.dispatchEvent(new Event("progress"));
+  expect(selected.video.paused).toBe(true); expect(selected.present).not.toHaveBeenCalledWith(true);
+  media(video, 2); video.dispatchEvent(new Event("progress"));
+  expect(selected.video.paused).toBe(false); frame(selected.video, 0.033);
+  expect(selected.present).toHaveBeenLastCalledWith(true);
+  expect(selected.video.paused).toBe(true);
+  const returned = activate("selected-partial", selected.src);
+  expect(returned.previewHost.querySelector("video")).toBe(selected.video);
+  expect(returned.present).toHaveBeenLastCalledWith(true);
+  expect(document.querySelectorAll("video[data-mobile-preparation]")).toHaveLength(1);
+});
+
+test("a pending preparation play aborted by incoming decoder priority remains recoverable", async () => {
+  const selected = pendingPreparation("priority-abort");
+  const incoming = activate("priority-main", "https://example.test/priority-main.mp4", 0.2);
+  expect(selected.video.paused).toBe(true);
+  selected.reject(new DOMException("Interrupted by pause", "AbortError")); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(1);
+  expect(selected.video.src).toBe(selected.src);
+  media(incoming.video, 2); incoming.video.dispatchEvent(new Event("progress"));
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("an old pending play rejection cannot cancel preparation after priority resumes it", async () => {
+  const selected = pendingPreparation("resumed-abort");
+  const incoming = activate("resumed-main", "https://example.test/resumed-main.mp4", 0.2);
+  media(incoming.video, 2); incoming.video.dispatchEvent(new Event("progress"));
+  expect(selected.video.paused).toBe(false);
+  selected.reject(new DOMException("Queued pause rejection", "AbortError")); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(1);
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("a timed-out attempt's pending play rejection cannot destroy the buffered retry", async () => {
+  const selected = pendingPreparation("retry-play-abort");
+  jest.advanceTimersByTime(2_750);
+  selected.reject(new DOMException("Obsolete attempt", "NotSupportedError")); await Promise.resolve();
+  expect(selected.video.src).toBe(selected.src);
+  expect(frames.get(selected.video)?.size).toBe(1);
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("a corrective seek's pending play rejection does not cancel target reacquisition", async () => {
+  const selected = pendingPreparation("corrective-play-abort"); frame(selected.video, 0.2);
+  expect(selected.video.currentTime).toBe(0);
+  selected.reject(new DOMException("Interrupted by corrective pause", "AbortError")); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(1);
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("current preparation play failures still exhaust the two-attempt bound", async () => {
+  jest.mocked(HTMLMediaElement.prototype.play)
+    .mockRejectedValueOnce(new DOMException("Playback denied", "NotAllowedError"))
+    .mockRejectedValueOnce(new DOMException("Unsupported source", "NotSupportedError"));
+  const selected = prepare("current-play-error"); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(0); expect(selected.video.src).toBe(selected.src);
+  jest.advanceTimersByTime(250); await Promise.resolve();
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(selected.present).not.toHaveBeenCalledWith(true);
+});
+
+test("a current media error still fails preparation while decoder priority pauses it", () => {
+  const selected = prepare("paused-media-error");
+  const incoming = activate("paused-media-main", "https://example.test/paused-media-main.mp4", 0.2);
+  expect(selected.video.paused).toBe(true);
+  selected.video.dispatchEvent(new Event("error"));
+  expect(frames.get(selected.video)?.size).toBe(0);
+  media(incoming.video, 2); incoming.video.dispatchEvent(new Event("progress"));
+  jest.advanceTimersByTime(250); selected.video.dispatchEvent(new Event("error"));
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(selected.present).not.toHaveBeenCalledWith(true);
+});
+
+test("pausing a pending preparation play does not extend its attempt deadline", async () => {
+  const selected = pendingPreparation("paused-attempt-deadline");
+  jest.advanceTimersByTime(1_500);
+  activate("deadline-main", "https://example.test/deadline-main.mp4", 0.2);
+  selected.reject(new DOMException("Interrupted by priority", "AbortError")); await Promise.resolve();
+  jest.advanceTimersByTime(999); expect(frames.get(selected.video)?.size).toBe(1);
+  jest.advanceTimersByTime(1); expect(frames.get(selected.video)?.size).toBe(0);
+  expect(selected.video.src).toBe(selected.src);
+});
+
+test("changing the selected neighbor cancels a preparation retained across another activation", () => {
+  const selected = prepare("retained-old");
+  const stale = [...frames.get(selected.video)!.values()][0];
+  activate("retained-incoming", "https://example.test/retained-incoming.mp4");
+  const next = prepare("retained-next");
+  stale(performance.now(), { mediaTime: 0.033 } as VideoFrameCallbackMetadata);
+  expect(selected.present).not.toHaveBeenCalledWith(true);
+  expect(next.present).not.toHaveBeenCalledWith(true);
+  frame(next.video, 0.033); expect(next.present).toHaveBeenLastCalledWith(true);
+  controller.cancelPreparation("retained-next"); expect(next.video.hasAttribute("src")).toBe(false);
+});
+
+test("a retained saved-position preparation expires without rewinding the new active post", () => {
+  const saved = activate("retained-expiry", "https://example.test/retained-expiry.mp4");
+  saved.video.currentTime = 12.4; controller.release(saved.token);
+  const selected = prepare("retained-expiry"); frame(selected.video, 12.4);
+  const incoming = activate("expiry-incoming", "https://example.test/expiry-incoming.mp4");
+  frame(incoming.video, 2.3); frame(incoming.video, 2.333);
+  jest.advanceTimersByTime(5_000);
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(incoming.video.currentTime).toBe(2.333);
+  const returned = activate("retained-expiry", selected.src);
+  expect(returned.previewHost.querySelector("video")).toBeNull(); expect(returned.video.currentTime).toBe(0);
+});
+
+test("activation never retains a mismatched preparation for the same post", () => {
+  const selected = prepare("retained-source", "https://example.test/old-version.mp4"); frame(selected.video, 0.033);
+  const active = activate("retained-source", "https://example.test/new-version.mp4");
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(active.previewHost.querySelector("video")).toBeNull(); expect(active.present).toHaveBeenLastCalledWith(false);
 });
 test("incomplete activation retains its element and can recover into a qualified bridge", () => {
   const p = prepare("partial"); media(p.video, 0.2); frame(p.video, 0.033);
@@ -133,6 +276,70 @@ test("partial recovery never starts a moving preview while the user paused the m
   const active = activate("paused-partial", p.src); active.video.pause();
   media(p.video, 2); p.video.dispatchEvent(new Event("progress"));
   expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
+});
+
+test("an accepted main play request starts the muted bridge before the queued play event", () => {
+  const p = prepare("queued-play"); frame(p.video, 0.033);
+  const active = activate("queued-play", p.src); active.video.pause();
+  const play = jest.mocked(HTMLMediaElement.prototype.play).mockImplementation(function (this: HTMLMediaElement) {
+    paused.set(this, false); return Promise.resolve();
+  });
+  void active.video.play();
+  controller.playRequested(Symbol("obsolete")); expect(p.video.paused).toBe(true);
+  controller.playRequested(active.token);
+  expect(p.video.paused).toBe(false); expect(p.video.muted).toBe(true);
+  const calls = play.mock.calls.length;
+  controller.playRequested(active.token); active.video.dispatchEvent(new Event("play"));
+  expect(play.mock.calls.length).toBe(calls); expect(frames.get(p.video)?.size).toBe(1);
+  active.video.pause(); active.video.dispatchEvent(new Event("play"));
+  controller.playRequested(active.token);
+  expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
+});
+
+test("a rejected main play request cannot start the muted bridge", async () => {
+  const p = prepare("rejected-play"); frame(p.video, 0.033);
+  const active = activate("rejected-play", p.src); active.video.pause();
+  jest.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(new DOMException("gesture required", "NotAllowedError"));
+  const rejection = active.video.play().catch(error => error);
+  controller.playRequested(active.token);
+  expect(p.video.paused).toBe(true); expect(active.video.paused).toBe(true);
+  expect((await rejection).name).toBe("NotAllowedError");
+});
+
+function clockedFrame(video: HTMLVideoElement, time: number, clock: number, count: number) {
+  video.currentTime = clock;
+  const callbacks = [...(frames.get(video)?.values() ?? [])]; frames.get(video)?.clear();
+  callbacks.forEach(cb => cb(performance.now(), { mediaTime: time, presentedFrames: count } as VideoFrameCallbackMetadata));
+}
+
+test("alignment waits for the sought frame instead of restarting a pending decoder seek", () => {
+  const p = prepare("pending-align"); frame(p.video, 0.033);
+  const active = activate("pending-align", p.src);
+  clockedFrame(p.video, 0.066, 0.066, 2); clockedFrame(p.video, 0.633, 0.633, 19);
+  const obsolete = [...frames.get(p.video)!.values()][0];
+  clockedFrame(active.video, 0, 0.12, 1); clockedFrame(active.video, 0.033, 0.153, 2);
+  expect(p.video.currentTime).toBe(0.153);
+  obsolete(performance.now(), { mediaTime: 0.033, presentedFrames: 20 } as VideoFrameCallbackMetadata);
+  expect(active.ready).not.toHaveBeenCalled(); expect(frames.get(p.video)?.size).toBe(1);
+  jest.advanceTimersByTime(170);
+  clockedFrame(active.video, 0.133, 0.253, 5);
+  expect(p.video.currentTime).toBe(0.153); expect(active.ready).not.toHaveBeenCalled();
+  clockedFrame(p.video, 0.153, 0.153, 21);
+  expect(active.ready).toHaveBeenCalledTimes(1); expect(active.failed).not.toHaveBeenCalled();
+  expect(active.previewHost.querySelector("video")).toBeNull(); expect(frames.get(p.video)?.size).toBe(0);
+  jest.advanceTimersByTime(3_000); expect(active.failed).not.toHaveBeenCalled();
+});
+
+test("reversal during alignment cancels the pending frame and rejects its late callback", () => {
+  const p = prepare("reversed-align"); frame(p.video, 0.033);
+  const active = activate("reversed-align", p.src);
+  clockedFrame(p.video, 0.633, 0.633, 19);
+  clockedFrame(active.video, 0, 0.12, 1); clockedFrame(active.video, 0.033, 0.153, 2);
+  const obsolete = [...frames.get(p.video)!.values()][0];
+  const next = activate("after-align", "https://example.test/after-align.mp4");
+  obsolete(performance.now(), { mediaTime: 0.153, presentedFrames: 20 } as VideoFrameCallbackMetadata);
+  expect(frames.get(p.video)?.size).toBe(0); expect(p.video.hasAttribute("src")).toBe(false);
+  expect(active.ready).not.toHaveBeenCalled(); expect(next.ready).not.toHaveBeenCalled();
 });
 afterEach(() => { controller.dispose(); document.body.innerHTML = ""; jest.restoreAllMocks(); jest.useRealTimers(); });
 

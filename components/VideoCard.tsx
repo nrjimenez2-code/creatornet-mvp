@@ -851,6 +851,7 @@ function VideoCard(props: VideoCardProps) {
       video.muted = mutedRef.current;
       if (useSharedMobilePlayer) recordFeedEvent("play-request", { muted: video.muted, retried }, video);
       const playPromise = video.play();
+      if (controlledMobilePlayer) mobileFeedController.playRequested(playOwner);
       if (playPromise && typeof playPromise.catch === "function") {
         void playPromise.then(() => {
           if (!cancelled && visible && !video.paused && (!controlledMobilePlayer || ownsMobileFeedPlayer(playOwner, video, src))) playbackStartedRef.current?.();
