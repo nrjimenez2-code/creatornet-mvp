@@ -190,3 +190,145 @@ describe("fixed departure snapshots", () => {
     releaseMobileFeedPlayer(second);
   });
 });
+
+describe("candidate resume seek recovery", () => {
+  let api: typeof import("@/lib/mobileFeedPlayer");
+  beforeEach(() => {
+    jest.useFakeTimers(); jest.setSystemTime(100_000);
+    jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "currentSrc", "get").mockImplementation(function (this: HTMLMediaElement) { return this.src; });
+    jest.isolateModules(() => { api = require("@/lib/mobileFeedPlayer"); });
+  });
+  afterEach(() => { jest.clearAllTimers(); jest.restoreAllMocks(); jest.useRealTimers(); });
+
+  function missedSeek(target = 11.521602, landed = 8, recovery = true) {
+    const token = Symbol("missed-return");
+    const video = api.claimMobileFeedPlayer(document.createElement("div"), token, "/return.m3u8", "return", { position: target, boundedSeekRecovery: recovery });
+    let readyState = 1;
+    let position = 0;
+    const writes: number[] = [];
+    Object.defineProperty(video, "readyState", { configurable: true, get: () => readyState });
+    Object.defineProperty(video, "currentTime", { configurable: true, get: () => position, set: value => { writes.push(value); position = writes.length === 1 ? landed : value; } });
+    video.dispatchEvent(new Event("loadedmetadata"));
+    video.dispatchEvent(new Event("seeked"));
+    return { token, video, writes, target, ready: api.mobileFeedPlaybackReady(token)!, setReady: (value: number) => { readyState = value; }, setPosition: (value: number) => { position = value; } };
+  }
+
+  test("corrects a completed wrong-position seek when current-frame data arrives", async () => {
+    const run = missedSeek();
+    expect(run.writes).toEqual([run.target]);
+    expect(api.mobileFeedPlaybackReady(run.token)).toBe(run.ready);
+    run.setReady(2); run.video.dispatchEvent(new Event("loadeddata"));
+    expect(run.writes).toEqual([run.target, run.target]);
+    expect(api.mobileFeedPlaybackReady(run.token)).toBe(run.ready);
+    run.video.dispatchEvent(new Event("seeked")); await run.ready;
+    expect(api.mobileFeedSeekFailed(run.token)).toBe(false);
+    api.releaseMobileFeedPlayer(run.token);
+  });
+
+  test("allows only one correction and retains the original two-second timeout", async () => {
+    const run = missedSeek(7.680641, 4);
+    jest.advanceTimersByTime(1_900);
+    run.setReady(4); run.video.dispatchEvent(new Event("canplay"));
+    expect(run.writes).toEqual([run.target, run.target]);
+    run.setPosition(4); run.video.dispatchEvent(new Event("seeked"));
+    run.video.dispatchEvent(new Event("loadeddata"));
+    run.video.dispatchEvent(new Event("canplay"));
+    run.video.dispatchEvent(new Event("loadedmetadata"));
+    expect(run.writes).toEqual([run.target, run.target]);
+    jest.advanceTimersByTime(100); await run.ready;
+    expect(api.mobileFeedSeekFailed(run.token)).toBe(true);
+    api.releaseMobileFeedPlayer(run.token);
+  });
+
+  test("Retry retains the failed return target rather than the incorrect reached position", async () => {
+    const run = missedSeek();
+    jest.advanceTimersByTime(2_000); await run.ready;
+    api.releaseMobileFeedPlayer(run.token, false);
+    expect(api.mobileFeedResumeSnapshot("return", "/return.m3u8")).toEqual({ postId: "return", contentVersion: "/return.m3u8", position: run.target, expiresAt: null });
+    // An in-place Retry consumes no new five-second departure window.
+    jest.advanceTimersByTime(6_000);
+    const retry = Symbol("retry");
+    api.claimMobileFeedPlayer(document.createElement("div"), retry, "/return.m3u8", "return", { reload: true, boundedSeekRecovery: true });
+    run.video.dispatchEvent(new Event("loadedmetadata"));
+    expect(run.writes.at(-1)).toBe(run.target);
+    run.video.dispatchEvent(new Event("seeked"));
+    await api.mobileFeedPlaybackReady(retry);
+    run.setPosition(13);
+    api.releaseMobileFeedPlayer(retry, false);
+    expect(api.mobileFeedResumeSnapshot("return", "/return.m3u8").position).toBe(13);
+  });
+
+  test("a real departure after failure keeps the intended target with the usual expiry", async () => {
+    const run = missedSeek();
+    jest.advanceTimersByTime(2_000); await run.ready;
+    api.releaseMobileFeedPlayer(run.token);
+    const saved = api.mobileFeedResumeSnapshot("return", "/return.m3u8");
+    expect(saved.position).toBe(run.target); expect(saved.expiresAt).toBe(107_000);
+    jest.advanceTimersByTime(5_000);
+    expect(api.mobileFeedResumeSnapshot("return", "/return.m3u8").position).toBe(0);
+  });
+
+  test("cancelled ownership cannot correct or rewind the incoming post", async () => {
+    const run = missedSeek();
+    api.releaseMobileFeedPlayer(run.token);
+    const incoming = Symbol("incoming");
+    api.claimMobileFeedPlayer(document.createElement("div"), incoming, "/incoming.mp4", "incoming");
+    const writesBeforeEvents = [...run.writes];
+    run.setPosition(0); run.setReady(4);
+    run.video.dispatchEvent(new Event("loadeddata")); run.video.dispatchEvent(new Event("canplay"));
+    await run.ready;
+    expect(run.writes).toEqual(writesBeforeEvents); expect(run.video.currentTime).toBe(0);
+    api.releaseMobileFeedPlayer(incoming);
+  });
+
+  test("correction waits for the assigned source and for seeking to stop", async () => {
+    const run = missedSeek();
+    run.setReady(4);
+    let attached = false, seeking = false;
+    Object.defineProperty(run.video, "currentSrc", { configurable: true, get: () => attached ? run.video.src : "https://old.test/old.m3u8" });
+    Object.defineProperty(run.video, "seeking", { configurable: true, get: () => seeking });
+    run.video.dispatchEvent(new Event("canplay")); expect(run.writes).toEqual([run.target]);
+    attached = true; seeking = true;
+    run.video.dispatchEvent(new Event("loadeddata")); expect(run.writes).toEqual([run.target]);
+    seeking = false; run.video.dispatchEvent(new Event("seeked"));
+    expect(run.writes).toEqual([run.target, run.target]);
+    run.video.dispatchEvent(new Event("seeked")); await run.ready;
+    api.releaseMobileFeedPlayer(run.token);
+  });
+
+  test("replacement content cannot inherit a failed target parked for Retry", async () => {
+    const run = missedSeek();
+    jest.advanceTimersByTime(2_000); await run.ready;
+    api.releaseMobileFeedPlayer(run.token, false);
+    const replacement = Symbol("replacement-content");
+    api.claimMobileFeedPlayer(document.createElement("div"), replacement, "/new.m3u8", "return", { contentVersion: "new-content", boundedSeekRecovery: true });
+    run.setReady(1); run.video.dispatchEvent(new Event("loadedmetadata"));
+    expect(run.writes.at(-1)).toBe(0);
+    run.video.dispatchEvent(new Event("seeked")); await api.mobileFeedPlaybackReady(replacement);
+    api.releaseMobileFeedPlayer(replacement);
+  });
+
+  test("Retry preserves the clamped target for a return near the media end", async () => {
+    const run = missedSeek(50, 8);
+    // The media duration arrives with the initial metadata in this case.
+    api.releaseMobileFeedPlayer(run.token, false);
+    Object.defineProperty(run.video, "duration", { configurable: true, value: 20 });
+    const retry = Symbol("clamped-return");
+    api.claimMobileFeedPlayer(document.createElement("div"), retry, "/return.m3u8", "return", { reload: true, boundedSeekRecovery: true });
+    run.setPosition(8); run.video.dispatchEvent(new Event("seeked"));
+    jest.advanceTimersByTime(2_000); await api.mobileFeedPlaybackReady(retry);
+    api.releaseMobileFeedPlayer(retry, false);
+    expect(api.mobileFeedResumeSnapshot("return", "/return.m3u8").position).toBe(19.99);
+  });
+
+  test("ordinary mobile playback does not opt into correction or target retention", async () => {
+    const run = missedSeek(11.521602, 8, false);
+    run.setReady(4); run.video.dispatchEvent(new Event("loadeddata")); run.video.dispatchEvent(new Event("canplay"));
+    expect(run.writes).toEqual([run.target]);
+    jest.advanceTimersByTime(2_000); await run.ready;
+    api.releaseMobileFeedPlayer(run.token, false);
+    expect(api.mobileFeedResumeSnapshot("return", "/return.m3u8").position).toBe(8);
+  });
+});

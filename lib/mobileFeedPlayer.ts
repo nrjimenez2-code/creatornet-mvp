@@ -23,12 +23,20 @@ const recentPositions = new Map<string, ResumeSnapshot>();
 const managedPositions = new WeakSet<ResumeSnapshot>();
 const expiryListeners = new Set<(snapshot: ResumeSnapshot) => void>();
 let expiryTimer: ReturnType<typeof setTimeout> | undefined;
-let pendingSeek: { token: symbol; promise: Promise<void>; cancel: () => void } | null = null;
-let seekOutcome: { token: symbol; failed: boolean } | null = null;
+let pendingSeek: { token: symbol; promise: Promise<void>; cancel: () => void; recoveryTarget: () => number | null } | null = null;
+let seekOutcome: { token: symbol; failed: boolean; recoveryTarget: number | null } | null = null;
+
+function retainedPosition(): number {
+  // Retry must keep an unfinished candidate return's intended position, not
+  // the wrong position the media element reported before timing out.
+  const target = pendingSeek?.token === owner ? pendingSeek.recoveryTarget()
+    : seekOutcome?.token === owner && seekOutcome.failed ? seekOutcome.recoveryTarget : null;
+  return target ?? player!.currentTime;
+}
 
 function rememberPosition(): void {
   if (!player || !currentPostId) return;
-  const time = player.currentTime;
+  const time = retainedPosition();
   if (!Number.isFinite(time) || time < 0) return;
   expirePositions();
   recentPositions.delete(currentPostId);
@@ -89,42 +97,60 @@ function cancelPendingSeek(): void {
   pendingSeek = null;
 }
 
-function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number): void {
+function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number, recover = false): void {
   recordFeedEvent("resume-seek-request", { target: time }, video);
   let settle!: () => void;
   const promise = new Promise<void>(resolve => { settle = resolve; });
   let done = false;
   let target = time;
+  let started = false;
+  let mismatched = false;
+  let corrected = false;
   const finish = (failed = false) => {
     if (done) return;
     done = true;
     video.removeEventListener("loadedmetadata", seek);
     video.removeEventListener("seeked", seeked);
+    video.removeEventListener("loadeddata", correct);
+    video.removeEventListener("canplay", correct);
     video.removeEventListener("error", failedSeek);
     clearTimeout(timer);
     if (pendingSeek?.token === token) pendingSeek = null;
-    if (owner === token) seekOutcome = { token, failed };
+    if (owner === token) seekOutcome = { token, failed, recoveryTarget: recover ? target : null };
     settle();
   };
   const failedSeek = () => finish(true);
+  const correct = () => {
+    if (!recover || done || owner !== token || !started || !mismatched || corrected || video.seeking || video.readyState < 2 || video.currentSrc !== video.src) return;
+    // A completed seek can report the wrong position while the source loads.
+    // Correct it once after current-frame data arrives, within the same timer.
+    corrected = true;
+    recordFeedEvent("resume-seek-correction", { target, position: video.currentTime }, video);
+    try { video.currentTime = target; } catch { failedSeek(); }
+  };
   const seeked = () => {
-    if (owner !== token || video.seeking || video.currentSrc !== video.src || Math.abs(video.currentTime - target) > 0.05) return;
+    if (done || owner !== token || video.seeking || video.currentSrc !== video.src) return;
+    if (Math.abs(video.currentTime - target) > 0.05) { mismatched = true; correct(); return; }
     finish();
   };
   const timer = setTimeout(() => { recordFeedEvent("resume-seek-timeout", { target: time }, video); failedSeek(); }, 2_000);
   const seek = () => {
     if (owner !== token || done) return failedSeek();
     if (video.currentSrc !== video.src) return;
+    if (recover && started) return;
     try {
       target = Number.isFinite(video.duration) && video.duration > 0
         ? Math.min(time, Math.max(0, video.duration - 0.01)) : time;
       if (Math.abs(video.currentTime - target) < 0.05) return finish();
+      started = true;
       video.currentTime = target;
     } catch { failedSeek(); }
   };
-  pendingSeek = { token, promise, cancel: failedSeek };
+  pendingSeek = { token, promise, cancel: failedSeek, recoveryTarget: () => recover ? target : null };
   video.addEventListener("loadedmetadata", seek);
   video.addEventListener("seeked", seeked);
+  video.addEventListener("loadeddata", correct);
+  video.addEventListener("canplay", correct);
   video.addEventListener("error", failedSeek);
   // A bad stream must never leave the card unable to attempt playback.
   if (video.readyState >= 1) seek();
@@ -146,7 +172,7 @@ function getParkingPlace(): HTMLDivElement {
   return parkingPlace;
 }
 
-export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; snapshot?: ResumeSnapshot; contentVersion?: string; managedResume?: boolean; warmEligible?: boolean; reload?: boolean }): HTMLVideoElement {
+export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; snapshot?: ResumeSnapshot; contentVersion?: string; managedResume?: boolean; warmEligible?: boolean; reload?: boolean; boundedSeekRecovery?: boolean }): HTMLVideoElement {
   if (!player) {
     player = document.createElement("video");
     player.playsInline = true;
@@ -181,7 +207,7 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
     // Conventional playback keeps its existing fresh-source start behavior.
     // Candidate playback also guards a retained nonzero timeline while a new
     // source is attaching, so an expired return cannot show the old position.
-    if (saved > 0 || !changedSource || (managedResume && player.currentTime > 0)) seekBeforePlayback(player, token, saved);
+    if (saved > 0 || !changedSource || (managedResume && player.currentTime > 0)) seekBeforePlayback(player, token, saved, options?.boundedSeekRecovery === true);
   }
   return player;
 }
@@ -190,7 +216,7 @@ export function releaseMobileFeedPlayer(token: symbol, departure = true): void {
   if (!player || owner !== token) return;
   player.pause();
   if (departure) rememberPosition();
-  else parkedSnapshot = Object.freeze({ postId: currentPostId!, contentVersion: currentContentVersion, position: player.currentTime, expiresAt: null });
+  else parkedSnapshot = Object.freeze({ postId: currentPostId!, contentVersion: currentContentVersion, position: retainedPosition(), expiresAt: null });
   cancelPendingSeek();
   endFeedVideoTrace(player);
   owner = null;
