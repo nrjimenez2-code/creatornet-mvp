@@ -22,11 +22,14 @@ Controlled local tests used the actual locked SDK with synthetic Auth responses 
 
 React provider tests also demonstrated a delayed seed overwriting a newer sign-out/login event. An independent delayed callback handler response demonstrated cookie restoration after a newer sign-out response.
 
+The actual locked SSR/Auth SDK also reproduced an expired feed request refreshing while sign-out completed. Applying the delayed feed response restored the auth cookie in both the legacy and Discover paths. Token-free baseline timelines are `auth-baseline-feed-refresh.json` and `auth-baseline-discover-refresh.json` in the review outputs. This proves cookie restoration, not acceptance of that session by the hosted Auth provider.
+
 Corrections:
 
 - Ignore late provider seeds and `INITIAL_SESSION` events after newer auth events.
 - After a discarded refresh, read current storage; verify the current access token before navigation. Recheck after verification and cookie work. A sign-out cancels navigation, and an old invalid-user response cannot clear a newer login.
 - Serialize application cookie synchronization with a shared Web Lock when available. Recheck live auth after entering the queue, omit superseded writes, and repair an already-pending response using current state. The per-tab queue and response repair also run without Web Locks.
+- Make auth cookies read-only for feed requests in both paths. SDK identity verification/refresh remains enabled, but the feed response cannot overwrite a newer sign-out or login. Other server-client callers retain cookie synchronization by default. Actual SSR regressions verify both feed outcomes and the unchanged default behavior.
 - Device sign-out remains `scope: local`. Transient verification failures do not sign out users. No old refresh credential is retried by application code.
 
 The legacy `/api/auth/callback` route has no current application caller. It is instrumented for staging observation; no behavioral change to it was selected without a reproduced caller.
@@ -41,7 +44,7 @@ Controlled-delay parameters are available only when the public Supabase URL is t
 
 ## Candidate local checks
 
-On 2026-09-27 UTC, 17 selected Jest suites passed (121 tests), `tsc --noEmit` passed, changed-file lint passed with zero errors and 16 existing warnings, and the production build exited zero using fake CI credentials. The build printed expected dynamic-render notices and an `example.invalid` sitemap-fetch warning. These are local gates; hosted acceptance is still pending. Timestamp merge regression includes microseconds, and temporary staging controls have Production pass-through coverage.
+On 2026-09-27 UTC, 19 selected Jest suites passed (128 tests), `tsc --noEmit` passed, changed-file lint passed with zero errors and 30 warnings, and the production build exited zero using fake CI credentials. The build printed expected dynamic-render notices and an `example.invalid` sitemap-fetch warning. These are local gates; hosted acceptance is still pending. Timestamp merge regression includes microseconds, and temporary staging controls have Production pass-through coverage.
 
 ## Hosted acceptance required
 
