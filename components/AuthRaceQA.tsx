@@ -26,6 +26,7 @@ export default function AuthRaceQA() {
   const [status, setStatus] = useState("Ready");
   const [result, setResult] = useState<unknown>(null);
   const client = createClient();
+  const browserProject = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "https://unconfigured.invalid").hostname;
   const { session, loading } = useUser();
   async function run(name: string, action: () => Promise<unknown>) {
     setStatus(name + " pending"); setResult(null);
@@ -61,6 +62,7 @@ export default function AuthRaceQA() {
   return <main className="mx-auto max-w-3xl space-y-4 p-6">
     <h1 className="text-xl font-semibold">PR 236 Staging verification</h1>
     <p>Staging project nwqfofezfzljhxolkycz. Temporary controls use the current tab session and normal application APIs.</p>
+    <p>Browser Auth project: {browserProject}.</p>
     <p>Provider session: {session ? "present" : "absent"}; initializing: {loading ? "yes" : "no"}.</p>
     <p><Link href="/auth?authTrace=1">Normal email sign-in</Link> · <Link href="/?authTrace=1">Open feed</Link></p>
     <div className="flex flex-wrap gap-3">{buttons.map(([name, action]) => <button className="rounded border px-3 py-2" key={name} onClick={() => void run(name, action)}>{name}</button>)}</div>
