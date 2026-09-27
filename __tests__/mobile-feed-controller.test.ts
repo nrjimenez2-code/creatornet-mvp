@@ -25,10 +25,18 @@ function prepare(id: string, src = `https://example.test/${id}.mp4`) {
   const video = host.querySelector("video")!; media(video); video.dispatchEvent(new Event("loadedmetadata"));
   return { host, video, present, src };
 }
-function activate(id: string, src: string) {
+function pendingPreparation(id: string) {
+  let reject!: (reason: DOMException) => void;
+  const pending = new Promise<void>((_resolve, fail) => { reject = fail; });
+  jest.mocked(HTMLMediaElement.prototype.play).mockImplementationOnce(function (this: HTMLMediaElement) {
+    paused.set(this, false); this.dispatchEvent(new Event("play")); return pending;
+  });
+  return { ...prepare(id), reject };
+}
+function activate(id: string, src: string, buffer = 10) {
   const ready = jest.fn(), failed = jest.fn(), present = jest.fn(), token = Symbol(id);
   const host = document.createElement("div"), previewHost = document.createElement("div"); document.body.append(host, previewHost);
-  const video = controller.activate({ postId: id, src, host, previewHost, token, ready, failed, present }); media(video);
+  const video = controller.activate({ postId: id, src, host, previewHost, token, ready, failed, present }); media(video, buffer);
   video.dispatchEvent(new Event("loadedmetadata")); video.dispatchEvent(new Event("seeked"));
   void video.play();
   video.dispatchEvent(new Event("playing"));
@@ -108,6 +116,77 @@ test("retained partial preparation pauses for a new main buffer and resumes with
   expect(returned.previewHost.querySelector("video")).toBe(selected.video);
   expect(returned.present).toHaveBeenLastCalledWith(true);
   expect(document.querySelectorAll("video[data-mobile-preparation]")).toHaveLength(1);
+});
+
+test("a pending preparation play aborted by incoming decoder priority remains recoverable", async () => {
+  const selected = pendingPreparation("priority-abort");
+  const incoming = activate("priority-main", "https://example.test/priority-main.mp4", 0.2);
+  expect(selected.video.paused).toBe(true);
+  selected.reject(new DOMException("Interrupted by pause", "AbortError")); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(1);
+  expect(selected.video.src).toBe(selected.src);
+  media(incoming.video, 2); incoming.video.dispatchEvent(new Event("progress"));
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("an old pending play rejection cannot cancel preparation after priority resumes it", async () => {
+  const selected = pendingPreparation("resumed-abort");
+  const incoming = activate("resumed-main", "https://example.test/resumed-main.mp4", 0.2);
+  media(incoming.video, 2); incoming.video.dispatchEvent(new Event("progress"));
+  expect(selected.video.paused).toBe(false);
+  selected.reject(new DOMException("Queued pause rejection", "AbortError")); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(1);
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("a timed-out attempt's pending play rejection cannot destroy the buffered retry", async () => {
+  const selected = pendingPreparation("retry-play-abort");
+  jest.advanceTimersByTime(2_750);
+  selected.reject(new DOMException("Obsolete attempt", "NotSupportedError")); await Promise.resolve();
+  expect(selected.video.src).toBe(selected.src);
+  expect(frames.get(selected.video)?.size).toBe(1);
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("a corrective seek's pending play rejection does not cancel target reacquisition", async () => {
+  const selected = pendingPreparation("corrective-play-abort"); frame(selected.video, 0.2);
+  expect(selected.video.currentTime).toBe(0);
+  selected.reject(new DOMException("Interrupted by corrective pause", "AbortError")); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(1);
+  frame(selected.video, 0.033); expect(selected.present).toHaveBeenLastCalledWith(true);
+});
+
+test("current preparation play failures still exhaust the two-attempt bound", async () => {
+  jest.mocked(HTMLMediaElement.prototype.play)
+    .mockRejectedValueOnce(new DOMException("Playback denied", "NotAllowedError"))
+    .mockRejectedValueOnce(new DOMException("Unsupported source", "NotSupportedError"));
+  const selected = prepare("current-play-error"); await Promise.resolve();
+  expect(frames.get(selected.video)?.size).toBe(0); expect(selected.video.src).toBe(selected.src);
+  jest.advanceTimersByTime(250); await Promise.resolve();
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(selected.present).not.toHaveBeenCalledWith(true);
+});
+
+test("a current media error still fails preparation while decoder priority pauses it", () => {
+  const selected = prepare("paused-media-error");
+  const incoming = activate("paused-media-main", "https://example.test/paused-media-main.mp4", 0.2);
+  expect(selected.video.paused).toBe(true);
+  selected.video.dispatchEvent(new Event("error"));
+  expect(frames.get(selected.video)?.size).toBe(0);
+  media(incoming.video, 2); incoming.video.dispatchEvent(new Event("progress"));
+  jest.advanceTimersByTime(250); selected.video.dispatchEvent(new Event("error"));
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(selected.present).not.toHaveBeenCalledWith(true);
+});
+
+test("pausing a pending preparation play does not extend its attempt deadline", async () => {
+  const selected = pendingPreparation("paused-attempt-deadline");
+  jest.advanceTimersByTime(1_500);
+  activate("deadline-main", "https://example.test/deadline-main.mp4", 0.2);
+  selected.reject(new DOMException("Interrupted by priority", "AbortError")); await Promise.resolve();
+  jest.advanceTimersByTime(999); expect(frames.get(selected.video)?.size).toBe(1);
+  jest.advanceTimersByTime(1); expect(frames.get(selected.video)?.size).toBe(0);
+  expect(selected.video.src).toBe(selected.src);
 });
 
 test("changing the selected neighbor cancels a preparation retained across another activation", () => {
