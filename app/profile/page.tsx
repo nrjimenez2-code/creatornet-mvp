@@ -5,12 +5,14 @@ import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createServerClient } from "@/lib/supabaseServer";
 import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
-import ProfilePostsGallery from "@/components/ProfilePostsGallery";
+import ProfileContent from "@/components/ProfileContent";
+import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import ProfileMobileHeader from "@/components/ProfileMobileHeader";
 import FollowStats from "@/components/FollowStats";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
-import { mapProfileGalleryPosts } from "@/lib/offers";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
 
 export const revalidate = 0;
@@ -34,7 +36,7 @@ export default async function ProfilePage() {
       .maybeSingle(),
     supabase
       .from("posts")
-      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, tips_enabled")
+      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, hidden_at, removed_at, tips_enabled")
       .eq("creator_id", user.id)
       .is("removed_at", null)
       .order("created_at", { ascending: false }),
@@ -49,16 +51,17 @@ export default async function ProfilePage() {
     // Match the public profile's schema-aware product projection using this user's RLS client.
     (process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true"
       ? fixedServiceSchemaReady()
-        ? supabase.from("products").select("id, product_id, creator_id, title, type, active, amount_cents, price_cents, membership_terms, fixed_service_months")
-        : supabase.from("products").select("id, product_id, creator_id, title, type, active, amount_cents, price_cents, membership_terms")
+        ? supabase.from("products").select("id, product_id, creator_id, title, description, currency, thumbnail_url, type, active, amount_cents, price_cents, membership_terms, fixed_service_months")
+        : supabase.from("products").select("id, product_id, creator_id, title, description, currency, thumbnail_url, type, active, amount_cents, price_cents, membership_terms")
       : fixedServiceSchemaReady()
-        ? supabase.from("products").select("id, product_id, creator_id, title, type, active, amount_cents, price_cents, fixed_service_months")
-        : supabase.from("products").select("id, product_id, creator_id, title, type, active, amount_cents, price_cents")
+        ? supabase.from("products").select("id, product_id, creator_id, title, description, currency, thumbnail_url, type, active, amount_cents, price_cents, fixed_service_months")
+        : supabase.from("products").select("id, product_id, creator_id, title, description, currency, thumbnail_url, type, active, amount_cents, price_cents")
     ).eq("creator_id", user.id),
   ]);
 
-  const posts = postsRes?.data ?? [];
+  const posts = await enrichPostViewCounts(supabaseAdmin, postsRes?.data ?? []);
   const postsCount = posts.length;
+  const offers = buildOffers(productsRes.error ? [] : productsRes.data, posts.filter(post => post.hidden_at === null && post.removed_at === null));
 
   // Same reason as the public creator page: without this the gallery renders
   // every heart empty, so tapping one on a post you already liked REMOVES the
@@ -149,26 +152,17 @@ export default async function ProfilePage() {
 
         </div>
 
-        {posts.length === 0 ? (
-          <p className="col-span-full text-center text-white/60 mt-6">
-            You haven&apos;t posted yet. Share your first product or video!
-          </p>
-        ) : (
-          <div className="mt-5.5">
-            <ProfilePostsGallery
-              tippingAvailable={process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller}
-              viewerIsOwner
-              posts={mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, user.id)}
-              creatorId={user.id}
-              creatorName={displayName}
-              creatorUsername={profile?.username ?? null}
-              creatorAvatarUrl={avatarUrl}
-              creatorVerified={isVerifiedSeller}
-              likedPostIds={likedPostIds}
-            />
-          </div>
-        )}
-
+        <ProfileContent
+          postsError={Boolean(postsRes.error)} offersError={Boolean(postsRes.error || productsRes.error)}
+          gallery={{
+            tippingAvailable: process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller,
+            viewerIsOwner: true,
+            posts: mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, user.id),
+            creatorId: user.id, creatorName: displayName, creatorUsername: profile?.username ?? null,
+            creatorAvatarUrl: avatarUrl, creatorVerified: isVerifiedSeller, likedPostIds,
+          }}
+          offers={{ creatorId: user.id, creatorName: displayName, offers, sellReady: isVerifiedSeller, rating: null }}
+        />
       </div>
     </section>
   );

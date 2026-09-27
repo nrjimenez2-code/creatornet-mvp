@@ -1,3 +1,4 @@
+import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import { after, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
@@ -56,7 +57,7 @@ export async function POST(req: Request) {
     });
     return NextResponse.json({
       ...data,
-      items: items.map(item => ({ ...item, creator_verified: verifiedCreators.has(item.creator_id) })),
+      items: await enrichPostViewCounts(supabaseAdmin, items.map(item => ({ ...item, creator_verified: verifiedCreators.has(item.creator_id) }))),
       isTagSearch: input.isTagSearch,
       normalized_query: input.normalized,
     });

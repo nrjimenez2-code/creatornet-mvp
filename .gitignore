@@ -76,3 +76,4 @@ supabase/migrations/*
 !supabase/migrations/20260924004400_video_reports.sql
 !supabase/migrations/20260924120000_video_tipping.sql
 !supabase/migrations/20260925040000_video_tipping_checkout_idempotency.sql
+!supabase/migrations/20260926225425_post_view_counts_v1.sql

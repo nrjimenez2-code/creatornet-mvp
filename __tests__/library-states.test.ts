@@ -84,6 +84,22 @@ afterEach(async () => {
 });
 
 describe("LibraryPage states", () => {
+  test("count requests carry the eligible purchase rather than unrelated failed attempts", async () => {
+    mockUser = { userId: "buyer_1", loading: false };
+    const postId = "00000000-0000-4000-8000-000000000001";
+    const eligibleId = "00000000-0000-4000-8000-000000000999";
+    db = createMockClient(op => op.table === "purchases" ? {data:[
+      ...Array.from({length:120},(_,i)=>({id:`failed-${i}`,post_id:postId,posts:{title:"Denied attempt",video_url:"video.mp4"}})),
+      {id:eligibleId,post_id:postId,posts:{title:"Owned video",video_url:"video.mp4"}},
+    ],error:null} : undefined);
+    (global.fetch as jest.Mock).mockImplementation(async (url:string) => ({ok:true,json:async()=>url==="/api/library/eligibility"
+      ? {purchaseIds:[eligibleId]} : {items:[{post_id:postId,view_count:1395}]}}));
+    await render();
+    const countCall = (global.fetch as jest.Mock).mock.calls.find(([url])=>url==="/api/posts/view-counts");
+    expect(JSON.parse(countCall![1].body)).toEqual({postIds:[postId],purchaseIds:[eligibleId]});
+    expect(text()).toContain("1,395"); expect(text()).toContain("Owned video");
+    expect(text()).not.toContain("Denied attempt");
+  });
   test("raw-false eligible monthly and timed purchases render alongside legacy; denied purchases do not", async () => {
     mockUser = { userId: "buyer_1", loading: false };
     const ids = ["monthly", "timed", "legacy", "expired", "refunded", "disputed"];

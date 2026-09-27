@@ -5,12 +5,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
+import { loadPostViewCounts } from "@/lib/postViewCountsClient";
+import type { VideoPreviewCounts } from "@/lib/postViewCounts";
+import VideoViewCount from "@/components/VideoViewCount";
 import BackButton from "@/components/BackButton";
 import { LibrarySkeleton } from "@/components/loading/Skeletons";
 
 /* ----------------------------- types & utils ----------------------------- */
 
-type LibraryItem = {
+type LibraryItem = VideoPreviewCounts & {
   id: string;
   post_id: string;
   title: string;
@@ -55,7 +58,7 @@ function LibraryCard({
       onMouseEnter={() => onPrefetch(item.post_id)}
       onTouchStart={() => onPrefetch(item.post_id)}
     >
-      <div className="aspect-[4/3] w-full bg-gray-100">
+      <div className="relative aspect-[4/3] w-full bg-gray-100">
         {item.poster_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -77,6 +80,7 @@ function LibraryCard({
             No thumbnail
           </div>
         )}
+        {item.video_url ? <VideoViewCount count={item.view_count} /> : null}
       </div>
 
       {showProgress && (
@@ -304,7 +308,11 @@ export default function LibraryPage() {
           }
         }
 
+        const counts = await loadPostViewCounts(base.filter(b => !!b.video_url).map(b => b.post_id), {
+          purchaseIdByPost: new Map(base.map(b => [b.post_id, b.id])),
+        });
         const merged = base.map((b) => ({
+          view_count: counts.get(b.post_id) ?? null,
           ...b,
           position_seconds: positionByPost.get(b.post_id) ?? null,
         }));

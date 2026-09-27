@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import VideoViewCount from "@/components/VideoViewCount";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
@@ -10,7 +11,7 @@ import { normalizeCategory } from "@/lib/posthog";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import { LoadingLabel, Skeleton, TagGridSkeleton } from "@/components/loading/Skeletons";
 
-type ApiTagPost = {
+type ApiTagPost = import("@/lib/postViewCounts").VideoPreviewCounts & {
   id: string;
   title: string | null;
   content: string | null;
@@ -280,6 +281,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                 key={p.id}
                 type="button"
                 onClick={() => openModal(index)}
+            aria-describedby={p.video_url ? `tag-views-${p.id}` : undefined}
                 aria-label={`Open post: ${p.title || p.content || "untitled"}`}
                 className="group relative flex aspect-square items-center justify-center overflow-hidden bg-white/5 border border-white/10 transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
               >
@@ -303,6 +305,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                 ) : (
                   <div className="text-xs text-white/60">No media</div>
                 )}
+                {p.video_url ? <VideoViewCount id={`tag-views-${p.id}`} count={p.view_count} /> : null}
               </button>
             ))}
             <div ref={sentinelRef} className="h-8 col-span-full" />

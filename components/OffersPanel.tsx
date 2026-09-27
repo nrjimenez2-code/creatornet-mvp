@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BookOpen, Phone, PlayCircle, ShieldCheck, Star, Tag, Users } from "lucide-react";
+import VideoViewCount from "@/components/VideoViewCount";
 import SidePanel from "@/components/SidePanel";
 import { useUser } from "@/lib/useUser";
 import { formatOfferPrice, type OfferCard, type OfferKind } from "@/lib/offers";
@@ -39,6 +40,7 @@ type Props = {
   sellReady: boolean;
   /** Creator-level rating (get_profile_rating); null hides the line. */
   rating: OffersRating | null;
+  inline?: boolean;
 };
 
 const KIND_ICON: Record<OfferKind, typeof BookOpen> = {
@@ -59,7 +61,7 @@ function OfferImage({ card }: { card: OfferCard }) {
   return <Icon aria-hidden="true" className="h-10 w-10 text-[#8B7CF7]" />;
 }
 
-export default function OffersPanel({ creatorId, creatorName, offers, sellReady, rating }: Props) {
+export default function OffersPanel({ creatorId, creatorName, offers, sellReady, rating, inline = false }: Props) {
   const [open, setOpen] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -112,33 +114,7 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
     }
   }
 
-  return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        className="inline-flex items-center gap-2 rounded-md border border-[#4A35C7] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#4A35C7]/20"
-      >
-        <Tag aria-hidden="true" className="h-4 w-4" />
-        Offers
-      </button>
-
-      <SidePanel
-        open={open}
-        onClose={() => setOpen(false)}
-        title={OFFERS_COPY.title}
-        description={OFFERS_COPY.description(creatorName)}
-        returnFocusRef={triggerRef}
-        footer={
-          <p className="flex items-center justify-center gap-2 text-xs text-white/60">
-            <ShieldCheck aria-hidden="true" className="h-4 w-4" />
-            {OFFERS_COPY.footer}
-          </p>
-        }
-      >
+  const content = (<>
         {rating && rating.reviewCount > 0 ? (
           <Link
             href={`/creators/${creatorId}/reviews`}
@@ -163,8 +139,9 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
                 className="flex gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4"
                 data-offer-kind={card.kind}
               >
-                <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#1B1530] sm:h-28 sm:w-28">
+                <div className="relative flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-[#1B1530] sm:h-28 sm:w-28">
                   <OfferImage card={card} />
+                  {card.imagePreviewsVideo ? <VideoViewCount count={card.view_count} /> : null}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-semibold tracking-wide text-[#8B7CF7]">{card.label}</p>
@@ -216,6 +193,38 @@ export default function OffersPanel({ creatorId, creatorName, offers, sellReady,
             );
           })}
         </ul>
+  </>);
+
+  if (inline) return <div className="p-4">{content}</div>;
+
+  return (
+    <>
+      <button
+        ref={triggerRef}
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className="inline-flex items-center gap-2 rounded-md border border-[#4A35C7] px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-[#4A35C7]/20"
+      >
+        <Tag aria-hidden="true" className="h-4 w-4" />
+        Offers
+      </button>
+
+      <SidePanel
+        open={open}
+        onClose={() => setOpen(false)}
+        title={OFFERS_COPY.title}
+        description={OFFERS_COPY.description(creatorName)}
+        returnFocusRef={triggerRef}
+        footer={
+          <p className="flex items-center justify-center gap-2 text-xs text-white/60">
+            <ShieldCheck aria-hidden="true" className="h-4 w-4" />
+            {OFFERS_COPY.footer}
+          </p>
+        }
+      >
+        {content}
       </SidePanel>
     </>
   );

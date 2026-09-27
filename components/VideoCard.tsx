@@ -32,6 +32,7 @@ import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedSeekFailed, o
 import { recordFeedEvent, recordLegacyPreparation, measuredPreparation } from "@/lib/mobileFeedDiagnostics";
 import { mobileFeedController } from "@/lib/mobileFeedController";
 import { planMobileFallback } from "@/lib/mobileFeedRecovery";
+import { useFeedPlaybackResolution } from "@/lib/useFeedPlaybackResolution";
 
 type VideoCardProps = {
   onFeedDeleted?: (postId: string) => void;
@@ -228,8 +229,16 @@ function VideoCard(props: VideoCardProps) {
   // viewers do not opt in, avoiding a hydration-time source swap.
   const [nativeHls] = useState(() => typeof document !== "undefined" &&
     !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl"));
-  const adaptiveSrc = props.preferAdaptive && nativeHls && failedAdaptiveSource !== originalSrc ? feedAdaptiveUrl(originalSrc) : undefined;
-  const src = adaptiveSrc || (failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc));
+  const legacyAdaptiveSrc = props.preferAdaptive && nativeHls && failedAdaptiveSource !== originalSrc ? feedAdaptiveUrl(originalSrc) : undefined;
+  const ordinarySource = legacyAdaptiveSrc || (failedMediaSource === originalSrc ? originalSrc : feedMediaUrl(originalSrc));
+  const resolution = useFeedPlaybackResolution({ postId: postId ?? originalSrc ?? "", original: originalSrc, fallback: ordinarySource,
+    mobile: props.sharedMobileFeedPlayer === true && !desktop, controller: props.mobileHandoff === true,
+    active: isActive === true, neighbor: props.prepareFrame === true, visible: pageVisible, nativeHls });
+  const resolvedAdaptive = resolution.source === resolution.descriptor?.hlsUrl && !!resolution.descriptor?.hlsUrl;
+  const adaptiveSrc = failedAdaptiveSource !== originalSrc ? (resolvedAdaptive ? resolution.source : legacyAdaptiveSrc) : undefined;
+  const src = failedMediaSource === originalSrc ? originalSrc : failedAdaptiveSource === originalSrc
+    ? resolution.descriptor?.processedMp4Url ?? feedMediaUrl(originalSrc) : resolution.source;
+  const contentVersion = resolution.descriptor?.contentVersion ?? ordinarySource ?? src ?? "";
   const [mediaError, setMediaError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
   const [frameReady, setFrameReady] = useState(false);
@@ -253,9 +262,11 @@ function VideoCard(props: VideoCardProps) {
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const sharedVideoHostRef = useRef<HTMLDivElement>(null);
   const sharedVideoOwnerRef = useRef(Symbol("feed-card"));
+  const unmountingRef = useRef(false);
+  useLayoutEffect(() => { unmountingRef.current = false; return () => { unmountingRef.current = true; }; }, []);
   const mobileFeedPlayer = props.sharedMobileFeedPlayer === true && !desktop;
   const controlledMobilePlayer = mobileFeedPlayer && props.mobileHandoff === true;
-  const useSharedMobilePlayer = mobileFeedPlayer && isActive === true && !!src;
+  const useSharedMobilePlayer = mobileFeedPlayer && isActive === true && !!src && !resolution.waiting;
   const preparationHostRef = useRef<HTMLDivElement>(null);
   const recoveryPositionRef = useRef<number | undefined>(undefined);
   const fallbackAttemptsRef = useRef(new Set<string>());
@@ -301,12 +312,12 @@ function VideoCard(props: VideoCardProps) {
   // Attach before passive playback, telemetry and timeline effects. The same
   // element survives a card change and a trip to a profile page.
   useLayoutEffect(() => {
-    if (!useSharedMobilePlayer || !src || !sharedVideoHostRef.current) return;
+    if (!useSharedMobilePlayer || !src || resolution.waiting || !sharedVideoHostRef.current) return;
     const owner = Symbol("feed-activation");
     sharedVideoOwnerRef.current = owner;
     const video = controlledMobilePlayer && preparationHostRef.current
-      ? mobileFeedController.activate({ postId: postId ?? src, src, host: sharedVideoHostRef.current, previewHost: preparationHostRef.current, token: owner, present: setPreviewFrameReady, ready: () => setFrameReady(true), position: recoveryPositionRef.current, reload: retryVersion > 0 })
-      : claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src, { warmEligible: measuredPreparation(previewVideoRef.current, src, recentMobileFeedPosition(postId ?? src, src)) });
+      ? mobileFeedController.activate({ postId: postId ?? src, src, contentVersion, host: sharedVideoHostRef.current, previewHost: preparationHostRef.current, token: owner, present: setPreviewFrameReady, ready: () => setFrameReady(true), failed: () => { setFrameReady(false); setMediaError(true); }, position: recoveryPositionRef.current, reload: retryVersion > 0 })
+      : claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src, { contentVersion, managedResume: resolution.delivery !== "off", warmEligible: measuredPreparation(previewVideoRef.current, src, recentMobileFeedPosition(postId ?? src, contentVersion)) });
     recoveryPositionRef.current = undefined;
     videoRef.current = video;
     video.className = `absolute inset-0 h-full w-full max-lg:h-[calc(100dvh-56px)] max-lg:min-h-[calc(100dvh-56px)] lg:h-[100dvh] lg:min-h-[100dvh] object-cover`;
@@ -316,8 +327,8 @@ function VideoCard(props: VideoCardProps) {
       if (!ownsMobileFeedPlayer(owner, video, src)) return;
       recordFeedEvent("fallback", { code: video.error?.code ?? null, position: video.currentTime, from: adaptiveSrc ? "hls" : "mp4", terminal: src === originalSrc }, video);
       if (controlledMobilePlayer) {
-        const next = adaptiveSrc ? feedMediaUrl(originalSrc) : src !== originalSrc ? originalSrc : undefined;
-        const recovery = planMobileFallback(src, next, video.currentTime, fallbackAttemptsRef.current);
+        const next = adaptiveSrc ? resolution.descriptor?.processedMp4Url ?? feedMediaUrl(originalSrc) : src !== originalSrc ? originalSrc : undefined;
+        const recovery = planMobileFallback(src, next, video.currentTime, fallbackAttemptsRef.current, undefined, contentVersion);
         if (recovery.kind === "terminal") {
           recordFeedEvent("fallback-held", { reason: recovery.reason, position: video.currentTime }, video);
           mobileFeedController.suspend(); setMediaError(true); return;
@@ -335,7 +346,7 @@ function VideoCard(props: VideoCardProps) {
       video.removeEventListener("error", onError);
       video.removeEventListener("loadedmetadata", onLoadedMetadata);
       if (videoRef.current === video) videoRef.current = null;
-      if (controlledMobilePlayer) mobileFeedController.release(owner);
+      if (controlledMobilePlayer) mobileFeedController.release(owner, activeRef.current !== true || unmountingRef.current);
       else releaseMobileFeedPlayer(owner);
       // The retained preview is no longer guaranteed to match this card.
       // Reset before the next paint when ownership or source changes.
@@ -343,7 +354,7 @@ function VideoCard(props: VideoCardProps) {
       setPreviewFrameReady(false);
     };
   // Preload changes with page visibility; keep ownership through that change.
-  }, [useSharedMobilePlayer, src, postId, adaptiveSrc, originalSrc, reportMediaDimensions, controlledMobilePlayer, retryVersion]);
+  }, [useSharedMobilePlayer, src, postId, adaptiveSrc, originalSrc, reportMediaDimensions, controlledMobilePlayer, retryVersion, resolution.waiting, resolution.descriptor, contentVersion]);
   useEffect(() => {
     if (useSharedMobilePlayer && videoRef.current) videoRef.current.poster = displayPoster || "";
   }, [useSharedMobilePlayer, displayPoster]);
@@ -912,10 +923,10 @@ function VideoCard(props: VideoCardProps) {
   }, [isActive, src, retryVersion, trackMetric, fallBackToMuted, pageVisible, useSharedMobilePlayer]);
 
   useEffect(() => {
-    if (!controlledMobilePlayer || !src || !postId || !props.prepareFrame || isActive !== false || !pageVisible || !preparationHostRef.current) return;
-    mobileFeedController.prepare({ postId, src, host: preparationHostRef.current, present: setPreviewFrameReady });
+    if (!controlledMobilePlayer || !src || resolution.waiting || !postId || !props.prepareFrame || isActive !== false || !pageVisible || !preparationHostRef.current) return;
+    mobileFeedController.prepare({ postId, src, contentVersion, host: preparationHostRef.current, present: setPreviewFrameReady });
     return () => mobileFeedController.cancelPreparation(postId);
-  }, [controlledMobilePlayer, src, postId, props.prepareFrame, isActive, pageVisible, retryVersion]);
+  }, [controlledMobilePlayer, src, postId, props.prepareFrame, isActive, pageVisible, retryVersion, contentVersion, resolution.waiting]);
 
   useEffect(() => {
     if (controlledMobilePlayer) return;
@@ -1595,11 +1606,11 @@ function VideoCard(props: VideoCardProps) {
           <div ref={sharedVideoHostRef} className="absolute inset-0 h-full w-full" />
         )}
         {src && controlledMobilePlayer && <div ref={preparationHostRef} className="absolute inset-0 h-full w-full z-10 pointer-events-none" />}
-        {src && !controlledMobilePlayer && (!useSharedMobilePlayer || !frameReady) ? (
+        {src && !resolution.waiting && !controlledMobilePlayer && (!useSharedMobilePlayer || !frameReady) ? (
           <video
             key={retryVersion}
             ref={useSharedMobilePlayer ? previewVideoRef : videoRef}
-            src={src}
+            src={resolution.waiting ? undefined : src}
             onLoadedMetadata={desktopFeedMediaKey
               ? (event) => reportMediaDimensions(event.currentTarget.videoWidth, event.currentTarget.videoHeight)
               : undefined}

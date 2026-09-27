@@ -3,10 +3,11 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
-import ProfilePostsGallery from "@/components/ProfilePostsGallery";
+import ProfileContent from "@/components/ProfileContent";
+import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import FollowButton from "@/components/FollowButton";
 import FollowStats from "@/components/FollowStats";
-import OffersPanel, { type OffersRating } from "@/components/OffersPanel";
+import { type OffersRating } from "@/components/OffersPanel";
 import { createServerClient } from "@/lib/supabaseServer";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createClient } from "@supabase/supabase-js";
@@ -202,7 +203,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     ).eq("creator_id", resolvedCreatorId),
     admin.rpc("get_profile_rating", { p_profile_id: resolvedCreatorId }),
   ]);
-  const posts = postsRes?.data ?? [];
+  const posts = await enrichPostViewCounts(admin, postsRes?.data ?? []);
 
   // Which of these posts has the viewer already liked? Without this the gallery
   // renders every heart empty, and a viewer who already liked a post taps a
@@ -239,8 +240,6 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const rating: OffersRating | null = ratingRow
     ? { avgRating: Number(ratingRow.avg_rating ?? 0), reviewCount: Number(ratingRow.review_count ?? 0) }
     : null;
-  // A failed posts read must not render as "hasn't posted yet".
-  const postsFailed = Boolean(postsRes?.error);
   const followersCount = followersRes?.count ?? 0;
   const followingCount = followingRes?.count ?? 0;
 
@@ -311,52 +310,26 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             followingCount={followingCount}
           />
 
-          {/* Follow + Offers buttons centered on all screen sizes */}
-          {(canFollow || offers.length > 0) && (
-            <div className="mt-4 mb-3 flex flex-wrap items-center justify-center gap-2">
-              {canFollow && (
-                <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
-              )}
-              <OffersPanel
-                creatorId={resolvedCreatorId}
-                creatorName={displayName}
-                offers={offers}
-                sellReady={isVerifiedSeller}
-                rating={rating}
-              />
+          {canFollow && (
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <FollowButton creatorId={resolvedCreatorId} initialFollowing={isFollowing} />
             </div>
           )}
         </div>
 
-        {postsFailed ? (
-          <p className="text-center text-white/60 mt-6" role="alert">
-            Couldn&apos;t load this creator&apos;s posts. Refresh the page to try again.
-          </p>
-        ) : posts.length === 0 ? (
-          <div className="text-center mt-6">
-            <p className="text-white/60">This creator hasn&apos;t posted yet.</p>
-            <Link
-              href="/dashboard"
-              className="mt-3 inline-block text-sm font-medium text-[#4A35C7] hover:underline"
-            >
-              Browse the feed
-            </Link>
-          </div>
-        ) : (
-          <div className="mt-6 md:mt-8">
-            <ProfilePostsGallery
-              tippingAvailable={process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller}
-              viewerIsOwner={viewer?.id === resolvedCreatorId}
-              posts={mapProfileGalleryPosts(posts, productsRes?.error ? null : productsRes?.data, resolvedCreatorId)}
-              creatorId={resolvedCreatorId}
-              creatorName={displayName}
-              creatorUsername={profile.username ?? null}
-              creatorAvatarUrl={avatarUrl}
-              creatorVerified={isVerifiedSeller}
-              likedPostIds={likedPostIds}
-            />
-          </div>
-        )}
+        <div className="md:pt-8">
+        <ProfileContent
+          postsError={Boolean(postsRes.error)} offersError={Boolean(postsRes.error || productsRes.error)}
+          gallery={{
+            tippingAvailable: process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller,
+            viewerIsOwner: viewer?.id === resolvedCreatorId,
+            posts: mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, resolvedCreatorId),
+            creatorId: resolvedCreatorId, creatorName: displayName, creatorUsername: profile.username ?? null,
+            creatorAvatarUrl: avatarUrl, creatorVerified: isVerifiedSeller, likedPostIds,
+          }}
+          offers={{ creatorId: resolvedCreatorId, creatorName: displayName, offers, sellReady: isVerifiedSeller, rating: rating }}
+        />
+        </div>
       </div>
     </section>
   );
