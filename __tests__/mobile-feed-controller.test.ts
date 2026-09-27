@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import { MobileFeedController } from "@/lib/mobileFeedController";
-import { claimMobileFeedPlayer, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { claimMobileFeedPlayer, mobileFeedPlaybackReady, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
 import { planMobileFallback, type VerifiedTimeline } from "@/lib/mobileFeedRecovery";
 
 let controller: MobileFeedController;
@@ -416,4 +416,32 @@ test("fallback restores only verified content timelines and cannot loop", () => 
   expect(planMobileFallback("v1.m3u8", "v1.mp4", 12.4, attempted, proof).kind).toBe("terminal");
   expect(planMobileFallback("v1.m3u8", "overwritten.mp4", 12.4, new Set(), proof)).toEqual(expect.objectContaining({ kind: "terminal", reason: "unverified-timeline", capturedPosition: 12.4 }));
   expect(planMobileFallback("v1.m3u8", "v1.mp4", 0, new Set()).kind).toBe("replace");
+});
+
+test("candidate activation corrects a missed return before moving-main handoff", async () => {
+  const seed = Symbol("correction-seed");
+  const video = claimMobileFeedPlayer(document.createElement("div"), seed, "https://example.test/seed.mp4", "correction-seed");
+  releaseMobileFeedPlayer(seed);
+  let readyState = 0, position = 0;
+  const writes: number[] = [];
+  Object.defineProperties(video, {
+    readyState: { configurable: true, get: () => readyState },
+    currentTime: { configurable: true, get: () => position, set: value => { writes.push(value); position = writes.length === 1 ? 8 : value; } },
+    currentSrc: { configurable: true, get: () => video.src },
+  });
+  const token = Symbol("corrected-main"), ready = jest.fn(), failed = jest.fn();
+  const target = 11.521602;
+  controller.activate({ postId: "corrected-main", src: "https://example.test/return.m3u8", position: target,
+    host: document.createElement("div"), previewHost: document.createElement("div"), token, present: jest.fn(), ready, failed });
+  const pending = mobileFeedPlaybackReady(token)!;
+  readyState = 1; video.dispatchEvent(new Event("loadedmetadata")); video.dispatchEvent(new Event("seeked"));
+  expect(writes).toEqual([target]); expect(ready).not.toHaveBeenCalled();
+  readyState = 4; video.dispatchEvent(new Event("loadeddata"));
+  expect(writes).toEqual([target, target]);
+  video.dispatchEvent(new Event("seeked")); await pending;
+  media(video, 20); void video.play(); video.dispatchEvent(new Event("playing"));
+  frame(video, target + 0.033); frame(video, target + 0.066);
+  expect(ready).toHaveBeenCalledTimes(1);
+  jest.advanceTimersByTime(3_000); expect(failed).not.toHaveBeenCalled();
+  controller.release(token);
 });
