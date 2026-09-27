@@ -12,33 +12,71 @@ let player: HTMLVideoElement | null = null;
 let parkingPlace: HTMLDivElement | null = null;
 let owner: symbol | null = null;
 let currentPostId: string | null = null;
+let currentContentVersion = "";
+let managedResume = true;
+let parkedSnapshot: ResumeSnapshot | null = null;
 
 const RESUME_WINDOW_MS = 5_000;
 const MAX_RECENT_POSITIONS = 2;
-const recentPositions = new Map<string, { src: string; time: number; savedAt: number }>();
+export type ResumeSnapshot = Readonly<{ postId: string; contentVersion: string; position: number; expiresAt: number | null }>;
+const recentPositions = new Map<string, ResumeSnapshot>();
+const managedPositions = new WeakSet<ResumeSnapshot>();
+const expiryListeners = new Set<(snapshot: ResumeSnapshot) => void>();
+let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingSeek: { token: symbol; promise: Promise<void>; cancel: () => void } | null = null;
 let seekOutcome: { token: symbol; failed: boolean } | null = null;
 
 function rememberPosition(): void {
   if (!player || !currentPostId) return;
   const time = player.currentTime;
-  if (!Number.isFinite(time) || time <= 0) return;
+  if (!Number.isFinite(time) || time < 0) return;
+  expirePositions();
   recentPositions.delete(currentPostId);
-  recentPositions.set(currentPostId, { src: player.getAttribute("src") || "", time, savedAt: Date.now() });
-  while (recentPositions.size > MAX_RECENT_POSITIONS) recentPositions.delete(recentPositions.keys().next().value!);
+  parkedSnapshot = Object.freeze({ postId: currentPostId, contentVersion: currentContentVersion, position: time, expiresAt: Date.now() + RESUME_WINDOW_MS });
+  if (managedResume) managedPositions.add(parkedSnapshot);
+  recentPositions.set(currentPostId, parkedSnapshot);
+  recordFeedEvent("resume-departure", { postId: currentPostId, contentVersion: currentContentVersion, position: time, expiresAt: parkedSnapshot.expiresAt });
+  while (recentPositions.size > MAX_RECENT_POSITIONS) discardPosition(recentPositions.values().next().value!, "evicted");
+  scheduleExpiry();
 }
 
-function takeRecentPosition(postId: string, src: string): number | null {
+function discardPosition(snapshot: ResumeSnapshot, reason: string) {
+  recentPositions.delete(snapshot.postId);
+  recordFeedEvent("resume-expiry", { postId: snapshot.postId, contentVersion: snapshot.contentVersion, reason, expiresAt: snapshot.expiresAt });
+  // Expiry of another post must never seek or clear the actively watched player.
+  if (!owner && parkedSnapshot === snapshot && managedPositions.has(snapshot) && player) {
+    player.pause(); player.removeAttribute("src"); player.load(); parkedSnapshot = null;
+  }
+  expiryListeners.forEach(listener => listener(snapshot));
+}
+function expirePositions() {
+  for (const snapshot of recentPositions.values()) {
+    if (snapshot.expiresAt !== null && Date.now() >= snapshot.expiresAt + (managedPositions.has(snapshot) ? 0 : 1)) discardPosition(snapshot, "deadline");
+  }
+}
+function scheduleExpiry() {
+  clearTimeout(expiryTimer); expiryTimer = undefined;
+  const deadline = Math.min(...Array.from(recentPositions.values(), value => value.expiresAt === null ? Infinity : value.expiresAt + (managedPositions.has(value) ? 0 : 1)));
+  if (Number.isFinite(deadline)) expiryTimer = setTimeout(() => { expirePositions(); scheduleExpiry(); }, Math.max(0, deadline - Date.now()));
+}
+export function onMobileResumeExpiry(listener: (snapshot: ResumeSnapshot) => void): () => void {
+  expiryListeners.add(listener); return () => { expiryListeners.delete(listener); };
+}
+/** Non-consuming reads and retries cannot extend the departure deadline. */
+export function mobileFeedResumeSnapshot(postId: string, contentVersion: string): ResumeSnapshot {
+  expirePositions();
   const saved = recentPositions.get(postId);
-  recentPositions.delete(postId);
-  if (!saved || saved.src !== src || Date.now() - saved.savedAt > RESUME_WINDOW_MS) return null;
-  return saved.time;
+  if (saved && saved.contentVersion !== contentVersion) { discardPosition(saved, "content-replaced"); scheduleExpiry(); }
+  if (!owner && parkedSnapshot?.expiresAt === null && parkedSnapshot.postId === postId && parkedSnapshot.contentVersion === contentVersion) return parkedSnapshot;
+  return saved?.contentVersion === contentVersion ? saved : Object.freeze({ postId, contentVersion, position: 0, expiresAt: null });
+}
+export function sameMobileResume(a: ResumeSnapshot, b: ResumeSnapshot): boolean {
+  return a.postId === b.postId && a.contentVersion === b.contentVersion && a.position === b.position && a.expiresAt === b.expiresAt;
 }
 
 /** Non-consuming read lets preparation use exactly the active player's return policy. */
 export function recentMobileFeedPosition(postId: string, src: string): number {
-  const saved = recentPositions.get(postId);
-  return saved && saved.src === src && Date.now() - saved.savedAt <= RESUME_WINDOW_MS ? saved.time : 0;
+  return mobileFeedResumeSnapshot(postId, src).position;
 }
 
 export function ownsMobileFeedPlayer(token: symbol, video: HTMLVideoElement, src?: string): boolean {
@@ -108,17 +146,21 @@ function getParkingPlace(): HTMLDivElement {
   return parkingPlace;
 }
 
-export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; warmEligible?: boolean; reload?: boolean }): HTMLVideoElement {
+export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; snapshot?: ResumeSnapshot; contentVersion?: string; managedResume?: boolean; warmEligible?: boolean; reload?: boolean }): HTMLVideoElement {
   if (!player) {
     player = document.createElement("video");
     player.playsInline = true;
     player.loop = true;
   }
   const changedPost = currentPostId !== postId;
+  const contentVersion = options?.contentVersion ?? src;
+  const changedContent = currentContentVersion !== contentVersion;
   const changedSource = player.getAttribute("src") !== src || options?.reload === true;
   const returningFromAnotherPage = owner === null && currentPostId === postId;
   if (owner !== token) player.pause();
   if (owner && changedPost) rememberPosition();
+  const latest = mobileFeedResumeSnapshot(postId, contentVersion);
+  const retained = !changedPost && !changedContent && parkedSnapshot?.expiresAt === null ? parkedSnapshot.position : null;
   if (changedPost || changedSource) cancelPendingSeek();
   owner = token;
   seekOutcome = null;
@@ -128,18 +170,27 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
     player.src = src;
   }
   currentPostId = postId;
-  if (changedPost || changedSource || returningFromAnotherPage) {
-    const saved = options?.position ?? takeRecentPosition(postId, src);
-    if (saved !== null && (saved > 0 || !changedSource)) seekBeforePlayback(player, token, saved);
-    else if (!changedSource && player.currentTime > 0) seekBeforePlayback(player, token, 0);
+  currentContentVersion = contentVersion;
+  managedResume = options?.managedResume !== false;
+  if (changedPost || changedSource || returningFromAnotherPage || changedContent) {
+    // Always consume history, even if the controller supplied the same snapshot.
+    recentPositions.delete(postId); scheduleExpiry(); parkedSnapshot = null;
+    const snapshotPosition = options?.snapshot && sameMobileResume(options.snapshot, latest) ? options.snapshot.position : latest.position;
+    const saved = options?.position ?? retained ?? snapshotPosition;
+    recordFeedEvent("resume-decision", { postId, contentVersion, position: saved, expiresAt: latest.expiresAt, decision: saved > 0 ? "resume" : "restart" }, player);
+    // Conventional playback keeps its existing fresh-source start behavior.
+    // Candidate playback also guards a retained nonzero timeline while a new
+    // source is attaching, so an expired return cannot show the old position.
+    if (saved > 0 || !changedSource || (managedResume && player.currentTime > 0)) seekBeforePlayback(player, token, saved);
   }
   return player;
 }
 
-export function releaseMobileFeedPlayer(token: symbol): void {
+export function releaseMobileFeedPlayer(token: symbol, departure = true): void {
   if (!player || owner !== token) return;
   player.pause();
-  rememberPosition();
+  if (departure) rememberPosition();
+  else parkedSnapshot = Object.freeze({ postId: currentPostId!, contentVersion: currentContentVersion, position: player.currentTime, expiresAt: null });
   cancelPendingSeek();
   endFeedVideoTrace(player);
   owner = null;

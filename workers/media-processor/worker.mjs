@@ -2,7 +2,7 @@ const ACCOUNT = '09c059503967a4e861c32fa0d5b06ee0';
 const BUCKET = 'creatornet-media';
 const ORIGIN = 'https://media.creatornet.net';
 const MAX_BYTES = 500 * 1024 * 1024;
-export const validKey = key => typeof key === 'string' && /^videos\/[a-zA-Z0-9_/-]+\.(mp4|mov|webm|m4v|mpeg|mpg|3gp|mkv)$/i.test(key) && !key.includes('..');
+export const validKey = key => typeof key === 'string' && key.length <= 2048 && /^videos\/[a-zA-Z0-9_/-]+\.(mp4|mov|webm|m4v|mpeg|mpg|3gp|mkv)$/i.test(key) && !key.includes('..') && !key.includes('//');
 const hex = bytes => Array.from(new Uint8Array(bytes), n => n.toString(16).padStart(2, '0')).join('');
 const digest = value => crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)).then(hex);
 const json = async (bucket, key) => { const object = await bucket.get(key); return object ? object.json() : null; };
@@ -33,6 +33,69 @@ function rememberReady(cache, key, ready) {
   if (cache.size >= READY_CACHE_LIMIT) cache.delete(cache.keys().next().value);
   cache.set(key, {expiresAt: Date.now() + READY_CACHE_MS,
     value: Object.freeze({etag:ready.etag, outputKey:ready.outputKey, durationSeconds:ready.durationSeconds})});
+}
+
+// Public playback resolution is read-only, including legacy duration recovery.
+// Cache completed metadata only; the source and selected MP4 are HEAD-checked
+// on every lookup. Stream manifests are returned as direct URLs, never fetched.
+const playbackCaches = new WeakMap();
+const publicPlaybackHeaders = {'Cache-Control':'no-store','Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, OPTIONS','X-Content-Type-Options':'nosniff'};
+async function playbackRecord(bucket, key) {
+  const object = await bucket.get(key);
+  if (!object || !Number.isFinite(object.size) || object.size > 65536) return null;
+  return object.json();
+}
+const validDuration = duration => Number.isFinite(duration) && duration > 0 && duration <= 43200 ? duration : null;
+function publicHls(value, streamId) {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && (url.hostname === 'videodelivery.net' || /^customer-[a-z0-9]+\.cloudflarestream\.com$/.test(url.hostname)) && !url.username && !url.password && !url.search && !url.hash && url.pathname === '/'+streamId+'/manifest/video.m3u8' ? url.href : null;
+  } catch { return null; }
+}
+async function resolvedPlayback(key, env) {
+  const head = await env.MEDIA.head(key);
+  if (!head?.etag || !Number.isFinite(head.size) || head.size < 1 || head.size > MAX_BYTES) return null;
+  const id = await digest(key+'\n'+head.etag);
+  let cache = playbackCaches.get(env.STATE);
+  if (!cache) { cache = new Map(); playbackCaches.set(env.STATE, cache); }
+  const cached = cache.get(key);
+  let metadata = cached?.etag === head.etag && cached.expiresAt > Date.now() ? cached : null;
+  if (!metadata) {
+    cache.delete(key);
+    const [ready, job] = await Promise.all([
+      playbackRecord(env.STATE,'ready/'+key+'.json').catch(() => null),
+      playbackRecord(env.STATE,'jobs/'+id+'.json').catch(() => null),
+    ]);
+    const expectedOutput = 'feed-auto/'+id+'.mp4';
+    const matchingReady = ready?.etag === head.etag && ready.outputKey === expectedOutput;
+    const matchingJob = job?.id === id && job.key === key && job.etag === head.etag && !job.obsolete;
+    let hlsUrl = null, streamDuration = null;
+    if (matchingJob && /^[a-f0-9]{32}$/.test(job.streamId)) {
+      try {
+        const details = await env.STREAM.video(job.streamId).details();
+        if (details.meta?.creatornetJob === id && details.readyToStream === true && details.requireSignedURLs !== true) {
+          hlsUrl = publicHls(details.hlsPlaybackUrl ?? details.playback?.hls, job.streamId);
+          streamDuration = validDuration(details.duration);
+        }
+      } catch { /* Existing MP4 remains usable when Stream is unavailable. */ }
+    }
+    metadata = Object.freeze({etag:head.etag, outputKey:matchingReady ? expectedOutput : null,
+      durationSeconds:matchingReady ? validDuration(ready.durationSeconds) ?? streamDuration : streamDuration,
+      hlsUrl, expiresAt:Date.now()+READY_CACHE_MS});
+    // Missing state or unavailable Stream is not negatively cached.
+    if (matchingReady && (!matchingJob || hlsUrl)) {
+      if (cache.size >= READY_CACHE_LIMIT) cache.delete(cache.keys().next().value);
+      cache.set(key, metadata);
+    }
+  }
+  let processedMp4Url = null;
+  if (metadata.outputKey) {
+    const output = await env.MEDIA.head(metadata.outputKey).catch(() => null);
+    if (output?.etag && output.size > 0 && output.size <= MAX_BYTES && output.httpMetadata?.contentType === 'video/mp4') processedMp4Url = ORIGIN+'/'+metadata.outputKey;
+  }
+  // Do not infer a timeline proof from equal duration or a source association.
+  return {key,contentVersion:'sha256:'+id,originalUrl:ORIGIN+'/'+key,processedMp4Url,
+    ...(metadata.hlsUrl ? {hlsUrl:metadata.hlsUrl} : {}),durationSeconds:metadata.durationSeconds};
 }
 
 export async function processMessage(message, env) {
@@ -113,6 +176,16 @@ export default {
   },
   async fetch(request,env){
     const url=new URL(request.url);
+    if (url.pathname.startsWith('/auto/playback/')) {
+      const key = url.pathname.slice('/auto/playback/'.length);
+      if (!validKey(key) || url.search) return Response.json({error:'Not found'},{status:404,headers:publicPlaybackHeaders});
+      if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:publicPlaybackHeaders});
+      if (request.method !== 'GET') return new Response(null,{status:405,headers:publicPlaybackHeaders});
+      try {
+        const descriptor = await resolvedPlayback(key, env);
+        return Response.json(descriptor ?? {error:'Source unavailable'},{status:descriptor ? 200 : 404,headers:publicPlaybackHeaders});
+      } catch { return Response.json({error:'Resolution unavailable'},{status:503,headers:publicPlaybackHeaders}); }
+    }
     if(!['GET','HEAD'].includes(request.method))return new Response('Method not allowed',{status:405});
     if(url.pathname==='/auto/health')return Response.json({ok:true,version:1});
     const metadata = url.pathname.startsWith('/auto/metadata/');

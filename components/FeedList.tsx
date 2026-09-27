@@ -859,7 +859,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
                     mobileHandoff={mobileHandoff}
                     onInteractionChange={handleInteractionChange}
                     onFirstFrame={!desktop ? handleFirstFrame : undefined}
-                    prepareFrame={!desktop && pageVisible && activeFrameReady && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1)}
+                    prepareFrame={!desktop && pageVisible && (mobileHandoff || activeFrameReady) && !isActive && (warmingPostId ? warmingPostId === p.id : idx === activeIndex + 1)}
                     preferAdaptive={!desktop}
                     commentDraft={draftsRef.current.get(p.id) ?? ""}
                     onCommentDraftChange={handleDraftChange}

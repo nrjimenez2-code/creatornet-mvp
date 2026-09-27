@@ -154,6 +154,10 @@ describe("audio preference", () => {
       isActive: id === active, prepareFrame: id === "prepared-b" && active === "prepared-a", soundEnabled: false,
     })));
     await act(async () => root.render(cards("prepared-a")));
+    const audible = container.querySelector<HTMLVideoElement>("video:not([data-mobile-preparation])")!;
+    Object.defineProperties(audible, { paused: { configurable: true, value: false }, seeking: { configurable: true, value: false }, readyState: { configurable: true, value: 4 }, duration: { configurable: true, value: 30 }, buffered: { configurable: true, value: { length: 1, start: () => 0, end: () => 5 } } });
+    audible.dispatchEvent(new Event("progress"));
+    audible.dispatchEvent(new Event("playing"));
     const prepared = container.querySelector<HTMLVideoElement>("video[data-mobile-preparation]")!;
     expect(prepared).not.toBeNull();
     Object.defineProperties(prepared, { readyState: { value: 4 }, currentSrc: { get: () => prepared.src }, duration: { value: 30 }, buffered: { value: { length: 1, start: () => 0, end: () => 5 } } });
@@ -180,6 +184,18 @@ describe("audio preference", () => {
 
     writeSoundOn(false);
     expect(readSoundOn()).toBe(false);
+  });
+
+  test("an unresolved public descriptor still starts the audible singleton through ordinary fallback", async () => {
+    const load = jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    await act(async () => root.render(createElement(VideoCard, {
+      postId: "resolver-fallback", src: "https://media.creatornet.net/videos/resolver-fallback.mp4", isActive: true,
+      sharedMobileFeedPlayer: true, mobileHandoff: true, soundEnabled: false,
+    })));
+    expect(container.querySelector("video")).not.toBeNull();
+    expect(container.querySelector("video")!.getAttribute("src")).toBe("https://media.creatornet.net/auto/videos/resolver-fallback.mp4");
+    expect(playCalls.length).toBeGreaterThan(0);
+    load.mockRestore();
   });
 
   test.each([false, true])("main mobile feed reuses its player across cards and a profile return (candidate %s)", async (mobileHandoff) => {
