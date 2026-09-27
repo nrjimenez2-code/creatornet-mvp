@@ -1531,7 +1531,9 @@ function VideoCard(props: VideoCardProps) {
         const target = event.target;
         // Portal clicks bubble through React, even outside this card's DOM.
         if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
-        if (target.closest('button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menu"], [role="dialog"], [role="slider"], [contenteditable="true"], [data-no-playback-toggle]')) return;
+        const control = target.closest('button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menu"], [role="dialog"], [role="slider"], [contenteditable="true"], [data-no-playback-toggle]');
+        // Profile/search dialogs enclose the whole card; only controls inside it block playback taps.
+        if (control && event.currentTarget.contains(control)) return;
         if (!src) return;
         const previous = tapRef.current;
         if (previous) {

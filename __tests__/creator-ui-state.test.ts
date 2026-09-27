@@ -71,6 +71,7 @@ test("mute responds to local interaction and subsequent global sound changes", a
 });
 
 test("seeking on a video card does not trigger its tap-to-pause gesture", async () => {
+  container.setAttribute("role", "dialog");
   await act(async () => root.render(createElement(VideoCard, {
     src: "https://example.test/video.mp4", isActive: false,
   })));
@@ -86,6 +87,30 @@ test("seeking on a video card does not trigger its tap-to-pause gesture", async 
     await new Promise((resolve) => setTimeout(resolve, 350));
   });
   expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(playCalls);
+});
+
+test("video taps pause and resume inside an enclosing profile or search player dialog", async () => {
+  jest.useFakeTimers();
+  try {
+    container.setAttribute("role", "dialog");
+    await act(async () => root.render(createElement(VideoCard, {
+      src: "https://example.test/video.mp4", isActive: false,
+    })));
+    const video = container.querySelector("video")!;
+    let paused = false;
+    Object.defineProperty(video, "paused", { configurable: true, get: () => paused });
+    video.pause = jest.fn(() => { paused = true; video.dispatchEvent(new Event("pause")); });
+    video.play = jest.fn(async () => { paused = false; video.dispatchEvent(new Event("play")); });
+
+    await act(async () => { video.click(); jest.advanceTimersByTime(350); });
+    expect(video.pause).toHaveBeenCalledTimes(1);
+    expect(paused).toBe(true);
+    await act(async () => { video.click(); jest.advanceTimersByTime(350); });
+    expect(video.play).toHaveBeenCalledTimes(1);
+    expect(paused).toBe(false);
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test("follow success survives unchanged props and a different creator resets the button", async () => {
