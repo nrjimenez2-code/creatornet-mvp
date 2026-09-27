@@ -175,6 +175,49 @@ describe("audio preference", () => {
     delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).cancelVideoFrameCallback;
   });
 
+  test("a selected return preparation survives a delayed incoming card attachment without an effect rerun", async () => {
+    const load = jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    const pausedState = new WeakMap<HTMLMediaElement, boolean>();
+    const pausedSpy = jest.spyOn(HTMLMediaElement.prototype, "paused", "get").mockImplementation(function (this: HTMLMediaElement) { return pausedState.get(this) ?? true; });
+    const play = jest.mocked(HTMLMediaElement.prototype.play), pause = jest.mocked(HTMLMediaElement.prototype.pause);
+    const originalPlay = play.getMockImplementation()!, originalPause = pause.getMockImplementation()!;
+    play.mockImplementation(function (this: HTMLMediaElement) { pausedState.set(this, false); return Promise.resolve(); });
+    pause.mockImplementation(function (this: HTMLMediaElement) { pausedState.set(this, true); this.dispatchEvent(new Event("pause")); });
+    const callbacks = new Map<HTMLVideoElement, VideoFrameRequestCallback>();
+    HTMLVideoElement.prototype.requestVideoFrameCallback = function (cb) { callbacks.set(this, cb); return 1; };
+    HTMLVideoElement.prototype.cancelVideoFrameCallback = function () { callbacks.delete(this); };
+    const cards = (incomingResolved: boolean, returning = false) => createElement("div", null,
+      createElement(VideoCard, { key: "selected-return", postId: "selected-return", src: "https://example.test/selected-return.mp4",
+        sharedMobileFeedPlayer: true, mobileHandoff: true, isActive: returning, prepareFrame: !returning, soundEnabled: false }),
+      createElement(VideoCard, { key: "delayed-incoming", postId: "delayed-incoming", src: incomingResolved ? "https://example.test/delayed-incoming.mp4" : undefined,
+        sharedMobileFeedPlayer: true, mobileHandoff: true, isActive: !returning, prepareFrame: false, soundEnabled: false }));
+    try {
+      await act(async () => root.render(cards(false)));
+      const prepared = container.querySelector<HTMLVideoElement>("video[data-mobile-preparation]")!;
+      expect(prepared).not.toBeNull();
+      Object.defineProperties(prepared, { readyState: { configurable: true, value: 4 }, currentSrc: { configurable: true, get: () => prepared.src }, duration: { configurable: true, value: 30 }, buffered: { configurable: true, value: { length: 1, start: () => 0, end: () => 5 } } });
+      await act(async () => {
+        prepared.dispatchEvent(new Event("loadedmetadata")); prepared.currentTime = 0.033;
+        callbacks.get(prepared)!(performance.now(), { mediaTime: 0.033, presentedFrames: 1 } as VideoFrameCallbackMetadata);
+      });
+      expect(prepared.paused).toBe(true);
+      await act(async () => root.render(cards(true)));
+      const main = container.querySelector<HTMLVideoElement>("video:not([data-mobile-preparation])")!;
+      expect(main).not.toBeNull();
+      expect(container.querySelector("video[data-mobile-preparation]")).toBe(prepared);
+      expect(prepared.getAttribute("src")).toBe("https://example.test/selected-return.mp4");
+      await act(async () => root.render(cards(true, true)));
+      expect(container.querySelector("video:not([data-mobile-preparation])")).toBe(main);
+      expect(container.querySelector("video[data-mobile-preparation]")).toBe(prepared);
+      expect(prepared.paused).toBe(false); expect(prepared.muted).toBe(true);
+    } finally {
+      await act(async () => root.render(null));
+      load.mockRestore(); pausedSpy.mockRestore(); play.mockImplementation(originalPlay); pause.mockImplementation(originalPause);
+      delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).requestVideoFrameCallback;
+      delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).cancelVideoFrameCallback;
+    }
+  });
+
   test("readSoundOn/writeSoundOn round-trip through localStorage; new visitors prefer sound", () => {
     expect(readSoundOn()).toBe(true);
 

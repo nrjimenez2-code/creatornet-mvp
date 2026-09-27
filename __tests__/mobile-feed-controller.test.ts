@@ -77,6 +77,70 @@ test("loading starts before main presentation; decoding waits for the main playa
   expect(frames.get(p.video)?.size).toBe(1); frame(p.video, 0.033);
   expect(p.present).toHaveBeenCalledWith(true); expect(active.ready).not.toHaveBeenCalled();
 });
+
+test("activating another post preserves the still-selected ready return neighbor", () => {
+  const selected = prepare("selected-return"); frame(selected.video, 0.033);
+  const incoming = activate("incoming-other", "https://example.test/incoming-other.mp4");
+  expect(selected.video.getAttribute("src")).toBe(selected.src);
+  expect(selected.video.paused).toBe(true);
+  expect(incoming.previewHost.querySelector("video")).toBeNull();
+  expect(incoming.present).toHaveBeenLastCalledWith(false);
+  const returned = activate("selected-return", selected.src);
+  expect(returned.video).toBe(incoming.video);
+  expect(returned.previewHost.querySelector("video")).toBe(selected.video);
+  expect(returned.present).toHaveBeenLastCalledWith(true);
+});
+
+test("retained partial preparation pauses for a new main buffer and resumes without another slot", () => {
+  const selected = prepare("selected-partial"); media(selected.video, 0.2);
+  const token = Symbol("buffer-gated-incoming");
+  const video = controller.activate({ postId: "buffer-gated-incoming", src: "https://example.test/buffer-gated-incoming.mp4",
+    host: document.createElement("div"), previewHost: document.createElement("div"), token, present: jest.fn(), ready: jest.fn() });
+  media(video, 0.2); void video.play(); video.dispatchEvent(new Event("playing"));
+  expect(selected.video.src).toBe(selected.src); expect(selected.video.paused).toBe(true);
+  media(selected.video, 2); selected.video.dispatchEvent(new Event("progress"));
+  expect(selected.video.paused).toBe(true); expect(selected.present).not.toHaveBeenCalledWith(true);
+  media(video, 2); video.dispatchEvent(new Event("progress"));
+  expect(selected.video.paused).toBe(false); frame(selected.video, 0.033);
+  expect(selected.present).toHaveBeenLastCalledWith(true);
+  expect(selected.video.paused).toBe(true);
+  const returned = activate("selected-partial", selected.src);
+  expect(returned.previewHost.querySelector("video")).toBe(selected.video);
+  expect(returned.present).toHaveBeenLastCalledWith(true);
+  expect(document.querySelectorAll("video[data-mobile-preparation]")).toHaveLength(1);
+});
+
+test("changing the selected neighbor cancels a preparation retained across another activation", () => {
+  const selected = prepare("retained-old");
+  const stale = [...frames.get(selected.video)!.values()][0];
+  activate("retained-incoming", "https://example.test/retained-incoming.mp4");
+  const next = prepare("retained-next");
+  stale(performance.now(), { mediaTime: 0.033 } as VideoFrameCallbackMetadata);
+  expect(selected.present).not.toHaveBeenCalledWith(true);
+  expect(next.present).not.toHaveBeenCalledWith(true);
+  frame(next.video, 0.033); expect(next.present).toHaveBeenLastCalledWith(true);
+  controller.cancelPreparation("retained-next"); expect(next.video.hasAttribute("src")).toBe(false);
+});
+
+test("a retained saved-position preparation expires without rewinding the new active post", () => {
+  const saved = activate("retained-expiry", "https://example.test/retained-expiry.mp4");
+  saved.video.currentTime = 12.4; controller.release(saved.token);
+  const selected = prepare("retained-expiry"); frame(selected.video, 12.4);
+  const incoming = activate("expiry-incoming", "https://example.test/expiry-incoming.mp4");
+  frame(incoming.video, 2.3); frame(incoming.video, 2.333);
+  jest.advanceTimersByTime(5_000);
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(incoming.video.currentTime).toBe(2.333);
+  const returned = activate("retained-expiry", selected.src);
+  expect(returned.previewHost.querySelector("video")).toBeNull(); expect(returned.video.currentTime).toBe(0);
+});
+
+test("activation never retains a mismatched preparation for the same post", () => {
+  const selected = prepare("retained-source", "https://example.test/old-version.mp4"); frame(selected.video, 0.033);
+  const active = activate("retained-source", "https://example.test/new-version.mp4");
+  expect(selected.video.hasAttribute("src")).toBe(false);
+  expect(active.previewHost.querySelector("video")).toBeNull(); expect(active.present).toHaveBeenLastCalledWith(false);
+});
 test("incomplete activation retains its element and can recover into a qualified bridge", () => {
   const p = prepare("partial"); media(p.video, 0.2); frame(p.video, 0.033);
   const active = activate("partial", p.src);
