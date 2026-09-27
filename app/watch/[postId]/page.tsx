@@ -12,6 +12,8 @@ import { bindWatchProgress } from "@/lib/watchProgress";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 import { WatchSkeleton } from "@/components/loading/Skeletons";
 import DeleteVideoButton from "@/components/DeleteVideoButton";
+import { bindVideoInsights, insightCollectionClientEnabled, leaveInsightVideo } from "@/lib/videoInsightsClient";
+import { insightPlaybackSuspended } from "@/lib/insightPlayback";
 
 type Post = {
   id: string;
@@ -51,6 +53,16 @@ export default function WatchPage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [soundOn] = useSoundPreference();
   const userIdForProgress = useRef<string | null>(null);
+  const activeInsightPost = useRef(post?.id);
+  activeInsightPost.current = post?.id;
+  useEffect(() => {
+    if (!insightCollectionClientEnabled() || !post || !userId || authLoading) return;
+    if (post.creator_id === userId) { leaveInsightVideo(post.id); return; }
+    const video = videoRef.current;
+    if (!video || !post.video_url) return;
+    return bindVideoInsights(video, { postId: post.id, media: post.video_url, userId, token: null, source: "direct", surface: "watch",
+      eligible: () => videoRef.current === video && activeInsightPost.current === post.id && !insightPlaybackSuspended(video) });
+  }, [post, userId, authLoading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -346,7 +358,7 @@ export default function WatchPage() {
         <h1 className="min-w-0 flex-1 text-lg sm:text-xl font-semibold text-white">
           {post.title ?? "Video"}
         </h1>
-        <DeleteVideoButton postId={post.id} creatorId={post.creator_id} onDeleted={() => router.push("/library")} />
+        <DeleteVideoButton postId={post.id} creatorId={post.creator_id} getVideo={()=>videoRef.current} isVideoActive={()=>activeInsightPost.current===post.id} onDeleted={() => router.push("/library")} />
       </div>
 
       {premiumUrl && (
