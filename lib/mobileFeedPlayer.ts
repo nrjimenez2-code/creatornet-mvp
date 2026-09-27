@@ -178,7 +178,10 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
     const snapshotPosition = options?.snapshot && sameMobileResume(options.snapshot, latest) ? options.snapshot.position : latest.position;
     const saved = options?.position ?? retained ?? snapshotPosition;
     recordFeedEvent("resume-decision", { postId, contentVersion, position: saved, expiresAt: latest.expiresAt, decision: saved > 0 ? "resume" : "restart" }, player);
-    if (saved > 0 || player.currentTime > 0 || !changedSource) seekBeforePlayback(player, token, saved);
+    // Conventional playback keeps its existing fresh-source start behavior.
+    // Candidate playback also guards a retained nonzero timeline while a new
+    // source is attaching, so an expired return cannot show the old position.
+    if (saved > 0 || !changedSource || (managedResume && player.currentTime > 0)) seekBeforePlayback(player, token, saved);
   }
   return player;
 }
