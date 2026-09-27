@@ -1,8 +1,10 @@
-# Hashtag search and auth coordination candidate
+# Hashtag search and auth coordination release candidate
 
 ## Source and boundaries
 
 Started from canonical main `4d5eb09e8fc242daa549e3b084b4f48f64433ba3`, which the authenticated Vercel Dashboard displayed as the current Ready Production source on 2026-09-27 UTC. Public login assets resolve to Supabase `rvkqxgghqitkwzdsuclz`. The existing Preview environment resolves to Staging `nwqfofezfzljhxolkycz`. Publication of this feature branch creates a separate Preview; Production release requires scoped approval after hosted acceptance.
+
+Before final verification, Production advanced to `607a49237aea0ec8060ff8bcfcb459a1429f5843` (the separate mobile bridge fix, PR 237), Ready deployment `9UwKW7on8Xd6adV23YvjvYSFNVAz`. That main source is incorporated into the final candidate and is the refreshed rollback target. The latest read-only audit still found zero noncanonical or duplicate tag arrays: Staging 1,231 posts and Production 50. No backfill or schema migration is planned.
 
 Locked versions are `@supabase/supabase-js` and `@supabase/auth-js` 2.112.3, `@supabase/ssr` 0.7.0, and Next.js 16.3.5. Dependencies and the SDK refresh guard are unchanged.
 
@@ -32,33 +34,22 @@ Corrections:
 - Make auth cookies read-only for feed requests in both paths. SDK identity verification/refresh remains enabled, but the feed response cannot overwrite a newer sign-out or login. Other server-client callers retain cookie synchronization by default. Actual SSR regressions verify both feed outcomes and the unchanged default behavior.
 - Device sign-out remains `scope: local`. Transient verification failures do not sign out users. No old refresh credential is retried by application code.
 
-The legacy `/api/auth/callback` route has no current application caller. It is instrumented for staging observation; no behavioral change to it was selected without a reproduced caller.
+The legacy `/api/auth/callback` route has no current application caller. No behavioral change to it was selected without a reproduced caller.
 
-## Temporary diagnostics
+## Hosted Staging evidence
 
-Open a staging page with `?authTrace=1` to enable this tab's token-free console traces. Records include operation IDs, random tab IDs, timestamps, events, session presence and statuses. Callback/feed requests carry only trace IDs. Preview requests with these IDs enable matching server traces; Production server tracing stays off unless `AUTH_DIAGNOSTICS=1` is explicitly configured. Never configure that flag for Production during this work.
+On 2026-09-27 UTC, exact source `778831214d2799a5212135b8086c747bfc2d21b1` was Ready as deployment `89MCUCnDmL9XS4VCNV4VhVxDkKRV`. Both real Edge tabs used its immutable origin and displayed the compiled Staging browser project. Normal email-code sign-in reached the dashboard, and device-local sign-out cleared both owned tabs. No unrelated session was changed.
 
-Tracing covers singleton auth, refresh/user fetches, provider initialization/events, feed loads, navigation, cookie writes, and both callback routes. No sessions, tokens, provider messages, emails or user IDs are logged. Remove the temporary tracing after hosted diagnosis and rerun affected gates on the final release commit.
+Controlled hosted races used normal application APIs and actual Supabase Auth responses:
 
-Controlled-delay parameters are available only when the public Supabase URL is the exact Staging project: `authRefreshDelayMs`, `authVerifyDelayMs`, and `authCallbackDelayMs`, capped at five seconds. Callback delay applies only to Preview requests with trace IDs. `authExpireOnce=<unique-case-marker>` alters only the current QA session's client expiry metadata once per tab/marker; it leaves credentials unchanged and lets the actual SDK/provider perform the refresh. Label this as injected client expiry evidence, rather than actual JWT expiry evidence. These temporary controls must be removed with the diagnostics before Production approval.
+1. Injected browser expiry metadata caused one real refresh held five seconds. Provider initialization waited, then the feed returned 200 and rendered; browser/server identities matched. The JWT itself was not expired. This is hosted client-expiry evidence; actual expired-JWT SSR races remain controlled local evidence for both feed paths.
+2. Two refresh requests started 107ms apart, with responses held five and 2.5 seconds. Both transports returned 200; the SDK discarded the slower result with `AuthRefreshDiscardedError` / 409. Both tabs preserved the winning session and verified navigation. No old refresh credentials were replayed.
+3. A fresh normal email-code login replaced the session while the other tab's user verification was pending. That tab detected the change, verified the replacement, synchronized cookies and completed verified navigation. The normal dashboard loaded afterward.
+4. One combined exercise overlapped a five-second refresh and a five-second callback response with device-local sign-out. Both tabs received SIGNED_OUT before either delayed response settled. The SDK discarded the late refresh; cookie synchronization repaired the late signed-in response with a signed-out write. Both tabs then had no browser session/server user and refused authenticated navigation. Normal Auth remained at sign-in. This combined run covers the pending-refresh and late-callback conditions, rather than claiming separate isolated runs.
 
-## Candidate local checks
+Token-free browser timelines, projected server events, result JSON and screenshots are saved in the continuation chat's outputs under `race-two-tabs-*`, `race-expiry-feed-*`, `race-replacement-*` and `race-signout-*`. The prior outputs retain eight passing hosted hashtag checks using nine dedicated Staging fixtures; do not reinsert them.
 
-On 2026-09-27 UTC, 19 selected Jest suites passed (128 tests), `tsc --noEmit` passed, changed-file lint passed with zero errors and 30 warnings, and the production build exited zero using fake CI credentials. The build printed expected dynamic-render notices and an `example.invalid` sitemap-fetch warning. These are local gates; hosted acceptance is still pending. Timestamp merge regression includes microseconds, and temporary staging controls have Production pass-through coverage.
-
-## Hosted acceptance required
-
-Record the exact feature commit and Ready Preview deployment. Confirm its public bundle resolves to Staging before signing in or inserting fixtures. Use dedicated, free fixtures with a unique tag, equal timestamps, array-only matches, caption/interest overlaps, empty arrays, and hidden/removed rows. Save fixture IDs and exact cleanup instructions; do not modify existing posts or reuse other workstreams' sessions.
-
-Use two real browser tabs and controlled response delays to record:
-
-1. An expiring session while feed loading is pending.
-2. Both tabs refreshing the same session; the discarded result preserves the winner.
-3. Sign-out during refresh; browser storage, server cookies and navigation remain signed out after all responses settle.
-4. Login replacing a pending session; navigation verifies the replacement.
-5. A callback response arriving late; sign-out still wins.
-
-Also check the email-code flow and device-local sign-out. Local/synthetic tests and a Ready Preview do not satisfy this list.
+All temporary diagnostics, trace headers, delay/expiry controls, reauthentication override and QA page/helper/component were removed after capturing this evidence. The functional corrections and deterministic regressions remain. The final source requires its own TypeScript, relevant Jest, changed-file lint, CI production build and normal Staging smoke checks; passing diagnostic-source CI does not substitute for those gates.
 
 ## Production approval and rollback
 

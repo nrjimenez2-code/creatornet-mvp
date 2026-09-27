@@ -12,7 +12,6 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabaseClient";
 import posthog from "posthog-js";
-import { startAuthTrace, traceAuth } from "@/lib/authDiagnostics";
 
 type UserContextValue = {
   userId: string | null;
@@ -30,14 +29,12 @@ function useProvideUser(): UserContextValue {
     const supabase = createClient();
     let cancelled = false;
     let authEvents = 0;
-    const finishSeed = startAuthTrace("provider-seed");
 
     // Seed once from persisted storage; the SDK may refresh an expired session.
     // A newer auth event takes precedence over this asynchronous seed.
     supabase.auth
       .getSession()
       .then(({ data }) => {
-        finishSeed({ hasSession: !!data.session });
         if (cancelled || authEvents > 0) return;
         setSession(data.session);
         setLoading(false);
@@ -51,7 +48,6 @@ function useProvideUser(): UserContextValue {
         }
       })
       .catch((err: unknown) => {
-        finishSeed({ errorName: "SessionReadError" });
         console.error("Error reading persisted session:", err);
         if (!cancelled && authEvents === 0) {
           setSession(null);
@@ -63,7 +59,6 @@ function useProvideUser(): UserContextValue {
     // INITIAL_SESSION). No redirects here — pages decide via useRequireUser.
     const { data: sub } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
-        traceAuth({ operation: "provider-auth", phase: "event", event: _event, hasSession: !!nextSession });
         if (cancelled) return;
         // INITIAL_SESSION can also finish after a refresh was superseded.
         if (_event === "INITIAL_SESSION" && authEvents > 0) return;

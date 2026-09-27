@@ -1,7 +1,6 @@
 // lib/supabaseServer.ts
 import { cookies } from "next/headers";
 import { createServerClient as createServerClientLib } from "@supabase/ssr";
-import { serverAuthDiagnosticFetch, traceAuthCookieWrite } from "@/lib/authServerDiagnostics";
 
 /**
  * Server Supabase client with a safe cookie adapter (Next 16 friendly).
@@ -20,7 +19,6 @@ export function createServerClient({ readOnlyAuthCookies = false }: ServerClient
       try {
         const store = await cookies();
         store.set(name, value, options as any);
-        traceAuthCookieWrite(options?.maxAge === 0);
       } catch {
         // In RSC render phases, Next disallows cookie mutations — ignore.
       }
@@ -30,7 +28,6 @@ export function createServerClient({ readOnlyAuthCookies = false }: ServerClient
       try {
         const store = await cookies();
         store.set(name, "", { ...(options || {}), maxAge: 0 } as any);
-        traceAuthCookieWrite(true);
       } catch {
         // Ignore where cookie mutations aren't allowed.
       }
@@ -40,7 +37,7 @@ export function createServerClient({ readOnlyAuthCookies = false }: ServerClient
   return createServerClientLib(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: cookieAdapter, global: { fetch: serverAuthDiagnosticFetch } }
+    { cookies: cookieAdapter }
   );
 }
 

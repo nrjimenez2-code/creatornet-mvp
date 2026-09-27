@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerClient } from "@/lib/supabaseServer";
-import { traceAuthCallback } from "@/lib/authServerDiagnostics";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
 import { discoverEnabled, discoverIdentity, setDiscoverCookie, createDiscoverSession, readDiscoverPage } from "@/lib/discoverServer";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
@@ -10,7 +9,7 @@ const routeTiming = createDiscoverRouteTiming();
 const logTiming = createDiscoverTimingLogger('feed');
 export async function GET(req:NextRequest){
  const lifecycle = routeTiming();
- return traceAuthCallback(req, "feed-load", () => withDiscoverDatabaseTiming(() => feedResponse(req,lifecycle)));
+ return withDiscoverDatabaseTiming(() => feedResponse(req,lifecycle));
 }
 async function feedResponse(req:NextRequest,lifecycle:string[]){
  const timings: string[] = [];
