@@ -308,4 +308,30 @@ describe("UserProvider", () => {
 
     expect(mockUnsubscribe).toHaveBeenCalledTimes(1);
   });
+
+  test.each(["SIGNED_OUT", "SIGNED_IN"])("delayed seed cannot overwrite newer %s event", async event => {
+    let finish!: (value: { data: { session: Session | null } }) => void;
+    mockGetSession.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await renderProvider();
+    const newer = event === "SIGNED_OUT" ? null : makeSession("replacement", "replacement-token");
+    await fireAuthEvent(event, newer);
+    expect(observed?.session).toBe(newer);
+    await act(async () => finish({ data: { session: makeSession("original", "original-token") } }));
+    expect(observed?.session).toBe(newer);
+    await fireAuthEvent("INITIAL_SESSION", makeSession("original", "original-token"));
+    expect(observed?.session).toBe(newer);
+  });
+
+  test("a late seed rejection cannot clear a replacement login", async () => {
+    let fail!: (error: Error) => void;
+    mockGetSession.mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    const log = jest.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await renderProvider();
+      const newer = makeSession("replacement", "replacement-token");
+      await fireAuthEvent("SIGNED_IN", newer);
+      await act(async () => fail(Error("fixture network failure")));
+      expect(observed?.session).toBe(newer);
+    } finally { log.mockRestore(); }
+  });
 });

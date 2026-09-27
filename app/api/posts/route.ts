@@ -1,4 +1,5 @@
 import { normalizeTopics } from "@/lib/interestTopics";
+import { normalizeHashtags } from "@/lib/hashtags";
 import { normalizeInterests } from "@/lib/interestCategories";
 import { NextResponse } from "next/server";
 import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
@@ -104,7 +105,7 @@ export async function POST(req: Request) {
       );
     }
     const booking_url = bookingRaw;
-    const hashtags = Array.isArray(body?.hashtags) ? body.hashtags : null;
+    const hashtags = Array.isArray(body?.hashtags) ? normalizeHashtags(body.hashtags) : null;
 
     if (!video_url) {
       return NextResponse.json({ success: false, error: "video_url is required" }, { status: 400 });

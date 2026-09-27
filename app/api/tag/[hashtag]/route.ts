@@ -5,6 +5,7 @@ import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
 import { isSellReadyProfile, SELL_READY_COLUMNS } from "@/lib/sellReady";
+import { normalizeHashtag, captionHashtagPattern } from "@/lib/hashtags";
 
 type TagPost = {
   id: string;
@@ -60,21 +61,20 @@ export async function GET(
   if (!allowRequest(`tag:${clientKey(req)}`, { limit: 90, windowMs: 60_000 })) return tooManyRequests();
   try {
     const { hashtag } = await params;
-    const rawTag = decodeURIComponent(hashtag || "").trim();
-    const normalizedTag = rawTag.toLowerCase();
-    if (!rawTag) {
-      return NextResponse.json({ items: [], hasMore: false, nextOffset: 0 });
+    const decodedTag = decodeURIComponent(hashtag || "");
+    const rawTag = decodedTag.trim().replace(/^#/, "").trim();
+    const normalizedTag = normalizeHashtag(decodedTag);
+    if (!normalizedTag) {
+      return NextResponse.json({ items: [], hasMore: false, nextOffset: 0, tag: normalizedTag });
     }
 
-    const limit = Math.min(
-      Math.max(Number(req.nextUrl.searchParams.get("limit") || 12), 1),
-      30
-    );
-    const offset = Math.max(Number(req.nextUrl.searchParams.get("offset") || 0), 0);
-    const take = offset + limit;
+    const requestedLimit = Number(req.nextUrl.searchParams.get("limit") || 12);
+    const requestedOffset = Number(req.nextUrl.searchParams.get("offset") || 0);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(Math.floor(requestedLimit), 1), 30) : 12;
+    const offset = Number.isFinite(requestedOffset) ? Math.max(Math.floor(requestedOffset), 0) : 0;
+    const take = offset + limit + 1;
 
-    const tagPattern = `%${normalizedTag}%`;
-    const captionTagPattern = `%#${normalizedTag}%`;
+    const captionTagPattern = captionHashtagPattern(normalizedTag);
     const titleCaseTag = rawTag
       .split(/\s+/)
       .map((w) => (w ? w[0].toUpperCase() + w.slice(1).toLowerCase() : w))
@@ -82,29 +82,35 @@ export async function GET(
 
     const [fromHashtags, fromCaption, fromInterestsRaw, fromInterestsLower, fromInterestsTitle] = await Promise.all([
       onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
-        .ilike("hashtags", tagPattern)
+        .contains("hashtags", [normalizedTag])
         .order("created_at", { ascending: false })
-        .limit(Math.max(take, limit)),
+        .order("id", { ascending: false })
+        .limit(take),
       onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
-        .ilike("content", captionTagPattern)
+        .filter("content", "imatch", captionTagPattern)
         .order("created_at", { ascending: false })
-        .limit(Math.max(take, limit)),
+        .order("id", { ascending: false })
+        .limit(take),
       onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .contains("interests", [rawTag])
         .order("created_at", { ascending: false })
-        .limit(Math.max(take, limit)),
+        .order("id", { ascending: false })
+        .limit(take),
       onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .contains("interests", [normalizedTag])
         .order("created_at", { ascending: false })
-        .limit(Math.max(take, limit)),
+        .order("id", { ascending: false })
+        .limit(take),
       onlyVisiblePosts(supabaseAdmin.from("posts").select(BASE_SELECT))
         .contains("interests", [titleCaseTag])
         .order("created_at", { ascending: false })
-        .limit(Math.max(take, limit)),
+        .order("id", { ascending: false })
+        .limit(take),
     ]);
 
     if (fromHashtags.error) {
       console.error("[api/tag] hashtag search error:", fromHashtags.error.message);
+      throw fromHashtags.error;
     }
     if (fromCaption.error) {
       console.error("[api/tag] caption search error:", fromCaption.error.message);
@@ -136,7 +142,10 @@ export async function GET(
     merged.sort((a, b) => {
       const at = new Date(a.created_at).getTime();
       const bt = new Date(b.created_at).getTime();
-      return bt - at;
+      // Postgres timestamps retain microseconds; Date alone truncates them and
+      // could reorder two sources within the same millisecond by ID.
+      const micros = (value: string) => Number((value.match(/\.(\d+)(?:Z|[+-]\d{2}:?\d{2})$/)?.[1] ?? "").padEnd(6, "0").slice(3, 6));
+      return bt - at || micros(b.created_at) - micros(a.created_at) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
     });
 
     const creatorIds = Array.from(
