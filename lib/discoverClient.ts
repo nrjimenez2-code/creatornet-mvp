@@ -1,6 +1,7 @@
 "use client";
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { DiscoverEventQueue } from "@/lib/discoverEventQueue";
+import { startAuthTrace } from "@/lib/authDiagnostics";
 const sessions = new Map<string, string>();
 const actorTokens = new Map<string, string>();
 const watchTotals = new Map<string, number>();
@@ -41,14 +42,16 @@ export async function fetchDiscoverPage(
     limit: String(limit),
   });
   if (session) params.set("session", session);
+  const finishTrace = startAuthTrace("feed-load");
   const response = await fetch("/api/feed?" + params, {
     cache: "no-store",
     signal,
-    headers:
-      session && actorTokens.has(session)
-        ? { "x-cn-discover-actor": actorTokens.get(session)! }
-        : {},
+    headers: {
+      ...finishTrace.headers,
+      ...(session && actorTokens.has(session) ? { "x-cn-discover-actor": actorTokens.get(session)! } : {}),
+    },
   });
+  finishTrace({ status: response.status });
   const result = await response.json();
   // A superseded feed must not retain a token even if its body arrived while
   // cancellation was propagating through the browser's transport.

@@ -4,10 +4,12 @@ import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createServerClient as createAppServerClient } from "@/lib/supabaseServer";
+import { traceAuthCallback, serverAuthDiagnosticFetch, traceAuthCookieWrite } from "@/lib/authServerDiagnostics";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export function GET(req?: Request) { return traceAuthCallback(req, "callback-verify", handleGet); }
+async function handleGet() {
   try {
     const { data, error } = await createAppServerClient().auth.getUser();
     return NextResponse.json({ ok: !error && !!data.user, userId: !error ? data.user?.id ?? null : null },
@@ -17,7 +19,8 @@ export async function GET() {
   }
 }
 
-export async function POST(req: Request) {
+export function POST(req: Request) { return traceAuthCallback(req, "callback-sync", () => handlePost(req)); }
+async function handlePost(req: Request) {
   try {
   if (!isSameOriginRequest(req)) {
     return NextResponse.json({ ok: false, reason: "bad_origin" }, { status: 403 });
@@ -31,14 +34,17 @@ export async function POST(req: Request) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
+        global: { fetch: serverAuthDiagnosticFetch },
         cookies: {
           get(name: string) {
             return cookieStore.get(name)?.value;
           },
           set(name: string, value: string, options: any) {
+            traceAuthCookieWrite(options?.maxAge === 0);
             cookieStore.set(name, value, options);
           },
           remove(name: string, options: any) {
+            traceAuthCookieWrite(true);
             cookieStore.set(name, "", { ...options, maxAge: 0 });
           },
         },
@@ -51,6 +57,7 @@ export async function POST(req: Request) {
       const key = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0]}-auth-token`;
       for (const cookie of cookieStore.getAll()) {
         if (cookie.name === key || cookie.name.startsWith(key + ".")) {
+          traceAuthCookieWrite(true);
           cookieStore.set(cookie.name, "", { path: "/", maxAge: 0 });
         }
       }

@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabaseClient";
 import posthog from "posthog-js";
+import { startAuthTrace, traceAuth } from "@/lib/authDiagnostics";
 
 type UserContextValue = {
   userId: string | null;
@@ -28,13 +29,16 @@ function useProvideUser(): UserContextValue {
   useEffect(() => {
     const supabase = createClient();
     let cancelled = false;
+    let authEvents = 0;
+    const finishSeed = startAuthTrace("provider-seed");
 
     // Seed once from the persisted session (local read in supabase-js v2 — no
     // network round trip). All later state comes from the subscription below.
     supabase.auth
       .getSession()
       .then(({ data }) => {
-        if (cancelled) return;
+        finishSeed({ hasSession: !!data.session });
+        if (cancelled || authEvents > 0) return;
         setSession(data.session);
         setLoading(false);
         const id = data.session?.user?.id;
@@ -47,8 +51,9 @@ function useProvideUser(): UserContextValue {
         }
       })
       .catch((err: unknown) => {
+        finishSeed({ errorName: "SessionReadError" });
         console.error("Error reading persisted session:", err);
-        if (!cancelled) {
+        if (!cancelled && authEvents === 0) {
           setSession(null);
           setLoading(false);
         }
@@ -58,7 +63,11 @@ function useProvideUser(): UserContextValue {
     // INITIAL_SESSION). No redirects here — pages decide via useRequireUser.
     const { data: sub } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
+        traceAuth({ operation: "provider-auth", phase: "event", event: _event, hasSession: !!nextSession });
         if (cancelled) return;
+        // INITIAL_SESSION can also finish after a refresh was superseded.
+        if (_event === "INITIAL_SESSION" && authEvents > 0) return;
+        authEvents += 1;
         setSession(nextSession);
         setLoading(false);
         const id = nextSession?.user?.id ?? null;

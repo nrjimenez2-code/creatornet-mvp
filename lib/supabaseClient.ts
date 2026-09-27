@@ -3,6 +3,7 @@
 
 import { createClient as createBrowserClient, SupabaseClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr"; // safe to import everywhere
+import { authDiagnosticFetch, authDiagnosticStorage, traceAuth } from "@/lib/authDiagnostics";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
@@ -14,12 +15,16 @@ export function createClient(): SupabaseClient {
   if (typeof window !== "undefined") {
     if (!_clientInstance) {
       _clientInstance = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        global: { fetch: authDiagnosticFetch },
         auth: {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
-          storage: window.localStorage,
+          storage: authDiagnosticStorage,
         },
+      });
+      _clientInstance.auth.onAuthStateChange((event, session) => {
+        traceAuth({ operation: "browser-auth", phase: "event", event, hasSession: !!session });
       });
     }
     return _clientInstance;

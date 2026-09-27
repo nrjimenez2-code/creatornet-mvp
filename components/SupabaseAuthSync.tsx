@@ -10,7 +10,7 @@ export default function SupabaseAuthSync() {
 
     const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
       // Never hold Supabase's auth lock while doing asynchronous work.
-      void syncBrowserSession(session, event).catch(() => {
+      void syncBrowserSession(session, event, supabase).catch(() => {
         console.warn("Session cookie synchronization failed; protected navigation will retry.");
       });
     });

@@ -2,8 +2,10 @@
 import { NextResponse } from "next/server";
 import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { createSupabaseServer } from "@/lib/supabaseServer";
+import { traceAuthCallback } from "@/lib/authServerDiagnostics";
 
-export async function POST(req: Request) {
+export function POST(req: Request) { return traceAuthCallback(req, "legacy-callback-sync", () => handlePost(req)); }
+async function handlePost(req: Request) {
   if (!isSameOriginRequest(req)) {
     return NextResponse.json({ ok: false, reason: "bad_origin" }, { status: 403 });
   }

@@ -109,7 +109,7 @@ describe("/api/tag/[hashtag]", () => {
 
     const reads = postReads();
     expect(reads).toHaveLength(5);
-    // hashtags ilike, content ilike, interests contains x3 — all still there.
+    // Whole-tag array containment, caption regex, and three interest sources.
     expect(reads.map((r) => Object.keys(r.filters).filter((k) => k !== "hidden_at" && k !== "removed_at"))).toEqual([
       ["hashtags"],
       ["content"],
