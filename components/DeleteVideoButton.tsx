@@ -149,9 +149,10 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
       onClose={() => { setInsightsOpen(false); resumeInsights.current?.(); resumeInsights.current=null; trigger.current?.focus({preventScroll:true}); }}
       onClick={event=>{ event.stopPropagation(); if(event.target===event.currentTarget)insightsDialog.current?.close(); }}
       onKeyDown={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onTouchStart={event=>event.stopPropagation()} onTouchEnd={event=>event.stopPropagation()}
-      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border border-white/15 bg-[#17141d] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-white backdrop:bg-black/70 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-[calc(100%-2rem)] lg:max-w-2xl lg:rounded-2xl lg:p-6">
-      <div className="mb-5 flex items-center justify-between"><h2 id={`insights-title-${postId}`} className="text-xl font-semibold">Video insights</h2>
-        <button autoFocus type="button" aria-label="Close video insights" onClick={()=>insightsDialog.current?.close()} className="flex h-11 w-11 items-center justify-center rounded-full hover:bg-white/10"><X className="h-5 w-5"/></button></div>
+      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border border-[#29292f] bg-black px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[#f7f7f8] backdrop:bg-black/70 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-[calc(100%-2rem)] lg:max-w-4xl lg:rounded-2xl lg:bg-[#080809] lg:p-7">
+      <div className="mb-5 flex items-center justify-between gap-4 border-b border-[#29292f] pb-4"><div><h2 id={`insights-title-${postId}`} className="text-2xl font-semibold tracking-tight">Video insights</h2>
+        <p className="mt-1 text-sm text-[#a4a4ae]">A closer look at how your video performs.</p></div>
+        <button autoFocus type="button" aria-label="Close video insights" onClick={()=>insightsDialog.current?.close()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#bcbcc7] hover:bg-[#17171c] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a58aff]"><X className="h-5 w-5"/></button></div>
       {insightsOpen && <VideoInsightsPanel key={postId} postId={postId}/>}</dialog>,document.body)}
     {!isOwner && mounted && createPortal(
       <dialog ref={reportDialog} aria-labelledby={`report-title-${postId}`}
