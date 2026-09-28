@@ -46,10 +46,31 @@
 .sourceTrack { display:block; height:5px; overflow:hidden; margin-top:6px; border-radius:999px; background:#29292f; }
 .sourceTrack > span { display:block; height:100%; border-radius:inherit; background:#7659ef; }
 .foot { margin:12px 0 0; color:#777783; font-size:10px; }
+.skeletonPoster { flex:none; width:42px; height:56px; border-radius:7px; }
+.skeletonVideoText { flex:1; }
+.skeletonTitle { display:block; width:min(67%,220px); height:17px; border-radius:4px; }
+.skeletonMeta { display:block; width:min(48%,155px); height:11px; margin-top:7px; border-radius:3px; }
+.skeletonStatLabel { display:block; width:min(85%,104px); height:11px; margin-top:5px; border-radius:3px; }
+.skeletonStatValue { display:block; width:min(64%,76px); height:30px; border-radius:5px; }
+.skeletonSectionTitle { display:block; width:148px; height:18px; border-radius:4px; }
+.skeletonSectionCount { display:block; width:77px; height:11px; border-radius:3px; }
+.skeletonDescription { display:block; width:min(80%,295px); height:11px; margin-top:6px; border-radius:3px; }
+.skeletonChart { display:block; width:100%; height:100%; border-radius:8px; }
+.skeletonMomentLabel { display:block; width:92px; height:11px; border-radius:3px; }
+.skeletonMomentTime { display:block; width:36px; height:18px; border-radius:4px; }
+.skeletonSliderHit { display:flex; align-items:center; min-height:44px; }
+.skeletonSliderTrack { display:block; width:100%; height:6px; border-radius:999px; }
+.skeletonMomentPercent { display:block; width:72px; height:11px; border-radius:3px; }
+.skeletonMomentEnd { display:block; width:28px; height:11px; border-radius:3px; }
+.skeletonPreview { flex:none; width:54px; height:76px; border-radius:6px; }
+.skeletonDisclosureRow { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:47px; padding-right:19px; }
+.skeletonDisclosureTitle { display:block; width:min(46%,155px); height:13px; border-radius:3px; }
+.skeletonDisclosureHint { display:block; width:min(32%,116px); height:11px; border-radius:3px; }
+.skeletonFoot { display:block; width:min(83%,330px); height:10px; margin-top:14px; border-radius:3px; }
 .message { padding:48px 12px; text-align:center; color:#a4a4ae; font-size:14px; }
 .error { color:#fca5a5; }
 .retry { min-height:44px; margin-top:16px; padding:10px 18px; border:1px solid #7659ef; border-radius:10px; background:#6044df; color:#fff; cursor:pointer; }
 .panel :focus-visible,.retry:focus-visible { outline:2px solid #a58aff; outline-offset:3px; }
-@media(max-width:600px) { .videoHeading { padding:12px 0; } .summary { padding:15px 0; } .summary > div { padding:0 8px; } .summary dd { font-size:23px; } .summary dt { font-size:10px; } .chart { height:153px; } .moment { gap:10px; padding:9px 11px; } .sectionHead { margin-top:15px; } }
+@media(max-width:600px) { .videoHeading { padding:12px 0; } .summary { padding:15px 0; } .summary > div { padding:0 8px; } .summary dd { font-size:23px; } .summary dt { font-size:10px; } .chart { height:153px; } .moment { gap:10px; padding:9px 11px; } .sectionHead { margin-top:15px; } .skeletonStatValue { height:25px; } }
 @media(max-width:350px) { .summary dd { font-size:20px; } .summaryHint { display:none; } }
-@media(min-width:601px) and (max-height:800px) { .videoHeading { padding:8px 0; } .summary { padding:10px 0; } .sectionHead { margin-top:10px; } .chart { height:130px; } .moment { min-height:76px; margin-top:4px; padding:6px 12px; } .disclosure summary { min-height:41px; } .foot { margin-top:8px; } }
+@media(min-width:601px) and (max-height:800px) { .videoHeading { padding:8px 0; } .summary { padding:10px 0; } .sectionHead { margin-top:10px; } .chart { height:130px; } .moment { min-height:76px; margin-top:4px; padding:6px 12px; } .disclosure summary,.skeletonDisclosureRow { min-height:41px; } .foot { margin-top:8px; } .skeletonFoot { margin-top:10px; } }
