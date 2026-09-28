@@ -5,6 +5,7 @@ import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Refe
 import { getActionSession } from "@/lib/actionSession";
 import type { VideoInsights } from "@/lib/videoInsights";
 import styles from "./videoInsights.module.css";
+import VideoInsightsSkeleton from "./VideoInsightsSkeleton";
 
 const sourceNames = { discover: "Discover", following: "Following", profile: "Profile", search: "Search", direct: "Direct / shared", unknown: "Unknown" };
 const stamp = (seconds: number) => {
@@ -39,7 +40,7 @@ export default function VideoInsightsPanel({ postId }: { postId: string }) {
     const time = data?.retention[index]?.time;
     if (preview.current && time !== undefined) { preview.current.pause(); preview.current.currentTime = time; }
   }
-  if (loading) return <p role="status" className={styles.message}>Loading insights…</p>;
+  if (loading) return <VideoInsightsSkeleton />;
   if (error) return <div className={styles.message}><p role="alert" className={styles.error}>{error}</p>
     <button type="button" onClick={() => { setLoading(true);setError("");setAttempt(n=>n+1); }} className={styles.retry}>Try again</button></div>;
   if (!data) return null;

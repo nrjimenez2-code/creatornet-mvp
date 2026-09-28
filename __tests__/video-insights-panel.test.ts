@@ -3,9 +3,11 @@ import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 const mockSession=jest.fn(),mockFetch=jest.fn();
 let mockUser:string|null="owner";
+let mockDynamicLoading=false;
 jest.mock("@/lib/actionSession",()=>({getActionSession:()=>mockSession()}));
 jest.mock("@/lib/useUser",()=>({useUser:()=>({userId:mockUser,loading:false})}));
-jest.mock("next/dynamic",()=>({__esModule:true,default:()=>()=>createElement("div",null,"Lazy insights panel")}));
+jest.mock("next/dynamic",()=>({__esModule:true,default:(_:unknown,options:{loading:()=>ReactNode})=>()=>
+  mockDynamicLoading ? options.loading() : createElement("div",null,"Lazy insights panel")}));
 jest.mock("recharts",()=>{
   const Container=({children}:{children?:ReactNode})=>createElement("div",null,children);
   return {ResponsiveContainer:Container,LineChart:Container,Line:()=>null,XAxis:()=>null,YAxis:()=>null,CartesianGrid:()=>null,ReferenceLine:()=>null};
@@ -18,7 +20,7 @@ const fixture={postId:"post",title:"Test video",poster:null,previewUrl:"/test.mp
   collectionStartedAt:"2026-09-27T00:00:00Z",averageWatchTime:4.5,averagePercentageWatched:45,completionRate:50,threeSecondRetention:50,
   retention:[{time:0,percentage:100},{time:1,percentage:50},{time:2,percentage:75}],sources:[{source:"discover",percentage:50,count:1},{source:"unknown",percentage:50,count:1}]};
 beforeEach(()=>{
-  process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED="true";mockUser="owner";
+  process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED="true";mockUser="owner";mockDynamicLoading=false;
   mockSession.mockReset().mockResolvedValue({data:{session:{access_token:"test-token"}},error:null});
   mockFetch.mockReset().mockResolvedValue({ok:true,json:async()=>fixture});global.fetch=mockFetch;
   if(!AbortSignal.timeout)AbortSignal.timeout=()=>new AbortController().signal;
@@ -32,6 +34,28 @@ beforeEach(()=>{
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();document.body.innerHTML="";delete process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED;});
 async function renderPanel(){await act(async()=>root.render(createElement(VideoInsightsPanel,{postId:"post"})));}
 async function click(label:string){await act(async()=>[...document.querySelectorAll<HTMLButtonElement>("button")].find(b=>b.textContent===label||b.getAttribute("aria-label")===label)!.click());}
+test("loading matches the insights layout until the owner metrics arrive",async()=>{
+  let resolveFetch!:(value:{ok:boolean;json:()=>Promise<typeof fixture>})=>void;
+  mockFetch.mockReturnValueOnce(new Promise(resolve=>{resolveFetch=resolve;}));
+  await renderPanel();
+  const skeleton=container.querySelector<HTMLElement>("[data-insights-skeleton]")!;
+  expect(skeleton.getAttribute("aria-busy")).toBe("true");
+  expect(skeleton.querySelector('[role="status"]')?.textContent).toBe("Loading video insights…");
+  expect(skeleton.querySelector('[aria-hidden="true"]')?.querySelectorAll(".cn-skeleton").length).toBeGreaterThan(15);
+  expect(container.textContent).not.toContain("Video plays");
+  await act(async()=>resolveFetch({ok:true,json:async()=>fixture}));
+  expect(container.querySelector("[data-insights-skeleton]")).toBeNull();
+  expect(container.textContent).toContain("Video plays");
+});
+test("the lazy panel stage uses the same skeleton inside the owner dialog",async()=>{
+  mockDynamicLoading=true;
+  await act(async()=>root.render(createElement(DeleteVideoButton,{postId:"post",creatorId:"owner",onDeleted:()=>{}})));
+  await click("Video options");await click("View insights");
+  const dialog=document.querySelector<HTMLDialogElement>('dialog[aria-labelledby="insights-title-post"]')!;
+  expect(dialog.open).toBe(true);
+  expect(dialog.querySelector("[data-insights-skeleton]")).not.toBeNull();
+  expect(dialog.querySelectorAll('[role="status"]')).toHaveLength(1);
+});
 test("exact metrics, limited data, sources, chart selection and excluded paused preview are shown",async()=>{
   await renderPanel();expect(container.textContent).toContain("Limited data");expect(container.textContent).toContain("Unknown");
   expect(container.textContent).toContain("45.0%");expect(container.textContent).toContain("2 video plays");
