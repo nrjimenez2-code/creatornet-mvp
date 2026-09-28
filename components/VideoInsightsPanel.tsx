@@ -49,34 +49,26 @@ export default function VideoInsightsPanel({ postId }: { postId: string }) {
   const chartPoints=lastPoint && data.duration ? [...data.retention,{time:data.duration,percentage:lastPoint.percentage}] : data.retention;
   const percent = (value: number | null) => value === null ? "Unavailable" : `${value.toFixed(1)}%`;
   const summary = [
-    ["Playback sessions", data.sampleCount.toLocaleString()],
-    ["Average watch time", data.averageWatchTime === null ? "—" : `${data.averageWatchTime.toFixed(1)}s`],
+    ["Video plays", data.sampleCount.toLocaleString()],
+    ["Avg. watch time", data.averageWatchTime === null ? "—" : `${data.averageWatchTime.toFixed(1)}s`],
     ["Completion rate", percent(data.completionRate)],
   ];
   const activeSources = data.sources.filter(source => source.count > 0);
   return <div className={styles.panel}>
     <div className={styles.videoHeading}>
-      {data.poster && <Image src={data.poster} alt="" width={56} height={76} unoptimized className={styles.poster} />}
-      <div><p className={styles.eyebrow}>Your video</p><h3>{data.title}</h3>
-        <p className={styles.meta}>{data.collectionStartedAt ? `Insights since ${new Date(data.collectionStartedAt).toLocaleDateString()}` : "Insights have not started yet"}</p></div>
+      {data.poster ? <Image src={data.poster} alt="" width={42} height={56} unoptimized className={styles.poster} />
+        : <div className={styles.posterFallback} aria-hidden="true" />}
+      <div className={styles.videoHeadingText}><h3>{data.title}</h3>
+        <p className={styles.meta}>{data.collectionStartedAt ? `Insights since ${new Date(data.collectionStartedAt).toLocaleDateString()}` : "Insights have not started yet"}
+          {data.duration ? ` · ${stamp(data.duration)} video` : ""}</p></div>
     </div>
 
-    <details className={styles.disclosure} open>
-      <summary><span>Playback metrics</span><span className={styles.summaryHint}>Sessions, watch time and completion</span></summary>
-      <div className={styles.disclosureBody}>
-        <dl className={styles.summary}>{summary.map(([label,value]) => <div key={label}>
-          <dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-        <dl className={styles.metricRows}>
-          <div><dt>Average percentage watched</dt><dd>{percent(data.averagePercentageWatched)}</dd></div>
-          <div><dt>Three-second retention</dt><dd>{percent(data.threeSecondRetention)}</dd></div>
-        </dl>
-      </div>
-    </details>
+    <dl className={styles.summary}>{summary.map(([label,value]) => <div key={label}>
+      <dt>{label}</dt><dd>{value}</dd></div>)}</dl>
 
-    <details className={styles.disclosure} open>
-      <summary><span>Audience retention</span><span className={styles.summaryHint}>Explore the video timeline</span></summary>
-      <div className={styles.disclosureBody}>
-        <p className={styles.description}>See how many playback sessions reached each part of your video. Select a moment to preview it.</p>
+    <section aria-labelledby={`insight-retention-${postId}`} className={styles.retention}>
+      <div className={styles.sectionHead}><h4 id={`insight-retention-${postId}`}>Audience retention</h4><span>{data.sampleCount.toLocaleString()} video plays</span></div>
+        <p className={styles.description}>See where people keep watching. Select a moment to preview it.</p>
         {!data.duration ? <p className={styles.empty}>Verified video duration is unavailable. Duration-based metrics and the retention graph will appear when metadata is available.</p>
         : !data.sampleCount ? <p className={styles.empty}>No playback data yet. Insights begin with eligible playback after tracking is enabled.</p>
         : <>
@@ -96,20 +88,26 @@ export default function VideoInsightsPanel({ postId }: { postId: string }) {
           </div>
           <div className={styles.moment}>
             <div className={styles.momentControls}>
-              <label htmlFor={`insight-timeline-${postId}`}>Select a timestamp</label>
+              <div className={styles.momentHeading}><label htmlFor={`insight-timeline-${postId}`}>Selected moment</label><strong>{point ? stamp(point.time) : "—"}</strong></div>
               <input id={`insight-timeline-${postId}`} type="range" min={0} max={Math.max(0,data.retention.length-1)} step={1} value={selected}
                 onChange={event=>select(Number(event.target.value))} aria-valuetext={point ? `${stamp(point.time)}, ${point.percentage.toFixed(1)} percent` : "No data"} />
-              <p aria-live="polite" className={styles.selectedMoment}>{point ? <><strong>{stamp(point.time)}</strong><span>{point.percentage.toFixed(1)}% watched</span></> : null}</p>
-              <p className={styles.previewNote}>The video preview stays paused and does not count as a play.</p>
+              <div aria-live="polite" className={styles.momentFooter}><span>{point ? `${point.percentage.toFixed(1)}% watched` : ""}</span><span>{stamp(data.duration)}</span></div>
             </div>
             {data.previewUrl && <video ref={preview} src={data.previewUrl} poster={data.poster ?? undefined} muted playsInline preload="metadata"
               aria-label="Paused insights preview" data-insights-preview="true" onPlay={event=>event.currentTarget.pause()}
               onLoadedMetadata={()=>{ if (preview.current && point) preview.current.currentTime=point.time; }} className={styles.preview}/>}
           </div>
         </>}
-        {data.limited && data.sampleCount>0 && <p className={styles.limited}>Limited data · fewer than 50 eligible sessions</p>}
-        <p className={styles.definition}>Sample: {data.sampleCount.toLocaleString()} eligible sessions.
-          {data.collectionStartedAt ? ` Collected since ${new Date(data.collectionStartedAt).toLocaleDateString()}.` : " Collection has not started for this video."}</p>
+        {data.limited && data.sampleCount>0 && <p className={styles.limited}>Limited data · fewer than 50 video plays</p>}
+    </section>
+
+    <details className={styles.disclosure}>
+      <summary><span>More playback metrics</span><span className={styles.summaryHint}>2 metrics</span></summary>
+      <div className={styles.disclosureBody}>
+        <dl className={styles.metricRows}>
+          <div><dt>Average percentage watched</dt><dd>{percent(data.averagePercentageWatched)}</dd></div>
+          <div><dt>Three-second retention</dt><dd>{percent(data.threeSecondRetention)}</dd></div>
+        </dl>
       </div>
     </details>
 
@@ -126,9 +124,11 @@ export default function VideoInsightsPanel({ postId }: { postId: string }) {
     <details className={styles.disclosure}>
       <summary><span>About these numbers</span><span className={styles.summaryHint}>What is counted</span></summary>
       <div className={styles.disclosureBody}>
-        <p className={styles.definition}>Playback sessions include immediate exits. They are separate from qualified views and unique viewers.</p>
-        <p className={styles.definition}>Replays add watch time, while coverage of each moment is capped at 100%. Historical retention before collection began is unavailable.</p>
+        <p className={styles.definition}>Video plays count eligible starts, including immediate exits. They are separate from qualified views and unique viewers.</p>
+        <p className={styles.definition}>Replaying during the same visit adds watch time without another play. Coverage of each moment is capped at 100%. Historical retention before collection began is unavailable.</p>
       </div>
     </details>
+    <p className={styles.foot}>The video preview stays paused and does not count as a play.
+      {data.collectionStartedAt ? ` Data collected since ${new Date(data.collectionStartedAt).toLocaleDateString()}.` : " Collection has not started for this video."}</p>
   </div>;
 }
