@@ -35,6 +35,11 @@ async function click(label:string){await act(async()=>[...document.querySelector
 test("exact metrics, limited data, sources, chart selection and excluded paused preview are shown",async()=>{
   await renderPanel();expect(container.textContent).toContain("Limited data");expect(container.textContent).toContain("Unknown");
   expect(container.textContent).toContain("45.0%");expect(container.textContent).toContain("Sample: 2");
+  const sections=[...container.querySelectorAll("details")];
+  expect(sections.map(section=>section.querySelector("summary")?.firstElementChild?.textContent)).toEqual(["More playback metrics","Audience retention","View sources","About these numbers"]);
+  expect(sections.map(section=>section.open)).toEqual([false,true,false,false]);
+  await act(async()=>sections[0].querySelector("summary")!.click());
+  expect(sections[0].open).toBe(true);
   const slider=container.querySelector<HTMLInputElement>('input[type="range"]')!;
   const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!;
   await act(async()=>{set.call(slider,"2");slider.dispatchEvent(new Event("input",{bubbles:true}));});
