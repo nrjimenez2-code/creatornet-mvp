@@ -217,10 +217,14 @@ export class MobileFeedController {
     let bridgeMoving = false;
     const collectFrameDiagnostics = feedTraceEnabled();
     const qualityAtActivation = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
+    let mainRequestCount = 0;
     let mainCallbackCount = 0;
     let mainValidCount = 0;
     let firstMainReject: string | null = null;
     let lastMainReject: string | null = null;
+    let firstMainRequestAt: number | null = null;
+    let firstMainCallbackAt: number | null = null;
+    let firstMainValidAt: number | null = null;
     let lastMainCallbackAt: number | null = null;
     let lastMainMediaTime: number | null = null;
     let lastMainPresentedFrames: number | null = null;
@@ -233,6 +237,18 @@ export class MobileFeedController {
       complete = true;
       if (active.bridge) { const old = active.bridge; if (bridgeFrame !== undefined) old.video.cancelVideoFrameCallback?.(bridgeFrame); bridgeFrame = undefined; active.bridge = null; this.clear(old); }
       if (active.partial) this.clear(active.partial);
+      if (collectFrameDiagnostics) {
+        const qualityAtHandoff = video.getVideoPlaybackQuality?.();
+        recordFeedEvent("handoff-frame-diagnostic", {
+          mainRequestCount, mainCallbackCount, mainValidCount, firstMainReject, lastMainReject,
+          firstMainRequestMs: firstMainRequestAt === null ? null : firstMainRequestAt - activatedAt,
+          firstMainCallbackMs: firstMainCallbackAt === null ? null : firstMainCallbackAt - activatedAt,
+          firstMainValidMs: firstMainValidAt === null ? null : firstMainValidAt - activatedAt,
+          lastMainCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+          targetObserved, totalFramesDelta: qualityAtHandoff && qualityAtActivation ? qualityAtHandoff.totalVideoFrames - qualityAtActivation.totalVideoFrames : null,
+          droppedFramesDelta: qualityAtHandoff && qualityAtActivation ? qualityAtHandoff.droppedVideoFrames - qualityAtActivation.droppedVideoFrames : null,
+        }, video);
+      }
       input.ready(); recordFeedEvent("presentation-handoff", { warmEligible: eligible, alignmentFrameSeconds: mainStep }, video);
       this.resumePreparation();
     };
@@ -290,19 +306,21 @@ export class MobileFeedController {
     const observeMain = () => {
       if (!current() || complete || frame !== undefined || !video.requestVideoFrameCallback) return;
       const seekEpoch = epoch;
+      if (collectFrameDiagnostics) { mainRequestCount++; firstMainRequestAt ??= performance.now(); }
       frame = video.requestVideoFrameCallback((_now, metadata) => {
         if (!current() || seekEpoch !== epoch || complete) return;
         frame = undefined;
         if (collectFrameDiagnostics) {
           mainCallbackCount++;
           lastMainCallbackAt = performance.now();
+          firstMainCallbackAt ??= lastMainCallbackAt;
           lastMainMediaTime = metadata.mediaTime;
           lastMainPresentedFrames = metadata.presentedFrames;
         }
         if (!video.seeking && metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (performance.now() - activatedAt) / 1_000 + 0.25) targetObserved = true;
         const valid = targetObserved && validFeedFrame(video, video.src, metadata.mediaTime, previousMain);
         if (valid) {
-          if (collectFrameDiagnostics) mainValidCount++;
+          if (collectFrameDiagnostics) { mainValidCount++; firstMainValidAt ??= performance.now(); }
           const delta = metadata.mediaTime - previousMain!;
           const count = previousMainCount === null ? 0 : metadata.presentedFrames - previousMainCount;
           if (delta > 0 && count > 0 && delta / count <= 1) mainStep = Math.min(mainStep ?? Infinity, delta / count);
@@ -348,7 +366,10 @@ export class MobileFeedController {
       if (!current() || complete) return;
       const qualityAtTimeout = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
       recordFeedEvent("handoff-timeout", {
-        position: video.currentTime, buffer: playableBuffer(video), mainCallbackCount, mainValidCount,
+        position: video.currentTime, buffer: playableBuffer(video), mainRequestCount, mainCallbackCount, mainValidCount,
+        firstMainRequestMs: firstMainRequestAt === null ? null : firstMainRequestAt - activatedAt,
+        firstMainCallbackMs: firstMainCallbackAt === null ? null : firstMainCallbackAt - activatedAt,
+        firstMainValidMs: firstMainValidAt === null ? null : firstMainValidAt - activatedAt,
         firstMainReject, lastMainReject, lastMainCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
         lastMainMediaTime, lastMainPresentedFrames, targetObserved, frameRequestPending: frame !== undefined,
         readyState: video.readyState, paused: video.paused, seeking: video.seeking, hidden: document.hidden,
