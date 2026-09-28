@@ -1,5 +1,5 @@
 import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
-import { playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
+import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
 
 type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
@@ -215,6 +215,15 @@ export class MobileFeedController {
     let intendedPosition = target;
     let targetObserved = false;
     let bridgeMoving = false;
+    const collectFrameDiagnostics = feedTraceEnabled();
+    const qualityAtActivation = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
+    let mainCallbackCount = 0;
+    let mainValidCount = 0;
+    let firstMainReject: string | null = null;
+    let lastMainReject: string | null = null;
+    let lastMainCallbackAt: number | null = null;
+    let lastMainMediaTime: number | null = null;
+    let lastMainPresentedFrames: number | null = null;
     const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
     const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, current, playRequested: () => {}, stop: () => {} };
     this.active = active;
@@ -281,12 +290,27 @@ export class MobileFeedController {
       frame = video.requestVideoFrameCallback((_now, metadata) => {
         if (!current() || seekEpoch !== epoch || complete) return;
         frame = undefined;
+        if (collectFrameDiagnostics) {
+          mainCallbackCount++;
+          lastMainCallbackAt = performance.now();
+          lastMainMediaTime = metadata.mediaTime;
+          lastMainPresentedFrames = metadata.presentedFrames;
+        }
         if (!video.seeking && metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (performance.now() - activatedAt) / 1_000 + 0.25) targetObserved = true;
-        if (targetObserved && validFeedFrame(video, video.src, metadata.mediaTime, previousMain)) {
+        const valid = targetObserved && validFeedFrame(video, video.src, metadata.mediaTime, previousMain);
+        if (valid) {
+          if (collectFrameDiagnostics) mainValidCount++;
           const delta = metadata.mediaTime - previousMain!;
           const count = previousMainCount === null ? 0 : metadata.presentedFrames - previousMainCount;
           if (delta > 0 && count > 0 && delta / count <= 1) mainStep = Math.min(mainStep ?? Infinity, delta / count);
           lastMain = metadata.mediaTime; lastMainAt = performance.now(); align();
+        } else if (collectFrameDiagnostics) {
+          const reason = !targetObserved ? "target-not-observed" : video.readyState < 2 ? "ready-state" : video.seeking ? "seeking"
+            : video.paused ? "paused" : video.currentSrc !== video.src ? "current-source-mismatch"
+              : !Number.isFinite(metadata.mediaTime) ? "invalid-media-time" : Math.abs(video.currentTime - metadata.mediaTime) > 0.25 ? "position-drift"
+                : previousMain === null ? "first-frame" : metadata.mediaTime <= previousMain + 0.0001 ? "nonadvancing" : "other";
+          firstMainReject ??= reason;
+          lastMainReject = reason;
         }
         previousMain = !video.seeking && video.readyState >= 2 && video.currentSrc === video.src ? metadata.mediaTime : null;
         previousMainCount = metadata.presentedFrames;
@@ -319,7 +343,16 @@ export class MobileFeedController {
     video.addEventListener("progress", progress); video.addEventListener("playing", playing); video.addEventListener("waiting", waiting); video.addEventListener("stalled", waiting);
     const watchdog = setTimeout(() => {
       if (!current() || complete) return;
-      recordFeedEvent("handoff-timeout", { position: video.currentTime, buffer: playableBuffer(video) }, video);
+      const qualityAtTimeout = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
+      recordFeedEvent("handoff-timeout", {
+        position: video.currentTime, buffer: playableBuffer(video), mainCallbackCount, mainValidCount,
+        firstMainReject, lastMainReject, lastMainCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+        lastMainMediaTime, lastMainPresentedFrames, targetObserved, frameRequestPending: frame !== undefined,
+        readyState: video.readyState, paused: video.paused, seeking: video.seeking, hidden: document.hidden,
+        currentSourceMatches: video.currentSrc === video.src, videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+        totalFramesDelta: qualityAtTimeout && qualityAtActivation ? qualityAtTimeout.totalVideoFrames - qualityAtActivation.totalVideoFrames : null,
+        droppedFramesDelta: qualityAtTimeout && qualityAtActivation ? qualityAtTimeout.droppedVideoFrames - qualityAtActivation.droppedVideoFrames : null,
+      }, video);
       if (targetObserved && lastMain !== null && performance.now() - lastMainAt <= 250 && !video.paused && !video.seeking && video.readyState >= 2) { finish(); recordFeedEvent("handoff-recovery", { result: "moving-main" }, video); }
       else {
         if (active.bridge) { const old = active.bridge; if (bridgeFrame !== undefined) old.video.cancelVideoFrameCallback?.(bridgeFrame); bridgeFrame = undefined; active.bridge = null; this.clear(old); }
