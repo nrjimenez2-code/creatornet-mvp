@@ -61,15 +61,16 @@ export default function VideoInsightsPanel({ postId }: { postId: string }) {
         <p className={styles.meta}>{data.collectionStartedAt ? `Insights since ${new Date(data.collectionStartedAt).toLocaleDateString()}` : "Insights have not started yet"}</p></div>
     </div>
 
-    <dl className={styles.summary}>{summary.map(([label,value]) => <div key={label}>
-      <dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-
-    <details className={styles.disclosure}>
-      <summary><span>More playback metrics</span><span className={styles.summaryHint}>Watch and retention details</span></summary>
-      <dl className={styles.metricRows}>
-        <div><dt>Average percentage watched</dt><dd>{percent(data.averagePercentageWatched)}</dd></div>
-        <div><dt>Three-second retention</dt><dd>{percent(data.threeSecondRetention)}</dd></div>
-      </dl>
+    <details className={styles.disclosure} open>
+      <summary><span>Playback metrics</span><span className={styles.summaryHint}>Sessions, watch time and completion</span></summary>
+      <div className={styles.disclosureBody}>
+        <dl className={styles.summary}>{summary.map(([label,value]) => <div key={label}>
+          <dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+        <dl className={styles.metricRows}>
+          <div><dt>Average percentage watched</dt><dd>{percent(data.averagePercentageWatched)}</dd></div>
+          <div><dt>Three-second retention</dt><dd>{percent(data.threeSecondRetention)}</dd></div>
+        </dl>
+      </div>
     </details>
 
     <details className={styles.disclosure} open>

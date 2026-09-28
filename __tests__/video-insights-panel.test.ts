@@ -36,13 +36,14 @@ test("exact metrics, limited data, sources, chart selection and excluded paused 
   await renderPanel();expect(container.textContent).toContain("Limited data");expect(container.textContent).toContain("Unknown");
   expect(container.textContent).toContain("45.0%");expect(container.textContent).toContain("Sample: 2");
   const sections=[...container.querySelectorAll("details")];
-  expect(sections.map(section=>section.querySelector("summary")?.firstElementChild?.textContent)).toEqual(["More playback metrics","Audience retention","View sources","About these numbers"]);
-  expect(sections.map(section=>section.open)).toEqual([false,true,false,false]);
+  expect(sections.map(section=>section.querySelector("summary")?.firstElementChild?.textContent)).toEqual(["Playback metrics","Audience retention","View sources","About these numbers"]);
+  expect(sections.map(section=>section.open)).toEqual([true,true,false,false]);
   await act(async()=>sections[0].querySelector("summary")!.click());
-  expect(sections[0].open).toBe(true);
+  expect(sections[0].open).toBe(false);
   const slider=container.querySelector<HTMLInputElement>('input[type="range"]')!;
   const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,"value")!.set!;
   await act(async()=>{set.call(slider,"2");slider.dispatchEvent(new Event("input",{bubbles:true}));});
+  expect(sections[0].open).toBe(false);
   const preview=container.querySelector<HTMLVideoElement>("video")!;
   expect(preview.currentTime).toBe(2);expect(preview.dataset.insightsPreview).toBe("true");expect(preview.autoplay).toBe(false);
   expect(slider.getAttribute("aria-valuetext")).toBe("0:02, 75.0 percent");
