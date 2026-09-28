@@ -242,6 +242,7 @@ export default function ProfilePostsGallery({
                 <div className="w-full">
                   {isMounted ? (
                   <VideoCard
+                    insightSource="profile"
                     src={post.video_url || undefined}
                     poster={post.poster_url ?? null}
                     desktopFeedMediaKey={frame.mediaKey}

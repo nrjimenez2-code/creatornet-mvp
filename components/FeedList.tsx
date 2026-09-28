@@ -855,6 +855,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
               <div className="relative w-full h-full flex items-start lg:items-center justify-center max-w-full lg:-translate-x-28">
                 {isMounted ? (
                   <VideoCard
+                    insightSource={p.id === highlightPostId ? "direct" : activeTab}
                     activeTab={activeTab}
                     mobileHandoff={mobileHandoff}
                     onInteractionChange={handleInteractionChange}
