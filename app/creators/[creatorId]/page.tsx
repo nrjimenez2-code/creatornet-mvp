@@ -170,7 +170,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     onlyVisiblePosts(
       admin
         .from("posts")
-        .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
+        .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, tips_enabled")
     )
       .eq("creator_id", resolvedCreatorId)
       .order("created_at", { ascending: false }),
@@ -321,6 +321,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         <ProfileContent
           postsError={Boolean(postsRes.error)} offersError={Boolean(postsRes.error || productsRes.error)}
           gallery={{
+            tippingAvailable: process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller,
+            viewerIsOwner: viewer?.id === resolvedCreatorId,
             posts: mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, resolvedCreatorId),
             creatorId: resolvedCreatorId, creatorName: displayName, creatorUsername: profile.username ?? null,
             creatorAvatarUrl: avatarUrl, creatorVerified: isVerifiedSeller, likedPostIds,

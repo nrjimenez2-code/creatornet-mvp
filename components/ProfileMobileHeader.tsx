@@ -5,6 +5,7 @@ import Link from "next/link";
 import BackButton from "./BackButton";
 import { signOutThisDevice } from "@/lib/browserSession";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
+import NotificationInbox from "@/components/NotificationInbox";
 
 const supabase = createBrowserClient();
 
@@ -50,6 +51,7 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
       <div className="flex items-center justify-between">
         <BackButton hrefOverride="/dashboard" />
         <div className="ml-4 flex items-center gap-2">
+          <NotificationInbox />
           <Link
             href={`/creators/${userId}/reviews`}
             className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs font-semibold leading-none text-white hover:bg-white/10 transition"
@@ -177,4 +179,3 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
     </>
   );
 }
-

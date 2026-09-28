@@ -7,6 +7,7 @@ const HISTORY_LIMIT = 100;
 
 type LedgerRow = {
   id: string;
+  tip_id: string | null;
   purchase_id: string | null;
   order_id: string | null;
   booking_payment_id: string | null;
@@ -53,6 +54,7 @@ function cents(value: number | null | undefined): number {
 }
 
 function paymentLabel(row: LedgerRow): string {
+  if (row.tip_id) return "Tip";
   if (row.stripe_invoice_id) return "Installment payment";
   if (row.booking_payment_id) return "Booking payment";
   if (row.purchase_id || row.order_id) return "Product sale";
@@ -76,7 +78,7 @@ export async function fetchCreatorEarningsView(
     supabaseAdmin
       .from("payment_fee_ledger")
       .select(
-        "id, purchase_id, order_id, booking_payment_id, stripe_invoice_id, gross_amount_cents, platform_fee_cents, processing_fee_cents, creator_net_cents, refunded_amount_cents, earnings_reversed_cents, disputed_amount_cents, dispute_status, currency, status, created_at",
+        "id, tip_id, purchase_id, order_id, booking_payment_id, stripe_invoice_id, gross_amount_cents, platform_fee_cents, processing_fee_cents, creator_net_cents, refunded_amount_cents, earnings_reversed_cents, disputed_amount_cents, dispute_status, currency, status, created_at",
       )
       .eq("creator_id", creatorId)
       .order("created_at", { ascending: false })

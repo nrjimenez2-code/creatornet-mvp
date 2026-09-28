@@ -103,7 +103,7 @@ export async function applyPaymentRefundState(
   // installment can only be classified reliably from its immutable ledger row.
   const { data: matchingLedger, error: ledgerLookupError } = await admin
     .from("payment_fee_ledger")
-    .select("stripe_invoice_id")
+    .select("stripe_invoice_id,tip_id")
     .eq("stripe_payment_intent_id", state.paymentIntentId)
     .maybeSingle();
   if (ledgerLookupError && !/0 rows|No rows/i.test(ledgerLookupError.message)) {
@@ -147,6 +147,13 @@ export async function applyPaymentRefundState(
     fullyRefunded,
     true
   );
+  if (matchingLedger?.tip_id) {
+    const { error: tipRefundError } = await admin.rpc("apply_video_tip_refund", {
+      p_tip_id: matchingLedger.tip_id,
+      p_refunded_amount_cents: state.refundedAmountCents,
+    });
+    if (tipRefundError) throw new Error(`tip refund state failed: ${tipRefundError.message}`);
+  }
 }
 
 /** Reapply an earlier refund after a late payment/checkout event writes links. */

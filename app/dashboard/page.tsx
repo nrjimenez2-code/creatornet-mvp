@@ -15,6 +15,7 @@ import DesktopStripeConnectBanner from "@/components/DesktopStripeConnectBanner"
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import NotificationInbox from "@/components/NotificationInbox";
 
 type Tab = "following" | "discover";
 
@@ -29,6 +30,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   // Bumped after a successful post: remounts FeedList so the new post shows up.
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
+  const [openTipPostId, setOpenTipPostId] = useState<string | null>(null);
+  const [resumeTipId, setResumeTipId] = useState<string | null>(null);
 
 
   // Check for postId in URL to highlight specific video
@@ -36,9 +39,16 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
     const postId = searchParams?.get("postId");
     if (postId) {
       setHighlightPostId(postId);
+      const returnedTipId = searchParams?.get("tipId");
+      if (searchParams?.get("tip") === "1" || returnedTipId) {
+        setOpenTipPostId(postId);
+        setResumeTipId(returnedTipId);
+      }
       // Remove postId from URL after setting it
       const url = new URL(window.location.href);
       url.searchParams.delete("postId");
+      url.searchParams.delete("tip");
+      url.searchParams.delete("tipId");
       router.replace(url.pathname + url.search, { scroll: false });
     }
   }, [searchParams, router, setHighlightPostId]);
@@ -114,6 +124,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           <path d="M15.4 15.9L20.2 20.7" fill="none" stroke="white" strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       </Link>
+      {!authLoading && userId && <NotificationInbox className="fixed right-14 top-3 z-40 lg:right-5 lg:top-5" />}
 
       <div className="mx-auto grid grid-cols-1 lg:grid-cols-[240px_1fr] gap-2 lg:gap-6 px-0 pr-0 lg:pr-10">
         {/* SIDEBAR - Always visible, icon-only on smaller screens, full on large screens (TikTok style) */}
@@ -284,7 +295,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList key={feedRefreshKey} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
+            <FeedList key={feedRefreshKey} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={openTipPostId} resumeTipId={resumeTipId} />
           </div>
         </div>
       </div>

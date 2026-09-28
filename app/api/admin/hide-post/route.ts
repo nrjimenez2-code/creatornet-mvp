@@ -4,6 +4,7 @@ import {
   runModerationAction,
   type PostModerationRow,
 } from "@/lib/admin/moderation";
+import { expireOpenTipSessions } from "@/lib/tipCheckout";
 
 export const runtime = "nodejs";
 
@@ -15,5 +16,6 @@ export async function POST(req: NextRequest) {
     selectColumns: "hidden_at, removed_at, flag_reason",
     buildUpdate: () => ({ hidden_at: new Date().toISOString() }),
     deriveStatus: derivePostStatus,
+    afterUpdate: (admin, postId) => expireOpenTipSessions(admin, { postId }),
   });
 }
