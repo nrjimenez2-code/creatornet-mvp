@@ -330,6 +330,43 @@ test("alignment waits for the sought frame instead of restarting a pending decod
   jest.advanceTimersByTime(3_000); expect(active.failed).not.toHaveBeenCalled();
 });
 
+test("a stale main frame cannot trigger a new bridge seek just before an aligned main callback", async () => {
+  const p = prepare("stale-main-alignment"); frame(p.video, 0.033);
+  const active = activate("stale-main-alignment", p.src);
+  await Promise.resolve(); // A reused shared player can finish its zero-start seek in a microtask.
+  clockedFrame(p.video, 0.125, 0.125, 3);
+  clockedFrame(p.video, 0.166667, 0.166667, 4);
+  clockedFrame(active.video, 0, 0.02, 1);
+  clockedFrame(active.video, 0.041667, 0.0684, 2);
+  expect(p.video.currentTime).toBe(0.0684); // Initial bridge resync is still allowed.
+  jest.advanceTimersByTime(1_000);
+  active.video.currentTime = 1.067988;
+  clockedFrame(p.video, 1.083333, 1.083333, 26);
+  expect(p.video.currentTime).toBe(1.083333); // Wait for fresh main evidence before seeking again.
+  clockedFrame(active.video, 1.041667, 1.067988, 26);
+  expect(active.ready).toHaveBeenCalledTimes(1);
+  expect(active.failed).not.toHaveBeenCalled();
+  jest.advanceTimersByTime(3_000);
+  expect(active.failed).not.toHaveBeenCalled();
+});
+
+test("a bridge frame matching an old main frame cannot release stale presentation", async () => {
+  const p = prepare("stale-main-release"); frame(p.video, 0.033);
+  const active = activate("stale-main-release", p.src);
+  await Promise.resolve();
+  clockedFrame(p.video, 0.125, 0.125, 3);
+  clockedFrame(p.video, 0.166667, 0.166667, 4);
+  clockedFrame(active.video, 0, 0.02, 1);
+  clockedFrame(active.video, 0.041667, 0.0684, 2);
+  jest.advanceTimersByTime(1_000);
+  active.video.currentTime = 1.067988;
+  clockedFrame(p.video, 0.041667, 0.041667, 26);
+  expect(active.ready).not.toHaveBeenCalled();
+  clockedFrame(active.video, 1.041667, 1.067988, 26);
+  expect(active.ready).not.toHaveBeenCalled();
+  expect(p.video.currentTime).toBe(1.067988); // The fresh main frame may resync the bridge.
+});
+
 test("reversal during alignment cancels the pending frame and rejects its late callback", () => {
   const p = prepare("reversed-align"); frame(p.video, 0.033);
   const active = activate("reversed-align", p.src);

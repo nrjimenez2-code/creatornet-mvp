@@ -239,6 +239,9 @@ export class MobileFeedController {
     const align = () => {
       if (!current() || document.hidden || video.seeking || video.paused || lastMain === null) return;
       if (!active.bridge) return finish();
+      // A bridge callback can precede a nearly simultaneous main callback after
+      // a gap. Stale main data cannot justify a release or another bridge seek.
+      if (performance.now() - lastMainAt > 250) return;
       const preview = active.bridge;
       const frameStep = mainStep ?? preview.frameStep;
       if (preview.frameTime !== null && frameStep !== null && !preview.video.seeking && Math.abs(lastMain - preview.frameTime) <= frameStep + 0.001) return finish();
