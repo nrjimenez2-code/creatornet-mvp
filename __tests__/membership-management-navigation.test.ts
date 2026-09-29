@@ -10,7 +10,7 @@ type NavigationQuery = { select: () => NavigationQuery; eq: () => NavigationQuer
 const mockQuery: NavigationQuery = { select: jest.fn(() => mockQuery), eq: jest.fn(() => mockQuery), in: jest.fn(() => mockQuery),
   order: jest.fn(async () => ({ data: [], error: mockLibraryError })), maybeSingle: jest.fn(async () => ({ data: { avatar_url: null }, error: null })) };
 const mockClient = { from: jest.fn(() => mockQuery) };
-jest.mock("next/navigation", () => ({ useRouter: () => mockRouter, useSearchParams: () => mockParams }));
+jest.mock("next/navigation", () => ({ useRouter: () => mockRouter, useSearchParams: () => mockParams, usePathname: () => "/dashboard" }));
 jest.mock("@/lib/supabaseClient", () => ({ createClient: () => mockClient }));
 jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: "19000000-0000-4000-8000-000000000001", loading: false }) }));
 jest.mock("@/components/FeedList", () => ({ __esModule: true, default: () => null }));
@@ -18,18 +18,24 @@ jest.mock("@/components/PostComposerModal", () => ({ __esModule: true, default: 
 jest.mock("@/components/SearchDrawer", () => ({ __esModule: true, default: () => null }));
 jest.mock("@/components/SidebarSignOutButton", () => ({ __esModule: true, default: () => null }));
 jest.mock("@/components/StripeConnectBanner", () => ({ __esModule: true, default: () => null }));
+jest.mock("@/components/DesktopStripeConnectBanner", () => ({ __esModule: true, default: () => null }));
 jest.mock("@/components/BackButton", () => ({ __esModule: true, default: () => null }));
 jest.mock("@/lib/utils", () => ({ DEFAULT_AVATAR_URL: "/Default_DP.png" }));
 import Dashboard from "@/app/dashboard/page";
 import Library from "@/app/library/page";
+import DesktopNavigationShell from "@/components/DesktopNavigationShell";
+import MobileTabNav from "@/components/MobileTabNav";
 let container: HTMLDivElement, root: Root;
 beforeEach(() => { jest.clearAllMocks(); jest.useFakeTimers(); mockLibraryError = null;
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container); });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); jest.useRealTimers(); });
 test("step 5: the live dashboard navigation reaches membership management and keeps the mobile Library route", async () => {
-  await act(async () => root.render(createElement(Dashboard))); await act(async () => jest.runOnlyPendingTimers());
-  expect(container.querySelector('nav a[href="/memberships"]')?.textContent).toContain("Mentorships");
-  expect(container.querySelector('a[href="/library"]')).not.toBeNull();
+  await act(async () => root.render(createElement("div", null,
+    createElement(DesktopNavigationShell, null, createElement(Dashboard)),
+    createElement(MobileTabNav),
+  ))); await act(async () => jest.runOnlyPendingTimers());
+  expect(container.querySelector('nav[aria-label="Main destinations"] a[href="/memberships"]')?.textContent).toContain("Mentorships");
+  expect(container.querySelector('nav[aria-label="Mobile navigation"] a[href="/library"]')).not.toBeNull();
 });
 test("step 5: monthly-only buyers can reach management from an otherwise empty legacy Library", async () => {
   await act(async () => root.render(createElement(Library)));
