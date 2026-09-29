@@ -88,9 +88,8 @@ test("desktop create action is in the scrollable sidebar flow, before sign out",
   expect(container.querySelector('[role="dialog"]')?.textContent).toBe("New post");
 });
 
-test("the existing floating tablet action is hidden on desktop", async () => {
+test("the dashboard leaves tablet creation to the shared mobile navigation", async () => {
   await act(async () => root.render(createElement(DashboardPage)));
   const floating = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Create post") && b.className.includes("fixed"));
-  expect(floating?.className).toContain("md:flex");
-  expect(floating?.className).toContain("lg:hidden");
+  expect(floating).toBeUndefined();
 });

@@ -318,21 +318,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
       {/* SEARCH DRAWER */}
       {isSearchOpen && <SearchDrawer open onClose={() => setIsSearchOpen(false)} />}
 
-      {/* TABLET CREATE POST FAB — desktop uses the in-flow sidebar action. */}
-      <button
-        type="button"
-        onClick={handleRequestCreatePost}
-        className="
-          hidden md:flex lg:hidden fixed left-5 bottom-5 z-40
-          h-10 rounded-full bg-[#4A35C7] px-4 text-white text-sm font-semibold
-          shadow-lg shadow-[#4A35C7]/30 hover:brightness-95 items-center gap-2
-          disabled:opacity-60
-        "
-      >
-        <span className="text-lg leading-none">+</span>
-        Create post
-      </button>
-
       {isComposerOpen && (
         <PostComposerModal
           onClose={() => setIsComposerOpen(false)}
