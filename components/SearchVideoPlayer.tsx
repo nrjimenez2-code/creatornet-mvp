@@ -128,6 +128,7 @@ export default function SearchVideoPlayer({ posts, initialIndex, onClose, onDele
         return <div key={result.id} data-index={index} ref={element => { itemRefs.current[index] = element; }} className="h-[100dvh] w-full flex items-center justify-center text-white snap-start">
           <div className="w-full">
             {isWithinRenderWindow(index, activeIndex) && post ? <VideoCard
+              insightSource="search"
               postId={post.id} src={post.video_url || undefined} poster={post.poster_url}
               desktopFeedMediaKey={frame.mediaKey} desktopFeedRatio={frame.ratio}
               desktopFeedUseNaturalFrame={frame.useNaturalFrame} onDesktopFeedRatio={rememberMediaRatio}

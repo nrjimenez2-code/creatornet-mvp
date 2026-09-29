@@ -96,7 +96,7 @@ export default async function ProfilePage() {
   const isVerifiedSeller = isSellReadyProfile(profile);
 
   return (
-    <section className="px-4 pb-16 pt-4 md:pt-10 text-white relative">
+    <section className="px-4 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] pt-4 md:pt-10 lg:pb-16 text-white relative">
       <div className="max-w-6xl mx-auto">
         {/* Keep the profile menu available until the dashboard sidebar appears. */}
         <div className="lg:hidden mb-6">

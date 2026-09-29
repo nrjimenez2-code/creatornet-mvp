@@ -33,8 +33,12 @@ import { recordFeedEvent, recordLegacyPreparation, measuredPreparation } from "@
 import { mobileFeedController } from "@/lib/mobileFeedController";
 import { planMobileFallback } from "@/lib/mobileFeedRecovery";
 import { useFeedPlaybackResolution } from "@/lib/useFeedPlaybackResolution";
+import { bindVideoInsights, leaveInsightVideo, insightCollectionClientEnabled } from "@/lib/videoInsightsClient";
+import { insightPlaybackSuspended } from "@/lib/insightPlayback";
+import type { InsightSource } from "@/lib/videoInsights";
 
 type VideoCardProps = {
+  insightSource?: InsightSource;
   onFeedDeleted?: (postId: string) => void;
   onInteractionChange?: (postId: string, patch: FeedInteraction) => void;
   onFirstFrame?: (postId: string) => void;
@@ -469,7 +473,7 @@ function VideoCard(props: VideoCardProps) {
   );
   const [fetchedPriceCents, setFetchedPriceCents] = useState<number | null>(null);
   // Use cached user hook to avoid rate limits
-  const { userId: cachedUserId, loading: authLoading } = useUser();
+  const { userId: cachedUserId, loading: authLoading, session: insightAuth } = useUser();
   const [tipOpen, setTipOpen] = useState(false);
   const canTip = tipsEnabled && !authLoading && Boolean(postId) && Boolean(creatorId) && cachedUserId !== creatorId;
   // A redirect return must still show the existing payment's status if tipping
@@ -490,6 +494,18 @@ function VideoCard(props: VideoCardProps) {
     openedReturnedTipRef.current = true;
     setTipOpen(true);
   }, [authLoading, cachedUserId, canTip, canResumeTip, openTipOnMount]);
+
+  useEffect(() => {
+    if (!insightCollectionClientEnabled() || !postId || authLoading || !originalSrc) return;
+    if (isActive === false || (cachedUserId && cachedUserId === creatorId)) { leaveInsightVideo(postId); return; }
+    const video = videoRef.current;
+    if (!video) return;
+    const owner = sharedVideoOwnerRef.current;
+    return bindVideoInsights(video, { postId, media: originalSrc, userId: cachedUserId, token: insightAuth?.access_token ?? null,
+      source: props.insightSource ?? activeTab ?? "unknown", active: isActive, container: containerRef.current ?? undefined,
+      eligible: () => videoRef.current === video && activeRef.current !== false && !insightPlaybackSuspended(video) &&
+        (!useSharedMobilePlayer || ownsMobileFeedPlayer(owner, video, src)) });
+  }, [postId, originalSrc, isActive, cachedUserId, creatorId, authLoading, insightAuth?.access_token, props.insightSource, activeTab, src, retryVersion, useSharedMobilePlayer]);
 
   // Refs for analytics (allow stable event-listener closures to access latest prop values)
   const postIdRef = useRef(postId);
@@ -790,7 +806,7 @@ function VideoCard(props: VideoCardProps) {
   // video moving muted and offer a one-tap unmute. The saved preference is
   // deliberately NOT touched — the user asked for sound, the browser said no.
   const fallBackToMuted = useCallback((video: HTMLVideoElement, requestedOwner = sharedVideoOwnerRef.current) => {
-    if (!pageVisibleRef.current || manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video) return;
+    if (!pageVisibleRef.current || manuallyPausedRef.current || activeRef.current === false || videoRef.current !== video || insightPlaybackSuspended(video)) return;
     if (controlledMobilePlayer && !ownsMobileFeedPlayer(requestedOwner, video, src)) return;
     video.muted = true;
     // isMuted is derived from this flag, so setting it is the whole mute.
@@ -845,7 +861,7 @@ function VideoCard(props: VideoCardProps) {
       clearTimeout(retryTimer);
     };
     const tryPlay = (retried = false) => {
-      if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current) return;
+      if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current || insightPlaybackSuspended(video)) return;
       if (controlledMobilePlayer && !ownsMobileFeedPlayer(playOwner, video, src)) return;
       if (controlledMobilePlayer && mobileFeedSeekFailed(playOwner)) { mobileFeedController.suspend(); setMediaError(true); return; }
       video.muted = mutedRef.current;
@@ -1543,7 +1559,9 @@ function VideoCard(props: VideoCardProps) {
         const target = event.target;
         // Portal clicks bubble through React, even outside this card's DOM.
         if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
-        if (target.closest('button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menu"], [role="dialog"], [role="slider"], [contenteditable="true"], [data-no-playback-toggle]')) return;
+        const control = target.closest('button, a, input, textarea, select, label, summary, [role="button"], [role="link"], [role="menu"], [role="dialog"], [role="slider"], [contenteditable="true"], [data-no-playback-toggle]');
+        // Profile/search dialogs enclose the whole card; only controls inside it block playback taps.
+        if (control && event.currentTarget.contains(control)) return;
         if (!src) return;
         const previous = tapRef.current;
         if (previous) {
@@ -1994,6 +2012,8 @@ function VideoCard(props: VideoCardProps) {
           <DeleteVideoButton
             postId={postId}
             creatorId={creatorId ?? null}
+            getVideo={() => videoRef.current}
+            isVideoActive={() => activeRef.current !== false && !!videoRef.current && (!useSharedMobilePlayer || ownsMobileFeedPlayer(sharedVideoOwnerRef.current, videoRef.current, src))}
             onDeleted={deleted}
             onNotInterested={activeTab === "discover" && hasDiscoverSession(postId) ? () => {
               sendDiscoverEvent(postId, "not_interested");

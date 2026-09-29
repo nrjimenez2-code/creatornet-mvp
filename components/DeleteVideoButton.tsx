@@ -1,24 +1,34 @@
 "use client";
 
-import { useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { Ellipsis, EyeOff, Flag, Trash2 } from "lucide-react";
+import { Ellipsis, EyeOff, Flag, Trash2, ChartNoAxesCombined, X } from "lucide-react";
+import dynamic from "next/dynamic";
+import { pauseForInsights } from "@/lib/insightPlayback";
+import VideoInsightsSkeleton from "./VideoInsightsSkeleton";
+const VideoInsightsPanel = dynamic(() => import("./VideoInsightsPanel"), { loading: () => <VideoInsightsSkeleton /> });
 import { getActionSession } from "@/lib/actionSession";
 import { useUser } from "@/lib/useUser";
 import { REPORT_REASONS, type ReportReason } from "@/lib/postReports";
 
 const emptySubscribe = () => () => {};
 
-export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotInterested }: {
+export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotInterested, getVideo, isVideoActive }: {
   postId: string;
   creatorId: string | null;
   onDeleted: () => void;
   onNotInterested?: () => void;
+  getVideo?: () => HTMLVideoElement | null;
+  isVideoActive?: () => boolean;
 }) {
   const { userId, loading } = useUser();
   const dialog = useRef<HTMLDialogElement>(null);
   const reportDialog = useRef<HTMLDialogElement>(null);
+  const insightsDialog = useRef<HTMLDialogElement>(null);
+  const resumeInsights = useRef<(() => void) | null>(null);
+  const [insightsOpen, setInsightsOpen] = useState(false);
+  useEffect(() => () => { resumeInsights.current?.(); resumeInsights.current=null; }, []);
   const options = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -104,17 +114,24 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
     </button>
     {mounted && createPortal(
       <dialog ref={options} aria-label="Video options" style={menuPosition}
-        onClose={() => { setOptionsOpen(false); if (!dialog.current?.open && !reportDialog.current?.open) trigger.current?.focus(); }}
+        onClose={() => { setOptionsOpen(false); if (!dialog.current?.open && !reportDialog.current?.open && !insightsDialog.current?.open) trigger.current?.focus(); }}
         onClick={(event) => { event.stopPropagation(); if (event.target === event.currentTarget) options.current?.close(); }}
         onKeyDown={(event) => event.stopPropagation()} onWheel={(event) => event.stopPropagation()}
         onTouchStart={(event) => event.stopPropagation()} onTouchEnd={(event) => event.stopPropagation()}
         className="fixed inset-x-0 bottom-0 top-auto m-0 w-full max-w-none rounded-t-2xl border border-white/15 bg-[#17141d] p-4 pb-[max(1rem,env(safe-area-inset-bottom))] text-white shadow-2xl backdrop:bg-black/60 lg:bottom-auto lg:right-auto lg:w-52 lg:rounded-xl lg:p-1.5 lg:backdrop:bg-transparent">
         <div className="mx-auto mb-4 h-1 w-8 rounded-full bg-white/25 lg:hidden" />
         {isOwner ? (
+          <>
+          {process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED === "true" && <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm hover:bg-white/5"
+            onClick={() => {
+              resumeInsights.current = pauseForInsights(getVideo?.() ?? null, isVideoActive ?? (()=>false));
+              options.current?.close(); setOptionsOpen(false); setInsightsOpen(true); insightsDialog.current?.showModal();
+            }}><ChartNoAxesCombined className="h-4 w-4" aria-hidden="true" />View insights</button>}
           <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-red-300 hover:bg-white/5"
             onClick={() => { options.current?.close(); setOptionsOpen(false); setError(null); dialog.current?.showModal(); cancel.current?.focus(); }}>
             <Trash2 className="h-4 w-4" aria-hidden="true" />Delete video
           </button>
+          </>
         ) : (
           <>
             {onNotInterested && <button type="button" className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left text-sm text-white hover:bg-white/5"
@@ -129,6 +146,16 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
         )}
         <button type="button" onClick={() => options.current?.close()} className="mt-3 w-full rounded-xl border border-white/10 bg-white/5 py-3 text-sm lg:hidden">Cancel</button>
       </dialog>, document.body)}
+    {isOwner && mounted && process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED === "true" && createPortal(<dialog ref={insightsDialog} aria-labelledby={`insights-title-${postId}`}
+      onClose={() => { setInsightsOpen(false); resumeInsights.current?.(); resumeInsights.current=null; trigger.current?.focus({preventScroll:true}); }}
+      onClick={event=>{ event.stopPropagation(); if(event.target===event.currentTarget)insightsDialog.current?.close(); }}
+      onKeyDown={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onTouchStart={event=>event.stopPropagation()} onTouchEnd={event=>event.stopPropagation()}
+      style={{scrollbarColor:"#3a3a43 transparent",scrollbarWidth:"thin"}}
+      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border border-[#29292f] bg-black px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] text-[#f7f7f8] backdrop:bg-black/70 lg:m-auto lg:h-auto lg:max-h-[calc(100dvh-28px)] lg:w-[calc(100%-2rem)] lg:max-w-[730px] lg:rounded-2xl lg:bg-[#080809] lg:p-[22px]">
+      <div className="flex items-center justify-between gap-4 border-b border-[#29292f] pb-3"><div><h2 id={`insights-title-${postId}`} className="text-xl font-semibold tracking-tight">Video insights</h2>
+        <p className="mt-1 text-xs text-[#a4a4ae]">A closer look at your video</p></div>
+        <button autoFocus type="button" aria-label="Close video insights" onClick={()=>insightsDialog.current?.close()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#bcbcc7] hover:bg-[#17171c] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a58aff]"><X className="h-5 w-5"/></button></div>
+      {insightsOpen && <VideoInsightsPanel key={postId} postId={postId}/>}</dialog>,document.body)}
     {!isOwner && mounted && createPortal(
       <dialog ref={reportDialog} aria-labelledby={`report-title-${postId}`}
         onClose={() => trigger.current?.focus()}

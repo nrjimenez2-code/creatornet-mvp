@@ -2,7 +2,6 @@
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
-import BackButton from "./BackButton";
 import { signOutThisDevice } from "@/lib/browserSession";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
 import NotificationInbox from "@/components/NotificationInbox";
@@ -48,9 +47,8 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
 
   return (
     <>
-      <div className="flex items-center justify-between">
-        <BackButton hrefOverride="/dashboard" />
-        <div className="ml-4 flex items-center gap-2">
+      <div className="flex items-center justify-end">
+        <div className="flex items-center gap-2">
           <NotificationInbox />
           <Link
             href={`/creators/${userId}/reviews`}
