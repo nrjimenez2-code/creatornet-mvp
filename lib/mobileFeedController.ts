@@ -9,6 +9,17 @@ type Activation = { token: symbol; postId: string; src: string; video: HTMLVideo
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 
+function preparationBuffer(video: HTMLVideoElement, target: number) {
+  // The iPhone HLS trace starts its first range at 0.000001 even with a valid
+  // opening frame. Normalize only that zero-start boundary, not real gaps or
+  // saved return positions, and count only the duration actually buffered.
+  if (target === 0 && video.buffered.length) {
+    const start = video.buffered.start(0);
+    if (start > 0 && start <= 0.000001) return Math.max(0, video.buffered.end(0) - start);
+  }
+  return playableBuffer(video, target);
+}
+
 /** Owns preparation and presentation only. The audible element retains its WebKit grant. */
 export class MobileFeedController {
   private slots: Slot[] = [];
@@ -110,7 +121,7 @@ export class MobileFeedController {
     slot.pause = reason => { if (collectDiagnostics) lastPauseReason = reason ?? "unspecified"; playEpoch++; video.pause(); };
     const usable = () => {
       const remaining = Number.isFinite(video.duration) ? video.duration - frameTarget : BUFFER_TARGET;
-      const buffer = playableBuffer(video, frameTarget);
+      const buffer = preparationBuffer(video, frameTarget);
       return frameValid && !video.seeking && remaining > 0 && buffer + 0.001 >= Math.min(BUFFER_TARGET, remaining);
     };
     const ready = () => {
@@ -120,7 +131,7 @@ export class MobileFeedController {
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
       video.style.visibility = "visible";
       if (slot.onReady) slot.onReady(); else slot.present(true);
-      recordFeedEvent("preparation-ready", { ...detail, postId: slot.postId, position: frameTarget, buffer: playableBuffer(video, frameTarget), generation, bufferTarget: BUFFER_TARGET });
+      recordFeedEvent("preparation-ready", { ...detail, postId: slot.postId, position: frameTarget, buffer: preparationBuffer(video, frameTarget), generation, bufferTarget: BUFFER_TARGET });
     };
     const observe = () => {
       if (!current() || !video.requestVideoFrameCallback) return;
@@ -158,7 +169,7 @@ export class MobileFeedController {
       // Capture before our own pause/cancel obscures the state that missed readiness.
       const snapshot = diagnostics();
       slot.pause("attempt-miss"); cancelFrame(); clearTimeout(timer); decoding = false;
-      recordFeedEvent("preparation-miss", { postId: slot.postId, reason, attempt, buffer: playableBuffer(video, frameTarget), ...snapshot, ...detail });
+      recordFeedEvent("preparation-miss", { postId: slot.postId, reason, attempt, buffer: preparationBuffer(video, frameTarget), ...snapshot, ...detail });
       if (attempt >= 2) return this.clear(slot);
       slot.phase = "retrying";
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
@@ -226,7 +237,7 @@ export class MobileFeedController {
     const prepared = this.preparing;
     const remaining = prepared && Number.isFinite(prepared.video.duration) ? prepared.video.duration - target : BUFFER_TARGET;
     const eligible = !!prepared && prepared.postId === input.postId && prepared.src === input.src && prepared.ready &&
-      sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && remaining > 0 && playableBuffer(prepared.video, target) + 0.001 >= Math.min(BUFFER_TARGET, remaining);
+      sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && remaining > 0 && preparationBuffer(prepared.video, target) + 0.001 >= Math.min(BUFFER_TARGET, remaining);
     const bridge = eligible ? prepared : null;
     const partial = prepared && !eligible && prepared.postId === input.postId && prepared.src === input.src && sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && !input.reload ? prepared : null;
     if (prepared && !bridge && !partial) {
@@ -405,7 +416,9 @@ export class MobileFeedController {
     const progress = () => this.resumePreparation();
     const playing = () => { active.playing = true; progress(); };
     const waiting = () => { active.playing = false; progress(); };
-    video.addEventListener("progress", progress); video.addEventListener("playing", playing); video.addEventListener("waiting", waiting); video.addEventListener("stalled", waiting);
+    // A stalled fetch can coexist with healthy buffered playback. Recheck the
+    // buffer budget without waiting for a playing event that may never repeat.
+    video.addEventListener("progress", progress); video.addEventListener("playing", playing); video.addEventListener("waiting", waiting); video.addEventListener("stalled", progress);
     const watchdog = setTimeout(() => {
       if (!current() || complete) return;
       const qualityAtTimeout = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
@@ -429,7 +442,7 @@ export class MobileFeedController {
         recordFeedEvent("handoff-recovery", { result: "retry" }, video);
       }
     }, 3_000);
-    active.stop = () => { alive = false; epoch++; bridgeSeekEpoch++; bridgeSeekTarget = null; clearTimeout(watchdog); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); if (bridgeFrame !== undefined) active.bridge?.video.cancelVideoFrameCallback?.(bridgeFrame); video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play); video.removeEventListener("timeupdate", unsupported); video.removeEventListener("progress", progress); video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting); video.removeEventListener("stalled", waiting); };
+    active.stop = () => { alive = false; epoch++; bridgeSeekEpoch++; bridgeSeekTarget = null; clearTimeout(watchdog); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); if (bridgeFrame !== undefined) active.bridge?.video.cancelVideoFrameCallback?.(bridgeFrame); video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play); video.removeEventListener("timeupdate", unsupported); video.removeEventListener("progress", progress); video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting); video.removeEventListener("stalled", progress); };
     if (bridge) { bridge.video.muted = true; bridge.video.style.visibility = "visible"; play(); observeBridge(); }
     const pending = mobileFeedPlaybackReady(input.token);
     if (pending) void pending.then(() => { if (current()) observeMain(); }); else observeMain();

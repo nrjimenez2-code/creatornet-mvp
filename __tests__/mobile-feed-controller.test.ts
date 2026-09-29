@@ -86,6 +86,46 @@ test("loading starts before main presentation; decoding waits for the main playa
   expect(p.present).toHaveBeenCalledWith(true); expect(active.ready).not.toHaveBeenCalled();
 });
 
+test("a network stalled event with healthy main playback keeps neighbor preparation running", () => {
+  const active = activate("network-stalled-main", "https://example.test/network-stalled-main.mp4", 2);
+  const p = prepare("network-stalled-neighbor");
+  expect(p.video.paused).toBe(false);
+  active.video.dispatchEvent(new Event("stalled"));
+  expect(active.video.paused).toBe(false);
+  expect(p.video.paused).toBe(false);
+  frame(p.video, 0.033);
+  expect(p.present).toHaveBeenCalledWith(true);
+});
+
+test("actual waiting pauses neighbor preparation until main playback resumes", () => {
+  const active = activate("waiting-main", "https://example.test/waiting-main.mp4", 2);
+  const p = prepare("waiting-neighbor");
+  expect(p.video.paused).toBe(false);
+  active.video.dispatchEvent(new Event("waiting"));
+  expect(p.video.paused).toBe(true);
+  active.video.dispatchEvent(new Event("progress"));
+  expect(p.video.paused).toBe(true);
+  active.video.dispatchEvent(new Event("playing"));
+  expect(p.video.paused).toBe(false);
+  frame(p.video, 0.033);
+  expect(p.present).toHaveBeenCalledWith(true);
+});
+
+test("a network stalled event still yields to insufficient main buffer and resumes when it refills", () => {
+  const active = activate("stalled-low-buffer-main", "https://example.test/stalled-low-buffer-main.mp4", 2);
+  const p = prepare("stalled-low-buffer-neighbor");
+  expect(p.video.paused).toBe(false);
+  media(active.video, 0.2);
+  active.video.dispatchEvent(new Event("stalled"));
+  expect(p.video.paused).toBe(true);
+  expect(p.present).not.toHaveBeenCalledWith(true);
+  media(active.video, 2);
+  active.video.dispatchEvent(new Event("progress"));
+  expect(p.video.paused).toBe(false);
+  frame(p.video, 0.033);
+  expect(p.present).toHaveBeenCalledWith(true);
+});
+
 test("activating another post preserves the still-selected ready return neighbor", () => {
   const selected = prepare("selected-return"); frame(selected.video, 0.033);
   const incoming = activate("incoming-other", "https://example.test/incoming-other.mp4");
