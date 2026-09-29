@@ -11,9 +11,12 @@ jest.mock("next/navigation", () => ({ useRouter: () => router, useSearchParams: 
 jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: mockUserId, loading: false }) }));
 jest.mock("@/lib/supabaseClient", () => ({ createClient: () => mockClient }));
 jest.mock("@/components/FeedList", () => {
-  function MockFeedList({ activeTab }: { activeTab: string }) {
+  function MockFeedList({ activeTab, openTipPostId, resumeTipId, onTipReturnClosed }: {
+    activeTab: string; openTipPostId?: string | null; resumeTipId?: string | null; onTipReturnClosed?: () => void;
+  }) {
     useEffect(() => { feedMounts += 1; }, []);
-    return createElement("div", { "data-feed-tab": activeTab });
+    return createElement("div", { "data-feed-tab": activeTab, "data-open-tip-post-id": openTipPostId ?? "", "data-resume-tip-id": resumeTipId ?? "" },
+      createElement("button", { onClick: onTipReturnClosed }, "Close returned tip"));
   }
   return { __esModule: true, default: MockFeedList };
 });
@@ -29,6 +32,9 @@ let container: HTMLDivElement;
 beforeEach(() => {
   mockUserId = "viewer";
   searchParams.delete("tab");
+  searchParams.delete("postId");
+  searchParams.delete("tip");
+  searchParams.delete("tipId");
   feedMounts = 0;
   jest.clearAllMocks();
   container = document.createElement("div");
@@ -56,6 +62,26 @@ test("post creation from the shared mobile composer refreshes the feed", async (
   const firstMounts = feedMounts;
   await act(async () => window.dispatchEvent(new Event("creatornet:post-created")));
   expect(feedMounts).toBe(firstMounts + 1);
+});
+
+test.each([
+  ["payment return", "tipId", "existing-tip"],
+  ["sign-in return", "tip", "1"],
+])("dismissing a %s clears its intent before the feed remounts", async (_case, parameter, value) => {
+  searchParams.set("postId", "returned-post");
+  searchParams.set(parameter, value);
+  await act(async () => root.render(createElement(DashboardPage)));
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("returned-post");
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-resume-tip-id")).toBe(parameter === "tipId" ? value : "");
+
+  await act(async () => (container.querySelector("[data-feed-tab] button") as HTMLButtonElement).click());
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("");
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-resume-tip-id")).toBe("");
+
+  const beforeRemount = feedMounts;
+  await act(async () => window.dispatchEvent(new Event("creatornet:post-created")));
+  expect(feedMounts).toBe(beforeRemount + 1);
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("");
 });
 afterEach(async () => { await act(async () => root.unmount()); });
 

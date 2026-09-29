@@ -92,6 +92,7 @@ type VideoCardProps = {
   /** Reopen the tip flow after authentication returns to this video. */
   openTipOnMount?: boolean;
   resumeTipId?: string | null;
+  onTipReturnClosed?: () => void;
   productType?: string | null;
   /** posts.purchase_count; renders social proof only above SOCIAL_PROOF_MIN_COUNT. */
   purchaseCount?: number | null;
@@ -183,6 +184,7 @@ function VideoCard(props: VideoCardProps) {
     tipsEnabled = false,
     openTipOnMount = false,
     resumeTipId = null,
+    onTipReturnClosed,
     productType = null,
     purchaseCount = null,
     showFollowButton = false,
@@ -2034,7 +2036,10 @@ function VideoCard(props: VideoCardProps) {
           onCommentAdded={handleCommentAdded}
         />
       )}
-      {postId && (canTip || (tipOpen && canResumeTip)) && <TipModal open={tipOpen} postId={postId} creatorName={displayCreator} resumeTipId={resumeTipId} onClose={() => setTipOpen(false)} />}
+      {postId && (canTip || (tipOpen && canResumeTip)) && <TipModal open={tipOpen} postId={postId} creatorName={displayCreator} resumeTipId={resumeTipId} onClose={() => {
+        setTipOpen(false);
+        onTipReturnClosed?.();
+      }} />}
     </div>
   );
 }

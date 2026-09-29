@@ -303,7 +303,10 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={openTipPostId} resumeTipId={resumeTipId} />
+            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={openTipPostId} resumeTipId={resumeTipId} onTipReturnClosed={() => {
+              setOpenTipPostId(null);
+              setResumeTipId(null);
+            }} />
           </div>
         </div>
       </div>

@@ -38,6 +38,7 @@ type FeedListProps = {
   highlightPostId?: string | null;
   openTipPostId?: string | null;
   resumeTipId?: string | null;
+  onTipReturnClosed?: () => void;
 };
 
 const PAGE_SIZE = 20;
@@ -64,7 +65,7 @@ function useFeedViewportSize() {
   return { width, height };
 }
 
-export default function FeedList({ activeTab, onChangeTab, highlightPostId, openTipPostId, resumeTipId }: FeedListProps) {
+export default function FeedList({ activeTab, onChangeTab, highlightPostId, openTipPostId, resumeTipId, onTipReturnClosed }: FeedListProps) {
   const supabase = useMemo(() => createClient(), []);
   const { userId: viewerId, loading: authLoading } = useUser();
   const desktop = useDesktopViewport();
@@ -964,6 +965,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
                     tipsEnabled={p.tips_enabled === true}
                     openTipOnMount={openTipPostId === p.id}
                     resumeTipId={openTipPostId === p.id ? resumeTipId : null}
+                    onTipReturnClosed={openTipPostId === p.id ? onTipReturnClosed : undefined}
                     soundEnabled={isSoundOn}
                     isActive={isActive}
                     preload={!pageVisible ? "none" : desktop
