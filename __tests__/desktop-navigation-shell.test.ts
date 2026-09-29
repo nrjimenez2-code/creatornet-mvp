@@ -110,3 +110,16 @@ test("leaving Discover pauses playback and the current item does not navigate", 
   next.dispatchEvent(leavingClick);
   expect(mockPause).toHaveBeenCalledTimes(1);
 });
+
+test("auth changes replace Sign in with Sign out and show the Stripe prompt", async () => {
+  mockUserId = null;
+  await render();
+  expect(container.querySelector('a[aria-label="Sign in"]')).not.toBeNull();
+  expect(container.textContent).not.toContain("Connect Stripe to sell");
+  mockUserId = "viewer";
+  await render();
+  expect(container.querySelector('a[aria-label="Sign in"]')).toBeNull();
+  expect(container.querySelector('button[aria-label="Sign out"]')).not.toBeNull();
+  expect(container.textContent).toContain("Connect Stripe to sell");
+  expect(container.querySelector('a[aria-label="Profile"] img')?.getAttribute("src")).toBe("https://example.invalid/avatar.png");
+});
