@@ -1,10 +1,10 @@
 import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
-import { playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
+import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
 
 type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
 type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
-type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: () => void; decode: () => void; onReady?: () => void; present: Presentation };
+type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: (reason?: string) => void; decode: () => void; onReady?: () => void; present: Presentation };
 type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; playRequested: () => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
@@ -31,14 +31,14 @@ export class MobileFeedController {
   }
   private resumePreparation() {
     const slot = this.active?.partial ?? this.preparing;
-    if (this.decodeAllowed()) slot?.decode(); else slot?.pause();
+    if (this.decodeAllowed()) slot?.decode(); else slot?.pause("main-priority");
   }
 
   private clear(slot: Slot) {
     slot.generation = ++this.sequence;
     slot.stop(); slot.stop = () => {}; slot.decode = () => {}; slot.onReady = undefined; slot.phase = "cancelled";
     recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase });
-    slot.pause(); slot.video.muted = true;
+    slot.pause("cancelled"); slot.video.muted = true;
     slot.video.style.visibility = "hidden";
     slot.present(false);
     slot.ready = false; slot.frameTime = slot.frameStep = slot.frameCount = null;
@@ -83,9 +83,31 @@ export class MobileFeedController {
     let decoding = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const collectDiagnostics = feedTraceEnabled();
+    let frameRequestCount = 0, frameCallbackCount = 0;
+    let playRequestCount = 0, playResolvedCount = 0, playRejectedCount = 0, obsoletePlayRejectionCount = 0;
+    let lastFrameMediaTime: number | null = null;
+    let lastFrameReject: string | null = null;
+    let lastPauseReason: string | null = null;
+    const diagnostics = (): Record<string, string | number | boolean | null> => {
+      if (!collectDiagnostics) return {};
+      const buffered = video.buffered;
+      const ranges = Array.from({ length: Math.min(buffered.length, 4) }, (_, i) => [buffered.start(i), buffered.end(i)]);
+      const main = this.active;
+      return {
+        frameTarget, position: video.currentTime, bufferAtPosition: playableBuffer(video),
+        bufferedRanges: JSON.stringify(ranges), bufferedRangeCount: buffered.length,
+        readyState: video.readyState, networkState: video.networkState, paused: video.paused, seeking: video.seeking,
+        currentSourceMatches: video.currentSrc === video.src, positioned, frameValid, frameRequestPending: frame !== undefined,
+        frameRequestCount, frameCallbackCount, lastFrameMediaTime, lastFrameReject,
+        playRequestCount, playResolvedCount, playRejectedCount, obsoletePlayRejectionCount, lastPauseReason,
+        decodeAllowed: this.decodeAllowed(), mainPaused: main?.video.paused ?? null,
+        mainPlaying: main?.playing ?? null, mainBuffer: main ? playableBuffer(main.video) : null,
+      };
+    };
     // pause() can reject pending play promises in a later browser task. Mark
     // those requests obsolete before resuming or starting the next attempt.
-    slot.pause = () => { playEpoch++; video.pause(); };
+    slot.pause = reason => { if (collectDiagnostics) lastPauseReason = reason ?? "unspecified"; playEpoch++; video.pause(); };
     const usable = () => {
       const remaining = Number.isFinite(video.duration) ? video.duration - frameTarget : BUFFER_TARGET;
       const buffer = playableBuffer(video, frameTarget);
@@ -93,27 +115,35 @@ export class MobileFeedController {
     };
     const ready = () => {
       if (!current() || !usable() || slot.ready) return;
-      slot.ready = true; slot.phase = "ready"; slot.pause(); slot.stop();
+      const detail = diagnostics();
+      slot.ready = true; slot.phase = "ready"; slot.pause("ready"); slot.stop();
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
       video.style.visibility = "visible";
       if (slot.onReady) slot.onReady(); else slot.present(true);
-      recordFeedEvent("preparation-ready", { postId: slot.postId, position: frameTarget, buffer: playableBuffer(video, frameTarget), generation, bufferTarget: BUFFER_TARGET });
+      recordFeedEvent("preparation-ready", { ...detail, postId: slot.postId, position: frameTarget, buffer: playableBuffer(video, frameTarget), generation, bufferTarget: BUFFER_TARGET });
     };
     const observe = () => {
       if (!current() || !video.requestVideoFrameCallback) return;
       const observedEpoch = attemptEpoch;
+      if (collectDiagnostics) frameRequestCount++;
       frame = video.requestVideoFrameCallback((_now, metadata) => {
         if (!current() || observedEpoch !== attemptEpoch) return;
         frame = undefined;
+        if (collectDiagnostics) { frameCallbackCount++; lastFrameMediaTime = metadata.mediaTime; }
         if (positioned && video.readyState >= 2 && !video.seeking && video.currentSrc === video.src && Math.abs(metadata.mediaTime - frameTarget) <= 0.1) {
-          frameValid = true; slot.frameTime = metadata.mediaTime; slot.frameCount = metadata.presentedFrames; slot.pause(); ready();
+          frameValid = true; slot.frameTime = metadata.mediaTime; slot.frameCount = metadata.presentedFrames; slot.pause("target-frame"); ready();
         } else if (positioned && !video.seeking && video.currentSrc === video.src && metadata.mediaTime > frameTarget + 0.1 && !correctiveSeek) {
-          correctiveSeek = true; slot.pause(); positioned = false;
+          if (collectDiagnostics) lastFrameReject = "position-mismatch";
+          correctiveSeek = true; slot.pause("corrective-seek"); positioned = false;
           recordFeedEvent("preparation-corrective-seek", { postId: slot.postId, attempt, target: frameTarget, reported: metadata.mediaTime });
           try { video.currentTime = frameTarget; positioned = !video.seeking; } catch { /* The bounded attempt can retry. */ }
           observe();
           if (positioned && this.decodeAllowed()) play();
-        } else observe();
+        } else {
+          if (collectDiagnostics) lastFrameReject = !positioned ? "unpositioned" : video.readyState < 2 ? "ready-state"
+            : video.seeking ? "seeking" : video.currentSrc !== video.src ? "current-source-mismatch" : "position-mismatch";
+          observe();
+        }
       });
     };
     const seek = () => {
@@ -125,8 +155,10 @@ export class MobileFeedController {
     const cancelFrame = () => { attemptEpoch++; if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; };
     const miss = (reason: string, detail: { errorName?: string; mediaErrorCode?: number | null } = {}) => {
       if (!current() || slot.ready || slot.phase === "retrying") return;
-      slot.pause(); cancelFrame(); clearTimeout(timer); decoding = false;
-      recordFeedEvent("preparation-miss", { postId: slot.postId, reason, attempt, buffer: playableBuffer(video, frameTarget), ...detail });
+      // Capture before our own pause/cancel obscures the state that missed readiness.
+      const snapshot = diagnostics();
+      slot.pause("attempt-miss"); cancelFrame(); clearTimeout(timer); decoding = false;
+      recordFeedEvent("preparation-miss", { postId: slot.postId, reason, attempt, buffer: playableBuffer(video, frameTarget), ...snapshot, ...detail });
       if (attempt >= 2) return this.clear(slot);
       slot.phase = "retrying";
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
@@ -139,8 +171,16 @@ export class MobileFeedController {
     const error = () => miss("media-or-play-error", { mediaErrorCode: video.error?.code ?? null });
     const play = () => {
       const requestedEpoch = playEpoch;
-      void video.play()?.catch((reason: unknown) => {
+      const requestedAttempt = attemptEpoch;
+      if (collectDiagnostics) playRequestCount++;
+      void video.play()?.then(() => {
+        if (collectDiagnostics && current() && requestedAttempt === attemptEpoch) playResolvedCount++;
+      }, (reason: unknown) => {
         const errorName = reason && typeof reason === "object" && "name" in reason && typeof reason.name === "string" ? reason.name : "unknown";
+        if (collectDiagnostics && current() && requestedAttempt === attemptEpoch) {
+          playRejectedCount++;
+          if (requestedEpoch !== playEpoch) obsoletePlayRejectionCount++;
+        }
         if (requestedEpoch !== playEpoch) {
           if (current()) recordFeedEvent("preparation-play-obsolete", { postId: slot.postId, attempt, errorName });
           return;
@@ -158,6 +198,10 @@ export class MobileFeedController {
       if (!current() || slot.ready || slot.phase === "retrying" || !this.decodeAllowed()) return;
       if (decoding) { if (!frameValid && video.paused) play(); return; }
       decoding = true; attempt++; slot.phase = "acquiring-frame"; correctiveSeek = false;
+      if (collectDiagnostics) {
+        frameRequestCount = frameCallbackCount = playRequestCount = playResolvedCount = playRejectedCount = obsoletePlayRejectionCount = 0;
+        lastFrameMediaTime = null; lastFrameReject = lastPauseReason = null;
+      }
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
       timer = setTimeout(() => miss("attempt-timeout"), PREPARATION_BUDGET_MS);
       if (video.readyState >= 1) seek();
@@ -190,11 +234,11 @@ export class MobileFeedController {
       else {
         // This is still the selected neighbor. Another card can finish resolving
         // after its preparation effect ran; selection changes own cancellation.
-        prepared.pause();
+        prepared.pause("activation-priority");
         recordFeedEvent("preparation-retained", { postId: prepared.postId, activatedPostId: input.postId, phase: prepared.phase, position: prepared.target });
       }
     }
-    if (partial) { partial.pause(); partial.video.style.visibility = "hidden"; partial.present(false); this.preparing = null; input.previewHost.appendChild(partial.video); }
+    if (partial) { partial.pause("selected-partial"); partial.video.style.visibility = "hidden"; partial.present(false); this.preparing = null; input.previewHost.appendChild(partial.video); }
     if (bridge) { bridge.stop(); bridge.stop = () => {}; this.preparing = null; bridge.present = input.present; input.previewHost.appendChild(bridge.video); }
     const video = claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, { position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: eligible, reload: input.reload, boundedSeekRecovery: true });
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
@@ -294,7 +338,7 @@ export class MobileFeedController {
       });
     };
     const seeking = () => { epoch++; previousMain = lastMain = null; intendedPosition = video.currentTime; targetObserved = false; if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observeMain(); };
-    const pause = () => { active.playing = false; active.bridge?.video.pause(); active.partial?.pause(); this.preparing?.pause(); previousMain = lastMain = null; };
+    const pause = () => { active.playing = false; active.bridge?.video.pause(); active.partial?.pause("main-paused"); this.preparing?.pause("main-paused"); previousMain = lastMain = null; };
     const play = () => {
       if (!current() || document.hidden || video.paused) return;
       if (active.bridge) {
