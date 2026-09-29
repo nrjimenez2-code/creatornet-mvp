@@ -96,7 +96,7 @@ body {
   .cn-desktop-nav-bottom .cn-desktop-nav-action { border: 1px solid #2c2c31; }
   .cn-desktop-nav :focus-visible { outline: 2px solid #b09aff; outline-offset: -2px; }
 }
-@media (max-width: 1023px) { .cn-desktop-nav { display: none; } }
+@media (max-width: 1023.98px) { .cn-desktop-nav { display: none; } }
 @media (prefers-reduced-motion: reduce) { .cn-desktop-nav { transition: none; } }
 
 /* Ensure mobile-friendly touch targets (44px minimum) */
@@ -146,7 +146,7 @@ body {
 }
 /* Keep the phone feed and its fixed nav in the same changing Safari viewport.
    Scoped to the main feed; profile viewers and desktop retain their geometry. */
-@media (max-width: 1023px) {
+@media (max-width: 1023.98px) {
   .dashboard-feed-shell {
     --feed-nav-height: var(--mobile-tab-bar-height);
     height: 100dvh;
