@@ -222,3 +222,9 @@ export function releaseMobileFeedPlayer(token: symbol, departure = true): void {
   owner = null;
   getParkingPlace().appendChild(player);
 }
+
+/** Stop sound as soon as a top-level mobile tab is selected. Card cleanup still
+ * owns the position snapshot and release when the route changes. */
+export function pauseMobileFeedPlayer(): void {
+  player?.pause();
+}

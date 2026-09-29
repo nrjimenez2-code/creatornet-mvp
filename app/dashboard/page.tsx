@@ -25,10 +25,21 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const { userId, loading: authLoading } = useUser();
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>("discover");
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const activeTab: Tab = searchParams?.get("tab") === "following" ? "following" : "discover";
+  const [avatar, setAvatar] = useState<{ userId: string; url: string | null } | null>(null);
   // Bumped after a successful post: remounts FeedList so the new post shows up.
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
+
+  function setActiveTab(tab: Tab) {
+    if (tab === activeTab) return;
+    router.push(tab === "following" ? "/dashboard?tab=following" : "/dashboard", { scroll: false });
+  }
+
+  useEffect(() => {
+    const refreshFeed = () => setFeedRefreshKey((key) => key + 1);
+    window.addEventListener("creatornet:post-created", refreshFeed);
+    return () => window.removeEventListener("creatornet:post-created", refreshFeed);
+  }, []);
 
 
   // Check for postId in URL to highlight specific video
@@ -46,10 +57,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   // Fetch avatar in background - non-blocking, doesn't delay feed render
   useEffect(() => {
     let cancelled = false;
-    if (!userId) {
-      setAvatarUrl(null);
-      return;
-    }
+    if (!userId) return;
     // Use setTimeout to defer this so feed can start loading first
     const timeoutId = setTimeout(() => {
       (async () => {
@@ -62,7 +70,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             .maybeSingle();
           if (!cancelled) {
             // Only use app profile picture; no OAuth/metadata avatar — when none set, UI uses Default_DP.png
-            setAvatarUrl((profile?.avatar_url as string | null) ?? null);
+            setAvatar({ userId, url: (profile?.avatar_url as string | null) ?? null });
           }
         } catch (err) {
           console.error("Error fetching avatar:", err);
@@ -198,7 +206,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
                 <span className="relative h-9 w-9 lg:h-9 lg:w-9 rounded-full border border-white/25 bg-white/10 overflow-hidden flex items-center justify-center flex-shrink-0">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={avatarUrl || DEFAULT_AVATAR_URL}
+                    src={(avatar?.userId === userId ? avatar.url : null) || DEFAULT_AVATAR_URL}
                     alt=""
                     className="avatar-image h-full w-full object-cover"
                   />
@@ -284,16 +292,13 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList key={feedRefreshKey} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
+            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
           </div>
         </div>
       </div>
 
-      {/* MOBILE BOTTOM: signed-out visitors get a sticky join CTA in the slot
-          the nav occupies; signed-in users get the TikTok-style nav. Nothing
-          renders until the auth context settles — the session is seeded async,
-          so branching on !userId alone would flash the signed-out CTA at
-          every signed-in user on first paint. */}
+      {/* Signed-out visitors keep the join CTA. The shared signed-in bar lives
+          in the root layout; wait for auth to settle before showing this CTA. */}
       {authLoading ? null : !userId ? (
         <div className="dashboard-feed-nav lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
           <div className="flex h-[52px] items-center justify-between gap-3 px-4">
@@ -308,80 +313,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
             </Link>
           </div>
         </div>
-      ) : (
-      <nav className="dashboard-feed-nav lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
-        <div className="grid grid-cols-5 h-[52px]">
-          <button
-            type="button"
-            onClick={() => setActiveTab("discover")}
-            className={`flex flex-col items-center justify-center gap-1 text-xs ${
-              activeTab === "discover" ? "text-white" : "text-white/60"
-            }`}
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M12 2 15.09 8.26 22 9.27l-5 4.87 1.18 6.86L12 17.77l-6.18 3.23L7 14.14l-5-4.87 6.91-1.01L12 2Z" />
-            </svg>
-            <span>Discover</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setActiveTab("following")}
-            className={`flex flex-col items-center justify-center gap-1 text-xs ${
-              activeTab === "following" ? "text-white" : "text-white/60"
-            }`}
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M12 12a5 5 0 1 0-5-5a5 5 0 0 0 5 5zm0 2c-4.4 0-8 2.2-8 5v1h16v-1c0-2.8-3.6-5-8-5Z" />
-            </svg>
-            <span>Following</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleRequestCreatePost}
-            className="flex flex-col items-center justify-center gap-1 text-xs text-white disabled:opacity-60"
-          >
-            {/* Per Noah's reference: an outlined rounded square with a thin plus,
-                not a filled purple pill. Same footprint as before so the tab bar
-                does not shift. */}
-            <span
-              aria-hidden="true"
-              className="inline-flex h-7 w-8 items-center justify-center rounded-[7px] border-[1.5px] border-white/90 bg-transparent text-white"
-            >
-              <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
-                <path d="M12 6v12M6 12h12" />
-              </svg>
-            </span>
-            <span>Create</span>
-          </button>
-
-          <Link
-            href="/library"
-            className="flex flex-col items-center justify-center gap-1 text-xs text-white/60"
-          >
-            <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
-              <path d="M4 4h7a2 2 0 0 1 2 2v14H6a2 2 0 0 1-2-2V4Zm9 0h7a2 2 0 0 1 2 2v14h-7V4Z" />
-            </svg>
-            <span>Library</span>
-          </Link>
-
-          <Link
-            href="/profile"
-            className="flex flex-col items-center justify-center gap-1 text-xs text-white/60"
-          >
-            <span className="h-6 w-6 rounded-full border border-white/25 bg-white/10 overflow-hidden flex items-center justify-center">
-              <img
-                src={avatarUrl || DEFAULT_AVATAR_URL}
-                alt=""
-                className="avatar-image h-full w-full object-cover"
-              />
-            </span>
-            <span>Profile</span>
-          </Link>
-        </div>
-      </nav>
-      )}
+      ) : null}
 
       {/* SEARCH DRAWER */}
       {isSearchOpen && <SearchDrawer open onClose={() => setIsSearchOpen(false)} />}
