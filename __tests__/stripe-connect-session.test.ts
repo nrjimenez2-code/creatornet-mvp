@@ -79,3 +79,14 @@ test("earnings keeps its status while the connected sidebar banner disappears", 
   expect(container.querySelector('button')).toBeNull();
   await render(); expect(container.textContent).toBe('');
 });
+
+test.each([
+  ["not connected", { connected: false }],
+  ["setup incomplete", { connected: true, onboarding_complete: false }],
+  ["active", { connected: true, onboarding_complete: true }],
+])("earnings banner has no fee callout when %s", async (_label, status) => {
+  request.mockResolvedValue(response(200, status));
+  await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  if (!status.connected || !("onboarding_complete" in status && status.onboarding_complete)) expect(container.querySelector("button")).not.toBeNull();
+});

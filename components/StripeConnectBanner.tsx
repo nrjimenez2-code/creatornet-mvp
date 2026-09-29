@@ -142,8 +142,9 @@ export default function StripeConnectBanner({ appearance = "default" }: { appear
     <div className="rounded-xl border border-[#4A35C7]/40 bg-[#4A35C7]/15 px-3 py-3 text-xs">
       <p className="text-white font-semibold">Connect Stripe to sell</p>
       <p className="text-white/60 mt-1 mb-2 leading-snug">
-        CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted
-        separately. Your net earnings are routed to your connected Stripe account.
+        {appearance === "earnings"
+          ? "Connect your Stripe account to receive payouts from your sales."
+          : "CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted separately. Your net earnings are routed to your connected Stripe account."}
       </p>
       {err && <p role="alert" className="text-red-400 mb-1">{err} <a href="/auth" className="underline">Sign in again</a></p>}
       <button
