@@ -90,3 +90,10 @@ test.each([
   expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
   if (!status.connected || !("onboarding_complete" in status && status.onboarding_complete)) expect(container.querySelector("button")).not.toBeNull();
 });
+
+test("default Stripe banner keeps its existing disclosure", async () => {
+  request.mockResolvedValue(response(200, { connected: false }));
+  await render();
+  expect(container.textContent).toContain("12% platform fee");
+  expect(container.textContent).toContain("payment-processing fees");
+});
