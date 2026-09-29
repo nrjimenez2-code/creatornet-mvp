@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -28,6 +28,9 @@ const destinations = [
 ] as const;
 
 type Destination = (typeof destinations)[number]["id"];
+const subscribeToHydration = () => () => {};
+const clientHydrationSnapshot = () => true;
+const serverHydrationSnapshot = () => false;
 
 export function currentDesktopDestination(pathname: string, tab: string | null): Destination | null {
   if (pathname === "/dashboard") return tab === "following" ? "following" : "discover";
@@ -47,6 +50,7 @@ export default function DesktopNavigationShell({ children }: { children: React.R
   const { userId, loading: authLoading } = useUser();
   const supabase = useMemo(() => createClient(), []);
   const [avatar, setAvatar] = useState<{ userId: string; url: string | null } | null>(null);
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientHydrationSnapshot, serverHydrationSnapshot);
   const [open, setOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -86,7 +90,9 @@ export default function DesktopNavigationShell({ children }: { children: React.R
       onMouseEnter={() => {
         if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) setOpen(true);
       }}
-      onMouseLeave={() => setOpen(false)}
+      onMouseLeave={() => {
+        if (!navRef.current?.contains(document.activeElement) || document.activeElement === toggleRef.current) setOpen(false);
+      }}
       onFocusCapture={(event) => {
         if (event.target !== toggleRef.current) setOpen(true);
       }}
@@ -101,19 +107,21 @@ export default function DesktopNavigationShell({ children }: { children: React.R
         }
       }}
     >
-      <div className="cn-desktop-nav-inner">
+      <div className="cn-desktop-nav-header">
         <button ref={toggleRef} type="button" className="cn-desktop-nav-brand" aria-label={open ? "Collapse menu" : "Expand menu"} aria-expanded={open} onClick={() => setOpen(value => !value)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="" className="h-10 w-10 shrink-0 object-contain" />
-          <span className="cn-desktop-nav-label text-[23px] tracking-tight">CreatorNet</span>
+          <img src="/creatornet-sidebar-mark.svg" alt="" width="32" height="32" />
+          <span className="cn-desktop-nav-label cn-desktop-nav-wordmark">CreatorNet</span>
         </button>
+      </div>
 
+      <div className="cn-desktop-nav-scroll" tabIndex={0} role="region" aria-label="Sidebar items">
         <button type="button" className="cn-desktop-nav-action cn-desktop-nav-create" aria-label="Create post" onClick={() => setComposerOpen(true)}>
-          <Plus aria-hidden="true" size={25} />
+          <Plus aria-hidden="true" size={21} />
           <span className="cn-desktop-nav-label">Create post</span>
         </button>
         <button type="button" className="cn-desktop-nav-action cn-desktop-nav-search" aria-label="Search" onClick={() => setSearchOpen(true)}>
-          <Search aria-hidden="true" size={25} />
+          <Search aria-hidden="true" size={21} />
           <span className="cn-desktop-nav-label">Search</span>
         </button>
 
@@ -135,19 +143,16 @@ export default function DesktopNavigationShell({ children }: { children: React.R
               {id === "profile" ? <span className="cn-desktop-nav-avatar">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={(avatar?.userId === userId ? avatar.url : null) || DEFAULT_AVATAR_URL} alt="" className="avatar-image" />
-              </span> : <Icon aria-hidden="true" size={25} strokeWidth={2} />}
+              </span> : <Icon aria-hidden="true" size={21} strokeWidth={1.9} />}
               <span className="cn-desktop-nav-label">{label}</span>
             </Link>;
           })}
         </nav>
 
-        {!authLoading && userId && <div className="cn-desktop-nav-stripe">
-          <button type="button" className="cn-desktop-nav-stripe-icon" aria-label="Stripe connection" onClick={() => setOpen(true)}><CircleDollarSign aria-hidden="true" size={25} /></button>
-          <div className="cn-desktop-nav-stripe-panel"><DesktopStripeConnectBanner /></div>
-        </div>}
-        <div className="cn-desktop-nav-bottom">
-          {authLoading ? null : userId ? <SidebarSignOutButton /> : <Link href="/auth" className="cn-desktop-nav-action" aria-label="Sign in"><LogIn aria-hidden="true" size={25} /><span className="cn-desktop-nav-label">Sign in</span></Link>}
-        </div>
+        {hydrated && !authLoading && userId && <div className="cn-desktop-nav-stripe"><DesktopStripeConnectBanner /></div>}
+      </div>
+      <div className="cn-desktop-nav-bottom">
+        {!hydrated || authLoading ? null : userId ? <SidebarSignOutButton /> : <Link href="/auth" className="cn-desktop-nav-action" aria-label="Sign in"><LogIn aria-hidden="true" size={21} /><span className="cn-desktop-nav-label">Sign in</span></Link>}
       </div>
     </aside>
     <div className="cn-desktop-nav-content">{children}</div>
