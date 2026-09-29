@@ -24,6 +24,9 @@
   background: #000000;
   color: #f9f9f9;
 }
+:root {
+  --mobile-tab-bar-height: calc(53px + max(env(safe-area-inset-bottom, 0px), 0.5rem));
+}
 
 /* Smooth anchor/keyboard scrolling (pairs nicely with snap) */
 html { scroll-behavior: smooth; }
@@ -98,12 +101,12 @@ body {
    Scoped to the main feed; profile viewers and desktop retain their geometry. */
 @media (max-width: 1023px) {
   .dashboard-feed-shell {
-    --feed-nav-height: calc(53px + max(env(safe-area-inset-bottom, 0px), 0.5rem));
+    --feed-nav-height: var(--mobile-tab-bar-height);
     height: 100dvh;
     min-height: 100dvh;
   }
   .dashboard-feed-column { padding-bottom: var(--feed-nav-height); }
-  .dashboard-feed-nav { height: var(--feed-nav-height); }
+  .dashboard-feed-nav { height: var(--mobile-tab-bar-height); }
   .feed-mobile-viewport { --feed-card-height: calc(100dvh - var(--feed-nav-height, 61px)); }
   .feed-mobile-viewport .feed-mobile-slot,
   .feed-mobile-viewport .feed-mobile-card,

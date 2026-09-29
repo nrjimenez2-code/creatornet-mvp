@@ -356,9 +356,9 @@ export default function LibraryPage() {
     // sign-in link, the second a retry — not the same red line for both.
     const isSignedOut = !userId;
     return (
-      <main className="p-6 text-center relative">
+      <main className="relative px-6 pt-6 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] text-center lg:pb-6">
         <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+          <div className={`absolute top-4 left-4 z-10 translate-x-[0.0001in] ${isSignedOut ? "" : "hidden lg:block"}`}>
             <BackButton hrefOverride="/dashboard" />
           </div>
           {isSignedOut ? (
@@ -379,7 +379,7 @@ export default function LibraryPage() {
               {/* `error` was set but never rendered, so a buyer whose purchases
                   failed to load saw a blank page with a back link — indistinguish-
                   able from "you own nothing". */}
-              <p className="mt-12 text-red-400 font-medium" role="alert">
+              <p className="mt-2 lg:mt-12 text-red-400 font-medium" role="alert">
                 Couldn&apos;t load your library
               </p>
               <p className="mt-1 text-sm text-gray-400">
@@ -396,7 +396,7 @@ export default function LibraryPage() {
                 >
                   Try again
                 </button>
-                <Link href="/dashboard" className="underline text-sm text-gray-400">
+                <Link href="/dashboard" className="hidden lg:inline underline text-sm text-gray-400">
                   Back to dashboard
                 </Link>
               </div>
@@ -409,14 +409,14 @@ export default function LibraryPage() {
 
   if (items.length === 0) {
     return (
-      <main className="p-6 text-center text-gray-500 relative">
+      <main className="relative px-6 pt-6 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] text-center text-gray-500 lg:pb-6">
         <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 translate-x-[0.0001in]">
+          <div className="absolute top-4 left-4 z-10 hidden lg:block">
             <BackButton hrefOverride="/dashboard" />
           </div>
           {/* The empty state used to be a lone button with no words — nothing
               said this page was the library or that it was empty on purpose. */}
-          <h1 className="mt-12 text-lg font-semibold text-white">Your library is empty</h1>
+          <h1 className="mt-2 lg:mt-12 text-lg font-semibold text-white">Your library is empty</h1>
           <p className="mt-1 text-sm text-gray-400">
             Videos and offers you buy will show up here.
           </p>
@@ -438,21 +438,18 @@ export default function LibraryPage() {
   }
 
   return (
-    <main className="p-6 relative">
+    <main className="relative px-6 pt-6 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] lg:pb-6">
       <div className="max-w-6xl mx-auto">
-        {/* Mobile: Back button on top, heading below and left-aligned */}
-        <div className="block md:hidden mb-6">
-          <div className="mb-3">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
+        {/* Mobile: this is a top-level tab, so the heading starts the page. */}
+        <div className="mb-6 lg:hidden">
           <h1 className="text-xl font-semibold text-left">Your Library</h1>
         </div>
 
         {/* Desktop: Absolute positioned back button (original) */}
-        <div className="hidden md:block absolute top-4 left-4 z-10">
+        <div className="hidden lg:block absolute top-4 left-4 z-10">
           <BackButton hrefOverride="/dashboard" />
         </div>
-        <div className="hidden md:flex items-center justify-between mb-6">
+        <div className="hidden lg:flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Your Library</h1>
         </div>
 

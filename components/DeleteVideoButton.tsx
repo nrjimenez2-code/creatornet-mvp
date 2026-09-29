@@ -6,7 +6,8 @@ import { createPortal } from "react-dom";
 import { Ellipsis, EyeOff, Flag, Trash2, ChartNoAxesCombined, X } from "lucide-react";
 import dynamic from "next/dynamic";
 import { pauseForInsights } from "@/lib/insightPlayback";
-const VideoInsightsPanel = dynamic(() => import("./VideoInsightsPanel"), { loading: () => <p role="status" className="py-12 text-center">Loading insights…</p> });
+import VideoInsightsSkeleton from "./VideoInsightsSkeleton";
+const VideoInsightsPanel = dynamic(() => import("./VideoInsightsPanel"), { loading: () => <VideoInsightsSkeleton /> });
 import { getActionSession } from "@/lib/actionSession";
 import { useUser } from "@/lib/useUser";
 import { REPORT_REASONS, type ReportReason } from "@/lib/postReports";
@@ -149,9 +150,10 @@ export default function DeleteVideoButton({ postId, creatorId, onDeleted, onNotI
       onClose={() => { setInsightsOpen(false); resumeInsights.current?.(); resumeInsights.current=null; trigger.current?.focus({preventScroll:true}); }}
       onClick={event=>{ event.stopPropagation(); if(event.target===event.currentTarget)insightsDialog.current?.close(); }}
       onKeyDown={event=>event.stopPropagation()} onWheel={event=>event.stopPropagation()} onTouchStart={event=>event.stopPropagation()} onTouchEnd={event=>event.stopPropagation()}
-      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border border-[#29292f] bg-black px-5 pt-[max(1.25rem,env(safe-area-inset-top))] pb-[max(1.25rem,env(safe-area-inset-bottom))] text-[#f7f7f8] backdrop:bg-black/70 lg:m-auto lg:h-auto lg:max-h-[90dvh] lg:w-[calc(100%-2rem)] lg:max-w-4xl lg:rounded-2xl lg:bg-[#080809] lg:p-7">
-      <div className="mb-5 flex items-center justify-between gap-4 border-b border-[#29292f] pb-4"><div><h2 id={`insights-title-${postId}`} className="text-2xl font-semibold tracking-tight">Video insights</h2>
-        <p className="mt-1 text-sm text-[#a4a4ae]">A closer look at how your video performs.</p></div>
+      style={{scrollbarColor:"#3a3a43 transparent",scrollbarWidth:"thin"}}
+      className="fixed inset-0 m-0 h-[100dvh] max-h-none w-full max-w-none overflow-y-auto border border-[#29292f] bg-black px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))] text-[#f7f7f8] backdrop:bg-black/70 lg:m-auto lg:h-auto lg:max-h-[calc(100dvh-28px)] lg:w-[calc(100%-2rem)] lg:max-w-[730px] lg:rounded-2xl lg:bg-[#080809] lg:p-[22px]">
+      <div className="flex items-center justify-between gap-4 border-b border-[#29292f] pb-3"><div><h2 id={`insights-title-${postId}`} className="text-xl font-semibold tracking-tight">Video insights</h2>
+        <p className="mt-1 text-xs text-[#a4a4ae]">A closer look at your video</p></div>
         <button autoFocus type="button" aria-label="Close video insights" onClick={()=>insightsDialog.current?.close()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#bcbcc7] hover:bg-[#17171c] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#a58aff]"><X className="h-5 w-5"/></button></div>
       {insightsOpen && <VideoInsightsPanel key={postId} postId={postId}/>}</dialog>,document.body)}
     {!isOwner && mounted && createPortal(

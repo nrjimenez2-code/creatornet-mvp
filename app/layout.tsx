@@ -7,6 +7,7 @@ import { UserProvider } from "@/lib/useUser";
 import PostHogProvider from "@/components/PostHogProvider";
 import CookieNotice from "@/components/CookieNotice";
 import SoundPreferenceSync from "@/components/SoundPreferenceSync";
+import MobileTabNav from "@/components/MobileTabNav";
 import { getSiteUrl } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
@@ -59,6 +60,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Suspense>
 
             {children}
+            <Suspense fallback={null}>
+              <MobileTabNav />
+            </Suspense>
             <CookieNotice />
           </UserProvider>
         </PostHogProvider>
