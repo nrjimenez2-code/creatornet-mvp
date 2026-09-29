@@ -42,6 +42,7 @@ jest.mock("@/lib/mobileFeedDiagnostics", () => ({
 jest.mock("@/components/MobileFeedDiagnostics", () => ({ __esModule: true, default: () => null }));
 
 import PlaybackLab from "@/app/playback-lab/PlaybackLab";
+import { MobileFeedController as RateController } from "@/lib/mobileFeedController.prototype";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -87,8 +88,8 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render() {
-  await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode: "current" })));
+async function render(controllerMode: "current" | "rate" | "prearmed" = "current") {
+  await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode })));
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(element => element.textContent === label);
@@ -110,6 +111,11 @@ async function swipeTo(index: number) {
   })), {} as IntersectionObserver));
 }
 function latestActivation() { return mockController.activate.mock.calls.at(-1)![0]; }
+
+test("prearmed lab mode selects the paused-rate controller variant", async () => {
+  await render("prearmed");
+  expect(RateController).toHaveBeenCalledWith("prearmed");
+});
 
 test.each(["media", "watchdog"])("%s failure blocks Play, sound and foreground until Retry creates a new owner", async kind => {
   await render();

@@ -23,6 +23,7 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 
 /** Owns preparation and presentation only. The audible element retains its WebKit grant. */
 export class MobileFeedController {
+  constructor(private readonly rateMode: "reactive" | "prearmed" = "reactive") {}
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
@@ -132,6 +133,14 @@ export class MobileFeedController {
       if (!current() || !usable() || slot.ready) return;
       const detail = diagnostics();
       slot.ready = true; slot.phase = "ready"; slot.pause("ready"); slot.stop();
+      if (this.rateMode === "prearmed" && frameTarget === 0 && video.paused) {
+        try {
+          video.playbackRate = 0.75;
+          recordFeedEvent("preparation-rate-prearm", { postId: slot.postId, result: video.playbackRate === 0.75 ? "applied" : "ignored", rate: 0.75, paused: video.paused });
+        } catch {
+          recordFeedEvent("preparation-rate-prearm", { postId: slot.postId, result: "unsupported", rate: 0.75, paused: video.paused });
+        }
+      }
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
       video.style.visibility = "visible";
       if (slot.onReady) slot.onReady(); else slot.present(true);
@@ -276,6 +285,13 @@ export class MobileFeedController {
     let bridgeMoving = false;
     let lastBridgeAt = -Infinity;
     let rateAttempted = false;
+    // This diagnostic mode tests whether a rate write made at preparation
+    // readiness avoids the post-write callback gap observed on Safari.
+    // Restrict it to an opening target; returns need their own alignment proof.
+    if (this.rateMode === "prearmed" && bridge && target === 0) {
+      rateAttempted = true;
+      recordFeedEvent("bridge-rate-prototype", { result: bridge.video.playbackRate === 0.75 ? "prearmed" : "missing-prearm", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
+    }
     const restoreBridgeRate = () => {
       const preview = active.bridge;
       try { if (preview && preview.video.playbackRate !== 1) preview.video.playbackRate = 1; } catch { /* Cleanup/watchdog remains bounded. */ }
@@ -344,7 +360,7 @@ export class MobileFeedController {
       // their timelines have already diverged. Projection can reject this,
       // but cannot authorize a handoff without actual aligned frame evidence.
       if (Math.abs(rawError) <= tolerance && Math.abs(projectedError) <= tolerance) return finish();
-      if (rateAttempted || !bridgeMoving || preview.video.paused || preview.video.playbackRate !== 1) return;
+      if (rateAttempted || this.rateMode === "prearmed" || !bridgeMoving || preview.video.paused || preview.video.playbackRate !== 1) return;
       if (!Number.isFinite(projectedError) || Math.sign(projectedError) !== Math.sign(rawError) || Math.abs(projectedError) <= 2 * tolerance) return;
       // One fixed rate per activation, with an unchanged 3 s watchdog. Reserve
       // 250 ms for scheduling; ideal convergence is not a physical guarantee.
@@ -444,6 +460,10 @@ export class MobileFeedController {
     if (partial) partial.onReady = () => {
       if (!current() || complete || active.partial !== partial) return;
       active.partial = null; active.bridge = partial; partial.present = input.present;
+      if (this.rateMode === "prearmed" && target === 0) {
+        rateAttempted = true;
+        recordFeedEvent("bridge-rate-prototype", { result: partial.video.playbackRate === 0.75 ? "prearmed-partial" : "missing-prearm", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
+      }
       partial.video.muted = true; input.present(true); play(); observeBridge();
       recordFeedEvent("preparation-recovery", { postId: input.postId, warmEligible: false, position: target }, video);
     };

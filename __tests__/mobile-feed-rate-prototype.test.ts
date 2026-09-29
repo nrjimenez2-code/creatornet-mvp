@@ -72,7 +72,8 @@ afterEach(() => {
   jest.restoreAllMocks(); jest.useRealTimers();
 });
 
-async function scenario(options: { lead?: number; startMs?: number; mainMedia?: number; mainLag?: number; mode?: RateMode; staleBridge?: boolean } = {}) {
+async function scenario(options: { lead?: number; startMs?: number; mainMedia?: number; mainLag?: number; mode?: RateMode; staleBridge?: boolean; rateMode?: "reactive" | "prearmed" } = {}) {
+  if (options.rateMode === "prearmed") { controller.dispose(); controller = new MobileFeedController("prearmed"); }
   const lead = options.lead ?? 0.5, startMs = options.startMs ?? 764;
   const mainMedia = options.mainMedia ?? 1 / 30, mainLag = options.mainLag ?? 0.1283666667;
   const bridgeMedia = mainMedia + lead;
@@ -81,9 +82,9 @@ async function scenario(options: { lead?: number; startMs?: number; mainMedia?: 
   const preparedPresent = jest.fn();
   controller.prepare({ postId, src, host: preparedHost, present: preparedPresent });
   const bridge = preparedHost.querySelector("video")!; media(bridge);
+  modes.set(bridge, options.mode ?? "normal");
   bridge.dispatchEvent(new Event("loadedmetadata")); deliver(bridge, 1 / 30);
   expect(preparedPresent).toHaveBeenCalledWith(true);
-  modes.set(bridge, options.mode ?? "normal");
   const host = document.createElement("div"), previewHost = document.createElement("div"); document.body.append(host, previewHost);
   const readyAt: number[] = [], ready = jest.fn(() => { readyAt.push(performance.now()); }), failed = jest.fn();
   const token = Symbol("bridge-rate");
@@ -149,6 +150,31 @@ test.each([{ lead: 0.4, startMs: 919 }, { lead: 0.5, startMs: 764 }])("observed 
   expect(s.main.muted).toBe(s.initialMainMuted);
   expect(s.maxBridgeSubmissionGapMs()).toBeLessThan(250);
   console.log("RATE_PROTOTYPE_IDEAL", JSON.stringify({ lead, startMs, handoffMs: s.readyAt[0], maxBridgeSubmissionGapMs: s.maxBridgeSubmissionGapMs(), seeks: 0, correctionWrites: 1 }));
+});
+
+test("prearmed mode writes at preparation readiness while hidden and paused, then resets after handoff", async () => {
+  const s = await scenario({ rateMode: "prearmed", lead: 0.5, startMs: 764 });
+  expect(bridgeWrites(s.bridge)[0]).toEqual(expect.objectContaining({ rate: 0.75, paused: true, hidden: true }));
+  expect(events("preparation-rate-prearm")[0].detail.result).toBe("applied");
+  expect(events("bridge-rate-prototype")[0].detail.result).toBe("prearmed");
+  expect(s.main.playbackRate).toBe(1);
+  s.advance(2999 - performance.now());
+  expect(s.ready).toHaveBeenCalledTimes(1);
+  expect(s.failed).not.toHaveBeenCalled();
+  expect(bridgeWrites(s.bridge).map(write => write.rate)).toEqual([0.75, 1]);
+  expect(events("bridge-align-seek")).toHaveLength(0);
+});
+
+test.each(["throw", "ignored-getter"] as const)("prearmed %s rate setter stays bounded without a moving rate write", async mode => {
+  const s = await scenario({ rateMode: "prearmed", mode });
+  expect(events("preparation-rate-prearm")[0].detail.result).toBe(mode === "throw" ? "unsupported" : "ignored");
+  expect(events("bridge-rate-prototype")[0].detail.result).toBe("missing-prearm");
+  s.advance(3000 - performance.now());
+  expect(s.readyAt).toEqual([3000]);
+  expect(s.failed).not.toHaveBeenCalled();
+  expect(bridgeWrites(s.bridge).filter(write => write.rate !== 1)).toHaveLength(1);
+  expect(events("bridge-align-seek")).toHaveLength(0);
+  expect(s.main.playbackRate).toBe(1);
 });
 
 test("a behind bridge speeds up while audible-main rate and mute intent remain unchanged", async () => {
