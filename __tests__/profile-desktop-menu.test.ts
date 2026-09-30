@@ -57,6 +57,7 @@ test("click toggles an associated menu in edit, reviews, share order with exact 
   expect(menu()!.id).toBe(trigger().getAttribute("aria-controls"));
   expect(trigger().getAttribute("aria-expanded")).toBe("true");
   expect(items().map(item => item.textContent)).toEqual(["Edit profile", "Reviews", "Share"]);
+  expect(items()[2].getAttribute("aria-label")).toBe("Share");
   expect(items().map(item => item.getAttribute("href"))).toEqual(["/profile/edit", "/creators/owner-id/reviews", null]);
   expect(document.activeElement).toBe(items()[0]);
   await act(async () => {
@@ -103,11 +104,13 @@ test("Share keeps the menu open, copies the current URL and shows confirmation f
   expect(writeText).toHaveBeenCalledWith(window.location.href);
   expect(menu()).not.toBeNull();
   expect(items()[2].textContent).toBe("Profile link copied");
+  expect(items()[2].getAttribute("aria-label")).toBe("Profile link copied");
   expect(items()[2].querySelector('[role="status"]')?.getAttribute("aria-live")).toBe("polite");
   await act(async () => jest.advanceTimersByTime(1999));
   expect(items()[2].textContent).toBe("Profile link copied");
   await act(async () => jest.advanceTimersByTime(1));
   expect(items()[2].textContent).toBe("Share"); expect(menu()).not.toBeNull();
+  expect(items()[2].getAttribute("aria-label")).toBe("Share");
 });
 
 test("clipboard rejection preserves failure handling and does not claim a copy", async () => {
