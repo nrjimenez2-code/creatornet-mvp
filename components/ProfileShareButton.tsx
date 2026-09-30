@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-export default function ProfileShareButton() {
+export default function ProfileShareButton({ appearance = "icon" }: { appearance?: "icon" | "menu-item" }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
@@ -13,6 +13,20 @@ export default function ProfileShareButton() {
     } catch (err) {
       console.error("Failed to copy profile link", err);
     }
+  }
+
+  if (appearance === "menu-item") {
+    return (
+      <button
+        type="button"
+        role="menuitem"
+        tabIndex={-1}
+        onClick={handleCopy}
+        className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-2 focus-visible:outline-white transition"
+      >
+        <span role="status" aria-live="polite">{copied ? "Profile link copied" : "Share"}</span>
+      </button>
+    );
   }
 
   return (
