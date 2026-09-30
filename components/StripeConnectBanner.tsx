@@ -14,7 +14,7 @@ type Status =
       onboarding_complete: boolean;
     };
 
-export default function StripeConnectBanner({ appearance = "default" }: { appearance?: "default" | "earnings" }) {
+export default function StripeConnectBanner({ appearance = "default", hideFeeDisclosure = false }: { appearance?: "default" | "earnings"; hideFeeDisclosure?: boolean }) {
   const { session, loading: authLoading } = useUser();
   const token = session?.access_token;
   const [retry, setRetry] = useState(0);
@@ -142,7 +142,7 @@ export default function StripeConnectBanner({ appearance = "default" }: { appear
     <div className="rounded-xl border border-[#4A35C7]/40 bg-[#4A35C7]/15 px-3 py-3 text-xs">
       <p className="text-white font-semibold">Connect Stripe to sell</p>
       <p className="text-white/60 mt-1 mb-2 leading-snug">
-        {appearance === "earnings"
+        {appearance === "earnings" || hideFeeDisclosure
           ? "Connect your Stripe account to receive payouts from your sales."
           : "CreatorNet charges a 12% platform fee. Standard payment-processing fees are deducted separately. Your net earnings are routed to your connected Stripe account."}
       </p>
