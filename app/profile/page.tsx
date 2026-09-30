@@ -1,9 +1,8 @@
 // app/profile/page.tsx
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createServerClient } from "@/lib/supabaseServer";
-import ProfileShareButton from "@/components/ProfileShareButton";
+import ProfileDesktopMenu from "@/components/ProfileDesktopMenu";
 import ProfileContent from "@/components/ProfileContent";
 import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import ProfileMobileHeader from "@/components/ProfileMobileHeader";
@@ -108,22 +107,8 @@ export default async function ProfilePage() {
           <ProfileMobileHeader userId={user.id} />
         </div>
 
-        <div className="hidden lg:flex absolute top-4 right-16 sm:right-32 z-10 items-center gap-2">
-          <Link
-            href={`/creators/${user.id}/reviews`}
-            className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold leading-none text-white hover:bg-white/10 transition"
-          >
-            Review
-          </Link>
-          <ProfileShareButton />
-        </div>
         <div className="hidden lg:block absolute top-4 right-4 z-10">
-          <Link
-            href="/profile/edit"
-            className="rounded-md bg-[#4A35C7] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
-          >
-            Edit profile
-          </Link>
+          <ProfileDesktopMenu userId={user.id} />
         </div>
 
         <div className="flex flex-col items-center text-center mt-0 md:mt-8">

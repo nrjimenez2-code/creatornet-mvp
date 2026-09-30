@@ -34,9 +34,10 @@ describe("profile navigation breakpoint contract", () => {
       /<div className="hidden ([a-z]+):(?:block|flex) absolute top-4/g,
     )];
 
-    expect(desktopControls).toHaveLength(2);
+    expect(desktopControls).toHaveLength(1);
     expect(desktopControls.every((match) => match[1] === "lg")).toBe(true);
     expect(profilePage).not.toContain("<BackButton");
+    expect(profilePage).toContain("<ProfileDesktopMenu userId={user.id} />");
   });
 
   test("reuses the existing menu and sign-out flow", () => {
