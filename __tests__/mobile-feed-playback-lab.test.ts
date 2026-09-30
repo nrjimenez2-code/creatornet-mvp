@@ -88,7 +88,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" = "current") {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" = "current") {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode })));
 }
 async function click(label: string) {
@@ -125,6 +125,38 @@ test("steady lab mode selects the controller with rate correction disabled", asy
 test("guarded lab mode selects the controller with early unverified-motion recovery", async () => {
   await render("guarded");
   expect(RateController).toHaveBeenCalledWith("guarded");
+});
+
+test("single-player control never prepares a neighbor across sound, swipes, pause and foreground return", async () => {
+  await render("single");
+  expect(RateController).toHaveBeenCalledWith("steady");
+  await click("Play");
+  await click("Tap for sound");
+  await swipeTo(1);
+  await swipeTo(2);
+  await swipeTo(1);
+  await swipeTo(0);
+  await click("Pause");
+  expect(mockVideo!.paused).toBe(true);
+  await click("Play");
+  await visibility(true);
+  await visibility(false);
+  expect(mockController.prepare).not.toHaveBeenCalled();
+  expect(mockController.activate.mock.calls.map(([input]) => input.postId)).toEqual(["lab-a", "lab-b", "lab-c", "lab-b", "lab-a"]);
+  expect(container.querySelectorAll("video")).toHaveLength(1);
+  expect(mockVideo!.muted).toBe(false);
+  expect(mockVideo!.paused).toBe(false);
+});
+
+test("single-player Retry uses the shared main without starting preparation", async () => {
+  await render("single");
+  await click("Play");
+  await act(async () => mockVideo!.dispatchEvent(new Event("error")));
+  await click("Retry video");
+  expect(latestActivation().reload).toBe(true);
+  expect(mockController.prepare).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(mockVideo!.paused).toBe(false);
 });
 
 test.each(["media", "watchdog"])("%s failure blocks Play, sound and foreground until Retry creates a new owner", async kind => {

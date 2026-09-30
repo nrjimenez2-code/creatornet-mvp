@@ -20,8 +20,9 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" }) {
-  const [controller] = useState(() => controllerMode === "current" ? new CurrentController() : new RateController(controllerMode === "rate" ? "reactive" : controllerMode));
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" }) {
+  const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
+    : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const nativeHls = useSyncExternalStore(subscribeCapabilities, nativeHlsSnapshot, () => null);
   const debug = useSyncExternalStore(subscribeCapabilities, feedTraceEnabled, () => false);
   const [started, setStarted] = useState(false);
@@ -134,14 +135,16 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
   }, [activeIndex, controller, fail, fixtures, nativeHls, playWhenReady, retry, started, updatePresentation]);
 
   useLayoutEffect(() => {
-    if (!started || !nativeHls || !visible || owner.current?.terminal) { controller.cancelPreparation(); return; }
+    // Single-player control keeps the same shared main, sources and layout,
+    // but never creates or plays a prepared neighbor or presentation bridge.
+    if (controllerMode === "single" || !started || !nativeHls || !visible || owner.current?.terminal) { controller.cancelPreparation(); return; }
     const neighborIndex = activeIndex + direction;
     const neighbor = fixtures[neighborIndex], host = preparationHosts.current[neighborIndex];
     if (!neighbor || !host) { controller.cancelPreparation(); return; }
     // Activation consumes the previous neighbor before this selects its successor.
     controller.prepare({ postId: neighbor.id, src: neighbor.src, contentVersion: neighbor.contentVersion, host,
       present: preview => updatePresentation(neighbor.id, { preview }) });
-  }, [activeIndex, controller, direction, fixtures, nativeHls, retry, started, updatePresentation, visible]);
+  }, [activeIndex, controller, controllerMode, direction, fixtures, nativeHls, retry, started, updatePresentation, visible]);
 
   useEffect(() => {
     const visibility = () => {
