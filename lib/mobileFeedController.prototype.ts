@@ -29,7 +29,7 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 
 /** Owns preparation and presentation only. The audible element retains its WebKit grant. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" = "reactive") {}
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" = "reactive") {}
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
@@ -253,6 +253,17 @@ export class MobileFeedController {
     if (this.active) this.release(this.active.token);
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src);
     const target = input.position ?? snapshot.position;
+    // Diagnostic control: keep neighbor preparation, but unload its element
+    // before the shared main receives this source. Browser cache reuse and
+    // native decoder release timing still require physical-device evidence.
+    const serialPreparation = this.rateMode === "serial" ? this.preparing : null;
+    const serialDiscard = serialPreparation ? {
+      postId: serialPreparation.postId, selectedPostId: input.postId,
+      selectedSourceMatches: serialPreparation.src === input.src,
+      ready: serialPreparation.ready, phase: serialPreparation.phase,
+      target: serialPreparation.target, buffer: preparationBuffer(serialPreparation.video, serialPreparation.target),
+    } : null;
+    if (serialPreparation) this.clear(serialPreparation);
     const prepared = this.preparing;
     const remaining = prepared && Number.isFinite(prepared.video.duration) ? prepared.video.duration - target : BUFFER_TARGET;
     const eligible = !!prepared && prepared.postId === input.postId && prepared.src === input.src && prepared.ready &&
@@ -272,6 +283,10 @@ export class MobileFeedController {
     if (bridge) { bridge.stop(); bridge.stop = () => {}; this.preparing = null; bridge.present = input.present; input.previewHost.appendChild(bridge.video); }
     const video = claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, { position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: eligible, reload: input.reload, boundedSeekRecovery: true });
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
+    if (serialDiscard && serialPreparation) recordFeedEvent("preparation-serial-discard", {
+      ...serialDiscard, sourceRemoved: !serialPreparation.video.hasAttribute("src"),
+      detached: !serialPreparation.video.isConnected, paused: serialPreparation.video.paused,
+    }, video);
     const activatedAt = performance.now();
     let alive = true;
     let frame: number | undefined;

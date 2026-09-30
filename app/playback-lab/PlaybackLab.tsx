@@ -20,7 +20,7 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const nativeHls = useSyncExternalStore(subscribeCapabilities, nativeHlsSnapshot, () => null);

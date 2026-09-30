@@ -193,6 +193,83 @@ test("steady mode can hand off naturally aligned frames without changing either 
   expect(writes).toHaveLength(0);
 });
 
+test.each([true, false])("serial control unloads ready=%s preparation before main source assignment and rejects obsolete callbacks", async preparedReady => {
+  controller.dispose(); controller = new MobileFeedController("serial");
+  const postId = `serial-${++scenarioNumber}`, src = `https://example.test/${postId}.m3u8`;
+  const preparedHost = document.createElement("div"); document.body.appendChild(preparedHost);
+  controller.prepare({ postId, src, host: preparedHost, present: jest.fn() });
+  const prepared = preparedHost.querySelector("video")!; media(prepared);
+  prepared.dispatchEvent(new Event("loadedmetadata"));
+  const obsolete = [...(callbacks.get(prepared)?.values() ?? [])];
+  if (preparedReady) deliver(prepared, 1 / 30);
+  const originalSourceSetter = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, "src")!.set!;
+  let observedAssignment = false;
+  jest.spyOn(HTMLMediaElement.prototype, "src", "set").mockImplementation(function (this: HTMLMediaElement, value: string) {
+    if (this.dataset.mobilePreparation !== "true" && value === src) {
+      observedAssignment = true;
+      expect(prepared.hasAttribute("src")).toBe(false);
+      expect(prepared.isConnected).toBe(false);
+      expect(prepared.paused).toBe(true);
+      expect(callbacks.get(prepared)?.size ?? 0).toBe(0);
+    }
+    originalSourceSetter.call(this, value);
+  });
+  const host = document.createElement("div"), previewHost = document.createElement("div"); document.body.append(host, previewHost);
+  const ready = jest.fn(), token = Symbol("serial");
+  const main = controller.activate({ postId, src, token, host, previewHost, present: jest.fn(), ready });
+  expect(observedAssignment).toBe(true);
+  expect(previewHost.querySelector("video")).toBeNull();
+  expect(events("preparation-serial-discard").at(-1)?.detail).toEqual(expect.objectContaining({
+    ready: preparedReady, selectedSourceMatches: true, sourceRemoved: true, detached: true, paused: true,
+  }));
+  media(main); main.muted = false;
+  main.dispatchEvent(new Event("loadedmetadata")); main.dispatchEvent(new Event("seeked"));
+  void main.play(); main.dispatchEvent(new Event("playing")); await Promise.resolve();
+  deliver(main, 0); jest.advanceTimersByTime(34); deliver(main, 1 / 30);
+  expect(ready).toHaveBeenCalledTimes(1);
+  expect(events("presentation-handoff").at(-1)?.detail.reason).toBe("main-only");
+  expect(events("activation").at(-1)?.detail.warmEligible).toBe(false);
+  obsolete.forEach(callback => callback(performance.now(), { mediaTime: 1 / 30, presentedFrames: 2 } as VideoFrameCallbackMetadata));
+  expect(ready).toHaveBeenCalledTimes(1); expect(events("bridge-frame")).toHaveLength(0);
+  expect(main.muted).toBe(false); expect(main.playbackRate).toBe(1); expect(writes).toHaveLength(0);
+  const neighborHost = document.createElement("div"); document.body.appendChild(neighborHost);
+  const neighborPresent = jest.fn();
+  controller.prepare({ postId: `${postId}-next`, src: `${src}?next=1`, host: neighborHost, present: neighborPresent });
+  const neighbor = neighborHost.querySelector("video")!; media(neighbor);
+  neighbor.dispatchEvent(new Event("loadedmetadata")); deliver(neighbor, 1 / 30);
+  expect(neighborPresent).toHaveBeenCalledWith(true);
+  expect(main.paused).toBe(false); expect(main.muted).toBe(false);
+});
+
+test("serial control preserves the shared main and saved return target when discarding prepared return video", async () => {
+  controller.dispose(); controller = new MobileFeedController("serial");
+  const postId = `serial-return-${++scenarioNumber}`, src = `https://example.test/${postId}.m3u8`;
+  const firstToken = Symbol("serial-departure");
+  const main = controller.activate({ postId, src, token: firstToken, host: document.createElement("div"),
+    previewHost: document.createElement("div"), present: jest.fn(), ready: jest.fn() });
+  media(main); main.currentTime = 2.5;
+  controller.release(firstToken);
+  jest.advanceTimersByTime(1000);
+  const preparedHost = document.createElement("div"); document.body.appendChild(preparedHost);
+  const preparedPresent = jest.fn();
+  controller.prepare({ postId, src, host: preparedHost, present: preparedPresent });
+  const prepared = preparedHost.querySelector("video")!; media(prepared);
+  prepared.dispatchEvent(new Event("loadedmetadata")); deliver(prepared, 2.5);
+  expect(preparedPresent).toHaveBeenCalledWith(true);
+  const ready = jest.fn();
+  const returned = controller.activate({ postId, src, token: Symbol("serial-return"), host: document.createElement("div"),
+    previewHost: document.createElement("div"), present: jest.fn(), ready });
+  expect(returned).toBe(main);
+  expect(events("source-version").at(-1)?.detail.position).toBe(2.5);
+  expect(events("preparation-serial-discard").at(-1)?.detail).toEqual(expect.objectContaining({ target: 2.5, ready: true }));
+  expect(prepared.hasAttribute("src")).toBe(false);
+  returned.dispatchEvent(new Event("loadedmetadata")); returned.dispatchEvent(new Event("seeked"));
+  void returned.play(); returned.dispatchEvent(new Event("playing")); await Promise.resolve();
+  deliver(returned, 2.5); jest.advanceTimersByTime(34); deliver(returned, 2.5 + 1 / 30);
+  expect(ready).toHaveBeenCalledTimes(1);
+  expect(events("presentation-handoff").at(-1)?.detail.reason).toBe("main-only");
+});
+
 test.each(["missing", "rejected"] as const)("guarded mode recovers from %s bridge callbacks as soon as main motion is verified", async bridgeCallbacks => {
   const s = await scenario({ rateMode: "guarded", bridgeCallbacks, startMs: 765 });
   expect(s.readyAt).toEqual([765]); expect(s.failed).not.toHaveBeenCalled();

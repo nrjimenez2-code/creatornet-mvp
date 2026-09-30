@@ -88,7 +88,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" = "current") {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" = "current") {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode })));
 }
 async function click(label: string) {
@@ -146,6 +146,15 @@ test("single-player control never prepares a neighbor across sound, swipes, paus
   expect(container.querySelectorAll("video")).toHaveLength(1);
   expect(mockVideo!.muted).toBe(false);
   expect(mockVideo!.paused).toBe(false);
+});
+
+test("serial control selects the unload-before-main controller and retains neighbor preparation", async () => {
+  await render("serial");
+  expect(RateController).toHaveBeenCalledWith("serial");
+  await click("Play");
+  expect(mockController.prepare).toHaveBeenCalledWith(expect.objectContaining({ postId: "lab-b" }));
+  await swipeTo(1);
+  expect(mockController.prepare).toHaveBeenLastCalledWith(expect.objectContaining({ postId: "lab-c" }));
 });
 
 test("single-player Retry uses the shared main without starting preparation", async () => {

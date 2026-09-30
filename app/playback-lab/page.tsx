@@ -14,7 +14,7 @@ export default async function PlaybackLabPage({ searchParams }: { searchParams: 
   // Fail closed on Production, local development, and unset deployment context.
   if (process.env.VERCEL_ENV !== "preview") notFound();
   const requestedMode = (await searchParams).mode ?? "current";
-  if (requestedMode !== "current" && requestedMode !== "rate" && requestedMode !== "prearmed" && requestedMode !== "steady" && requestedMode !== "guarded" && requestedMode !== "single") notFound();
+  if (requestedMode !== "current" && requestedMode !== "rate" && requestedMode !== "prearmed" && requestedMode !== "steady" && requestedMode !== "guarded" && requestedMode !== "single" && requestedMode !== "serial") notFound();
   const fixtures = Object.entries(adaptiveManifest).map(([path, src], index) => ({
     id: `preview-hls-${index + 1}`,
     label: `HLS clip ${index + 1}`,
