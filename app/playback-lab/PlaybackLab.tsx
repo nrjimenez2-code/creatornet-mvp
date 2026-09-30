@@ -12,8 +12,8 @@ export type HlsFixture = { id: string; label: string; src: string; contentVersio
 type Owner = { token: symbol; video: HTMLVideoElement; postId: string; terminal: boolean };
 type Presentation = { postId: string; preview: boolean; ready: boolean; error: string | null };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" }) {
-  const [controller] = useState(() => controllerMode === "current" ? new CurrentController() : new RateController(controllerMode === "prearmed" ? "prearmed" : "reactive"));
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" }) {
+  const [controller] = useState(() => controllerMode === "current" ? new CurrentController() : new RateController(controllerMode === "rate" ? "reactive" : controllerMode));
   const [nativeHls, setNativeHls] = useState<boolean | null>(null);
   const [debug, setDebug] = useState(false);
   const [started, setStarted] = useState(false);

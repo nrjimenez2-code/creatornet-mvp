@@ -72,8 +72,8 @@ afterEach(() => {
   jest.restoreAllMocks(); jest.useRealTimers();
 });
 
-async function scenario(options: { lead?: number; startMs?: number; mainMedia?: number; mainLag?: number; mode?: RateMode; staleBridge?: boolean; rateMode?: "reactive" | "prearmed" } = {}) {
-  if (options.rateMode === "prearmed") { controller.dispose(); controller = new MobileFeedController("prearmed"); }
+async function scenario(options: { lead?: number; startMs?: number; mainMedia?: number; mainLag?: number; mode?: RateMode; staleBridge?: boolean; rateMode?: "reactive" | "prearmed" | "steady" } = {}) {
+  if (options.rateMode) { controller.dispose(); controller = new MobileFeedController(options.rateMode); }
   const lead = options.lead ?? 0.5, startMs = options.startMs ?? 764;
   const mainMedia = options.mainMedia ?? 1 / 30, mainLag = options.mainLag ?? 0.1283666667;
   const bridgeMedia = mainMedia + lead;
@@ -165,6 +165,42 @@ test("prearmed mode writes at preparation readiness while hidden and paused, the
   expect(events("bridge-align-seek")).toHaveLength(0);
 });
 
+test("steady mode avoids injected rate-write freezes while retaining the three-second recovery bound", async () => {
+  const s = await scenario({ rateMode: "steady", mode: "freeze-300ms", lead: 0.4, startMs: 919 });
+  expect(events("bridge-rate-prototype")[0].detail.result).toBe("steady-1x");
+  s.advance(3000 - performance.now());
+  expect(s.readyAt).toEqual([3000]);
+  expect(s.failed).not.toHaveBeenCalled();
+  expect(events("handoff-recovery")[0].detail.result).toBe("moving-main");
+  expect(s.maxBridgeSubmissionGapMs()).toBeLessThan(250);
+  expect(bridgeWrites(s.bridge)).toHaveLength(0);
+  expect(writes.filter(write => write.video === s.main)).toHaveLength(0);
+  expect(events("bridge-align-seek")).toHaveLength(0);
+  expect(s.main.muted).toBe(s.initialMainMuted);
+});
+
+test("steady mode can hand off naturally aligned frames without changing either rate", async () => {
+  const s = await scenario({ rateMode: "steady", lead: 0, mainMedia: 0.1, mainLag: 0 });
+  expect(s.readyAt).toEqual([764]);
+  expect(events("handoff-timeout")).toHaveLength(0);
+  expect(s.failed).not.toHaveBeenCalled();
+  expect(writes).toHaveLength(0);
+});
+
+test("bridge callbacks expose compositor metadata without treating it as pixel proof", async () => {
+  const s = await scenario({ rateMode: "steady" });
+  const pending = [...(callbacks.get(s.bridge)?.values() ?? [])]; callbacks.get(s.bridge)?.clear();
+  s.bridge.currentTime = 0.6;
+  pending.forEach(callback => callback(performance.now(), {
+    mediaTime: 0.6, presentedFrames: 19, width: 720, height: 1280,
+    presentationTime: 760, expectedDisplayTime: 780, processingDuration: 0.012,
+  } as VideoFrameCallbackMetadata));
+  expect(events("bridge-frame").at(-1)?.detail).toEqual(expect.objectContaining({
+    mediaTime: 0.6, rate: 1, paused: false, presentedFrames: 19,
+    width: 720, height: 1280, callbackTime: 764, presentationTime: 760, expectedDisplayTime: 780, processingDuration: 0.012,
+  }));
+});
+
 test.each(["throw", "ignored-getter"] as const)("prearmed %s rate setter stays bounded without a moving rate write", async mode => {
   const s = await scenario({ rateMode: "prearmed", mode });
   expect(events("preparation-rate-prearm")[0].detail.result).toBe(mode === "throw" ? "unsupported" : "ignored");
@@ -245,6 +281,7 @@ test("main waiting aborts correction once and resuming cannot start a second rat
   expect(s.bridge.playbackRate).toBe(1); expect(s.main.playbackRate).toBe(1);
   expect(s.main.paused).toBe(false); expect(s.main.muted).toBe(s.initialMainMuted);
   expect(bridgeWrites(s.bridge).map(write => write.rate)).toEqual([0.75, 1]);
+  expect(events("bridge-rate-reset")[0].detail).toEqual(expect.objectContaining({ reason: "main-waiting", previousRate: 0.75, rate: 1 }));
   s.main.dispatchEvent(new Event("playing")); s.advance(3000 - performance.now());
   expect(s.readyAt).toEqual([3000]); expect(s.failed).not.toHaveBeenCalled();
   expect(bridgeWrites(s.bridge).map(write => write.rate)).toEqual([0.75, 1]);

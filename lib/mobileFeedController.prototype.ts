@@ -23,7 +23,7 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 
 /** Owns preparation and presentation only. The audible element retains its WebKit grant. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" = "reactive") {}
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" = "reactive") {}
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
@@ -292,9 +292,18 @@ export class MobileFeedController {
       rateAttempted = true;
       recordFeedEvent("bridge-rate-prototype", { result: bridge.video.playbackRate === 0.75 ? "prearmed" : "missing-prearm", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
     }
-    const restoreBridgeRate = () => {
+    if (this.rateMode === "steady" && bridge) {
+      recordFeedEvent("bridge-rate-prototype", { result: "steady-1x", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
+    }
+    const restoreBridgeRate = (reason: string) => {
       const preview = active.bridge;
-      try { if (preview && preview.video.playbackRate !== 1) preview.video.playbackRate = 1; } catch { /* Cleanup/watchdog remains bounded. */ }
+      try {
+        if (preview && preview.video.playbackRate !== 1) {
+          const previousRate = preview.video.playbackRate;
+          preview.video.playbackRate = 1;
+          recordFeedEvent("bridge-rate-reset", { reason, previousRate, rate: preview.video.playbackRate, paused: preview.video.paused }, video);
+        }
+      } catch { recordFeedEvent("bridge-rate-reset", { reason, result: "unsupported" }, video); }
     };
     const collectFrameDiagnostics = feedTraceEnabled();
     const qualityAtActivation = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
@@ -353,14 +362,14 @@ export class MobileFeedController {
       // an admitted fixed correction, but reject handoff until evidence is fresh.
       if (!fresh) return;
       if (!active.playing || video.playbackRate !== 1) {
-        if (rateAttempted) restoreBridgeRate();
+        if (rateAttempted) restoreBridgeRate("main-not-playing");
         return;
       }
       // Unequal sample ages may make old submitted frames look aligned while
       // their timelines have already diverged. Projection can reject this,
       // but cannot authorize a handoff without actual aligned frame evidence.
       if (Math.abs(rawError) <= tolerance && Math.abs(projectedError) <= tolerance) return finish();
-      if (rateAttempted || this.rateMode === "prearmed" || !bridgeMoving || preview.video.paused || preview.video.playbackRate !== 1) return;
+      if (rateAttempted || this.rateMode !== "reactive" || !bridgeMoving || preview.video.paused || preview.video.playbackRate !== 1) return;
       if (!Number.isFinite(projectedError) || Math.sign(projectedError) !== Math.sign(rawError) || Math.abs(projectedError) <= 2 * tolerance) return;
       // One fixed rate per activation, with an unchanged 3 s watchdog. Reserve
       // 250 ms for scheduling; ideal convergence is not a physical guarantee.
@@ -405,7 +414,12 @@ export class MobileFeedController {
           preview.frameTime = metadata.mediaTime;
           preview.frameCount = metadata.presentedFrames;
           lastBridgeAt = now;
-          recordFeedEvent("bridge-frame", { mediaTime: metadata.mediaTime, muted: preview.video.muted }, video);
+          recordFeedEvent("bridge-frame", {
+            mediaTime: metadata.mediaTime, muted: preview.video.muted, rate: preview.video.playbackRate,
+            paused: preview.video.paused, presentedFrames: metadata.presentedFrames, callbackTime: now,
+            presentationTime: metadata.presentationTime ?? null, expectedDisplayTime: metadata.expectedDisplayTime ?? null,
+            processingDuration: metadata.processingDuration ?? null, width: metadata.width ?? null, height: metadata.height ?? null,
+          }, video);
           align();
         }
         observeBridge();
@@ -446,8 +460,8 @@ export class MobileFeedController {
         observeMain();
       });
     };
-    const seeking = () => { epoch++; previousMain = lastMain = null; intendedPosition = video.currentTime; targetObserved = false; restoreBridgeRate(); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observeMain(); };
-    const pause = () => { active.playing = false; active.bridge?.video.pause(); restoreBridgeRate(); active.partial?.pause("main-paused"); this.preparing?.pause("main-paused"); previousMain = lastMain = null; };
+    const seeking = () => { epoch++; previousMain = lastMain = null; intendedPosition = video.currentTime; targetObserved = false; restoreBridgeRate("main-seeking"); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observeMain(); };
+    const pause = () => { active.playing = false; active.bridge?.video.pause(); restoreBridgeRate("main-paused"); active.partial?.pause("main-paused"); this.preparing?.pause("main-paused"); previousMain = lastMain = null; };
     const play = () => {
       if (!current() || document.hidden || video.paused) return;
       if (active.bridge) {
@@ -464,6 +478,9 @@ export class MobileFeedController {
         rateAttempted = true;
         recordFeedEvent("bridge-rate-prototype", { result: partial.video.playbackRate === 0.75 ? "prearmed-partial" : "missing-prearm", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
       }
+      if (this.rateMode === "steady") {
+        recordFeedEvent("bridge-rate-prototype", { result: "steady-1x", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
+      }
       partial.video.muted = true; input.present(true); play(); observeBridge();
       recordFeedEvent("preparation-recovery", { postId: input.postId, warmEligible: false, position: target }, video);
     };
@@ -472,7 +489,7 @@ export class MobileFeedController {
     video.addEventListener("seeking", seeking); video.addEventListener("pause", pause); video.addEventListener("play", play); video.addEventListener("timeupdate", unsupported);
     const progress = () => this.resumePreparation();
     const playing = () => { active.playing = true; progress(); };
-    const waiting = () => { active.playing = false; restoreBridgeRate(); progress(); };
+    const waiting = () => { active.playing = false; restoreBridgeRate("main-waiting"); progress(); };
     // A stalled fetch can coexist with healthy buffered playback. Recheck the
     // buffer budget without waiting for a playing event that may never repeat.
     video.addEventListener("progress", progress); video.addEventListener("playing", playing); video.addEventListener("waiting", waiting); video.addEventListener("stalled", progress);

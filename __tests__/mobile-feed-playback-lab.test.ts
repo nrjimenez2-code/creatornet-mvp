@@ -88,7 +88,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" = "current") {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" = "current") {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode })));
 }
 async function click(label: string) {
@@ -115,6 +115,11 @@ function latestActivation() { return mockController.activate.mock.calls.at(-1)![
 test("prearmed lab mode selects the paused-rate controller variant", async () => {
   await render("prearmed");
   expect(RateController).toHaveBeenCalledWith("prearmed");
+});
+
+test("steady lab mode selects the controller with rate correction disabled", async () => {
+  await render("steady");
+  expect(RateController).toHaveBeenCalledWith("steady");
 });
 
 test.each(["media", "watchdog"])("%s failure blocks Play, sound and foreground until Retry creates a new owner", async kind => {

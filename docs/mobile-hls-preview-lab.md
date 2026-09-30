@@ -7,8 +7,9 @@ This is an experimental branch based on preparation candidate `34c0788be78f26637
 - `/playback-lab?feedDebug=1&mode=current` uses the unchanged candidate controller.
 - `/playback-lab?feedDebug=1&mode=rate` uses the isolated rate prototype.
 - `/playback-lab?feedDebug=1&mode=prearmed` tests a second isolated rate variant. It assigns 0.75x to a hidden, paused opening bridge when preparation becomes ready, before activation; it does not write a correction while that bridge is moving. This tests the Safari post-write callback gap seen in the first phone comparison.
+- `/playback-lab?feedDebug=1&mode=steady` disables rate correction and alignment seeks. Both videos retain 1x; naturally aligned frames may hand off, otherwise the same three-second watchdog controls recovery. This is an isolated test of removing the rate writes that repeatedly preceded long callback gaps.
 - The server returns 404 unless `VERCEL_ENV` is exactly `preview`. Other mode values also return 404.
-- All three modes use exactly the three existing public HLS sources in `lib/feedAdaptiveManifest.json`. There is no arbitrary media URL input, catalog change, or new hosting resource.
+- All modes use exactly the three existing public HLS sources in `lib/feedAdaptiveManifest.json`. There is no arbitrary media URL input, catalog change, or new hosting resource.
 - Native HLS support is required. The page does not substitute MP4 or HLS.js.
 - The normal feed continues to import `lib/mobileFeedController.ts`. Only this Preview page imports the prototype.
 - Normal root layout providers remain present. The lab itself does not mount feed cards, query the feed, or send engagement/payment events. This is not a completely isolated network sandbox.
@@ -21,14 +22,18 @@ Synthetic tests demonstrate ideal convergence and bounded cleanup. They also del
 
 ## Phone comparison
 
-1. Open the exact deployment's `mode=current` link in Safari. Keep Low Power Mode off and use the same network for both modes.
+1. Open the exact deployment's `mode=rate` link in Safari. Keep Low Power Mode off and use the same network for both modes.
 2. Press Play, then Tap for sound. Watch each clip for at least five seconds, physically swipe to the next, and repeat through all three clips. Do a second pass back through them.
 3. Use physical swipes for measurements. Next/Previous are only functional controls: a button click may renew a browser gesture grant.
 4. Open Capture controls after the run, label the conditions and run ID, and export without resetting. Build identity and controller mode are seeded automatically; `labBuildCommit` and `labController` preserve them in the export.
 5. If Retry appears, export before tapping Retry so the initial failure remains available. Do not start a new diagnostic run after a failure.
-6. Repeat with `mode=rate` on the same deployment and note startup delay, any visible freeze or speed change, sound synchronization, and settled sharpness. Export the second JSON separately.
+6. Repeat with `mode=steady` on the same deployment and note startup delay, any visible freeze or speed change, sound synchronization, and settled sharpness. Export the second JSON separately.
 
-The `current` and `rate` comparison above was completed on build `a1b30dd902decba8fedd941406ffcfd89f2a75d3`. The new `prearmed` mode has **no hosted or physical result**. Once a new exact-build Preview exists, compare `rate` and `prearmed` with the same swipe procedure, export both before Retry, and inspect whether the prearm event preceded activation, whether either later rate write occurred, bridge callback gaps, first motion, handoff and sound. The old build's traces cannot validate the new mode.
+The `current` and `rate` comparison above was completed on build `a1b30dd902decba8fedd941406ffcfd89f2a75d3`. A second exact-build Safari comparison on `ebfba8ad9c7457bccdfdf3278c30cda3e481f23a` found `rate` visibly smoother than `prearmed`. The owner reported that only about one quarter of the prearmed picture moved while the other three quadrants appeared frozen. Prearmed had 546 ms and 763 ms bridge callback gaps after first motion, and all three warm activations reached the watchdog. Treat prearmed as a failed visual experiment, even though one partial preparation handed off early. The JSON contains timestamps and counters, not pixels, so it cannot identify the affected quadrants or their exact visual cause.
+
+The second rate run also retained two 525 ms bridge callback gaps following its two applied rate corrections; all four later handoffs used the watchdog. Its two transitions without rate correction had no bridge callback interval above 250 ms. That small sample motivates `steady`, but does not establish its Safari result or sound synchronization. Rate remains the preferred comparison, not accepted normal-feed code.
+
+The next comparison is `rate` versus `steady` on one exact Preview build, using the same physical swipe procedure and exporting both before Retry. The prototype now records bridge rate, submitted-frame counter, frame dimensions, compositor timing and decoding time when available. It also records rate resets caused by main waiting, pause, seeking or loss of playback. These observations can distinguish some callback-delivery and submission patterns; they still do not prove the pixels or audible output were correct. `steady` has no hosted or physical result until separately published and tested.
 
 These are diagnostic controller comparisons. They do not complete Discover/Following, Safari/Instagram, long-session, sound, resume, or matched TikTok acceptance.
 
