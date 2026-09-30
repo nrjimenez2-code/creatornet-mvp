@@ -3,8 +3,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
-import { normalizeTopics } from "@/lib/interestTopics";
-import { INTEREST_LABELS, normalizeInterests } from "@/lib/interestCategories";
+import { AUTOMATIC_POST_CLASSIFICATION_VERSION } from "@/lib/automaticPostMetadata";
+import { Video, LockKeyhole } from "lucide-react";
 import { useUser } from "@/lib/useUser";
 import SchedulingConnections from "@/components/SchedulingConnections";
 import { extractHashtags } from "@/lib/hashtags";
@@ -16,10 +16,6 @@ import { MONTHLY_MENTORSHIP_VERSION, MAX_MEMBERSHIP_MINIMUM_MONTHS, describeMont
 /* ------------------------------------------------------------------ */
 /* Constants / types                                                  */
 /* ------------------------------------------------------------------ */
-
-const FALLBACK_TAGS = INTEREST_LABELS;
-
-type Tag = (typeof FALLBACK_TAGS)[number];
 
 type Props = { onPosted?: () => void };
 
@@ -323,8 +319,6 @@ export default function PostComposer({ onPosted }: Props) {
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
   const [priceDollars, setPriceDollars] = useState<string>("");
-  const [selectedTags, setSelectedTags] = useState<Tag[]>([]);
-  const [topicInput, setTopicInput] = useState("");
 
   // Product attach
   const [products, setProducts] = useState<Product[]>([]);
@@ -352,11 +346,9 @@ export default function PostComposer({ onPosted }: Props) {
 
   // Assets
   const [videoFile, setVideoFile] = useState<File | null>(null); // promo/public
-  const [thumbFile, setThumbFile] = useState<File | null>(null); // public
   const [premiumFile, setPremiumFile] = useState<File | null>(null); // private
 
   // UI state
-  const myTags = FALLBACK_TAGS;
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
@@ -418,7 +410,7 @@ export default function PostComposer({ onPosted }: Props) {
     };
   }, [userId]);
 
-  const chars = caption.trim().length;
+  const chars = caption.length;
 
   // valid if: required fields ok AND (booking disabled OR booking blank OR valid https)
   const bookingNormalized = normalizeBookingUrl(bookingUrl);
@@ -427,11 +419,9 @@ export default function PostComposer({ onPosted }: Props) {
     () =>
       !!userId &&
       !!videoFile &&
-      selectedTags.length > 0 &&
-      chars > 0 &&
       chars <= 300 &&
       (!attachBooking || bookingRaw === "" || !!bookingNormalized),
-    [userId, videoFile, selectedTags, chars, attachBooking, bookingRaw, bookingNormalized]
+    [userId, videoFile, chars, attachBooking, bookingRaw, bookingNormalized]
   );
 
   async function handleCreateProduct() {
@@ -483,7 +473,7 @@ export default function PostComposer({ onPosted }: Props) {
   }
 
   async function handlePost() {
-    if (!userId || !videoFile || selectedTags.length === 0) return;
+    if (!userId || !videoFile || posting || chars > 300) return;
 
     // If a non-empty URL is provided but invalid, block with an inline error.
     if (attachBooking && bookingRaw !== "" && !bookingNormalized) {
@@ -502,10 +492,9 @@ export default function PostComposer({ onPosted }: Props) {
         setUploadPct(Math.round((loaded / total) * 100))
       );
 
-      // 2) optional thumbnail → R2 (auto-generate one from video when missing)
+      // 2) generate the public poster; a failed generation preserves the null-poster fallback.
       let poster_url: string | null = null;
-      const thumbnailSource =
-        thumbFile ?? (videoFile ? await generateVideoThumbnail(videoFile) : null);
+      const thumbnailSource = await generateVideoThumbnail(videoFile);
       if (thumbnailSource) {
         setUploadStage("Uploading thumbnail");
         setUploadPct(0);
@@ -551,8 +540,7 @@ export default function PostComposer({ onPosted }: Props) {
           video_url,
           poster_url,
           premium_path,
-          interests: normalizeInterests(selectedTags),
-          topics: normalizeTopics(topicInput.split(",")),
+          classification_version: AUTOMATIC_POST_CLASSIFICATION_VERSION,
           product_id: postProductId,
           price_cents,
           allow_booking: !!attachBooking,
@@ -577,10 +565,7 @@ export default function PostComposer({ onPosted }: Props) {
       setCaption("");
       setPriceDollars("");
       setVideoFile(null);
-      setThumbFile(null);
       setPremiumFile(null);
-      setSelectedTags([]);
-      setTopicInput("");
       setProductId(null);
       setAttachBuy(false);
       setAttachBooking(false);
@@ -606,43 +591,48 @@ export default function PostComposer({ onPosted }: Props) {
   /* ------------------------------------------------------------------ */
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-[#050505] p-5 text-white">
+    <div className="text-white">
       {/* Title */}
       <div className="space-y-1.5">
-        <label className="text-sm font-semibold text-white/80">
+        <label htmlFor="post-title" className="text-sm font-semibold text-white/90">
           Title (optional)
         </label>
         <input
+          id="post-title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="What are you sharing?"
-          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
+          className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-3 text-sm text-white placeholder-white/40 focus:border-[#A78BFA] focus:outline-none focus:ring-2 focus:ring-[#A78BFA]/60"
         />
       </div>
 
       {/* Caption */}
-      <div className="mt-4 space-y-1.5">
-        <label className="text-sm font-semibold text-white/80">
+      <div className="mt-5 space-y-1.5">
+        <label htmlFor="post-caption" className="text-sm font-semibold text-white/90">
           Caption / Description
         </label>
         <textarea
+          id="post-caption"
+          aria-describedby="post-caption-guidance post-caption-count"
           value={caption}
           onChange={(e) => setCaption(e.target.value)}
           maxLength={300}
-          placeholder="Share a tip, a lesson, or a quick insight…  (use #tags like #daytrading #smma)"
-          className="w-full rounded-lg border border-white/20 bg-white/5 px-3 py-3 text-sm text-white placeholder-white/40 focus:border-white focus:outline-none focus:ring-1 focus:ring-white/80"
-          rows={3}
+          placeholder="Share a tip, a lesson, or a quick insight…"
+          className="w-full rounded-xl border border-white/20 bg-white/5 px-3 py-3 text-sm text-white placeholder-white/40 focus:border-[#A78BFA] focus:outline-none focus:ring-2 focus:ring-[#A78BFA]/60"
+          rows={4}
         />
+        <p id="post-caption-guidance" className="text-xs text-white/60">Use #tags like #daytrading #smma</p>
       </div>
 
       {/* Price override */}
       <div className="mt-4 space-y-1.5">
-        <label className="text-sm font-semibold text-white/80">
+        <label htmlFor="post-price" className="text-sm font-semibold text-white/90">
           Price (USD)
         </label>
         <div className="flex items-center gap-2">
           <span className="text-white/60">$</span>
           <input
+            id="post-price"
             inputMode="decimal"
             value={priceDollars}
             onChange={(e) => setPriceDollars(e.target.value)}
@@ -663,7 +653,7 @@ export default function PostComposer({ onPosted }: Props) {
         <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
           <input
             type="checkbox"
-            className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
+            className="h-4 w-4 rounded border-white/40 bg-transparent accent-[#4A35C7] [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-[#A78BFA]"
             checked={attachBuy}
             disabled={stripeSellReady === false}
             onChange={(e) => setAttachBuy(e.target.checked)}
@@ -821,7 +811,7 @@ export default function PostComposer({ onPosted }: Props) {
         <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
           <input
             type="checkbox"
-            className="h-4 w-4 rounded border-white/40 bg-transparent text-white focus:ring-white"
+            className="h-4 w-4 rounded border-white/40 bg-transparent accent-[#4A35C7] [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-[#A78BFA]"
             checked={attachBooking}
             onChange={(e) => setAttachBooking(e.target.checked)}
           />
@@ -846,69 +836,36 @@ export default function PostComposer({ onPosted }: Props) {
         )}
       </div>
 
-      {/* Tags */}
-      <div className="mt-4 flex flex-wrap gap-2">
-        {myTags.map((t) => {
-          const active = selectedTags.includes(t);
-          return (
-            <button
-              key={t}
-              type="button"
-              aria-pressed={active}
-              onClick={() => setSelectedTags(prev => prev.includes(t) ? prev.filter(tag => tag !== t) : [...prev, t])}
-              className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                active
-                  ? "bg-[#4A35C7] text-white border-[#4A35C7]"
-                  : "bg-black/40 text-white border-white/20 hover:bg-black/60"
-              }`}
-            >
-              {t}
-            </button>
-          );
-        })}
-      </div>
-
-      <label className="mt-4 block text-sm text-white/80">
-        Specific topics (optional, separated by commas)
-        <input value={topicInput} onChange={e => setTopicInput(e.target.value)} maxLength={400}
-          placeholder="ecommerce, Shopify, mentorship"
-          className="mt-2 w-full rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-white" />
-      </label>
-
       {/* Uploaders */}
-      <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60">
-          <span className="truncate">
-            {videoFile ? `🎬 ${videoFile.name}` : "🎬 Choose .mp4 video (promo/public)"}
+      <div className="mt-5 grid grid-cols-1 gap-3">
+        <label className="relative flex min-w-0 items-center gap-3 rounded-xl border border-white/20 bg-white/[0.02] px-4 py-3 text-sm cursor-pointer hover:bg-white/5 focus-within:ring-2 focus-within:ring-[#A78BFA]">
+          <Video aria-hidden="true" className="h-6 w-6 shrink-0 text-white/80" />
+          <span className="min-w-0">
+            <span className="block font-semibold">Public video</span>
+            <span className="block truncate text-xs text-white/60">{videoFile ? videoFile.name : ".mp4 · Promo / public"}</span>
           </span>
           <input
             type="file"
+            aria-label="Public video"
             accept="video/mp4"
-            className="hidden"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            disabled={posting}
             onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
           />
         </label>
 
-        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60">
-          <span className="truncate">
-            {thumbFile ? `🖼️ ${thumbFile.name}` : "🖼️ Optional thumbnail (.jpg/.png)"}
+        <label className="relative flex min-w-0 items-center gap-3 rounded-xl border border-white/20 bg-white/[0.02] px-4 py-3 text-sm cursor-pointer hover:bg-white/5 focus-within:ring-2 focus-within:ring-[#A78BFA]">
+          <LockKeyhole aria-hidden="true" className="h-6 w-6 shrink-0 text-white/80" />
+          <span className="min-w-0">
+            <span className="block font-semibold">Premium video</span>
+            <span className="block truncate text-xs text-white/60">{premiumFile ? premiumFile.name : ".mp4 · Private · Optional"}</span>
           </span>
           <input
             type="file"
-            accept="image/jpeg,image/png"
-            className="hidden"
-            onChange={(e) => setThumbFile(e.target.files?.[0] ?? null)}
-          />
-        </label>
-
-        <label className="flex items-center justify-between gap-3 rounded-lg border border-white/20 bg-black/40 px-3 py-2 text-sm cursor-pointer hover:bg-black/60 sm:col-span-2">
-          <span className="truncate">
-            {premiumFile ? `🔒 premium: ${premiumFile.name}` : "🔒 Premium .mp4 (private, optional)"}
-          </span>
-          <input
-            type="file"
+            aria-label="Premium video"
             accept="video/mp4"
-            className="hidden"
+            className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+            disabled={posting}
             onChange={(e) => setPremiumFile(e.target.files?.[0] ?? null)}
           />
         </label>
@@ -937,8 +894,8 @@ export default function PostComposer({ onPosted }: Props) {
       )}
 
       {/* Footer */}
-      <div className="mt-4 flex items-center justify-between text-sm">
-        <span className="text-xs text-white/50">{chars} / 300</span>
+      <div className="mt-5 flex items-center justify-between border-t border-white/10 pt-4 text-sm">
+        <span id="post-caption-count" className="text-xs text-white/50">{chars} / 300</span>
         <button
           onClick={handlePost}
           disabled={!canPost || posting}

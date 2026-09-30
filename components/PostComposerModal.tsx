@@ -1,8 +1,9 @@
 // components/PostComposerModal.tsx
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import PostComposer from "./PostComposer";
+import { X } from "lucide-react";
 
 type PostComposerModalProps = {
   /** Called after a post is successfully created (parent can refresh feed). */
@@ -18,11 +19,11 @@ export default function PostComposerModal({
   const [open, setOpen] = useState(true);
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const close = () => {
+  const close = useCallback(() => {
     if (!open) return;
     setOpen(false);
     onClose?.();
-  };
+  }, [open, onClose]);
 
   // Close on ESC
   useEffect(() => {
@@ -31,7 +32,7 @@ export default function PostComposerModal({
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, []);
+  }, [close]);
 
   // Lock background scroll when open
   useEffect(() => {
@@ -66,15 +67,15 @@ export default function PostComposerModal({
         tabIndex={-1}
         className="w-[min(720px,95vw)] max-h-[92vh] overflow-y-auto rounded-2xl bg-[#060606] p-5 shadow-2xl outline-none border border-white/10 text-white"
       >
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold tracking-wide">New post</h3>
+        <div className="flex items-center justify-between border-b border-white/10 pb-4">
+          <h3 className="text-2xl font-semibold tracking-tight">New post</h3>
           <button
             type="button"
             onClick={close}
-            className="rounded-full p-2 text-white/80 hover:bg-white/10 transition"
+            className="rounded-full border border-white/15 p-2 text-white/80 hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A78BFA] transition"
             aria-label="Close"
           >
-            ✕
+            <X aria-hidden="true" className="h-5 w-5" />
           </button>
         </div>
 
