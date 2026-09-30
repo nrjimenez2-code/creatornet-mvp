@@ -20,6 +20,8 @@ export type FeedV3Row = {
   shares_count: number | null;
   allow_booking: boolean | null;
   booking_url: string | null;
+  tips_enabled?: boolean | null;
+  tips_available?: boolean | null;
   creator_name: string | null;
   creator_username: string | null;
   creator_avatar_url: string | null;
@@ -64,6 +66,7 @@ export type PostRow = {
   is_liked?: boolean | null;
   allow_booking?: boolean | null;
   booking_url?: string | null;
+  tips_enabled?: boolean;
   /** When false, hide buy CTA (optional; omitted = allow). */
   creator_can_sell?: boolean | null;
   /** Lifetime paid purchases of this post's product (null = unknown / not returned). */
@@ -130,6 +133,7 @@ export function mapFeedV3Row(r: FeedV3Row): PostRow {
     shares_count: r.shares_count ?? 0,
     allow_booking: r.allow_booking ?? false,
     booking_url: r.booking_url ?? null,
+    tips_enabled: r.tips_available === true,
     product_type: r.product_id ? r.product_type ?? null : null,
     // Same display-name precedence as the old /api/profiles path: a creator
     // with no full_name shows their username, not the generic "Creator".

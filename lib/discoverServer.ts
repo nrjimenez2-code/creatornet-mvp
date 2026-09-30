@@ -158,7 +158,7 @@ async function readAll(
   }
 }
 const POST_COLUMNS =
-  "id,creator_id,product_id,offering_id,title,content,caption,interests,topics,hashtags,created_at,video_url,poster_url,price_cents,allow_booking,booking_url,likes_count,comments_count,shares_count,purchase_count,active,hidden_at,removed_at";
+  "id,creator_id,product_id,offering_id,title,content,caption,interests,topics,hashtags,created_at,video_url,poster_url,price_cents,allow_booking,booking_url,tips_enabled,likes_count,comments_count,shares_count,purchase_count,active,hidden_at,removed_at";
 async function byIds(
   table: string,
   columns: string,
@@ -489,6 +489,8 @@ export async function readDiscoverPage(
         price_cents: p.price_cents,
         allow_booking: p.allow_booking,
         booking_url: p.booking_url,
+        tips_available: process.env.CREATOR_TIPPING_ENABLED === "true" &&
+          p.tips_enabled === true && isSellReadyProfile(p.profile),
         likes_count: p.likes_count,
         comments_count: p.comments_count,
         shares_count: p.shares_count,

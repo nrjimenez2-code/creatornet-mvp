@@ -14,7 +14,7 @@ beforeEach(async () => {
   generationFails = false; uploadFails = false;
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   mockFetch = jest.fn(async (url: string, init?: RequestInit) => {
-    if (url === "/api/stripe/connect/status") return { ok: true, json: async () => ({ onboarding_complete: true }) };
+    if (url === "/api/stripe/connect/status") return { ok: true, json: async () => ({ onboarding_complete: true, tipping_enabled: true }) };
     if (url === "/api/products") return { ok: true, json: async () => ({ items: [] }) };
     if (url === "/api/upload/presign") return { ok: !uploadFails, json: async () => uploadFails ? { error: "Upload refused" } : { uploadUrl: "https://upload.test", publicUrl: `https://cdn.test/${JSON.parse(String(init?.body)).folder}/asset` } };
     if (url === "/api/posts") return { ok: true, json: async () => ({ success: true }) };
@@ -86,4 +86,19 @@ test("failed uploads leave the picked file available and do not publish a dead U
 });
 test("premium-only selection does not replace the required public video", async () => {
   await pick("Premium video"); expect(button().disabled).toBe(true); expect(postRequest()).toBeUndefined();
+});
+
+test("automatic free-video tips clear premium selection and preserve mutually exclusive payment controls", async () => {
+  await pick("Premium video");
+  const tipLabel = Array.from(container.querySelectorAll("label")).find(node => node.textContent?.includes("Enable tips on this free video"))!;
+  await act(async () => tipLabel.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="Premium video"]')!.disabled).toBe(true);
+  expect(container.querySelector<HTMLInputElement>("#post-price")!.disabled).toBe(true);
+  for (const label of Array.from(container.querySelectorAll("label")).filter(node => node.textContent?.includes('Attach "Buy / Book"') || node.textContent?.includes('Book a free call'))) {
+    expect(label.querySelector<HTMLInputElement>('input[type="checkbox"]')!.disabled).toBe(true);
+  }
+  await pick(); await submit();
+  const body = JSON.parse(String(postRequest()![1].body));
+  expect(body).toMatchObject({ classification_version: 1, tips_enabled: true, premium_path: null, product_id: null, price_cents: null, allow_booking: false, booking_url: null });
+  expect(body).not.toHaveProperty("interests"); expect(body).not.toHaveProperty("topics");
 });

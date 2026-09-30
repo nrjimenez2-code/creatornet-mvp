@@ -30,4 +30,26 @@ describe("buildAuthRedirectUrl", () => {
       buildAuthRedirectUrl("javascript:alert(1)", "http://localhost:3000"),
     ).toThrow("must use HTTP or HTTPS");
   });
+
+  test("OAuth return keeps the same validated video tip intent as email sign-in", () => {
+    const next = "/dashboard?postId=5842d226-e9c6-4399-8531-90e076a3be1c&tip=1";
+    const redirect = new URL(buildAuthRedirectUrl(
+      "https://www.creatornet.net",
+      "http://localhost:3000",
+      "?next=" + encodeURIComponent(next),
+    ));
+    expect(redirect.origin).toBe("https://www.creatornet.net");
+    expect(redirect.pathname).toBe("/auth");
+    expect(redirect.searchParams.get("next")).toBe(next);
+  });
+
+  test("OAuth return drops an unrecognized destination", () => {
+    expect(buildAuthRedirectUrl(undefined, "http://localhost:3000", "?next=https%3A%2F%2Fevil.test"))
+      .toBe("http://localhost:3000/auth");
+  });
+
+  test("OAuth return also preserves an existing Profile destination", () => {
+    const redirect = new URL(buildAuthRedirectUrl(undefined, "http://localhost:3000", "?next=/profile/edit"));
+    expect(redirect.searchParams.get("next")).toBe("/profile/edit");
+  });
 });

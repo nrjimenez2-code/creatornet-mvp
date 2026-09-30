@@ -56,7 +56,7 @@ export interface AdminVideo {
   createdAt: string;
 }
 
-export type OrderKind = "product" | "installments" | "booking";
+export type OrderKind = "product" | "installments" | "booking" | "tip";
 export type OrderStatus = "paid" | "pending" | "refunded" | "failed";
 
 export type AdminRefundStatus =
@@ -108,6 +108,8 @@ export interface AdminOrder {
   refundEligible?: boolean;
   refundBlockedReason?: string | null;
   latestRefund?: AdminRefundSummary | null;
+  disputeStatus?: string | null;
+  disputeRecoveryStatus?: string | null;
 }
 
 export type BookingStatus = "pending" | "confirmed" | "completed" | "canceled";

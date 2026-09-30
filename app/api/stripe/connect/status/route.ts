@@ -46,6 +46,7 @@ export async function GET(req: NextRequest) {
 
   if (!profile?.stripe_account_id) {
     return NextResponse.json({
+      tipping_enabled: process.env.CREATOR_TIPPING_ENABLED === "true",
       connected: false,
       charges_enabled: false,
       payouts_enabled: false,
@@ -75,6 +76,7 @@ export async function GET(req: NextRequest) {
     if (saveError || !saved?.length) throw new Error("Could not persist current Stripe capabilities");
 
     return NextResponse.json({
+      tipping_enabled: process.env.CREATOR_TIPPING_ENABLED === "true",
       connected: true,
       charges_enabled: !!account.charges_enabled,
       payouts_enabled: !!account.payouts_enabled,
@@ -84,6 +86,7 @@ export async function GET(req: NextRequest) {
   } catch (e: unknown) {
     console.error("[connect/status] sync error:", (e as Error)?.message);
     return NextResponse.json({
+      tipping_enabled: process.env.CREATOR_TIPPING_ENABLED === "true",
       connected: true,
       charges_enabled: false,
       payouts_enabled: false,

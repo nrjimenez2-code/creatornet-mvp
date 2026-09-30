@@ -4,13 +4,14 @@ import { resolveEarningsPeriod } from "@/lib/earningsPeriod";
 let mockRows: LedgerRow[] = [];
 let mockFailOffset: number | null = null;
 const mockRanges: number[] = [];
+const mockSelect = jest.fn();
 const mockFrom = jest.fn(() => {
   let lower = "";
   let upper = "";
   let offset = 0;
   let end = 0;
   const query = {
-    select: () => query,
+    select: (columns: string) => { mockSelect(columns); return query; },
     eq: () => query,
     in: () => query,
     gte: (_key: string, value: string) => { lower = value; return query; },
@@ -28,7 +29,7 @@ jest.mock("@/lib/supabaseServer", () => ({ createServerClient: jest.fn() }));
 
 function row(id: string, overrides: Partial<LedgerRow> = {}): LedgerRow {
   return {
-    id, purchase_id: null, order_id: null, booking_payment_id: null, stripe_invoice_id: null,
+    id, tip_id: null, purchase_id: null, order_id: null, booking_payment_id: null, stripe_invoice_id: null,
     gross_amount_cents: 100, creator_net_cents: 80, refunded_amount_cents: 0,
     earnings_reversed_cents: 0, disputed_amount_cents: 0, dispute_status: null,
     currency: "usd", status: "paid", created_at: "2026-09-15T12:00:00.000Z", ...overrides,
@@ -36,7 +37,15 @@ function row(id: string, overrides: Partial<LedgerRow> = {}): LedgerRow {
 }
 
 const period = resolveEarningsPeriod({ period: "custom", tz: "UTC", start: "2026-09-01", end: "2026-09-30" })!;
-beforeEach(() => { mockRows = []; mockFailOffset = null; mockRanges.length = 0; mockFrom.mockClear(); });
+beforeEach(() => { mockRows = []; mockFailOffset = null; mockRanges.length = 0; mockFrom.mockClear(); mockSelect.mockClear(); });
+
+test("period earnings keep tips identifiable and include their recorded gross and current net", async () => {
+  mockRows = [row("tip-ledger", { tip_id: "tip-1", gross_amount_cents: 500, creator_net_cents: 395, earnings_reversed_cents: 95 })];
+  const result = await fetchCreatorEarningsView("creator-1", period);
+  expect(mockSelect.mock.calls[0][0].split(", ")).toContain("tip_id");
+  expect(result.rows).toEqual([expect.objectContaining({ label: "Tip", grossCents: 500, currentNetCents: 300 })]);
+  expect(result.totals).toEqual([{ currency: "USD", grossCents: 500, netCents: 300 }]);
+});
 
 test("totals cover every matching payment while history is paginated", async () => {
   mockRows = Array.from({ length: 1100 }, (_, i) => row(`usd-${i}`));

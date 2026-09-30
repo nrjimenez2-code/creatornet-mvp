@@ -47,6 +47,7 @@ export interface ModerationSpec<Row> {
   selectColumns: string;
   buildUpdate: (reason: string | null) => Record<string, string | null>;
   deriveStatus: (row: Row) => UserStatus | VideoStatus;
+  afterUpdate?: (admin: Awaited<ReturnType<typeof requireAdmin>>["admin"], targetId: string) => Promise<void>;
 }
 
 type ParsedModerationBody =
@@ -143,6 +144,14 @@ export async function runModerationAction<Row>(
         auditError
       );
       return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
+
+    if (spec.afterUpdate) {
+      try {
+        await spec.afterUpdate(admin, targetId);
+      } catch (afterError) {
+        console.error(`[admin:${spec.action}] post-update cleanup failed for ${targetId}:`, afterError);
+      }
     }
 
     return NextResponse.json({ ok: true, status: spec.deriveStatus(row) });

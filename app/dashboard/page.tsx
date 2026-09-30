@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import { DashboardSkeleton } from "@/components/loading/Skeletons";
 import { useUser } from "@/lib/useUser";
+import NotificationInbox from "@/components/NotificationInbox";
 
 type Tab = "following" | "discover";
 
@@ -16,6 +17,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const activeTab: Tab = searchParams?.get("tab") === "following" ? "following" : "discover";
   // Bumped after a successful post: remounts FeedList so the new post shows up.
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
+  const [openTipPostId, setOpenTipPostId] = useState<string | null>(null);
+  const [resumeTipId, setResumeTipId] = useState<string | null>(null);
 
   function setActiveTab(tab: Tab) {
     if (tab === activeTab) return;
@@ -34,9 +37,16 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
     const postId = searchParams?.get("postId");
     if (postId) {
       setHighlightPostId(postId);
+      const returnedTipId = searchParams?.get("tipId");
+      if (searchParams?.get("tip") === "1" || returnedTipId) {
+        setOpenTipPostId(postId);
+        setResumeTipId(returnedTipId);
+      }
       // Remove postId from URL after setting it
       const url = new URL(window.location.href);
       url.searchParams.delete("postId");
+      url.searchParams.delete("tip");
+      url.searchParams.delete("tipId");
       router.replace(url.pathname + url.search, { scroll: false });
     }
   }, [searchParams, router, setHighlightPostId]);
@@ -62,6 +72,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           <path d="M15.4 15.9L20.2 20.7" fill="none" stroke="white" strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       </Link>
+      {!authLoading && userId && <NotificationInbox className="fixed right-14 top-3 z-40 lg:right-5 lg:top-5" />}
 
       <div className="mx-auto w-full">
         {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll.
@@ -70,7 +81,10 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} />
+            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={openTipPostId} resumeTipId={resumeTipId} onTipReturnClosed={() => {
+              setOpenTipPostId(null);
+              setResumeTipId(null);
+            }} />
           </div>
         </div>
       </div>
