@@ -6,6 +6,7 @@ import ProfileDesktopMenu from "@/components/ProfileDesktopMenu";
 import ProfileContent from "@/components/ProfileContent";
 import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import ProfileMobileHeader from "@/components/ProfileMobileHeader";
+import NotificationInbox from "@/components/NotificationInbox";
 import FollowStats from "@/components/FollowStats";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
@@ -107,7 +108,8 @@ export default async function ProfilePage() {
           <ProfileMobileHeader userId={user.id} />
         </div>
 
-        <div className="hidden lg:block absolute top-4 right-4 z-10">
+        <div className="hidden lg:flex absolute top-4 right-4 z-10 items-center gap-2">
+          <NotificationInbox />
           <ProfileDesktopMenu userId={user.id} />
         </div>
 
