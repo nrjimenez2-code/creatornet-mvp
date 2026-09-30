@@ -72,7 +72,11 @@ test("pointer dismissal inside the sidebar keeps it expanded", async () => {
 test("Escape restores Search focus and keyboard users can continue or collapse the sidebar", async () => {
   await openSearch();
   const input = container.querySelector<HTMLInputElement>("input")!;
-  await act(async () => input.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 400, clientY: 100 })));
+  await act(async () => {
+    const pointerDown = new MouseEvent("pointerdown", { bubbles: true, clientX: 400, clientY: 100 });
+    Object.defineProperty(pointerDown, "pointerType", { value: "mouse" });
+    input.dispatchEvent(pointerDown);
+  });
   await act(async () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(container.querySelector('[role="dialog"]')).toBeNull();
   expect(document.activeElement).toBe(search);
