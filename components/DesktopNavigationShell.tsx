@@ -178,7 +178,7 @@ export default function DesktopNavigationShell({ children }: { children: React.R
     <div className="cn-desktop-nav-content">{children}</div>
     {searchOpen && <div
       onPointerDownCapture={(event) => {
-        searchPointerRef.current = window.matchMedia("(hover: hover) and (pointer: fine)").matches ? { x: event.clientX, y: event.clientY } : null;
+        searchPointerRef.current = event.pointerType === "mouse" && window.matchMedia("(hover: hover) and (pointer: fine)").matches ? { x: event.clientX, y: event.clientY } : null;
       }}
       onKeyDownCapture={() => { searchPointerRef.current = null; }}
     ><SearchDrawer open onClose={closeSearch} /></div>}

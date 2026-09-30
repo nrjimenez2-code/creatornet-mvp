@@ -39,9 +39,11 @@ async function openSearch() {
   expect(document.activeElement).toBe(container.querySelector("input"));
 }
 
-async function pointerClose(target: HTMLElement, x: number, y: number) {
+async function pointerClose(target: HTMLElement, x: number, y: number, pointerType = "mouse") {
   await act(async () => {
-    target.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: x, clientY: y }));
+    const pointerDown = new MouseEvent("pointerdown", { bubbles: true, clientX: x, clientY: y });
+    Object.defineProperty(pointerDown, "pointerType", { value: pointerType });
+    target.dispatchEvent(pointerDown);
     target.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: x, clientY: y, detail: 1 }));
   });
 }
@@ -98,6 +100,13 @@ test("no-hover devices keep their existing focus and toggle behavior", async () 
   Object.defineProperty(window, "matchMedia", { configurable: true, value: () => ({ matches: false }) });
   await openSearch();
   await pointerClose(container.querySelector<HTMLButtonElement>('[role="dialog"] button')!, 600, 100);
+  expect(document.activeElement).toBe(search);
+  expect(rail.getAttribute("data-expanded")).toBe("true");
+});
+
+test("touch dismissal on a desktop with a mouse also keeps the existing focus behavior", async () => {
+  await openSearch();
+  await pointerClose(container.querySelector<HTMLButtonElement>('[role="dialog"] button')!, 600, 100, "touch");
   expect(document.activeElement).toBe(search);
   expect(rail.getAttribute("data-expanded")).toBe("true");
 });
