@@ -81,7 +81,7 @@ test("all eight rendered destinations keep their routes and selected state", asy
   }
 });
 
-test("fixed header, scrollable middle, and pinned footer retain the 88/300 overlay geometry", async () => {
+test("fixed header, scrollable middle, and pinned footer retain the 88/300 overlay with a left gutter", async () => {
   await render();
   const rail = container.querySelector("aside")!;
   expect([...rail.children].map(element => element.className)).toEqual([
@@ -92,7 +92,8 @@ test("fixed header, scrollable middle, and pinned footer retain the 88/300 overl
   expect(rail.querySelector(".cn-desktop-nav-header img")?.getAttribute("src")).toBe("/logo.png");
   expect(rail.querySelector(".cn-desktop-nav-stripe-icon")).toBeNull();
   const css = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8");
-  expect(css).toMatch(/\.cn-desktop-nav-content\s*\{\s*margin-left:\s*88px/);
+  expect(css).toMatch(/\.cn-desktop-nav-content\s*\{\s*margin-left:\s*104px/);
+  expect(css).toMatch(/\.cn-desktop-nav\s*\{[^}]*left:\s*16px/s);
   expect(css).toMatch(/\.cn-desktop-nav\[data-expanded="true"\]\s*\{\s*width:\s*300px/);
   expect(css).toMatch(/\.cn-desktop-nav-scroll\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/s);
   expect(css).toMatch(/\.cn-desktop-nav-bottom\s*\{\s*flex:\s*0 0 auto/);

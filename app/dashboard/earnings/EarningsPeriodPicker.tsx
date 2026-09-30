@@ -11,14 +11,8 @@ import {
 } from "@/lib/earningsPeriod";
 
 import styles from "./earnings.module.css";
-
-const options: { value: EarningsPreset; label: string }[] = [
-  { value: "today", label: "Today" },
-  { value: "yesterday", label: "Yesterday" },
-  { value: "this-week", label: "This Week" },
-  { value: "this-month", label: "This Month" },
-  { value: "custom", label: "Custom Range" },
-];
+import EarningsTimeframeSelect from "./EarningsTimeframeSelect";
+import EarningsDatePicker from "./EarningsDatePicker";
 
 export default function EarningsPeriodPicker({ period, needsUrlRepair }: { period: EarningsPeriod | null; needsUrlRepair: boolean }) {
   const router = useRouter();
@@ -74,13 +68,11 @@ export default function EarningsPeriodPicker({ period, needsUrlRepair }: { perio
   return (
     <section className={styles.periodControls} aria-label="Earnings timeframe">
       <label htmlFor="earnings-period">Timeframe</label>
-      <select id="earnings-period" value={selected} onChange={(event) => choose(event.target.value as EarningsPreset)} disabled={pending}>
-        {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select>
+      <EarningsTimeframeSelect value={selected} onChange={choose} disabled={pending} />
       {selected === "custom" && (
         <form className={styles.customRange} onSubmit={applyCustom}>
-          <label htmlFor="earnings-start">Start <input id="earnings-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></label>
-          <label htmlFor="earnings-end">End <input id="earnings-end" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} required /></label>
+          <EarningsDatePicker id="earnings-start" label="Start" value={startDate} onChange={setStartDate} disabled={pending} />
+          <EarningsDatePicker id="earnings-end" label="End" value={endDate} onChange={setEndDate} disabled={pending} />
           <button type="submit" disabled={pending}>Apply</button>
         </form>
       )}
