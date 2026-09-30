@@ -89,7 +89,7 @@ test("fixed header, scrollable middle, and pinned footer retain the 88/300 overl
   ]);
   expect(rail.querySelector(".cn-desktop-nav-scroll nav")?.getAttribute("aria-label")).toBe("Main destinations");
   expect(rail.querySelector(".cn-desktop-nav-bottom [aria-label='Sign out']")).not.toBeNull();
-  expect(rail.querySelector(".cn-desktop-nav-header img")?.getAttribute("src")).toBe("/creatornet-sidebar-mark.svg");
+  expect(rail.querySelector(".cn-desktop-nav-header img")?.getAttribute("src")).toBe("/logo.png");
   expect(rail.querySelector(".cn-desktop-nav-stripe-icon")).toBeNull();
   const css = readFileSync(join(__dirname, "..", "app", "globals.css"), "utf8");
   expect(css).toMatch(/\.cn-desktop-nav-content\s*\{\s*margin-left:\s*88px/);
@@ -97,9 +97,6 @@ test("fixed header, scrollable middle, and pinned footer retain the 88/300 overl
   expect(css).toMatch(/\.cn-desktop-nav-scroll\s*\{[^}]*min-height:\s*0;[^}]*overflow-y:\s*auto/s);
   expect(css).toMatch(/\.cn-desktop-nav-bottom\s*\{\s*flex:\s*0 0 auto/);
   expect(css).toContain("@media (max-width: 1023.98px) { .cn-desktop-nav { display: none; } }");
-  const mark = readFileSync(join(__dirname, "..", "public", "creatornet-sidebar-mark.svg"), "utf8");
-  expect(mark).toContain("<svg");
-  expect(mark).not.toMatch(/<rect|background/);
 });
 
 test("query changes and browser Back update selection in the persistent rail", async () => {
@@ -130,6 +127,23 @@ test("hover, Escape, and click toggle the overlay without changing the content w
   await act(async () => rail.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(rail.getAttribute("data-expanded")).toBe("false");
   await act(async () => toggle.click());
+  expect(rail.getAttribute("data-expanded")).toBe("true");
+});
+
+test("leaving after Profile to Discover navigation collapses even while the clicked link keeps focus", async () => {
+  mockPathname = "/profile";
+  await render();
+  const rail = container.querySelector("aside")!;
+  const discover = rail.querySelector<HTMLAnchorElement>('a[aria-label="Discover"]')!;
+  await act(async () => rail.dispatchEvent(new MouseEvent("mouseover", { bubbles: true })));
+  await act(async () => discover.focus());
+  mockPathname = "/dashboard";
+  await render();
+  expect(document.activeElement).toBe(discover);
+  expect(rail.getAttribute("data-expanded")).toBe("true");
+  await act(async () => rail.dispatchEvent(new MouseEvent("mouseout", { bubbles: true, relatedTarget: document.body })));
+  expect(rail.getAttribute("data-expanded")).toBe("false");
+  await act(async () => rail.querySelector<HTMLAnchorElement>('a[aria-label="Following"]')!.focus());
   expect(rail.getAttribute("data-expanded")).toBe("true");
 });
 

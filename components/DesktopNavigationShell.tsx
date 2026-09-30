@@ -90,9 +90,7 @@ export default function DesktopNavigationShell({ children }: { children: React.R
       onMouseEnter={() => {
         if (window.matchMedia("(hover: hover) and (pointer: fine)").matches) setOpen(true);
       }}
-      onMouseLeave={() => {
-        if (!navRef.current?.contains(document.activeElement) || document.activeElement === toggleRef.current) setOpen(false);
-      }}
+      onMouseLeave={() => setOpen(false)}
       onFocusCapture={(event) => {
         if (event.target !== toggleRef.current) setOpen(true);
       }}
@@ -110,7 +108,7 @@ export default function DesktopNavigationShell({ children }: { children: React.R
       <div className="cn-desktop-nav-header">
         <button ref={toggleRef} type="button" className="cn-desktop-nav-brand" aria-label={open ? "Collapse menu" : "Expand menu"} aria-expanded={open} onClick={() => setOpen(value => !value)}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/creatornet-sidebar-mark.svg" alt="" width="32" height="32" />
+          <img src="/logo.png" alt="" width="40" height="40" />
           <span className="cn-desktop-nav-label cn-desktop-nav-wordmark">CreatorNet</span>
         </button>
       </div>
