@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
 import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
+import { isLibraryPurchaseEligible } from "@/lib/libraryAccess";
+import { premiumSchemaReady } from "@/lib/premiumReadiness";
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
 
 const SUPABASE_URL: string =
@@ -39,7 +41,7 @@ export async function GET(req: Request) {
   // Look up purchase by session
   const { data: purchase, error: purchaseErr } = await admin
     .from("purchases")
-    .select("id, status, product_id, buyer_id, buyer_user_id, access_granted")
+    .select("id, status, product_id, buyer_id, buyer_user_id, access_granted, payment_intent_id")
     .eq("session_id", session_id)
     .maybeSingle();
 
@@ -69,12 +71,17 @@ export async function GET(req: Request) {
   if (purchase.status !== "paid") {
     return NextResponse.json({ error: "Not paid", status: purchase.status }, { status: 402 });
   }
+  if (!await isLibraryPurchaseEligible(admin, { ...purchase, buyer_id: owner }, user.id)) {
+    return NextResponse.json({ error: "Service access is not available for this purchase." }, { status: 403 });
+  }
   const accessSeconds = membershipLedgerReady()
     ? await membershipAccessSeconds(admin, purchase.id, user.id)
     : purchase.access_granted === true ? 3600 : 0;
   if (accessSeconds <= 0) {
     return NextResponse.json({ error: "Service access is not available for this purchase." }, { status: 403 });
   }
+  if (premiumSchemaReady()) return NextResponse.json({ status: purchase.status, purchase_id: purchase.id,
+    delivery_url: "/api/purchases/" + purchase.id + "/delivery" }, { headers: { "Cache-Control": "private, no-store" } });
 
   // Resolve the product
   // Same wrong-column bug the webhook had: purchases.product_id holds

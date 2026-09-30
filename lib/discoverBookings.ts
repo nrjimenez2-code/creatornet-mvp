@@ -10,9 +10,10 @@ export async function recordBookingSetup(
 ): Promise<string | null> {
   if (!discoverEnabled() && process.env.GOOGLE_CALENDAR_ENABLED !== "true") return null;
   if (
-    session.mode !== "setup" ||
-    session.status !== "complete" ||
-    session.metadata?.kind !== "booking"
+    (session.mode !== "setup" && !(session.mode === "payment" && session.amount_total === 0 &&
+      session.payment_status === "no_payment_required" && !session.payment_intent && session.metadata?.kind === "free_booking_v1")) ||
+    session.status !== "complete" || !session.metadata ||
+    !["booking", "free_booking_v1"].includes(session.metadata?.kind ?? "")
   )
     return null;
   const userId = session.metadata.buyer_user_id ?? session.metadata.buyer_id;
