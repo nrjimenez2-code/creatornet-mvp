@@ -33,6 +33,10 @@ test('empty bio retains the message and can show a website; unsafe stored links 
   expect(render('example.com')).toContain('href="https://example.com/"');
   expect(render('javascript:alert(1)')).not.toContain('href=');
 });
+test('an ambiguous dotted handle stays plain while a separate valid shorter mention still links',()=>{
+  const html=renderToStaticMarkup(createElement(ProfileBio,{bio:'@coach. and @coach',emptyMessage:'No bio yet.',accounts:[{id:'1',username:'coach',full_name:null,avatar_url:null}],ambiguousNames:['coach.']}));
+  expect(html).toContain('@coach. and <a');expect(html.match(/href="\/creators\/1"/g)).toHaveLength(1);
+});
 test.each(['javascript:alert(1)','data:text/html,test','ftp://example.com','https://a:b@example.com','https://@example.com','https://example..com','https:///example.com','https://example.com\\evil','https://exa mple.com','not-a-domain','//example.com'])('rejects invalid website %s',input => expect(validateWebsite(input).error).not.toBeNull());
 test.each([['example.com/path','https://example.com/path'],['HTTP://example.com/a?b=1#c','http://example.com/a?b=1#c'],['example.com:8080/a','https://example.com:8080/a']])('normalizes website %s', (input,url) => expect(validateWebsite(input)).toEqual({url,error:null}));
 test('website clearing, length limits, and labels', () => {

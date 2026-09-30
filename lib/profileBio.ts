@@ -5,6 +5,7 @@ export type MentionAccount = {
   avatar_url: string | null;
 };
 export type BioMention = { start: number; end: number; username: string };
+export type MentionResolution = { accounts: MentionAccount[]; ambiguousNames: string[] };
 export const BIO_LIMIT = 600;
 export const USERNAME_PATTERN = /^[a-z0-9._]{1,20}$/i;
 

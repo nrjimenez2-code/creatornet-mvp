@@ -15,7 +15,7 @@ beforeEach(()=>{
   mockLimit.mockResolvedValue({data:[account],error:null});
 });
 test('distinct mention lookup is one bounded query, escapes literal underscores, and exposes only public identities',async()=>{
-  expect(await resolveBioMentions('@NO.AH_1 @no.ah_1 email@no.ah_1 @unknown')).toEqual([account]);
+  expect(await resolveBioMentions('@NO.AH_1 @no.ah_1 email@no.ah_1 @unknown')).toEqual({accounts:[account],ambiguousNames:[]});
   expect(mockLimit).toHaveBeenCalledTimes(1);expect(mockLimit).toHaveBeenCalledWith(801);
   expect(mockSelect).toHaveBeenCalledWith('id, username, full_name, avatar_url');
   expect(mockIs).toHaveBeenCalledWith('banned_at',null);
@@ -23,13 +23,18 @@ test('distinct mention lookup is one bounded query, escapes literal underscores,
 });
 test('ambiguous names stay unlinked; failures and thrown requests leave bio usable',async()=>{
   mockLimit.mockResolvedValue({data:[account,{...account,id:'2',username:'NO.AH_1'}],error:null});
-  expect(await resolveBioMentions('@no.ah_1')).toEqual([]);
-  mockLimit.mockResolvedValue({data:null,error:{message:'offline'}});expect(await resolveBioMentions('@no.ah_1')).toEqual([]);
-  mockLimit.mockRejectedValue(new Error('offline'));expect(await resolveBioMentions('@no.ah_1')).toEqual([]);
+  expect(await resolveBioMentions('@no.ah_1')).toEqual({accounts:[],ambiguousNames:['no.ah_1']});
+  mockLimit.mockResolvedValue({data:null,error:{message:'offline'}});expect(await resolveBioMentions('@no.ah_1')).toEqual({accounts:[],ambiguousNames:[]});
+  mockLimit.mockRejectedValue(new Error('offline'));expect(await resolveBioMentions('@no.ah_1')).toEqual({accounts:[],ambiguousNames:[]});
 });
 test('no mentions skip database and truncated results fail closed',async()=>{
-  expect(await resolveBioMentions('email@no.ah_1')).toEqual([]);expect(mockLimit).not.toHaveBeenCalled();
-  mockLimit.mockResolvedValue({data:Array(801).fill(account),error:null});expect(await resolveBioMentions('@no.ah_1')).toEqual([]);
+  expect(await resolveBioMentions('email@no.ah_1')).toEqual({accounts:[],ambiguousNames:[]});expect(mockLimit).not.toHaveBeenCalled();
+  mockLimit.mockResolvedValue({data:Array(801).fill(account),error:null});expect(await resolveBioMentions('@no.ah_1')).toEqual({accounts:[],ambiguousNames:[]});
+});
+test('retains exact ambiguity even when stripping a sentence-ending period finds a valid shorter name',async()=>{
+  mockLimit.mockResolvedValue({data:[{...account,username:'coach'},{...account,id:'2',username:'coach.'},{...account,id:'3',username:'COACH.'}],error:null});
+  expect(await resolveBioMentions('@coach. @coach')).toEqual({accounts:[{...account,username:'coach'}],ambiguousNames:['coach.']});
+  expect(mockLimit).toHaveBeenCalledTimes(1);
 });
 test('account suggestions preserve punctuation and query identities rather than topic/offer search',async()=>{
   expect(await suggestMentionAccounts('no.ah_')).toEqual([account]);

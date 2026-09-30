@@ -253,7 +253,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
   const username = profile.username || "creator";
   const tagline = profile.tagline || null;
   const bio = profile.bio || null;
-  const mentionAccounts = await resolveBioMentions(bio ?? "");
+  const mentions = await resolveBioMentions(bio ?? "");
   const avatarUrl = profile.avatar_url || null;
 
   const isFollowing = !!followStatusRes?.data;
@@ -306,7 +306,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
-          <ProfileBio bio={bio} emptyMessage="No bio yet." websiteUrl={profile.website_url} accounts={mentionAccounts} />
+          <ProfileBio bio={bio} emptyMessage="No bio yet." websiteUrl={profile.website_url} {...mentions} />
 
           {/* Stats row - followers / following open the paginated list */}
           <FollowStats

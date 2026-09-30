@@ -94,7 +94,7 @@ export default async function ProfilePage() {
   const displayName = profile?.full_name || user.user_metadata?.full_name || username;
   const tagline = profile?.tagline || null;
   const bio = profile?.bio || null;
-  const mentionAccounts = await resolveBioMentions(bio ?? "");
+  const mentions = await resolveBioMentions(bio ?? "");
   const avatarUrl = profile?.avatar_url || null;
   // authenticated can SELECT both Stripe columns on its own row (RLS); browsers cannot write them.
   const isVerifiedSeller = isSellReadyProfile(profile);
@@ -140,7 +140,7 @@ export default async function ProfilePage() {
             <VerifiedCreatorBadge verified={isVerifiedSeller} />
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
-          <ProfileBio bio={bio} emptyMessage="Tell people about yourself." websiteUrl={profile?.website_url} accounts={mentionAccounts} />
+          <ProfileBio bio={bio} emptyMessage="Tell people about yourself." websiteUrl={profile?.website_url} {...mentions} />
 
           {/* Stats row - followers / following open the paginated list */}
           <FollowStats

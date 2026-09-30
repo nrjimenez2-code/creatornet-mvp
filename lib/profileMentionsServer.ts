@@ -1,29 +1,37 @@
 import "server-only";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { bioMentions, mentionCandidates, USERNAME_PATTERN, type MentionAccount } from "@/lib/profileBio";
+import { BIO_LIMIT, bioMentions, mentionCandidates, USERNAME_PATTERN, type MentionAccount, type MentionResolution } from "@/lib/profileBio";
 
 const PUBLIC_IDENTITY = "id, username, full_name, avatar_url";
 const MAX_CANDIDATES = 400;
 const RESULT_LIMIT = 801;
 const escapeLike = (value: string) => value.replace(/[_%\\]/g, "\\$&");
 
-export async function resolveMentionAccounts(names: string[]): Promise<MentionAccount[]> {
+async function lookupMentionAccounts(names: string[]): Promise<MentionResolution> {
+  const empty = { accounts: [], ambiguousNames: [] };
   const distinct = [...new Set(names.map(name => name.toLowerCase()))];
-  if (!distinct.length || distinct.length > MAX_CANDIDATES || distinct.some(name => !USERNAME_PATTERN.test(name))) return [];
+  if (!distinct.length || distinct.length > MAX_CANDIDATES || distinct.some(name => !USERNAME_PATTERN.test(name))) return empty;
   try {
     const { data, error } = await supabaseAdmin.from("profiles").select(PUBLIC_IDENTITY)
       .is("banned_at", null)
       .or(distinct.map(name => `username.ilike.${escapeLike(name)}`).join(","))
       .limit(RESULT_LIMIT);
-    if (error || !data || data.length >= RESULT_LIMIT) return [];
+    if (error || !data || data.length >= RESULT_LIMIT) return empty;
     const counts = new Map<string, number>();
     for (const row of data) counts.set(row.username.toLowerCase(), (counts.get(row.username.toLowerCase()) ?? 0) + 1);
-    return data.filter(row => counts.get(row.username.toLowerCase()) === 1 && distinct.includes(row.username.toLowerCase()));
-  } catch { return []; }
+    return {
+      accounts: data.filter(row => counts.get(row.username.toLowerCase()) === 1 && distinct.includes(row.username.toLowerCase())),
+      ambiguousNames: distinct.filter(name => (counts.get(name) ?? 0) > 1),
+    };
+  } catch { return empty; }
 }
 
-export async function resolveBioMentions(bio: string): Promise<MentionAccount[]> {
-  return resolveMentionAccounts(bioMentions(bio.slice(0, 600)).flatMap(token => mentionCandidates(token.username)));
+export async function resolveMentionAccounts(names: string[]): Promise<MentionAccount[]> {
+  return (await lookupMentionAccounts(names)).accounts;
+}
+
+export async function resolveBioMentions(bio: string): Promise<MentionResolution> {
+  return lookupMentionAccounts(bioMentions(bio.slice(0, BIO_LIMIT)).flatMap(token => mentionCandidates(token.username)));
 }
 
 export async function suggestMentionAccounts(query: string): Promise<MentionAccount[]> {

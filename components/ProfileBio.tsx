@@ -2,17 +2,18 @@ import Link from "next/link";
 import { bioMentions, mentionCandidates, validateWebsite, websiteLabel, type MentionAccount } from "@/lib/profileBio";
 import styles from "./profile-bio.module.css";
 
-export default function ProfileBio({ bio, emptyMessage, websiteUrl, accounts }: {
-  bio: string | null; emptyMessage: string; websiteUrl?: string | null; accounts: MentionAccount[];
+export default function ProfileBio({ bio, emptyMessage, websiteUrl, accounts, ambiguousNames = [] }: {
+  bio: string | null; emptyMessage: string; websiteUrl?: string | null; accounts: MentionAccount[]; ambiguousNames?: string[];
 }) {
   const text = bio || emptyMessage;
   const byName = new Map(accounts.map(account => [account.username.toLowerCase(), account]));
+  const ambiguous = new Set(ambiguousNames);
   const parts: React.ReactNode[] = [];
   let position = 0;
   for (const token of bioMentions(text)) {
     parts.push(text.slice(position, token.start));
-    const name = mentionCandidates(token.username).find(candidate => byName.has(candidate));
-    const account = name ? byName.get(name) : undefined;
+    const name = mentionCandidates(token.username).find(candidate => byName.has(candidate) || ambiguous.has(candidate));
+    const account = name && !ambiguous.has(name) ? byName.get(name) : undefined;
     if (account && name) {
       const end = token.start + name.length + 1;
       parts.push(<Link key={token.start} href={`/creators/${account.id}`} className={styles.link}>{text.slice(token.start, end)}</Link>);
