@@ -10,6 +10,7 @@ import ProfileMobileHeader from "@/components/ProfileMobileHeader";
 import FollowStats from "@/components/FollowStats";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
+import profileNameStyles from "@/components/profile-name.module.css";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
@@ -135,9 +136,11 @@ export default async function ProfilePage() {
             />
           </div>
 
-          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold inline-flex items-center gap-2">
-            {displayName}
-            <VerifiedCreatorBadge verified={isVerifiedSeller} />
+          <h1
+            className={`mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold ${profileNameStyles.heading}${isVerifiedSeller ? ` ${profileNameStyles.verified}` : ""}`}
+          >
+            <span className={profileNameStyles.name}>{displayName}</span>
+            <VerifiedCreatorBadge verified={isVerifiedSeller} className={profileNameStyles.badge} />
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           <ProfileBio bio={bio} emptyMessage="Tell people about yourself." websiteUrl={profile?.website_url} {...mentions} />
