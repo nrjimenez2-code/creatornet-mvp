@@ -28,8 +28,19 @@ the observed bridge handoffs use unaligned watchdog recovery.
   new timeline proof is enabled. The shared audible player, return policy,
   preparation budget, controls and three-second watchdog are reused.
 - `labFormat`, `labFixtureSet=carlos-noah-v1`, `labController=steady` and the exact
-  build are recorded locally. Check actual exported source URLs and source
-  kinds; a requested query value is not proof of the selected media.
+  build are recorded locally. Build `81d8859` exports the format, source kind and
+  source-match checks but does not export an actual source URL. Its initial
+  three phone runs remain diagnostic evidence with that limitation.
+- With `feedDebug=1`, `lab-source-readback` records the actual `currentSrc` once
+  per main/bridge role after it matches the activation's closed public fixture.
+  An unrelated previous source is never exported. A master URL does not prove
+  the native HLS variant; use rendition/network evidence for that separately.
+- Preview startup diagnostics retain up to eight raw main frame callbacks per
+  activation, including request, delivery, submission, target and qualification
+  state. Up to four bridge play requests and their owned promise settlements
+  distinguish a native playback wait from callback delivery. Missing processing
+  duration is null. These local events do not change playback or handoff guards
+  and do not measure physical pixels or sound.
 
 ## Initial phone comparison
 

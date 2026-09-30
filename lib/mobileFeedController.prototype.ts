@@ -9,6 +9,8 @@ type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: 
 type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; current: () => boolean; playRequested: () => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
+const STARTUP_FRAME_SAMPLE_LIMIT = 8;
+const BRIDGE_PLAY_SAMPLE_LIMIT = 4;
 
 function submittedAt(metadata: VideoFrameCallbackMetadata, now: number) {
   // Callback delivery can be late. It cannot refresh an old submitted frame.
@@ -329,6 +331,17 @@ export class MobileFeedController {
       } catch { recordFeedEvent("bridge-rate-reset", { reason, result: "unsupported" }, video); }
     };
     const collectFrameDiagnostics = feedTraceEnabled();
+    const expectedSource = collectFrameDiagnostics ? new URL(input.src, document.baseURI).href : "";
+    let mainSourceRead = false, bridgeSourceRead = false, bridgePlayRequests = 0;
+    const readSelectedSource = (element: HTMLVideoElement, role: "main" | "bridge") => {
+      if (!collectFrameDiagnostics || (role === "main" ? mainSourceRead : bridgeSourceRead) ||
+          element.src !== expectedSource || element.currentSrc !== expectedSource) return;
+      if (role === "main") mainSourceRead = true; else bridgeSourceRead = true;
+      // The lab has closed public fixtures. Never export an unrelated prior
+      // shared-player source or a URL that does not match this activation.
+      recordFeedEvent("lab-source-readback", { role, selectedSource: element.currentSrc,
+        sourceKind: element.currentSrc.includes(".m3u8") ? "hls" : "mp4", readyState: element.readyState }, video);
+    };
     const qualityAtActivation = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
     let mainRequestCount = 0;
     let mainCallbackCount = 0;
@@ -514,8 +527,9 @@ export class MobileFeedController {
     const observeMain = () => {
       if (!current() || complete || frame !== undefined || !video.requestVideoFrameCallback) return;
       const seekEpoch = epoch;
+      const requestedAt = collectFrameDiagnostics ? performance.now() : 0;
       if (collectFrameDiagnostics) { mainRequestCount++; firstMainRequestAt ??= performance.now(); }
-      frame = video.requestVideoFrameCallback((_now, metadata) => {
+      frame = video.requestVideoFrameCallback((callbackAt, metadata) => {
         if (!current() || seekEpoch !== epoch || complete) return;
         frame = undefined;
         if (collectFrameDiagnostics) {
@@ -527,6 +541,26 @@ export class MobileFeedController {
         }
         if (!video.seeking && metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (performance.now() - activatedAt) / 1_000 + 0.25) targetObserved = true;
         const valid = targetObserved && validFeedFrame(video, video.src, metadata.mediaTime, previousMain);
+        if (collectFrameDiagnostics) {
+          readSelectedSource(video, "main");
+          if (mainCallbackCount <= STARTUP_FRAME_SAMPLE_LIMIT) {
+            const deliveredAt = performance.now();
+            recordFeedEvent("lab-main-startup-frame", {
+              callback: mainCallbackCount, requestDelayMs: requestedAt - activatedAt,
+              callbackAt, deliveredAt, callbackWaitMs: deliveredAt - requestedAt,
+              presentationTime: Number.isFinite(metadata.presentationTime) ? metadata.presentationTime : null,
+              expectedDisplayTime: Number.isFinite(metadata.expectedDisplayTime) ? metadata.expectedDisplayTime : null,
+              submissionAgeMs: Number.isFinite(metadata.presentationTime) ? deliveredAt - metadata.presentationTime : null,
+              processingDurationMs: typeof metadata.processingDuration === "number" && Number.isFinite(metadata.processingDuration) ? metadata.processingDuration * 1_000 : null,
+              mediaTime: Number.isFinite(metadata.mediaTime) ? metadata.mediaTime : null,
+              previousMediaTime: previousMain, presentedFrames: Number.isFinite(metadata.presentedFrames) ? metadata.presentedFrames : null,
+              position: video.currentTime, target: intendedPosition, targetObserved, qualified: valid,
+              readyState: video.readyState, networkState: video.networkState, paused: video.paused,
+              seeking: video.seeking, buffer: playableBuffer(video), rate: video.playbackRate,
+              currentSourceMatches: video.currentSrc === expectedSource,
+            }, video);
+          }
+        }
         if (valid) {
           if (collectFrameDiagnostics) { mainValidCount++; firstMainValidAt ??= performance.now(); }
           const delta = metadata.mediaTime - previousMain!;
@@ -553,7 +587,29 @@ export class MobileFeedController {
       if (active.bridge) {
         bridgeShownAt ??= performance.now();
         active.bridge.video.style.visibility = "visible"; input.present(true);
-        if (active.bridge.video.paused) void active.bridge.video.play()?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
+        if (active.bridge.video.paused) {
+          const preview = active.bridge, generation = preview.generation;
+          const requestedAt = collectFrameDiagnostics ? performance.now() : 0;
+          const requestId = ++bridgePlayRequests;
+          const sampled = collectFrameDiagnostics && requestId <= BRIDGE_PLAY_SAMPLE_LIMIT;
+          if (sampled) {
+            readSelectedSource(preview.video, "bridge");
+            recordFeedEvent("lab-bridge-play-request", { requestId, activationMs: requestedAt - activatedAt,
+              position: preview.video.currentTime, paused: preview.video.paused, seeking: preview.video.seeking,
+              readyState: preview.video.readyState, buffer: preparationBuffer(preview.video, preview.video.currentTime),
+              rate: preview.video.playbackRate }, video);
+          }
+          const request = preview.video.play();
+          if (sampled) void request?.then(() => {
+            if (!current() || active.bridge !== preview || preview.generation !== generation) return;
+            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "resolved", elapsedMs: performance.now() - requestedAt,
+              position: preview.video.currentTime, paused: preview.video.paused, readyState: preview.video.readyState }, video);
+          }, () => {
+            if (!current() || active.bridge !== preview || preview.generation !== generation) return;
+            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "rejected", elapsedMs: performance.now() - requestedAt }, video);
+          });
+          void request?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
+        }
       }
       this.resumePreparation();
     };

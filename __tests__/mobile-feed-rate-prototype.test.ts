@@ -144,6 +144,66 @@ async function scenario(options: { lead?: number; startMs?: number; mainMedia?: 
     maxBridgeSubmissionGapMs: () => maxBridgeSubmissionGapMs };
 }
 
+test("startup samples retain submission age and stay bounded during an unaligned session", async () => {
+  const s = await scenario({ lead: 0.6, startMs: 200, mainSubmissionAgeMs: 75, rateMode: "steady" });
+  const first = events("lab-main-startup-frame");
+  expect(first).toHaveLength(2);
+  expect(first[0].detail).toEqual(expect.objectContaining({ callback: 1, qualified: false, submissionAgeMs: 75, processingDurationMs: null }));
+  expect(first[1].detail).toEqual(expect.objectContaining({ callback: 2, qualified: true, submissionAgeMs: 75 }));
+  s.advance(1_000);
+  expect(events("lab-main-startup-frame")).toHaveLength(8);
+  expect(events("lab-main-startup-frame").map(event => event.detail.callback)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  expect(s.ready).not.toHaveBeenCalled();
+  for (let i = 0; i < 5; i++) { s.main.pause(); void s.main.play(); await Promise.resolve(); }
+  expect(events("lab-bridge-play-request")).toHaveLength(4);
+  expect(events("lab-bridge-play-settled")).toHaveLength(4);
+  expect(events("lab-source-readback").map(event => event.detail.role).sort()).toEqual(["bridge", "main"]);
+  expect(events("lab-source-readback").every(event => event.detail.selectedSource === s.main.src)).toBe(true);
+  expect(events("bridge-align-seek")).toHaveLength(0); expect(writes).toHaveLength(0);
+});
+
+test("source readback withholds a prior unrelated URL until the activation source matches", async () => {
+  controller.dispose(); controller = new MobileFeedController("steady");
+  const ready = jest.fn(), src = "https://example.test/source-readback.mp4";
+  const main = controller.activate({ postId: "source-readback", src, token: Symbol("source-readback"),
+    host: document.createElement("div"), previewHost: document.createElement("div"), present: jest.fn(), ready });
+  media(main);
+  main.dispatchEvent(new Event("loadedmetadata")); main.dispatchEvent(new Event("seeked")); await Promise.resolve();
+  Object.defineProperty(main, "currentSrc", { configurable: true, value: "https://unrelated.test/prior.mp4?private=value" });
+  void main.play(); deliver(main, 0);
+  expect(events("lab-source-readback")).toHaveLength(0);
+  expect(events("lab-main-startup-frame")[0].detail.currentSourceMatches).toBe(false);
+  expect(ready).not.toHaveBeenCalled();
+  Object.defineProperty(main, "currentSrc", { configurable: true, get: () => main.src });
+  deliver(main, 0); deliver(main, 1 / 30);
+  expect(events("lab-source-readback")).toHaveLength(1);
+  expect(events("lab-source-readback")[0].detail).toEqual(expect.objectContaining({ role: "main", selectedSource: src, sourceKind: "mp4" }));
+  expect(JSON.stringify(exportFeedTrace())).not.toContain("unrelated.test");
+  expect(ready).toHaveBeenCalledTimes(1);
+  await Promise.resolve();
+});
+
+test("obsolete startup callbacks and bridge play settlements cannot label the next owner", async () => {
+  let resolveBridge!: () => void, bridgeCalls = 0;
+  const delayed = new Promise<void>(resolve => { resolveBridge = resolve; });
+  jest.mocked(HTMLMediaElement.prototype.play).mockImplementation(function (this: HTMLMediaElement) {
+    paused.set(this, false); this.dispatchEvent(new Event("play"));
+    return this.dataset.mobilePreparation === "true" && ++bridgeCalls > 1 ? delayed : Promise.resolve();
+  });
+  const s = await scenario({ lead: 0.6, startMs: 200, rateMode: "steady" });
+  const obsolete = [...(callbacks.get(s.main)?.values() ?? [])];
+  const sampleCount = events("lab-main-startup-frame").length;
+  const settledCount = events("lab-bridge-play-settled").length;
+  controller.activate({ postId: "next-owner", src: "https://example.test/next-owner.mp4", token: Symbol("next-owner"),
+    host: document.createElement("div"), previewHost: document.createElement("div"), present: jest.fn(), ready: jest.fn() });
+  obsolete.forEach(callback => callback(performance.now(), { mediaTime: 0.1, presentedFrames: 4,
+    presentationTime: performance.now(), expectedDisplayTime: performance.now() } as VideoFrameCallbackMetadata));
+  resolveBridge(); await Promise.resolve(); await Promise.resolve();
+  expect(events("lab-main-startup-frame")).toHaveLength(sampleCount);
+  expect(events("lab-bridge-play-settled")).toHaveLength(settledCount);
+  expect(events("lab-source-readback").some(event => event.postId === "next-owner")).toBe(false);
+});
+
 test.each([{ lead: 0.4, startMs: 919 }, { lead: 0.5, startMs: 764 }])("observed lead $lead converges through rate-dependent progression before 3 seconds", async ({ lead, startMs }) => {
   const s = await scenario({ lead, startMs });
   expect(s.bridge.playbackRate).toBe(0.75); expect(s.main.playbackRate).toBe(1);
