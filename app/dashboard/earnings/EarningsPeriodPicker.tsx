@@ -12,6 +12,7 @@ import {
 
 import styles from "./earnings.module.css";
 import EarningsTimeframeSelect from "./EarningsTimeframeSelect";
+import EarningsDatePicker from "./EarningsDatePicker";
 
 export default function EarningsPeriodPicker({ period, needsUrlRepair }: { period: EarningsPeriod | null; needsUrlRepair: boolean }) {
   const router = useRouter();
@@ -70,8 +71,8 @@ export default function EarningsPeriodPicker({ period, needsUrlRepair }: { perio
       <EarningsTimeframeSelect value={selected} onChange={choose} disabled={pending} />
       {selected === "custom" && (
         <form className={styles.customRange} onSubmit={applyCustom}>
-          <label htmlFor="earnings-start">Start <input id="earnings-start" type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} required /></label>
-          <label htmlFor="earnings-end">End <input id="earnings-end" type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} required /></label>
+          <EarningsDatePicker id="earnings-start" label="Start" value={startDate} onChange={setStartDate} disabled={pending} />
+          <EarningsDatePicker id="earnings-end" label="End" value={endDate} onChange={setEndDate} disabled={pending} />
           <button type="submit" disabled={pending}>Apply</button>
         </form>
       )}
