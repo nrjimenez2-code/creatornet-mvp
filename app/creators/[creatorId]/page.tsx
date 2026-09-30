@@ -19,6 +19,9 @@ import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
+import ProfileBio from "@/components/ProfileBio";
+import { resolveBioMentions } from "@/lib/profileMentionsServer";
+import { profileWebsiteColumn, type ProfileHeader } from "@/lib/profileWebsiteReady";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -106,16 +109,18 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   let profileRes = await admin
     .from("profiles")
-    .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
+    .select(`id, username, full_name, tagline, avatar_url, bio${profileWebsiteColumn()}, ${SELL_READY_COLUMNS}`)
     .eq("id", creatorId)
+    .returns<ProfileHeader[]>()
     .maybeSingle();
 
   // Allow /creators/<username> in addition to /creators/<id>.
   if (!profileRes.data) {
     const usernameRes = await admin
       .from("profiles")
-      .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
+      .select(`id, username, full_name, tagline, avatar_url, bio${profileWebsiteColumn()}, ${SELL_READY_COLUMNS}`)
       .eq("username", creatorId)
+      .returns<ProfileHeader[]>()
       .maybeSingle();
     if (usernameRes.data) {
       profileRes = usernameRes as typeof profileRes;
@@ -247,7 +252,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     profile.full_name || profile.username || profile.id.slice(0, 8);
   const username = profile.username || "creator";
   const tagline = profile.tagline || null;
-  const bio = profile.bio || "No bio yet.";
+  const bio = profile.bio || null;
+  const mentionAccounts = await resolveBioMentions(bio ?? "");
   const avatarUrl = profile.avatar_url || null;
 
   const isFollowing = !!followStatusRes?.data;
@@ -300,7 +306,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
-          <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
+          <ProfileBio bio={bio} emptyMessage="No bio yet." websiteUrl={profile.website_url} accounts={mentionAccounts} />
 
           {/* Stats row - followers / following open the paginated list */}
           <FollowStats

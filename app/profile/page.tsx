@@ -13,6 +13,9 @@ import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
+import ProfileBio from "@/components/ProfileBio";
+import { resolveBioMentions } from "@/lib/profileMentionsServer";
+import { profileWebsiteColumn, type ProfileHeader } from "@/lib/profileWebsiteReady";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -30,8 +33,9 @@ export default async function ProfilePage() {
   const [{ data: profile }, postsRes, followersRes, followingRes, productsRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
+      .select(`id, username, full_name, tagline, avatar_url, bio${profileWebsiteColumn()}, ${SELL_READY_COLUMNS}`)
       .eq("id", user.id)
+      .returns<ProfileHeader[]>()
       .maybeSingle(),
     supabase
       .from("posts")
@@ -89,7 +93,8 @@ export default async function ProfilePage() {
   const username = profile?.username || user.email?.split("@")[0] || "user";
   const displayName = profile?.full_name || user.user_metadata?.full_name || username;
   const tagline = profile?.tagline || null;
-  const bio = profile?.bio || "Tell people about yourself.";
+  const bio = profile?.bio || null;
+  const mentionAccounts = await resolveBioMentions(bio ?? "");
   const avatarUrl = profile?.avatar_url || null;
   // authenticated can SELECT both Stripe columns on its own row (RLS); browsers cannot write them.
   const isVerifiedSeller = isSellReadyProfile(profile);
@@ -135,7 +140,7 @@ export default async function ProfilePage() {
             <VerifiedCreatorBadge verified={isVerifiedSeller} />
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
-          <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
+          <ProfileBio bio={bio} emptyMessage="Tell people about yourself." websiteUrl={profile?.website_url} accounts={mentionAccounts} />
 
           {/* Stats row - followers / following open the paginated list */}
           <FollowStats

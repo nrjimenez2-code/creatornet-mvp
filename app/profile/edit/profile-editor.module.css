@@ -35,6 +35,8 @@
 .usernameInput:focus-within { border-color: #987fff; box-shadow: 0 0 0 2px #7659ef33; }
 .field textarea { display: block; width: 100%; min-height: 120px; padding: 14px 18px; border: 1px solid #3a3a43; border-radius: 10px; resize: vertical; background: #101013; color: #f7f7f8; font: inherit; font-size: 16px; line-height: 1.6; }
 .hint { margin: 8px 0 0; }
+.field > input { display: block; width: 100%; min-height: 48px; padding: 12px 18px; border: 1px solid #3a3a43; border-radius: 10px; background: #101013; color: #f7f7f8; font: inherit; font-size: 16px; }
+.field > input[aria-invalid="true"] { border-color: #fda4af; }
 .count { margin: 6px 0 0; text-align: right; font-variant-numeric: tabular-nums; }
 .actions { display: flex; justify-content: flex-end; align-items: center; gap: 18px; margin-top: 26px; padding-top: 24px; border-top: 1px solid #252529; }
 .cancel, .save { min-height: 46px; padding: 0 20px; border-radius: 11px; border: 1px solid transparent; font-size: 14px; font-weight: 500; }
