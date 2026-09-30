@@ -55,45 +55,49 @@ body {
 /* A fixed desktop rail reserves one constant inset. The wider panel covers the
    page when open, so the content never reflows during navigation. */
 @media (min-width: 1024px) {
-  .cn-desktop-nav-content { margin-left: 104px; min-width: 0; }
+  .cn-desktop-nav-content { margin-left: 88px; min-width: 0; }
   .cn-desktop-nav {
-    position: fixed; z-index: 50; left: 0; top: 16px; bottom: 16px;
-    width: 104px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain;
-    scrollbar-width: thin; scrollbar-color: #3f3f46 transparent;
-    border: 1px solid #222226; border-radius: 22px;
-    background: #050505; box-shadow: 12px 0 40px rgba(0,0,0,.55);
-    color: #eeeef2; transition: width 180ms ease;
+    position: fixed; z-index: 50; left: 0; top: 12px; bottom: 12px;
+    display: flex; flex-direction: column; width: 88px; overflow: hidden;
+    border: 1px solid #242428; border-radius: 18px;
+    background: #050505; box-shadow: 8px 0 28px rgba(0,0,0,.38);
+    color: #eeeef2; transition: width 160ms ease;
   }
-  .cn-desktop-nav[data-expanded="true"] { width: 320px; }
-  .cn-desktop-nav-inner { display: flex; flex-direction: column; min-height: 100%; padding: 18px 17px 16px; }
+  .cn-desktop-nav[data-expanded="true"] { width: 300px; }
+  .cn-desktop-nav-header { flex: 0 0 auto; padding: 12px 11px 10px; }
+  .cn-desktop-nav-scroll {
+    flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;
+    overscroll-behavior: contain; padding: 4px 11px 12px;
+    scrollbar-width: thin; scrollbar-color: #45454d transparent;
+  }
+  .cn-desktop-nav-scroll::-webkit-scrollbar { width: 5px; }
+  .cn-desktop-nav-scroll::-webkit-scrollbar-thumb { background: #45454d; border-radius: 8px; }
+  .cn-desktop-nav-scroll::-webkit-scrollbar-track { background: transparent; }
   .cn-desktop-nav-brand, .cn-desktop-nav-action, .cn-desktop-nav-link {
-    display: flex; align-items: center; width: 100%; gap: 18px;
-    white-space: nowrap; text-align: left;
+    display: flex; align-items: center; width: 100%; gap: 16px;
+    white-space: nowrap; text-align: left; font-size: 14px;
   }
-  .cn-desktop-nav-brand { height: 58px; padding: 0 16px; color: #fff; }
-  .cn-desktop-nav-brand img { max-width: none; }
-  .cn-desktop-nav-action { min-height: 52px; padding: 0 20px; border-radius: 16px; color: #d5d5dc; }
-  .cn-desktop-nav-create { margin-top: 16px; background: #5135e8; color: #fff; font-weight: 600; }
-  .cn-desktop-nav-create:hover { background: #654cff; }
-  .cn-desktop-nav-search { margin-top: 16px; border: 1px solid #303036; border-radius: 999px; min-height: 46px; }
-  .cn-desktop-nav-search:hover, .cn-desktop-nav-bottom .cn-desktop-nav-action:hover { background: #252528; }
-  .cn-desktop-nav-links { display: flex; flex-direction: column; gap: 3px; margin-top: 20px; }
-  .cn-desktop-nav-link { min-height: 55px; padding: 0 18px; border-radius: 16px; font-size: 17px; font-weight: 500; color: #c9c9d0; }
-  .cn-desktop-nav-link > svg, .cn-desktop-nav-action > svg { flex: 0 0 25px; }
-  .cn-desktop-nav-link:not([aria-current="page"]):hover { background: #252528; color: #fff; }
+  .cn-desktop-nav-brand { height: 48px; padding: 0 16px; gap: 8px; color: #fff; }
+  .cn-desktop-nav-brand img { display: block; flex: 0 0 40px; width: 40px; height: 40px; max-width: none; object-fit: contain; mix-blend-mode: screen; }
+  .cn-desktop-nav-wordmark { font-size: 20px; font-weight: 650; letter-spacing: -.035em; }
+  .cn-desktop-nav-action { height: 48px; padding: 0 16px; border-radius: 11px; color: #d2d2d8; }
+  .cn-desktop-nav-create { border: 1px solid #3b3b43; background: #2b2b31; color: #f2f2f5; font-weight: 600; }
+  .cn-desktop-nav-create:hover { background: #35353c; }
+  .cn-desktop-nav-search { margin-top: 9px; border: 1px solid #35353d; background: #202024; }
+  .cn-desktop-nav-search:hover, .cn-desktop-nav-bottom .cn-desktop-nav-action:hover { background: #29292e; }
+  .cn-desktop-nav-links { display: flex; flex-direction: column; gap: 3px; margin-top: 16px; }
+  .cn-desktop-nav-link { height: 46px; padding: 0 16px; border-radius: 11px; font-weight: 500; color: #c8c8d0; }
+  .cn-desktop-nav-link > svg, .cn-desktop-nav-action > svg { flex: 0 0 21px; }
+  .cn-desktop-nav-link:not([aria-current="page"]):hover { background: #29292e; color: #f5f5f7; }
   .cn-desktop-nav-link[aria-current="page"] { background: #17112e; color: #7659ef; }
-  .cn-desktop-nav-link[aria-current="page"]:hover { background: #17112e; color: #7659ef; }
-  .cn-desktop-nav-avatar { display: block; flex: 0 0 29px; width: 29px; height: 29px; margin-left: -2px; margin-right: -2px; border: 1px solid #51515a; border-radius: 50%; overflow: hidden; }
+  .cn-desktop-nav-link[aria-current="page"]:hover { background: #21183f; }
+  .cn-desktop-nav-avatar { display: block; flex: 0 0 25px; width: 25px; height: 25px; margin-left: -2px; margin-right: -2px; border: 1px solid #555560; border-radius: 50%; overflow: hidden; }
   .cn-desktop-nav-label { visibility: hidden; opacity: 0; }
   .cn-desktop-nav[data-expanded="true"] .cn-desktop-nav-label { visibility: visible; opacity: 1; transition: opacity 100ms ease 70ms; }
-  .cn-desktop-nav-stripe { margin-top: 14px; }
-  .cn-desktop-nav-stripe-icon { display: flex; align-items: center; justify-content: center; width: 52px; height: 48px; margin-left: 8px; color: #7659ef; border-radius: 14px; }
-  .cn-desktop-nav-stripe-icon:hover { background: #252528; }
-  .cn-desktop-nav-stripe-panel { display: none; }
-  .cn-desktop-nav[data-expanded="true"] .cn-desktop-nav-stripe-icon { display: none; }
-  .cn-desktop-nav[data-expanded="true"] .cn-desktop-nav-stripe-panel { display: block; }
-  .cn-desktop-nav-bottom { margin-top: auto; padding-top: 16px; border-top: 1px solid #242428; }
-  .cn-desktop-nav-bottom .cn-desktop-nav-action { border: 1px solid #2c2c31; }
+  .cn-desktop-nav-stripe { display: none; margin-top: 14px; }
+  .cn-desktop-nav[data-expanded="true"] .cn-desktop-nav-stripe:not(:empty) { display: block; }
+  .cn-desktop-nav-bottom { flex: 0 0 auto; padding: 10px 11px 12px; border-top: 1px solid #242428; background: #050505; }
+  .cn-desktop-nav-bottom .cn-desktop-nav-action { border: 1px solid #36363e; }
   .cn-desktop-nav :focus-visible { outline: 2px solid #b09aff; outline-offset: -2px; }
 }
 @media (max-width: 1023.98px) { .cn-desktop-nav { display: none; } }

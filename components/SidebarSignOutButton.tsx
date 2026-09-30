@@ -79,7 +79,7 @@ export default function SidebarSignOutButton() {
         title="Sign out"
         aria-label="Sign out"
       >
-        <LogOut size={25} aria-hidden="true" />
+        <LogOut size={21} aria-hidden="true" />
         <span className="cn-desktop-nav-label">{signingOut ? "Signing out…" : "Sign out"}</span>
       </button>
       {dialog}
