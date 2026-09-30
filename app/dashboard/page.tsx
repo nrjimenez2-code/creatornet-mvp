@@ -6,7 +6,6 @@ import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
 import { DashboardSkeleton } from "@/components/loading/Skeletons";
 import { useUser } from "@/lib/useUser";
-import NotificationInbox from "@/components/NotificationInbox";
 
 type Tab = "following" | "discover";
 
@@ -72,7 +71,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
           <path d="M15.4 15.9L20.2 20.7" fill="none" stroke="white" strokeWidth="1.9" strokeLinecap="round" />
         </svg>
       </Link>
-      {!authLoading && userId && <NotificationInbox className="fixed right-14 top-3 z-40 lg:right-5 lg:top-5" />}
 
       <div className="mx-auto w-full">
         {/* MAIN / FEED COLUMN - fixed height so feed scroll container can fill and scroll.
