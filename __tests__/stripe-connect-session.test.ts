@@ -97,3 +97,38 @@ test("default Stripe banner keeps its existing disclosure", async () => {
   expect(container.textContent).toContain("12% platform fee");
   expect(container.textContent).toContain("payment-processing fees");
 });
+
+test.each([401, 503])("earnings connection status %s has no fee callout", async (status) => {
+  request.mockResolvedValue(response(status));
+  await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  expect(container.textContent).toContain(status === 401 ? "Sign in" : "Could not check");
+});
+
+test("earnings loading and signed-out states have no fee callout", async () => {
+  request.mockImplementation(() => new Promise(() => {}));
+  const renderEarnings = () => act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  await renderEarnings();
+  expect(container.textContent).toContain("Checking payout connection");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  mockLoading = true; await renderEarnings(); expect(container.textContent).toBe("");
+  mockLoading = false; mockSession = null; await renderEarnings();
+  expect(container.textContent).toContain("Sign in");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+});
+
+test("earnings setup action keeps opening and failure states free of fee callouts", async () => {
+  let complete!: (value: unknown) => void;
+  request.mockResolvedValueOnce(response(200, { connected: false }))
+    .mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }))
+    .mockResolvedValueOnce(response(503));
+  await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  await click();
+  expect(container.textContent).toContain("Opening");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  await act(async () => { complete(response(200)); });
+  expect(request).toHaveBeenLastCalledWith('/api/stripe/connect/onboard', expect.objectContaining({ headers: { Authorization: 'Bearer test-access' } }));
+  expect(container.textContent).toContain("Could not start Stripe");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  expect(container.querySelector('button')?.disabled).toBe(false);
+});
