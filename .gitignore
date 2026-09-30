@@ -76,4 +76,5 @@ supabase/migrations/*
 !supabase/migrations/20260924004400_video_reports.sql
 !supabase/migrations/20260926225425_post_view_counts_v1.sql
 !supabase/migrations/20260927054350_video_insights.sql
+!supabase/migrations/20260930022954_profile_website.sql
 !supabase/migrations/20260930031043_automatic_post_metadata.sql
