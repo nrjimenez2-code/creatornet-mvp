@@ -4,9 +4,9 @@ import { createRoot, type Root } from "react-dom/client";
 
 type Activation = {
   token: symbol; postId: string; src: string; host: HTMLElement;
-  present: (ready: boolean) => void; ready: () => void; failed: () => void; reload?: boolean;
+  contentVersion?: string; present: (ready: boolean) => void; ready: () => void; failed: () => void; reload?: boolean;
 };
-type Preparation = { postId: string; present: (ready: boolean) => void };
+type Preparation = { postId: string; src: string; contentVersion?: string; present: (ready: boolean) => void };
 let mockActive: Activation | null;
 let mockVideo: HTMLVideoElement | null;
 const mockController = {
@@ -43,6 +43,8 @@ jest.mock("@/components/MobileFeedDiagnostics", () => ({ __esModule: true, defau
 
 import PlaybackLab from "@/app/playback-lab/PlaybackLab";
 import { MobileFeedController as RateController } from "@/lib/mobileFeedController.prototype";
+import { setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
+import { playbackFormatFixtures, type PlaybackFormat } from "@/lib/playbackFormatFixtures";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -51,6 +53,7 @@ const fixtures = [
   { id: "lab-b", label: "Clip B", src: "https://example.test/b.m3u8", contentVersion: "b-v1" },
   { id: "lab-c", label: "Clip C", src: "https://example.test/c.m3u8", contentVersion: "c-v1" },
 ];
+const formatFixtures = { original: playbackFormatFixtures("original"), mp4: playbackFormatFixtures("mp4"), hls: playbackFormatFixtures("hls") };
 let container: HTMLDivElement;
 let root: Root;
 let hidden: jest.SpyInstance;
@@ -88,8 +91,8 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" = "current") {
-  await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode })));
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" = "current", sourceFormat?: PlaybackFormat) {
+  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat })));
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(element => element.textContent === label);
@@ -111,6 +114,48 @@ async function swipeTo(index: number) {
   })), {} as IntersectionObserver));
 }
 function latestActivation() { return mockController.activate.mock.calls.at(-1)![0]; }
+
+test.each(["original", "mp4"] as const)("%s comparison uses native MP4 support, pins both sources and keeps sound/ownership", async format => {
+  jest.mocked(HTMLMediaElement.prototype.canPlayType).mockImplementation(type => type === "video/mp4" ? "probably" : "");
+  await render("steady", format);
+  expect(RateController).toHaveBeenCalledWith("steady");
+  expect(container.textContent).toContain(`Preview format comparison · steady · ${format} · fixture-buil`);
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({
+    feed: "preview-playback-format-lab", labFormat: format, labFixtureSet: "carlos-noah-v1", labController: "steady", labBuildCommit: "fixture-build",
+  }));
+  await click("Play");
+  await click("Tap for sound");
+  const [carlos, noah] = formatFixtures[format];
+  expect(latestActivation()).toEqual(expect.objectContaining({postId:carlos.id, src:carlos.src, contentVersion:carlos.contentVersion}));
+  expect(mockController.prepare).toHaveBeenCalledWith(expect.objectContaining({postId:noah.id, src:noah.src, contentVersion:noah.contentVersion}));
+  const shared = mockVideo;
+  await swipeTo(1);
+  expect(latestActivation()).toEqual(expect.objectContaining({postId:noah.id, src:noah.src, contentVersion:noah.contentVersion}));
+  expect(mockVideo).toBe(shared);
+  expect(mockVideo!.muted).toBe(false);
+  await click("Pause");
+  await render("steady", format);
+  expect(mockVideo!.paused).toBe(true);
+  expect(mockController.activate).toHaveBeenCalledTimes(2);
+});
+
+test("format HLS stays unavailable without native HLS, without substituting an MP4", async () => {
+  jest.mocked(HTMLMediaElement.prototype.canPlayType).mockImplementation(type => type === "video/mp4" ? "probably" : "");
+  await render("steady", "hls");
+  expect(container.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
+  expect(container.textContent).toContain("This browser does not report native HLS support.");
+  await click("Play");
+  expect(mockController.activate).not.toHaveBeenCalled();
+});
+
+test("legacy HLS lab retains its source set and native HLS capability gate", async () => {
+  jest.mocked(HTMLMediaElement.prototype.canPlayType).mockImplementation(type => type === "video/mp4" ? "probably" : "");
+  await render("steady");
+  expect(container.textContent).toContain("Preview controller experiment · steady · fixture-buil");
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({feed:"preview-hls-controller-lab", labFormat:"hls", labFixtureSet:"legacy-hls"}));
+  expect(container.querySelector<HTMLButtonElement>("button")!.disabled).toBe(true);
+  expect(mockController.activate).not.toHaveBeenCalled();
+});
 
 test("prearmed lab mode selects the paused-rate controller variant", async () => {
   await render("prearmed");

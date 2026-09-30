@@ -7,23 +7,27 @@ import { MobileFeedController as CurrentController } from "@/lib/mobileFeedContr
 import { MobileFeedController as RateController } from "@/lib/mobileFeedController.prototype";
 import { mobileFeedPlaybackReady, mobileFeedSeekFailed } from "@/lib/mobileFeedPlayer";
 import { feedTraceEnabled, observeFeedScroll, recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
+import type { PlaybackFormat } from "@/lib/playbackFormatFixtures";
 
-export type HlsFixture = { id: string; label: string; src: string; contentVersion: string };
+export type PlaybackFixture = { id: string; label: string; src: string; contentVersion: string };
 type Owner = { token: symbol; video: HTMLVideoElement; postId: string; terminal: boolean };
 type Presentation = { postId: string; preview: boolean; ready: boolean; error: string | null };
 
 const subscribeCapabilities = () => () => {};
 const nativeHlsSnapshot = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+const nativeMp4Snapshot = () => !!document.createElement("video").canPlayType("video/mp4");
 const visibleSnapshot = () => !document.hidden;
 const subscribeVisibility = (notify: () => void) => {
   document.addEventListener("visibilitychange", notify);
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial"; sourceFormat?: PlaybackFormat }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
-  const nativeHls = useSyncExternalStore(subscribeCapabilities, nativeHlsSnapshot, () => null);
+  const isHls = sourceFormat === undefined || sourceFormat === "hls";
+  const nativePlayback = useSyncExternalStore(subscribeCapabilities, isHls ? nativeHlsSnapshot : nativeMp4Snapshot, () => null);
+  const sourceLabel = sourceFormat === "original" ? "original MP4" : sourceFormat === "mp4" ? "processed MP4" : "direct native HLS";
   const debug = useSyncExternalStore(subscribeCapabilities, feedTraceEnabled, () => false);
   const [started, setStarted] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
@@ -86,16 +90,17 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
   }, [playOwned]);
 
   useEffect(() => {
-    setFeedRunContext({ feed: "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
-      labController: controllerMode, surface: `Preview / direct HLS controller lab / ${controllerMode}` });
-  }, [buildCommit, controllerMode]);
+    setFeedRunContext({ feed: sourceFormat ? "preview-playback-format-lab" : "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
+      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls",
+      surface: sourceFormat ? `Preview / playback format lab / ${sourceFormat} / ${controllerMode}` : `Preview / direct HLS controller lab / ${controllerMode}` });
+  }, [buildCommit, controllerMode, sourceFormat]);
 
   useLayoutEffect(() => { unmounting.current = false; return () => { unmounting.current = true; }; }, []);
 
   useLayoutEffect(() => {
     const fixture = fixtures[activeIndex];
     const host = mainHosts.current[activeIndex], previewHost = preparationHosts.current[activeIndex];
-    if (!started || !nativeHls || !fixture || !host || !previewHost) return;
+    if (!started || !nativePlayback || !fixture || !host || !previewHost) return;
     // Production resets a manual pause when the active post changes. A render or
     // source effect for the same post must preserve the user's current intent.
     if (lastActivatedPostId.current !== null && lastActivatedPostId.current !== fixture.id) {
@@ -132,19 +137,19 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
       controller.release(token, activeIndexRef.current !== activeIndex || unmounting.current);
       updatePresentation(fixture.id, { preview: false, ready: false });
     };
-  }, [activeIndex, controller, fail, fixtures, nativeHls, playWhenReady, retry, started, updatePresentation]);
+  }, [activeIndex, controller, fail, fixtures, nativePlayback, playWhenReady, retry, started, updatePresentation]);
 
   useLayoutEffect(() => {
     // Single-player control keeps the same shared main, sources and layout,
     // but never creates or plays a prepared neighbor or presentation bridge.
-    if (controllerMode === "single" || !started || !nativeHls || !visible || owner.current?.terminal) { controller.cancelPreparation(); return; }
+    if (controllerMode === "single" || !started || !nativePlayback || !visible || owner.current?.terminal) { controller.cancelPreparation(); return; }
     const neighborIndex = activeIndex + direction;
     const neighbor = fixtures[neighborIndex], host = preparationHosts.current[neighborIndex];
     if (!neighbor || !host) { controller.cancelPreparation(); return; }
     // Activation consumes the previous neighbor before this selects its successor.
     controller.prepare({ postId: neighbor.id, src: neighbor.src, contentVersion: neighbor.contentVersion, host,
       present: preview => updatePresentation(neighbor.id, { preview }) });
-  }, [activeIndex, controller, controllerMode, direction, fixtures, nativeHls, retry, started, updatePresentation, visible]);
+  }, [activeIndex, controller, controllerMode, direction, fixtures, nativePlayback, retry, started, updatePresentation, visible]);
 
   useEffect(() => {
     const visibility = () => {
@@ -220,17 +225,17 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
                 <p>{shown.error}</p>
                 <button className="rounded border px-4 py-2" onClick={() => { intentRef.current = true; setPlayingIntent(true); setRetry(previous => ({ postId: fixture.id, version: previous.version + 1 })); }}>Retry video</button>
               </div>}
-              <p className="pointer-events-none absolute bottom-36 left-4 z-30">{fixture.label} · direct native HLS</p>
+              <p className="pointer-events-none absolute bottom-36 left-4 z-30">{fixture.label} · {sourceLabel}</p>
             </div>
           </section>;
         })}
       </div>
       {debug && <MobileFeedDiagnostics activePostId={activeId} getVideo={id => owner.current?.postId === id ? owner.current.video : null} />}
       <div className="absolute bottom-0 left-0 right-0 z-40 space-y-2 bg-black/90 p-3 text-sm">
-        <p>Preview controller experiment · {controllerMode} · {buildCommit.slice(0, 12)}</p>
-        <p role="status">{nativeHls === false ? "This browser does not report native HLS support." : status}</p>
+        <p>{sourceFormat ? "Preview format comparison" : "Preview controller experiment"} · {controllerMode} · {sourceFormat && `${sourceFormat} · `}{buildCommit.slice(0, 12)}</p>
+        <p role="status">{nativePlayback === false ? `This browser does not report native ${isHls ? "HLS" : "MP4"} support.` : status}</p>
         <div className="flex flex-wrap gap-2">
-          <button disabled={nativeHls !== true || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={play}>Play</button>
+          <button disabled={nativePlayback !== true || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={play}>Play</button>
           <button disabled={!started} className="rounded border px-3 py-2 disabled:opacity-40" onClick={pause}>Pause</button>
           <button disabled={!started || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={sound}>{muted ? "Tap for sound" : "Mute"}</button>
           <button disabled={!started || activeIndex === 0} className="rounded border px-3 py-2 disabled:opacity-40" onClick={() => navigate(-1)}>Previous</button>
