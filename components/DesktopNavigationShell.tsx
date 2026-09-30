@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -56,7 +56,25 @@ export default function DesktopNavigationShell({ children }: { children: React.R
   const [composerOpen, setComposerOpen] = useState(false);
   const navRef = useRef<HTMLElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
+  const searchButtonRef = useRef<HTMLButtonElement>(null);
+  const searchPointerRef = useRef<{ x: number; y: number } | null>(null);
+  const restoringPointerSearchFocusRef = useRef(false);
   const active = currentDesktopDestination(pathname, searchParams.get("tab"));
+
+  const closeSearch = useCallback(() => {
+    const pointer = searchPointerRef.current;
+    restoringPointerSearchFocusRef.current = pointer !== null;
+    if (pointer) {
+      const bounds = navRef.current?.getBoundingClientRect();
+      setOpen(Boolean(bounds && pointer.x >= bounds.left && pointer.x < bounds.right && pointer.y >= bounds.top && pointer.y < bounds.bottom));
+    }
+    setSearchOpen(false);
+  }, []);
+
+  useEffect(() => {
+    // SearchDrawer restores focus during its unmount cleanup, before this effect.
+    if (!searchOpen) restoringPointerSearchFocusRef.current = false;
+  }, [searchOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +110,7 @@ export default function DesktopNavigationShell({ children }: { children: React.R
       }}
       onMouseLeave={() => setOpen(false)}
       onFocusCapture={(event) => {
+        if (restoringPointerSearchFocusRef.current && event.target === searchButtonRef.current) return;
         if (event.target !== toggleRef.current) setOpen(true);
       }}
       onBlurCapture={(event) => {
@@ -118,7 +137,10 @@ export default function DesktopNavigationShell({ children }: { children: React.R
           <Plus aria-hidden="true" size={21} />
           <span className="cn-desktop-nav-label">Create post</span>
         </button>
-        <button type="button" className="cn-desktop-nav-action cn-desktop-nav-search" aria-label="Search" onClick={() => setSearchOpen(true)}>
+        <button ref={searchButtonRef} type="button" className="cn-desktop-nav-action cn-desktop-nav-search" aria-label="Search" onClick={() => {
+          searchPointerRef.current = null;
+          setSearchOpen(true);
+        }}>
           <Search aria-hidden="true" size={21} />
           <span className="cn-desktop-nav-label">Search</span>
         </button>
@@ -154,7 +176,12 @@ export default function DesktopNavigationShell({ children }: { children: React.R
       </div>
     </aside>
     <div className="cn-desktop-nav-content">{children}</div>
-    {searchOpen && <SearchDrawer open onClose={() => setSearchOpen(false)} />}
+    {searchOpen && <div
+      onPointerDownCapture={(event) => {
+        searchPointerRef.current = event.pointerType === "mouse" && window.matchMedia("(hover: hover) and (pointer: fine)").matches ? { x: event.clientX, y: event.clientY } : null;
+      }}
+      onKeyDownCapture={() => { searchPointerRef.current = null; }}
+    ><SearchDrawer open onClose={closeSearch} /></div>}
     {composerOpen && <PostComposerModal onClose={() => setComposerOpen(false)} onPosted={() => {
       window.dispatchEvent(new Event("creatornet:post-created"));
       router.refresh();

@@ -55,9 +55,9 @@ body {
 /* A fixed desktop rail reserves one constant inset. The wider panel covers the
    page when open, so the content never reflows during navigation. */
 @media (min-width: 1024px) {
-  .cn-desktop-nav-content { margin-left: 88px; min-width: 0; }
+  .cn-desktop-nav-content { margin-left: 104px; min-width: 0; }
   .cn-desktop-nav {
-    position: fixed; z-index: 50; left: 0; top: 12px; bottom: 12px;
+    position: fixed; z-index: 50; left: 16px; top: 12px; bottom: 12px;
     display: flex; flex-direction: column; width: 88px; overflow: hidden;
     border: 1px solid #242428; border-radius: 18px;
     background: #050505; box-shadow: 8px 0 28px rgba(0,0,0,.38);
@@ -74,32 +74,35 @@ body {
   .cn-desktop-nav-scroll::-webkit-scrollbar-thumb { background: #45454d; border-radius: 8px; }
   .cn-desktop-nav-scroll::-webkit-scrollbar-track { background: transparent; }
   .cn-desktop-nav-brand, .cn-desktop-nav-action, .cn-desktop-nav-link {
-    display: flex; align-items: center; width: 100%; gap: 16px;
+    display: grid; grid-template-columns: 40px minmax(0, 1fr); align-items: center; width: 100%; gap: 8px;
     white-space: nowrap; text-align: left; font-size: 14px;
   }
-  .cn-desktop-nav-brand { height: 48px; padding: 0 16px; gap: 8px; color: #fff; }
-  .cn-desktop-nav-brand img { display: block; flex: 0 0 40px; width: 40px; height: 40px; max-width: none; object-fit: contain; mix-blend-mode: screen; }
+  .cn-desktop-nav-brand { height: 48px; padding: 0 7px; color: #fff; }
+  .cn-desktop-nav-brand img { display: block; justify-self: center; width: 40px; height: 40px; max-width: none; object-fit: contain; mix-blend-mode: screen; }
   .cn-desktop-nav-wordmark { font-size: 20px; font-weight: 650; letter-spacing: -.035em; }
-  .cn-desktop-nav-action { height: 48px; padding: 0 16px; border-radius: 11px; color: #d2d2d8; }
-  .cn-desktop-nav-create { border: 1px solid #3b3b43; background: #2b2b31; color: #f2f2f5; font-weight: 600; }
+  .cn-desktop-nav-action { height: 48px; padding: 0 7px; border-radius: 11px; color: #d2d2d8; }
+  .cn-desktop-nav-create { padding-inline: 6px; border: 1px solid #3b3b43; background: #2b2b31; color: #f2f2f5; font-weight: 600; }
   .cn-desktop-nav-create:hover { background: #35353c; }
-  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-create { width: 48px; margin-inline: auto; padding: 0; gap: 0; justify-content: center; border-radius: 16px; }
-  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-create .cn-desktop-nav-label { display: none; }
+  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-brand,
+  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-action,
+  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-link { display: flex; justify-content: center; padding-inline: 0; gap: 0; }
+  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-create { width: 48px; margin-inline: auto; border-radius: 16px; }
+  .cn-desktop-nav[data-expanded="false"] .cn-desktop-nav-label { display: none; }
   .cn-desktop-nav-search { margin-top: 9px; border: 0; background: transparent; }
   .cn-desktop-nav-bottom .cn-desktop-nav-action:hover { background: #29292e; }
   .cn-desktop-nav-links { display: flex; flex-direction: column; gap: 3px; margin-top: 16px; }
-  .cn-desktop-nav-link, .cn-desktop-nav-search { height: 46px; padding: 0 16px; border-radius: 11px; font-weight: 500; color: #c8c8d0; }
-  .cn-desktop-nav-link > svg, .cn-desktop-nav-action > svg { flex: 0 0 21px; }
+  .cn-desktop-nav-link, .cn-desktop-nav-search { height: 46px; padding: 0 7px; border-radius: 11px; font-weight: 500; color: #c8c8d0; }
+  .cn-desktop-nav-link > svg, .cn-desktop-nav-action > svg { flex: 0 0 21px; justify-self: center; }
   .cn-desktop-nav-link:not([aria-current="page"]):hover, .cn-desktop-nav-search:hover { background: #29292e; color: #f5f5f7; }
   .cn-desktop-nav-link[aria-current="page"] { background: #17112e; color: #7659ef; }
   .cn-desktop-nav-link[aria-current="page"]:hover { background: #21183f; }
-  .cn-desktop-nav-avatar { display: block; flex: 0 0 25px; width: 25px; height: 25px; margin-left: -2px; margin-right: -2px; border: 1px solid #555560; border-radius: 50%; overflow: hidden; }
+  .cn-desktop-nav-avatar { display: block; flex: 0 0 25px; justify-self: center; width: 25px; height: 25px; border: 1px solid #555560; border-radius: 50%; overflow: hidden; }
   .cn-desktop-nav-label { visibility: hidden; opacity: 0; }
   .cn-desktop-nav[data-expanded="true"] .cn-desktop-nav-label { visibility: visible; opacity: 1; transition: opacity 100ms ease 70ms; }
   .cn-desktop-nav-stripe { display: none; margin-top: 14px; }
   .cn-desktop-nav[data-expanded="true"] .cn-desktop-nav-stripe:not(:empty) { display: block; }
   .cn-desktop-nav-bottom { flex: 0 0 auto; padding: 10px 11px 12px; border-top: 1px solid #242428; background: #050505; }
-  .cn-desktop-nav-bottom .cn-desktop-nav-action { border: 1px solid #36363e; }
+  .cn-desktop-nav-bottom .cn-desktop-nav-action { padding-inline: 6px; border: 1px solid #36363e; }
   .cn-desktop-nav :focus-visible { outline: 2px solid #b09aff; outline-offset: -2px; }
 }
 @media (max-width: 1023.98px) { .cn-desktop-nav { display: none; } }
