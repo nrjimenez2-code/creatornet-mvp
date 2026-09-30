@@ -3,7 +3,6 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createServerClient } from "@/lib/supabaseServer";
-import BackButton from "@/components/BackButton";
 import ProfileShareButton from "@/components/ProfileShareButton";
 import ProfileContent from "@/components/ProfileContent";
 import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
@@ -98,15 +97,11 @@ export default async function ProfilePage() {
   return (
     <section className="px-4 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] pt-4 md:pt-10 lg:pb-16 text-white relative">
       <div className="max-w-6xl mx-auto">
-        {/* Keep the profile menu available until the dashboard sidebar appears. */}
+        {/* Keep profile actions available on mobile. */}
         <div className="lg:hidden mb-6">
           <ProfileMobileHeader userId={user.id} />
         </div>
 
-        {/* Desktop: Absolute positioned (original) */}
-        <div className="hidden lg:block absolute top-4 left-4 z-10">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
         <div className="hidden lg:flex absolute top-4 right-16 sm:right-32 z-10 items-center gap-2">
           <Link
             href={`/creators/${user.id}/reviews`}

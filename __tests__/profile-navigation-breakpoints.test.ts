@@ -5,8 +5,12 @@ const profilePage = readFileSync(
   join(__dirname, "..", "app", "profile", "page.tsx"),
   "utf8",
 );
-const dashboardPage = readFileSync(
-  join(__dirname, "..", "app", "dashboard", "page.tsx"),
+const desktopShell = readFileSync(
+  join(__dirname, "..", "components", "DesktopNavigationShell.tsx"),
+  "utf8",
+);
+const globals = readFileSync(
+  join(__dirname, "..", "app", "globals.css"),
   "utf8",
 );
 const profileMenu = readFileSync(
@@ -15,16 +19,14 @@ const profileMenu = readFileSync(
 );
 
 describe("profile navigation breakpoint contract", () => {
-  test("keeps the existing profile menu until the dashboard sidebar appears", () => {
-    const sidebarBreakpoint = dashboardPage.match(
-      /<aside className="hidden ([a-z]+):block\b/,
-    )?.[1];
+  test("keeps the profile menu until the shared desktop rail appears", () => {
     const menuBreakpoint = profilePage.match(
       /<div className="([a-z]+):hidden mb-6">\s*<ProfileMobileHeader\b/,
     )?.[1];
 
-    expect(sidebarBreakpoint).toBe("lg");
-    expect(menuBreakpoint).toBe(sidebarBreakpoint);
+    expect(menuBreakpoint).toBe("lg");
+    expect(desktopShell).toContain('className="cn-desktop-nav"');
+    expect(globals).toMatch(/@media \(min-width: 1024px\)\s*\{/);
   });
 
   test("switches all desktop profile header controls at the same breakpoint", () => {
@@ -32,8 +34,9 @@ describe("profile navigation breakpoint contract", () => {
       /<div className="hidden ([a-z]+):(?:block|flex) absolute top-4/g,
     )];
 
-    expect(desktopControls).toHaveLength(3);
+    expect(desktopControls).toHaveLength(2);
     expect(desktopControls.every((match) => match[1] === "lg")).toBe(true);
+    expect(profilePage).not.toContain("<BackButton");
   });
 
   test("reuses the existing menu and sign-out flow", () => {
