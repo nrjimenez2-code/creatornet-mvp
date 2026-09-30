@@ -21,6 +21,7 @@ export default function ProfileShareButton({ appearance = "icon" }: { appearance
         type="button"
         role="menuitem"
         tabIndex={-1}
+        aria-label={copied ? "Profile link copied" : "Share"}
         onClick={handleCopy}
         className="block w-full rounded-lg px-3 py-2 text-left text-sm text-white hover:bg-white/10 focus-visible:bg-white/10 focus-visible:outline-2 focus-visible:outline-white transition"
       >
