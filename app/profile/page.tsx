@@ -10,7 +10,7 @@ import ProfileMobileHeader from "@/components/ProfileMobileHeader";
 import FollowStats from "@/components/FollowStats";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
-import profileNameStyles from "@/components/profile-name.module.css";
+import profileNameStyles from "../../components/profile-name.module.css";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";

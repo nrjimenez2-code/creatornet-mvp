@@ -17,7 +17,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
-import profileNameStyles from "@/components/profile-name.module.css";
+import profileNameStyles from "../../../components/profile-name.module.css";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
 import ProfileBio from "@/components/ProfileBio";
