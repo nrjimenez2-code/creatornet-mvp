@@ -1,31 +1,53 @@
 /** @jest-environment node */
-import { renderToStaticMarkup } from 'react-dom/server';
-import EarningsPage from '@/app/dashboard/earnings/page';
-import type { CreatorEarningsView } from '@/lib/creatorEarningsView';
+import { renderToStaticMarkup } from "react-dom/server";
+import EarningsPage, { metadata } from "@/app/dashboard/earnings/page";
+import type { CreatorEarningsView } from "@/lib/creatorEarningsView";
+
 const load = jest.fn();
-jest.mock('@/lib/creatorEarningsView', () => ({ fetchCurrentCreatorEarningsView: () => load() }));
-jest.mock('@/components/StripeConnectBanner', () => ({ __esModule: true, default: () => null }));
-jest.mock('@/components/BackButton', () => ({ __esModule: true, default: () => null }));
-jest.mock('next/navigation', () => ({ redirect: (url: string) => { throw new Error(`redirect:${url}`); } }));
-const view: CreatorEarningsView = { recordedEarningsCents: 12345, ledgerAvailable: true, historyLimited: false, rows: [] };
+jest.mock("@/lib/creatorEarningsView", () => ({ HISTORY_PAGE_SIZE: 20, fetchCurrentCreatorEarningsView: (...args: unknown[]) => load(...args) }));
+jest.mock("@/components/StripeConnectBanner", () => ({ __esModule: true, default: () => null }));
+jest.mock("@/components/BackButton", () => ({ __esModule: true, default: () => null }));
+jest.mock("next/navigation", () => ({ redirect: (url: string) => { throw new Error(`redirect:${url}`); }, useRouter: () => ({ replace: jest.fn(), push: jest.fn() }) }));
+
+const params = Promise.resolve({ period: "custom", tz: "America/Phoenix", start: "2026-09-01", end: "2026-09-30" });
+const view: CreatorEarningsView = { totals: [], ledgerAvailable: true, paymentCount: 0, page: 1, rows: [] };
 beforeEach(() => { load.mockReset().mockResolvedValue(view); });
-test('empty earnings keeps recorded amount and removes the profile-record subtitle', async () => {
-  const html = renderToStaticMarkup(await EarningsPage());
-  expect(html).toContain('$123.45'); expect(html).toContain('Recorded net earnings');
-  expect(html).toContain('Payment history'); expect(html).toContain('No tracked payments yet');
-  expect(html).not.toContain('From your CreatorNet profile record');
+
+test("empty period shows the chosen dates without implying lifetime zero", async () => {
+  const html = renderToStaticMarkup(await EarningsPage({ searchParams: params }));
+  expect(html).toContain("Sep 1, 2026");
+  expect(html).toContain("Sep 30, 2026");
+  expect(html).toContain("No tracked payments for this period");
+  expect(html).toContain("Earlier sales may not appear");
+  expect(html).toContain("Gross"); expect(html).toContain("Net");
+  expect(html).not.toContain("$0.00");
+  expect(html).not.toMatch(/12%|platform fee|processing fee|fee ledger/i);
+  expect(metadata?.description).not.toMatch(/fee|processing/i);
 });
-test('unavailable history is not represented as empty history', async () => {
+
+test("unavailable history never substitutes cumulative net", async () => {
   load.mockResolvedValue({ ...view, ledgerAvailable: false });
-  const html = renderToStaticMarkup(await EarningsPage());
-  expect(html).toContain('temporarily unavailable'); expect(html).not.toContain('No tracked payments yet');
-  expect(html).toContain('$123.45');
+  const html = renderToStaticMarkup(await EarningsPage({ searchParams: params }));
+  expect(html).toContain("temporarily unavailable");
+  expect(html.match(/Unavailable/g)?.length).toBeGreaterThanOrEqual(2);
+  expect(html).not.toContain("No tracked payments for this period");
 });
-test('populated history retains original net, refund adjustment, disputes and current net', async () => {
-  load.mockResolvedValue({ ...view, historyLimited: true, rows: [{ id:'sample',label:'Product sale',grossCents:10000,platformFeeCents:1200,processingFeeCents:320,creatorNetCents:8480,refundedGrossCents:2000,reversedEarningsCents:1696,disputedAmountCents:1000,disputeStatus:'needs_response',currentNetCents:6784,currency:'USD',status:'partially_refunded',createdAt:'2026-09-12T00:00:00Z' }] });
-  const html = renderToStaticMarkup(await EarningsPage());
-  for (const text of ['Product sale','$100.00','$12.00','$3.20','$84.80','$16.96','$10.00','$67.84','needs response','Only the latest 100 tracked payments']) expect(html).toContain(text);
+
+test("payment rows show gross, current net and compact status with page navigation", async () => {
+  load.mockResolvedValue({ ...view, totals: [{ currency: "USD", grossCents: 10000, netCents: 6784 }], paymentCount: 25,
+    rows: [{ id: "sample", label: "Product sale", grossCents: 10000, currentNetCents: 6784, currency: "USD", statusLabel: "Partially refunded", createdAt: "2026-09-12T00:00:00.000Z" }] });
+  const html = renderToStaticMarkup(await EarningsPage({ searchParams: params }));
+  for (const value of ["Product sale", "$100.00", "$67.84", "Partially refunded", "Next", "Page 1 of 2"]) expect(html).toContain(value);
+  expect(html).not.toMatch(/12%|platform fee|processing fee|refund adjustment|original creator net/i);
 });
-test('signed-out requests still redirect', async () => {
-  load.mockResolvedValue(null); await expect(EarningsPage()).rejects.toThrow('redirect:/auth');
+
+test("invalid URL parameters cannot trigger a ledger query", async () => {
+  const html = renderToStaticMarkup(await EarningsPage({ searchParams: Promise.resolve({ period: "custom", tz: "UTC", start: "2026-09-30", end: "2026-09-01" }) }));
+  expect(load).not.toHaveBeenCalled();
+  expect(html).toContain("Loading this period");
+});
+
+test("signed-out requests still redirect", async () => {
+  load.mockResolvedValue(null);
+  await expect(EarningsPage({ searchParams: params })).rejects.toThrow("redirect:/auth");
 });
