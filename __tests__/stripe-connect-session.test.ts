@@ -79,3 +79,56 @@ test("earnings keeps its status while the connected sidebar banner disappears", 
   expect(container.querySelector('button')).toBeNull();
   await render(); expect(container.textContent).toBe('');
 });
+
+test.each([
+  ["not connected", { connected: false }],
+  ["setup incomplete", { connected: true, onboarding_complete: false }],
+  ["active", { connected: true, onboarding_complete: true }],
+])("earnings banner has no fee callout when %s", async (_label, status) => {
+  request.mockResolvedValue(response(200, status));
+  await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  if (!status.connected || !("onboarding_complete" in status && status.onboarding_complete)) expect(container.querySelector("button")).not.toBeNull();
+});
+
+test("default Stripe banner keeps its existing disclosure", async () => {
+  request.mockResolvedValue(response(200, { connected: false }));
+  await render();
+  expect(container.textContent).toContain("12% platform fee");
+  expect(container.textContent).toContain("payment-processing fees");
+});
+
+test.each([401, 503])("earnings connection status %s has no fee callout", async (status) => {
+  request.mockResolvedValue(response(status));
+  await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  expect(container.textContent).toContain(status === 401 ? "Sign in" : "Could not check");
+});
+
+test("earnings loading and signed-out states have no fee callout", async () => {
+  request.mockImplementation(() => new Promise(() => {}));
+  const renderEarnings = () => act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  await renderEarnings();
+  expect(container.textContent).toContain("Checking payout connection");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  mockLoading = true; await renderEarnings(); expect(container.textContent).toBe("");
+  mockLoading = false; mockSession = null; await renderEarnings();
+  expect(container.textContent).toContain("Sign in");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+});
+
+test("earnings setup action keeps opening and failure states free of fee callouts", async () => {
+  let complete!: (value: unknown) => void;
+  request.mockResolvedValueOnce(response(200, { connected: false }))
+    .mockImplementationOnce(() => new Promise(resolve => { complete = resolve; }))
+    .mockResolvedValueOnce(response(503));
+  await act(async () => { root.render(createElement(StripeConnectBanner, { appearance: "earnings" })); });
+  await click();
+  expect(container.textContent).toContain("Opening");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  await act(async () => { complete(response(200)); });
+  expect(request).toHaveBeenLastCalledWith('/api/stripe/connect/onboard', expect.objectContaining({ headers: { Authorization: 'Bearer test-access' } }));
+  expect(container.textContent).toContain("Could not start Stripe");
+  expect(container.textContent).not.toMatch(/12%|platform fee|processing fee/i);
+  expect(container.querySelector('button')?.disabled).toBe(false);
+});
