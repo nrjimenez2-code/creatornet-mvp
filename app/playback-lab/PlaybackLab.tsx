@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import MobileFeedDiagnostics from "@/components/MobileFeedDiagnostics";
 // Comparison wiring is confined to this lab; normal feed imports stay unchanged.
 import { MobileFeedController as CurrentController } from "@/lib/mobileFeedController";
@@ -12,16 +12,24 @@ export type HlsFixture = { id: string; label: string; src: string; contentVersio
 type Owner = { token: symbol; video: HTMLVideoElement; postId: string; terminal: boolean };
 type Presentation = { postId: string; preview: boolean; ready: boolean; error: string | null };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" }) {
+const subscribeCapabilities = () => () => {};
+const nativeHlsSnapshot = () => !!document.createElement("video").canPlayType("application/vnd.apple.mpegurl");
+const visibleSnapshot = () => !document.hidden;
+const subscribeVisibility = (notify: () => void) => {
+  document.addEventListener("visibilitychange", notify);
+  return () => document.removeEventListener("visibilitychange", notify);
+};
+
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: { fixtures: HlsFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController() : new RateController(controllerMode === "rate" ? "reactive" : controllerMode));
-  const [nativeHls, setNativeHls] = useState<boolean | null>(null);
-  const [debug, setDebug] = useState(false);
+  const nativeHls = useSyncExternalStore(subscribeCapabilities, nativeHlsSnapshot, () => null);
+  const debug = useSyncExternalStore(subscribeCapabilities, feedTraceEnabled, () => false);
   const [started, setStarted] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [direction, setDirection] = useState(1);
   const [muted, setMuted] = useState(true);
   const [playingIntent, setPlayingIntent] = useState(false);
-  const [visible, setVisible] = useState(true);
+  const visible = useSyncExternalStore(subscribeVisibility, visibleSnapshot, () => true);
   const [retry, setRetry] = useState({ postId: "", version: 0 });
   const [presentations, setPresentations] = useState<Record<string, Presentation>>({});
   const [status, setStatus] = useState("Press Play to start muted. Tap for sound when ready.");
@@ -36,9 +44,6 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
   const intentRef = useRef(playingIntent);
   const activeIndexRef = useRef(activeIndex);
   const unmounting = useRef(false);
-  mutedRef.current = muted;
-  intentRef.current = playingIntent;
-  activeIndexRef.current = activeIndex;
 
   const updatePresentation = useCallback((postId: string, patch: Partial<Presentation>) => {
     setPresentations(previous => ({ ...previous, [postId]: {
@@ -80,9 +85,6 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
   }, [playOwned]);
 
   useEffect(() => {
-    setNativeHls(!!document.createElement("video").canPlayType("application/vnd.apple.mpegurl"));
-    setDebug(feedTraceEnabled());
-    setVisible(!document.hidden);
     setFeedRunContext({ feed: "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
       labController: controllerMode, surface: `Preview / direct HLS controller lab / ${controllerMode}` });
   }, [buildCommit, controllerMode]);
@@ -143,7 +145,6 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
 
   useEffect(() => {
     const visibility = () => {
-      setVisible(!document.hidden);
       if (document.hidden) { controller.suspend(); owner.current?.video.pause(); }
       else if (owner.current) playWhenReady(owner.current);
     };
@@ -167,7 +168,10 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode }: {
       const selected = [...ratios.values()].filter(entry => entry.isIntersecting && entry.intersectionRatio >= 0.51)
         .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
       const index = selected ? sections.current.indexOf(selected.target as HTMLElement) : -1;
-      if (index >= 0) setActiveIndex(index);
+      if (index >= 0) {
+        // Update before React runs the departing activation's cleanup.
+        activeIndexRef.current = index; setActiveIndex(index);
+      }
     }, { root, threshold: [0, 0.08, 0.49, 0.51, 0.92, 1] });
     sections.current.forEach(section => { if (section) observer.observe(section); });
     const stopScrollTrace = observeFeedScroll(root, "preview-hls-controller-lab");

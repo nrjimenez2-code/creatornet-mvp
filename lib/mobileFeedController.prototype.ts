@@ -10,6 +10,12 @@ type Activation = { token: symbol; postId: string; src: string; video: HTMLVideo
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 
+function submittedAt(metadata: VideoFrameCallbackMetadata, now: number) {
+  // Callback delivery can be late. It cannot refresh an old submitted frame.
+  return Number.isFinite(metadata.presentationTime) && metadata.presentationTime >= 0 && metadata.presentationTime <= now
+    ? metadata.presentationTime : -Infinity;
+}
+
 function preparationBuffer(video: HTMLVideoElement, target: number) {
   // The iPhone HLS trace starts its first range at 0.000001 even with a valid
   // opening frame. Normalize only that zero-start boundary, not real gaps or
@@ -23,7 +29,7 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 
 /** Owns preparation and presentation only. The audible element retains its WebKit grant. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" = "reactive") {}
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" = "reactive") {}
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
@@ -276,7 +282,7 @@ export class MobileFeedController {
     let lastMainAt = -Infinity;
     let mainStep: number | null = null;
     let complete = false;
-    let resyncAt = -Infinity;
+    const resyncAt = -Infinity;
     let bridgeSeekEpoch = 0;
     let bridgeSeekTarget: number | null = null;
     let epoch = 0;
@@ -284,6 +290,8 @@ export class MobileFeedController {
     let targetObserved = false;
     let bridgeMoving = false;
     let lastBridgeAt = -Infinity;
+    let lastBridgeMotionAt = -Infinity;
+    let bridgeShownAt: number | null = null;
     let rateAttempted = false;
     // This diagnostic mode tests whether a rate write made at preparation
     // readiness avoids the post-write callback gap observed on Safari.
@@ -292,7 +300,7 @@ export class MobileFeedController {
       rateAttempted = true;
       recordFeedEvent("bridge-rate-prototype", { result: bridge.video.playbackRate === 0.75 ? "prearmed" : "missing-prearm", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
     }
-    if (this.rateMode === "steady" && bridge) {
+    if ((this.rateMode === "steady" || this.rateMode === "guarded") && bridge) {
       recordFeedEvent("bridge-rate-prototype", { result: "steady-1x", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
     }
     const restoreBridgeRate = (reason: string) => {
@@ -318,35 +326,77 @@ export class MobileFeedController {
     let lastMainCallbackAt: number | null = null;
     let lastMainMediaTime: number | null = null;
     let lastMainPresentedFrames: number | null = null;
+    let bridgeRequestCount = 0, bridgeCallbackCount = 0, bridgeAcceptedCount = 0;
+    let firstBridgeCallbackAt: number | null = null, lastBridgeCallbackAt: number | null = null;
+    let firstBridgeReject: string | null = null, lastBridgeReject: string | null = null;
+    let lastBridgeMediaTime: number | null = null, lastBridgePresentedFrames: number | null = null;
+    let lastBridgePresentationTime: number | null = null;
     const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
     const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, current, playRequested: () => {}, stop: () => {} };
     this.active = active;
+    const bridgeDiagnostics = (): Record<string, string | number | boolean | null> => {
+      if (!collectFrameDiagnostics) return {};
+      const preview = active.bridge?.video;
+      const now = performance.now();
+      return {
+        bridgeRequestCount, bridgeCallbackCount, bridgeAcceptedCount, firstBridgeReject, lastBridgeReject,
+        firstBridgeCallbackMs: firstBridgeCallbackAt === null ? null : firstBridgeCallbackAt - activatedAt,
+        lastBridgeCallbackAgeMs: lastBridgeCallbackAt === null ? null : now - lastBridgeCallbackAt,
+        lastBridgeSubmissionAgeMs: Number.isFinite(lastBridgeAt) ? now - lastBridgeAt : null,
+        lastBridgeMotionAgeMs: Number.isFinite(lastBridgeMotionAt) ? now - lastBridgeMotionAt : null,
+        lastBridgeMediaTime, lastBridgePresentedFrames, lastBridgePresentationTime,
+        bridgeFrameRequestPending: bridgeFrame !== undefined, bridgeMoving,
+        bridgePosition: preview?.currentTime ?? null, bridgeReadyState: preview?.readyState ?? null,
+        bridgePaused: preview?.paused ?? null, bridgeSeeking: preview?.seeking ?? null,
+        bridgeSourceMatches: preview ? preview.currentSrc === preview.src : null,
+        bridgeWidth: preview?.videoWidth ?? null, bridgeHeight: preview?.videoHeight ?? null,
+      };
+    };
     input.present(!!bridge);
-    const finish = () => {
+    const finish = (reason: "aligned" | "main-only" | "bridge-motion-unverified" | "watchdog" = "aligned") => {
       if (!current() || complete) return;
       complete = true;
+      const previewDiagnostic = bridgeDiagnostics();
       if (active.bridge) { const old = active.bridge; if (bridgeFrame !== undefined) old.video.cancelVideoFrameCallback?.(bridgeFrame); bridgeFrame = undefined; active.bridge = null; this.clear(old); }
       if (active.partial) this.clear(active.partial);
       if (collectFrameDiagnostics) {
         const qualityAtHandoff = video.getVideoPlaybackQuality?.();
         recordFeedEvent("handoff-frame-diagnostic", {
+          ...previewDiagnostic,
           mainRequestCount, mainCallbackCount, mainValidCount, firstMainReject, lastMainReject,
           firstMainRequestMs: firstMainRequestAt === null ? null : firstMainRequestAt - activatedAt,
           firstMainCallbackMs: firstMainCallbackAt === null ? null : firstMainCallbackAt - activatedAt,
           firstMainValidMs: firstMainValidAt === null ? null : firstMainValidAt - activatedAt,
           lastMainCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+          lastMainSubmissionAgeMs: Number.isFinite(lastMainAt) ? performance.now() - lastMainAt : null,
           targetObserved, totalFramesDelta: qualityAtHandoff && qualityAtActivation ? qualityAtHandoff.totalVideoFrames - qualityAtActivation.totalVideoFrames : null,
           droppedFramesDelta: qualityAtHandoff && qualityAtActivation ? qualityAtHandoff.droppedVideoFrames - qualityAtActivation.droppedVideoFrames : null,
         }, video);
       }
-      input.ready(); recordFeedEvent("presentation-handoff", { warmEligible: eligible, alignmentFrameSeconds: mainStep }, video);
+      input.ready(); recordFeedEvent("presentation-handoff", { warmEligible: eligible, alignmentFrameSeconds: mainStep, reason, aligned: reason === "aligned" }, video);
       this.resumePreparation();
     };
     const align = () => {
       if (!current() || document.hidden || video.seeking || video.paused || lastMain === null) return;
-      if (!active.bridge) return finish();
+      if (!active.bridge) return finish("main-only");
       const now = performance.now();
       const preview = active.bridge;
+      // This is recovery from unverified bridge motion, not aligned success.
+      // Only a fresh advancing main frame can withdraw the preview. Never seek
+      // or change the audible player's rate or sound intent to force recovery.
+      if (this.rateMode === "guarded" && bridgeShownAt !== null &&
+        now - Math.max(bridgeShownAt, lastBridgeMotionAt) > 250 && now - lastMainAt <= 100 &&
+        targetObserved && active.playing && video.playbackRate === 1 && video.currentSrc === video.src) {
+        recordFeedEvent("bridge-motion-unverified", {
+          ...bridgeDiagnostics(), activationMs: now - activatedAt,
+          mainMediaTime: lastMain, bridgeMediaTime: preview.frameTime,
+          rawError: preview.frameTime === null ? null : preview.frameTime - lastMain,
+          aligned: false, pixelIntegrityMeasured: false,
+        }, video);
+        finish("bridge-motion-unverified");
+        recordFeedEvent("handoff-recovery", { result: "moving-main", trigger: "bridge-motion-unverified", aligned: false }, video);
+        return;
+      }
       const frameStep = mainStep ?? preview.frameStep;
       if (preview.frameTime === null || frameStep === null || preview.video.seeking) return;
       // The projection can choose a direction or reject apparent alignment;
@@ -354,7 +404,7 @@ export class MobileFeedController {
       // Two freshly sampled actual frames still have to meet the original
       // alignment tolerance. Sparse or differently aged samples cannot start a correction.
       const mainAgeMs = now - lastMainAt, bridgeAgeMs = now - lastBridgeAt;
-      const fresh = mainAgeMs <= 100 && bridgeAgeMs <= 100;
+      const fresh = mainAgeMs <= 100 && bridgeAgeMs <= 100 && now - lastBridgeMotionAt <= 100;
       const rawError = preview.frameTime - lastMain;
       const tolerance = frameStep + 0.001;
       const projectedError = rawError + bridgeAgeMs / 1_000 * preview.video.playbackRate - mainAgeMs / 1_000 * video.playbackRate;
@@ -395,17 +445,26 @@ export class MobileFeedController {
       if (!current() || !preview || bridgeFrame !== undefined || !preview.video.requestVideoFrameCallback) return;
       const generation = preview.generation;
       const seekEpoch = bridgeSeekEpoch;
+      if (collectFrameDiagnostics) bridgeRequestCount++;
       bridgeFrame = preview.video.requestVideoFrameCallback((now, metadata) => {
         if (!current() || preview !== active.bridge || generation !== preview.generation || seekEpoch !== bridgeSeekEpoch) return;
         bridgeFrame = undefined;
+        const submission = submittedAt(metadata, performance.now());
+        if (collectFrameDiagnostics) {
+          bridgeCallbackCount++; firstBridgeCallbackAt ??= now; lastBridgeCallbackAt = now;
+          lastBridgeMediaTime = metadata.mediaTime; lastBridgePresentedFrames = metadata.presentedFrames;
+          lastBridgePresentationTime = Number.isFinite(metadata.presentationTime) ? metadata.presentationTime : null;
+        }
         const alignmentFrame = bridgeSeekTarget === null || (metadata.mediaTime >= bridgeSeekTarget - 0.1 && metadata.mediaTime <= bridgeSeekTarget + (now - resyncAt) / 1_000 + 0.25);
         if (alignmentFrame && !preview.video.seeking && preview.video.readyState >= 2 && preview.video.currentSrc === preview.video.src && Math.abs(preview.video.currentTime - metadata.mediaTime) <= 0.25) {
+          if (collectFrameDiagnostics) bridgeAcceptedCount++;
           if (bridgeSeekTarget !== null) {
             recordFeedEvent("bridge-align-frame", { target: bridgeSeekTarget, mediaTime: metadata.mediaTime, seekMs: now - resyncAt }, video);
             bridgeSeekTarget = null;
           }
           const delta = preview.frameTime === null ? null : metadata.mediaTime - preview.frameTime;
           const count = preview.frameCount === null ? 0 : metadata.presentedFrames - preview.frameCount;
+          if (delta !== null && delta > 0 && !preview.video.paused) lastBridgeMotionAt = submission;
           if (delta !== null && delta > 0 && count > 0 && delta / count <= 1) preview.frameStep = Math.min(preview.frameStep ?? Infinity, delta / count);
           if (!bridgeMoving && delta !== null && delta > 0 && !preview.video.paused) {
             bridgeMoving = true;
@@ -413,14 +472,26 @@ export class MobileFeedController {
           }
           preview.frameTime = metadata.mediaTime;
           preview.frameCount = metadata.presentedFrames;
-          lastBridgeAt = now;
+          lastBridgeAt = submission;
           recordFeedEvent("bridge-frame", {
             mediaTime: metadata.mediaTime, muted: preview.video.muted, rate: preview.video.playbackRate,
             paused: preview.video.paused, presentedFrames: metadata.presentedFrames, callbackTime: now,
             presentationTime: metadata.presentationTime ?? null, expectedDisplayTime: metadata.expectedDisplayTime ?? null,
             processingDuration: metadata.processingDuration ?? null, width: metadata.width ?? null, height: metadata.height ?? null,
+            submissionAgeMs: Number.isFinite(submission) ? now - submission : null,
           }, video);
           align();
+        } else if (collectFrameDiagnostics) {
+          const reason = !alignmentFrame ? "alignment-target" : preview.video.seeking ? "seeking"
+            : preview.video.readyState < 2 ? "ready-state" : preview.video.currentSrc !== preview.video.src ? "current-source-mismatch"
+              : !Number.isFinite(metadata.mediaTime) ? "invalid-media-time" : "position-drift";
+          firstBridgeReject ??= reason; lastBridgeReject = reason;
+          recordFeedEvent("bridge-frame-rejected", {
+            reason, mediaTime: metadata.mediaTime, position: preview.video.currentTime,
+            presentationTime: metadata.presentationTime ?? null, expectedDisplayTime: metadata.expectedDisplayTime ?? null,
+            presentedFrames: metadata.presentedFrames, paused: preview.video.paused, seeking: preview.video.seeking,
+            readyState: preview.video.readyState, sourceMatches: preview.video.currentSrc === preview.video.src,
+          }, video);
         }
         observeBridge();
       });
@@ -446,7 +517,7 @@ export class MobileFeedController {
           const delta = metadata.mediaTime - previousMain!;
           const count = previousMainCount === null ? 0 : metadata.presentedFrames - previousMainCount;
           if (delta > 0 && count > 0 && delta / count <= 1) mainStep = Math.min(mainStep ?? Infinity, delta / count);
-          lastMain = metadata.mediaTime; lastMainAt = performance.now(); align();
+          lastMain = metadata.mediaTime; lastMainAt = submittedAt(metadata, performance.now()); align();
         } else if (collectFrameDiagnostics) {
           const reason = !targetObserved ? "target-not-observed" : video.readyState < 2 ? "ready-state" : video.seeking ? "seeking"
             : video.paused ? "paused" : video.currentSrc !== video.src ? "current-source-mismatch"
@@ -461,10 +532,11 @@ export class MobileFeedController {
       });
     };
     const seeking = () => { epoch++; previousMain = lastMain = null; intendedPosition = video.currentTime; targetObserved = false; restoreBridgeRate("main-seeking"); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observeMain(); };
-    const pause = () => { active.playing = false; active.bridge?.video.pause(); restoreBridgeRate("main-paused"); active.partial?.pause("main-paused"); this.preparing?.pause("main-paused"); previousMain = lastMain = null; };
+    const pause = () => { active.playing = false; active.bridge?.video.pause(); bridgeShownAt = null; lastBridgeMotionAt = -Infinity; restoreBridgeRate("main-paused"); active.partial?.pause("main-paused"); this.preparing?.pause("main-paused"); previousMain = lastMain = null; };
     const play = () => {
       if (!current() || document.hidden || video.paused) return;
       if (active.bridge) {
+        bridgeShownAt ??= performance.now();
         active.bridge.video.style.visibility = "visible"; input.present(true);
         if (active.bridge.video.paused) void active.bridge.video.play()?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
       }
@@ -478,7 +550,7 @@ export class MobileFeedController {
         rateAttempted = true;
         recordFeedEvent("bridge-rate-prototype", { result: partial.video.playbackRate === 0.75 ? "prearmed-partial" : "missing-prearm", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
       }
-      if (this.rateMode === "steady") {
+      if (this.rateMode === "steady" || this.rateMode === "guarded") {
         recordFeedEvent("bridge-rate-prototype", { result: "steady-1x", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
       }
       partial.video.muted = true; input.present(true); play(); observeBridge();
@@ -497,6 +569,7 @@ export class MobileFeedController {
       if (!current() || complete) return;
       const qualityAtTimeout = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
       recordFeedEvent("handoff-timeout", {
+        ...bridgeDiagnostics(),
         position: video.currentTime, buffer: playableBuffer(video), mainRequestCount, mainCallbackCount, mainValidCount,
         firstMainRequestMs: firstMainRequestAt === null ? null : firstMainRequestAt - activatedAt,
         firstMainCallbackMs: firstMainCallbackAt === null ? null : firstMainCallbackAt - activatedAt,
@@ -508,7 +581,7 @@ export class MobileFeedController {
         totalFramesDelta: qualityAtTimeout && qualityAtActivation ? qualityAtTimeout.totalVideoFrames - qualityAtActivation.totalVideoFrames : null,
         droppedFramesDelta: qualityAtTimeout && qualityAtActivation ? qualityAtTimeout.droppedVideoFrames - qualityAtActivation.droppedVideoFrames : null,
       }, video);
-      if (targetObserved && lastMain !== null && performance.now() - lastMainAt <= 250 && !video.paused && !video.seeking && video.readyState >= 2) { finish(); recordFeedEvent("handoff-recovery", { result: "moving-main" }, video); }
+      if (targetObserved && lastMain !== null && performance.now() - lastMainAt <= 250 && !video.paused && !video.seeking && video.readyState >= 2) { finish("watchdog"); recordFeedEvent("handoff-recovery", { result: "moving-main", trigger: "watchdog", aligned: false }, video); }
       else {
         if (active.bridge) { const old = active.bridge; if (bridgeFrame !== undefined) old.video.cancelVideoFrameCallback?.(bridgeFrame); bridgeFrame = undefined; active.bridge = null; this.clear(old); }
         if (active.partial) this.clear(active.partial);

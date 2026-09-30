@@ -24,10 +24,13 @@ function media(video: HTMLVideoElement) {
     buffered: { configurable: true, value: { length: 1, start: () => 0, end: () => 60 } },
   });
 }
-function deliver(video: HTMLVideoElement, mediaTime: number, clock = mediaTime, count = Math.round(mediaTime * 30) + 1) {
+function deliver(video: HTMLVideoElement, mediaTime: number, clock = mediaTime, count = Math.round(mediaTime * 30) + 1, submissionAgeMs = 0) {
   video.currentTime = clock;
   const pending = [...(callbacks.get(video)?.values() ?? [])]; callbacks.get(video)?.clear();
-  pending.forEach(callback => callback(performance.now(), { mediaTime, presentedFrames: count } as VideoFrameCallbackMetadata));
+  pending.forEach(callback => callback(performance.now(), {
+    mediaTime, presentedFrames: count, presentationTime: performance.now() - submissionAgeMs,
+    expectedDisplayTime: performance.now() - submissionAgeMs,
+  } as VideoFrameCallbackMetadata));
 }
 function events(kind: string) { return exportFeedTrace().events.filter(event => event.kind === kind); }
 function bridgeWrites(video: HTMLVideoElement) { return writes.filter(write => write.video === video); }
@@ -72,7 +75,7 @@ afterEach(() => {
   jest.restoreAllMocks(); jest.useRealTimers();
 });
 
-async function scenario(options: { lead?: number; startMs?: number; mainMedia?: number; mainLag?: number; mode?: RateMode; staleBridge?: boolean; rateMode?: "reactive" | "prearmed" | "steady" } = {}) {
+async function scenario(options: { lead?: number; startMs?: number; mainMedia?: number; mainLag?: number; mode?: RateMode; staleBridge?: boolean; bridgeCallbacks?: "missing" | "rejected"; mainSubmissionAgeMs?: number; rateMode?: "reactive" | "prearmed" | "steady" | "guarded" } = {}) {
   if (options.rateMode) { controller.dispose(); controller = new MobileFeedController(options.rateMode); }
   const lead = options.lead ?? 0.5, startMs = options.startMs ?? 764;
   const mainMedia = options.mainMedia ?? 1 / 30, mainLag = options.mainLag ?? 0.1283666667;
@@ -93,15 +96,18 @@ async function scenario(options: { lead?: number; startMs?: number; mainMedia?: 
   void main.play(); main.dispatchEvent(new Event("playing")); await Promise.resolve();
   expect(previewHost.querySelector("video")).toBe(bridge);
   const initialMainMuted = main.muted;
-  deliver(bridge, 2 / 30);
+  if (!options.bridgeCallbacks) deliver(bridge, 2 / 30);
   if (options.staleBridge) {
     jest.advanceTimersByTime(startMs - 200); deliver(bridge, bridgeMedia - 0.2);
     jest.advanceTimersByTime(200); bridge.currentTime = bridgeMedia;
+  } else if (options.bridgeCallbacks) {
+    jest.advanceTimersByTime(startMs);
+    if (options.bridgeCallbacks === "rejected") deliver(bridge, bridgeMedia, bridgeMedia + 0.5);
   } else {
     jest.advanceTimersByTime(startMs); deliver(bridge, bridgeMedia);
   }
-  deliver(main, mainMedia - 1 / 30, mainMedia - 1 / 30 + mainLag);
-  deliver(main, mainMedia, mainMedia + mainLag);
+  deliver(main, mainMedia - 1 / 30, mainMedia - 1 / 30 + mainLag, undefined, options.mainSubmissionAgeMs);
+  deliver(main, mainMedia, mainMedia + mainLag, undefined, options.mainSubmissionAgeMs);
   let mainPosition = mainMedia + mainLag, bridgePosition = bridgeMedia;
   let lastMainFrame = mainMedia, lastBridgeFrame = options.staleBridge ? bridgeMedia - 0.2 : bridgeMedia;
   let lastBridgeSubmissionAt = options.staleBridge ? startMs - 200 : startMs;
@@ -185,6 +191,69 @@ test("steady mode can hand off naturally aligned frames without changing either 
   expect(events("handoff-timeout")).toHaveLength(0);
   expect(s.failed).not.toHaveBeenCalled();
   expect(writes).toHaveLength(0);
+});
+
+test.each(["missing", "rejected"] as const)("guarded mode recovers from %s bridge callbacks as soon as main motion is verified", async bridgeCallbacks => {
+  const s = await scenario({ rateMode: "guarded", bridgeCallbacks, startMs: 765 });
+  expect(s.readyAt).toEqual([765]); expect(s.failed).not.toHaveBeenCalled();
+  expect(events("handoff-timeout")).toHaveLength(0);
+  expect(events("presentation-handoff")[0].detail).toEqual(expect.objectContaining({ reason: "bridge-motion-unverified", aligned: false }));
+  expect(events("handoff-recovery")[0].detail.trigger).toBe("bridge-motion-unverified");
+  const diagnostic = events("handoff-frame-diagnostic")[0].detail;
+  expect(diagnostic).toEqual(expect.objectContaining({ bridgeRequestCount: bridgeCallbacks === "missing" ? 1 : 2,
+    bridgeCallbackCount: bridgeCallbacks === "missing" ? 0 : 1, bridgeAcceptedCount: 0 }));
+  expect(diagnostic.lastBridgeReject).toBe(bridgeCallbacks === "missing" ? null : "position-drift");
+  expect(s.bridge.paused).toBe(true); expect(s.bridge.style.visibility).toBe("hidden");
+  expect(callbacks.get(s.bridge)?.size ?? 0).toBe(0); expect(s.previewHost.querySelector("video")).toBeNull();
+  expect(writes).toHaveLength(0); expect(s.main.muted).toBe(s.initialMainMuted);
+  expect(events("bridge-align-seek")).toHaveLength(0);
+});
+
+test("guarded mode preserves a healthy unaligned bridge until bounded recovery", async () => {
+  const s = await scenario({ rateMode: "guarded" }); s.advance(3000 - performance.now());
+  expect(s.readyAt).toEqual([3000]); expect(events("bridge-motion-unverified")).toHaveLength(0);
+  expect(events("presentation-handoff")[0].detail.reason).toBe("watchdog"); expect(writes).toHaveLength(0);
+});
+
+test("guarded mode withdraws a previously moving bridge only after motion evidence expires and main stays fresh", async () => {
+  const s = await scenario({ rateMode: "guarded" }); s.advance(300, false);
+  expect(s.ready).toHaveBeenCalledTimes(1); expect(s.readyAt[0] - 764).toBeGreaterThan(250);
+  expect(s.readyAt[0] - 764).toBeLessThan(300); expect(s.failed).not.toHaveBeenCalled();
+  expect(events("bridge-motion-unverified")[0].detail.lastBridgeMotionAgeMs).toBeGreaterThan(250);
+  expect(events("handoff-timeout")).toHaveLength(0); expect(writes).toHaveLength(0);
+});
+
+test("guarded recovery requires fresh main submissions, not freshly delivered old callbacks", async () => {
+  const s = await scenario({ rateMode: "guarded", bridgeCallbacks: "missing", mainSubmissionAgeMs: 300 });
+  expect(s.ready).not.toHaveBeenCalled(); s.advance(3000 - performance.now(), false, false);
+  expect(s.ready).not.toHaveBeenCalled(); expect(s.failed).toHaveBeenCalledTimes(1);
+  expect(events("handoff-recovery")[0].detail.result).toBe("retry");
+});
+
+test("a late duplicate bridge callback cannot refresh the 267 ms old frame observed in Safari", async () => {
+  const s = await scenario({ lead: 0.3, startMs: 806 });
+  jest.advanceTimersByTime(326);
+  deliver(s.bridge, 0.3666666667, 0.4, 13, 267);
+  deliver(s.main, 0.3333333333); deliver(s.main, 0.3666666667);
+  expect(s.ready).not.toHaveBeenCalled();
+  expect(events("bridge-frame").at(-1)?.detail.submissionAgeMs).toBe(267);
+  // A new advancing, aligned frame can still complete the handoff.
+  deliver(s.bridge, 0.4); deliver(s.main, 0.4);
+  expect(s.ready).toHaveBeenCalledTimes(1);
+});
+
+test("guarded recovery does not use bridge evidence during main waiting, seeking, pause or hidden state", async () => {
+  const s = await scenario({ rateMode: "guarded" });
+  s.main.dispatchEvent(new Event("waiting")); s.advance(300, false);
+  expect(s.ready).not.toHaveBeenCalled();
+  Object.defineProperty(document, "hidden", { configurable: true, value: true });
+  s.main.dispatchEvent(new Event("playing")); deliver(s.main, 0.4);
+  expect(s.ready).not.toHaveBeenCalled();
+  Object.defineProperty(document, "hidden", { configurable: true, value: false });
+  Object.defineProperty(s.main, "seeking", { configurable: true, value: true }); deliver(s.main, 0.5);
+  expect(s.ready).not.toHaveBeenCalled();
+  Object.defineProperty(s.main, "seeking", { configurable: true, value: false }); s.main.pause(); deliver(s.main, 0.6);
+  expect(s.ready).not.toHaveBeenCalled(); expect(events("bridge-motion-unverified")).toHaveLength(0);
 });
 
 test("bridge callbacks expose compositor metadata without treating it as pixel proof", async () => {

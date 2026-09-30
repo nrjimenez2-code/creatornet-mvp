@@ -18,11 +18,11 @@ const mockController = {
     input.present(false);
     return mockVideo;
   }),
-  prepare: jest.fn((_input: Preparation) => {}),
+  prepare: jest.fn<void, [Preparation]>(),
   cancelPreparation: jest.fn(),
   canPlay: jest.fn((token: symbol) => mockActive?.token === token),
   playRequested: jest.fn(),
-  release: jest.fn((token: symbol) => { if (mockActive?.token === token) { mockVideo?.pause(); mockActive = null; } }),
+  release: jest.fn<void, [symbol, boolean?]>(token => { if (mockActive?.token === token) { mockVideo?.pause(); mockActive = null; } }),
   // The real suspend() cancels preparation without revoking active ownership.
   // A harness terminal error must block playback independently of this method.
   suspend: jest.fn(),
@@ -88,7 +88,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" = "current") {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" = "current") {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures, buildCommit: "fixture-build", controllerMode })));
 }
 async function click(label: string) {
@@ -120,6 +120,11 @@ test("prearmed lab mode selects the paused-rate controller variant", async () =>
 test("steady lab mode selects the controller with rate correction disabled", async () => {
   await render("steady");
   expect(RateController).toHaveBeenCalledWith("steady");
+});
+
+test("guarded lab mode selects the controller with early unverified-motion recovery", async () => {
+  await render("guarded");
+  expect(RateController).toHaveBeenCalledWith("guarded");
 });
 
 test.each(["media", "watchdog"])("%s failure blocks Play, sound and foreground until Retry creates a new owner", async kind => {
@@ -173,6 +178,7 @@ test("manual pause survives a same-card rerender but an observed new card starts
   expect(mockController.activate).toHaveBeenCalledTimes(1);
 
   await swipeTo(1);
+  expect(mockController.release.mock.calls.at(-1)?.[1]).toBe(true);
   expect(latestActivation().postId).toBe("lab-b");
   expect(mockController.activate).toHaveBeenCalledTimes(2);
   expect(play.mock.calls.length).toBeGreaterThan(requests);

@@ -17,7 +17,7 @@ test.each(["", "other", "https://example.test/video.m3u8", ["current", "rate"]].
   await expect(PlaybackLabPage({ searchParams: Promise.resolve({ mode }) })).rejects.toThrow("NOT_FOUND");
 });
 
-test.each([undefined, "current", "rate", "prearmed", "steady"])("Preview mode %s uses only fixed HLS assets and exact build identity", async mode => {
+test.each([undefined, "current", "rate", "prearmed", "steady", "guarded"])("Preview mode %s uses only fixed HLS assets and exact build identity", async mode => {
   process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "exact-test-commit" };
   const result = await PlaybackLabPage({ searchParams: Promise.resolve({ mode }) });
   expect(dynamic).toBe("force-dynamic");
