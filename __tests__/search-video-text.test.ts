@@ -62,6 +62,64 @@ describe('versioned video enrichment uses the existing provider transport', () =
     expect(mockRpc.mock.calls[1][1]).not.toHaveProperty('categories');
     expect(mockGenerate.mock.calls[0][0].system).not.toContain('visual_summary');
   });
+  test('generic promotion requires substantive subject support and preserves caption metadata with no video labels', async () => {
+    const promotion = 'If you want to leave your 9-5, message me';
+    mockRpc.mockReset().mockResolvedValueOnce({ data: { ...job,
+      classification_context: { content: '#ecommerce #dropshipping', bio: 'Learn programming' },
+    }, error: null }).mockResolvedValueOnce({ data: true, error: null });
+    mockGenerate.mockResolvedValue({ text: JSON.stringify({ transcript: '', screen_text: promotion,
+      visual_summary: 'Nighttime building, elevator and apartment scenes.', labels: [] }) });
+    expect((await processNextSearchVideo()).status).toBe('ready');
+    const request = mockGenerate.mock.calls[0][0];
+    expect(request.system).toContain('Each category and each topic must describe a substantive subject');
+    expect(request.system).toContain('"leave your 9-5"');
+    expect(request.system).toContain('return labels: [] when those are the only signals');
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({
+      visible_text: promotion, visual_text: 'Nighttime building, elevator and apartment scenes.', labels: [],
+      categories: ['business & entrepreneurship'], topics: ['ecommerce', 'dropshipping'], metadata_source: 'text',
+    });
+  });
+  test('supported business and content subjects within a promotional video survive enrichment', async () => {
+    const business = 'Online stores need products that customers want.';
+    const content = 'Posting content helps you understand engagement.';
+    mockGenerate.mockResolvedValue({ text: JSON.stringify({ transcript: `${business} ${content} Message me.`,
+      screen_text: 'Dropshipping', visual_summary: 'A person speaks in a kitchen.', labels: [
+        { category: 'business & entrepreneurship', topics: ['dropshipping', 'ecommerce'], evidence: [
+          { kind: 'speech', text: business }, { kind: 'screen_text', text: 'Dropshipping' },
+        ] },
+        { category: 'content creation & marketing', topics: ['content creation', 'social media growth'],
+          evidence: [{ kind: 'speech', text: content }] },
+      ] }) });
+    await processNextSearchVideo();
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({
+      categories: ['business & entrepreneurship', 'content creation & marketing'],
+      topics: ['dropshipping', 'ecommerce', 'content creation', 'social media growth'], metadata_source: 'text_and_video',
+    });
+  });
+  test('concrete career guidance remains eligible instead of excluding the category', async () => {
+    const speech = 'For your interview, explain a concrete example of how you solved a problem.';
+    mockGenerate.mockResolvedValue({ text: JSON.stringify({ transcript: speech, screen_text: '',
+      visual_summary: '', labels: [{ category: 'education & career skills', topics: ['career skills'],
+        evidence: [{ kind: 'speech', text: speech }] }] }) });
+    await processNextSearchVideo();
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({
+      categories: ['education & career skills'], topics: ['career skills'], metadata_source: 'text_and_video',
+    });
+  });
+  test('precision guidance preserves independent audio and visual subjects', async () => {
+    const speech = 'Use a Python loop to automate this task.';
+    mockGenerate.mockResolvedValue({ text: JSON.stringify({ ...visual, transcript: speech, labels: [
+      ...visual.labels,
+      { category: 'technology & ai', topics: ['programming', 'automation'], evidence: [{ kind: 'speech', text: speech }] },
+    ] }) });
+    await processNextSearchVideo();
+    const request = mockGenerate.mock.calls[0][0];
+    expect(request.system).toContain('Analyze audio and visuals independently');
+    expect(request.messages[0].content[0].text).toContain('Listen to the full audio track');
+    expect(mockRpc.mock.calls[1][1]).toMatchObject({ spoken_text: speech,
+      categories: ['health & fitness', 'technology & ai'], topics: ['strength training', 'programming', 'automation'],
+    });
+  });
   test('invalid model output fails without replacing the available post metadata', async () => {
     mockGenerate.mockResolvedValue({ text: '{"labels":"invalid"}' });
     expect((await processNextSearchVideo()).status).toBe('retry_pending');

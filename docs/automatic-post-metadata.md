@@ -8,6 +8,8 @@ The existing leased search-video queue uses the same `google/gemini-3.6-flash` m
 
 When a valid video result arrives, metadata is recomputed from the current job's direct text/offer context and supported video labels. Bio fallback is applied only if this combination still has no category. A silent fitness demonstration can replace provisional ecommerce bio labels. Creator hashtags are never manufactured from inferred labels.
 
+The classification prompt requires substantive support for each category and topic. Generic contact requests, motivational slogans, or lifestyle scenes alone should produce no video labels: a "leave your 9-5" overlay does not establish career instruction. Promotional videos can still support ecommerce or content topics through concrete discussion, and actual resume/interview guidance remains eligible for career skills. Audio and visuals are analyzed independently. The parser validates the output's shape and quoted/timestamped evidence; semantic compliance with this prompt requires bounded hosted verification and is not established by mocked tests.
+
 ## Migration manifest
 
 Apply only `supabase/migrations/20260930031043_automatic_post_metadata.sql` after checking prerequisites on the approved isolated database. The CLI generated this filename using Supabase CLI 2.118.0. It adds `posts.classification_version` and private columns to the existing service-only `search_video_text_v1` record, adds marker protection/context/fingerprint/finish functions, and replaces the existing claim function. It performs no backfill or reset of existing attempts. Existing extraction-only clients continue using `finish_search_video_v1` unchanged.
