@@ -42,6 +42,31 @@ the observed bridge handoffs use unaligned watchdog recovery.
   duration is null. These local events do not change playback or handoff guards
   and do not measure physical pixels or sound.
 
+The recorded `c555d95` direct switch still has a 0.267-second bridge lead. Both
+play requests occur at 1 ms, while the bridge promise settles after 184 ms and
+the main `loadstart` event is delivered at 189 ms. Existing samples do not
+separate time spent inside the native `play()` call from the subsequent promise
+wait or event delivery. They do not establish a native startup cause.
+
+With `feedDebug=1`, the lab now samples at most four native play calls per role
+and activation. `lab-main-play-returned` and `lab-bridge-play-returned` record
+synchronous call duration. Their matching `*-play-settled` events record total
+elapsed time and `afterReturnMs`, the interval from return to promise delivery.
+Main timing is captured before the controller starts the bridge. Settlements
+require the same active owner; bridge settlements also require the same slot
+generation. No source URL is added to these events. Debug-off playback does
+not attach these diagnostic settlement callbacks.
+
+This is a missing timing boundary, not a new playback variant or a fix. The
+native calls, their ordering, sound element, source assignment, bridge rates,
+seeks, frame/target/alignment guards and watchdog remain the same. On a newly
+approved exact-build Preview, retain one new direct processed-MP4 first switch
+with sound and its export/paired recording. Reuse the completed `c555d95`
+recording review as comparison; do not recapture it. A slow call return would
+support investigating native synchronous work; a quick return followed by a
+long settlement would support investigating asynchronous startup/scheduling.
+Neither result alone identifies a native decoder or source-fetch cause.
+
 ## Processed-MP4 direct transfer control
 
 The recorded `683310b` first swipe shows the muted presentation bridge ahead of

@@ -6,11 +6,12 @@ type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
 type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
 type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: (reason?: string) => void; decode: () => void; onReady?: () => void; present: Presentation };
-type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; current: () => boolean; playRequested: () => void; stop: () => void };
+type NativePlayTiming = { requestedAt: number; returnedAt: number; request: Promise<void> | undefined };
+type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; current: () => boolean; playRequested: () => void; observeMainPlay: (timing: NativePlayTiming) => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 const STARTUP_FRAME_SAMPLE_LIMIT = 8;
-const BRIDGE_PLAY_SAMPLE_LIMIT = 4;
+const NATIVE_PLAY_SAMPLE_LIMIT = 4;
 
 function submittedAt(metadata: VideoFrameCallbackMetadata, now: number) {
   // Callback delivery can be late. It cannot refresh an old submitted frame.
@@ -332,7 +333,7 @@ export class MobileFeedController {
     };
     const collectFrameDiagnostics = feedTraceEnabled();
     const expectedSource = collectFrameDiagnostics ? new URL(input.src, document.baseURI).href : "";
-    let mainSourceRead = false, bridgeSourceRead = false, bridgePlayRequests = 0;
+    let mainSourceRead = false, bridgeSourceRead = false, bridgePlayRequests = 0, mainPlayRequests = 0;
     const readSelectedSource = (element: HTMLVideoElement, role: "main" | "bridge") => {
       if (!collectFrameDiagnostics || (role === "main" ? mainSourceRead : bridgeSourceRead) ||
           element.src !== expectedSource || element.currentSrc !== expectedSource) return;
@@ -360,8 +361,23 @@ export class MobileFeedController {
     let lastBridgeMediaTime: number | null = null, lastBridgePresentedFrames: number | null = null;
     let lastBridgePresentationTime: number | null = null;
     const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
-    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, current, playRequested: () => {}, stop: () => {} };
+    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, current, playRequested: () => {}, observeMainPlay: () => {}, stop: () => {} };
     this.active = active;
+    active.observeMainPlay = ({ requestedAt, returnedAt, request }) => {
+      if (!collectFrameDiagnostics || !current() || mainPlayRequests >= NATIVE_PLAY_SAMPLE_LIMIT) return;
+      const requestId = ++mainPlayRequests;
+      recordFeedEvent("lab-main-play-returned", { requestId, activationMs: requestedAt - activatedAt,
+        elapsedMs: returnedAt - requestedAt, position: video.currentTime, paused: video.paused,
+        seeking: video.seeking, readyState: video.readyState, muted: video.muted }, video);
+      const settled = (result: "resolved" | "rejected") => {
+        if (!current()) return;
+        const settledAt = performance.now();
+        recordFeedEvent("lab-main-play-settled", { requestId, result, elapsedMs: settledAt - requestedAt,
+          afterReturnMs: settledAt - returnedAt, position: video.currentTime, paused: video.paused,
+          readyState: video.readyState, muted: video.muted }, video);
+      };
+      void request?.then(() => settled("resolved"), () => settled("rejected"));
+    };
     const bridgeDiagnostics = (): Record<string, string | number | boolean | null> => {
       if (!collectFrameDiagnostics) return {};
       const preview = active.bridge?.video;
@@ -591,7 +607,7 @@ export class MobileFeedController {
           const preview = active.bridge, generation = preview.generation;
           const requestedAt = collectFrameDiagnostics ? performance.now() : 0;
           const requestId = ++bridgePlayRequests;
-          const sampled = collectFrameDiagnostics && requestId <= BRIDGE_PLAY_SAMPLE_LIMIT;
+          const sampled = collectFrameDiagnostics && requestId <= NATIVE_PLAY_SAMPLE_LIMIT;
           if (sampled) {
             readSelectedSource(preview.video, "bridge");
             recordFeedEvent("lab-bridge-play-request", { requestId, activationMs: requestedAt - activatedAt,
@@ -599,14 +615,28 @@ export class MobileFeedController {
               readyState: preview.video.readyState, buffer: preparationBuffer(preview.video, preview.video.currentTime),
               rate: preview.video.playbackRate }, video);
           }
+          const calledAt = sampled ? performance.now() : 0;
           const request = preview.video.play();
+          const returnedAt = sampled ? performance.now() : 0;
+          if (sampled && current() && active.bridge === preview && preview.generation === generation) {
+            // A play promise's elapsed time includes time inside the native call.
+            // Record that boundary separately before awaiting its settlement.
+            recordFeedEvent("lab-bridge-play-returned", { requestId, elapsedMs: returnedAt - calledAt,
+              requestToCallMs: calledAt - requestedAt,
+              position: preview.video.currentTime, paused: preview.video.paused,
+              seeking: preview.video.seeking, readyState: preview.video.readyState }, video);
+          }
           if (sampled) void request?.then(() => {
             if (!current() || active.bridge !== preview || preview.generation !== generation) return;
-            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "resolved", elapsedMs: performance.now() - requestedAt,
+            const settledAt = performance.now();
+            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "resolved", elapsedMs: settledAt - requestedAt,
+              afterReturnMs: settledAt - returnedAt,
               position: preview.video.currentTime, paused: preview.video.paused, readyState: preview.video.readyState }, video);
           }, () => {
             if (!current() || active.bridge !== preview || preview.generation !== generation) return;
-            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "rejected", elapsedMs: performance.now() - requestedAt }, video);
+            const settledAt = performance.now();
+            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "rejected", elapsedMs: settledAt - requestedAt,
+              afterReturnMs: settledAt - returnedAt }, video);
           });
           void request?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
         }
@@ -674,6 +704,10 @@ export class MobileFeedController {
   /** The main play call updates paused before its queued play event arrives. */
   playRequested(token: symbol) {
     if (this.active?.token === token) this.active.playRequested();
+  }
+  /** Preview timing only; observes the caller's existing native main play call. */
+  observeMainPlay(token: symbol, timing: NativePlayTiming) {
+    if (this.active?.token === token) this.active.observeMainPlay(timing);
   }
   release(token: symbol, departure = true) {
     this.releaseOwned(token, departure, false);

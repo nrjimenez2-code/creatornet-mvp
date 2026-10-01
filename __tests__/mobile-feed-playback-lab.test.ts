@@ -9,6 +9,7 @@ type Activation = {
 type Preparation = { postId: string; src: string; contentVersion?: string; present: (ready: boolean) => void };
 let mockActive: Activation | null;
 let mockVideo: HTMLVideoElement | null;
+let mockTraceEnabled = false;
 const mockController = {
   activate: jest.fn((input: Activation) => {
     mockActive = input;
@@ -22,6 +23,7 @@ const mockController = {
   cancelPreparation: jest.fn(),
   canPlay: jest.fn((token: symbol) => mockActive?.token === token),
   playRequested: jest.fn(),
+  observeMainPlay: jest.fn(),
   release: jest.fn<void, [symbol, boolean?]>(token => { if (mockActive?.token === token) { mockVideo?.pause(); mockActive = null; } }),
   releaseForTransfer: jest.fn<void, [symbol]>(token => { if (mockActive?.token === token) { mockVideo?.pause(); mockActive = null; } }),
   // The real suspend() cancels preparation without revoking active ownership.
@@ -37,7 +39,7 @@ jest.mock("@/lib/mobileFeedPlayer", () => ({
   mobileFeedSeekFailed: jest.fn(() => false),
 }));
 jest.mock("@/lib/mobileFeedDiagnostics", () => ({
-  feedTraceEnabled: () => false, observeFeedScroll: () => () => {},
+  feedTraceEnabled: () => mockTraceEnabled, observeFeedScroll: () => () => {},
   recordFeedEvent: jest.fn(), setFeedRunContext: jest.fn(),
 }));
 jest.mock("@/components/MobileFeedDiagnostics", () => ({ __esModule: true, default: () => null }));
@@ -65,6 +67,7 @@ let savedObserver: typeof IntersectionObserver;
 beforeEach(() => {
   jest.clearAllMocks();
   mockActive = null; mockVideo = null;
+  mockTraceEnabled = false;
   const paused = new WeakMap<HTMLMediaElement, boolean>();
   hidden = jest.spyOn(document, "hidden", "get").mockReturnValue(false);
   jest.spyOn(HTMLMediaElement.prototype, "canPlayType").mockReturnValue("probably");
@@ -115,6 +118,23 @@ async function swipeTo(index: number) {
   })), {} as IntersectionObserver));
 }
 function latestActivation() { return mockController.activate.mock.calls.at(-1)![0]; }
+
+test("debug capture observes the existing main play return before starting the bridge", async () => {
+  mockTraceEnabled = true;
+  await render("steady", "mp4", true); await click("Play");
+  expect(play).toHaveBeenCalledTimes(1);
+  expect(mockController.observeMainPlay).toHaveBeenCalledWith(latestActivation().token, {
+    requestedAt: expect.any(Number), returnedAt: expect.any(Number), request: play.mock.results[0].value,
+  });
+  expect(mockController.observeMainPlay.mock.invocationCallOrder[0]).toBeLessThan(mockController.playRequested.mock.invocationCallOrder[0]);
+});
+
+test("debug-off lab keeps the existing play calls without native timing observations", async () => {
+  await render("steady", "mp4", true); await click("Play");
+  expect(play).toHaveBeenCalledTimes(1);
+  expect(mockController.playRequested).toHaveBeenCalledWith(latestActivation().token);
+  expect(mockController.observeMainPlay).not.toHaveBeenCalled();
+});
 
 test.each(["original", "mp4"] as const)("%s comparison uses native MP4 support, pins both sources and keeps sound/ownership", async format => {
   jest.mocked(HTMLMediaElement.prototype.canPlayType).mockImplementation(type => type === "video/mp4" ? "probably" : "");

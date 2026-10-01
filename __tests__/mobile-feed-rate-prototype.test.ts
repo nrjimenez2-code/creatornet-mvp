@@ -2,6 +2,7 @@
 // LOCAL EXPERIMENT: clocks below implement playbackRate; this is not Safari evidence.
 import { MobileFeedController } from "@/lib/mobileFeedController.prototype";
 import { exportFeedTrace, resetFeedTrace } from "@/lib/mobileFeedDiagnostics";
+import * as feedDiagnostics from "@/lib/mobileFeedDiagnostics";
 
 type RateMode = "normal" | "throw" | "ignored-getter" | "ignored-engine" | "freeze-300ms";
 type RateWrite = { video: HTMLMediaElement; rate: number; at: number; paused: boolean; hidden: boolean };
@@ -186,10 +187,97 @@ test("startup samples retain submission age and stay bounded during an unaligned
   expect(s.ready).not.toHaveBeenCalled();
   for (let i = 0; i < 5; i++) { s.main.pause(); void s.main.play(); await Promise.resolve(); }
   expect(events("lab-bridge-play-request")).toHaveLength(4);
+  expect(events("lab-bridge-play-returned")).toHaveLength(4);
   expect(events("lab-bridge-play-settled")).toHaveLength(4);
   expect(events("lab-source-readback").map(event => event.detail.role).sort()).toEqual(["bridge", "main"]);
   expect(events("lab-source-readback").every(event => event.detail.selectedSource === s.main.src)).toBe(true);
   expect(events("bridge-align-seek")).toHaveLength(0); expect(writes).toHaveLength(0);
+});
+
+test("native bridge timing separates an injected synchronous call delay from promise delivery", async () => {
+  const nativePlay = jest.mocked(HTMLMediaElement.prototype.play).getMockImplementation()!;
+  let resolveBridge!: () => void;
+  const pending = new Promise<void>(resolve => { resolveBridge = resolve; });
+  jest.mocked(HTMLMediaElement.prototype.play).mockImplementation(function (this: HTMLMediaElement) {
+    const request = nativePlay.call(this);
+    if ((this as HTMLVideoElement).dataset.mobilePreparation === "true" && events("lab-bridge-play-request").length === 1) {
+      jest.advanceTimersByTime(180);
+      return pending;
+    }
+    return request;
+  });
+  const s = await scenario({ rateMode: "steady", startMs: 200 });
+  expect(events("lab-bridge-play-returned")[0].detail).toEqual(expect.objectContaining({
+    requestId: 1, elapsedMs: 180, requestToCallMs: 0,
+  }));
+  expect(events("lab-bridge-play-settled")).toHaveLength(0);
+  resolveBridge(); await Promise.resolve();
+  expect(events("lab-bridge-play-settled")[0].detail).toEqual(expect.objectContaining({
+    requestId: 1, result: "resolved", elapsedMs: 380, afterReturnMs: 200,
+  }));
+  expect(s.main.playbackRate).toBe(1); expect(s.bridge.playbackRate).toBe(1);
+  expect(writes).toHaveLength(0); expect(events("bridge-align-seek")).toHaveLength(0);
+});
+
+test("main native timing is bounded and excludes obsolete owners and promise settlements", async () => {
+  const s = await scenario({ rateMode: "steady" });
+  const play = jest.mocked(HTMLMediaElement.prototype.play), calls = play.mock.calls.length;
+  for (let i = 0; i < 5; i++) {
+    const requestedAt = performance.now(); jest.advanceTimersByTime(2);
+    controller.observeMainPlay(s.token, { requestedAt, returnedAt: performance.now(), request: Promise.resolve() });
+    await Promise.resolve();
+  }
+  expect(events("lab-main-play-returned")).toHaveLength(4);
+  expect(events("lab-main-play-settled")).toHaveLength(4);
+  expect(events("lab-main-play-returned").every(event => event.detail.elapsedMs === 2)).toBe(true);
+  expect(events("lab-main-play-settled").every(event => event.detail.afterReturnMs === 0)).toBe(true);
+  expect(play.mock.calls.length).toBe(calls);
+  expect(writes).toHaveLength(0); expect(events("bridge-align-seek")).toHaveLength(0);
+
+  controller.release(s.token);
+  const token = Symbol("new-timing-owner"), host = document.createElement("div"); document.body.appendChild(host);
+  const main = controller.activate({ postId: "new-timing-owner", src: "https://example.test/new-timing-owner.mp4",
+    token, host, previewHost: document.createElement("div"), present: jest.fn(), ready: jest.fn() });
+  const requestedAt = performance.now();
+  controller.observeMainPlay(s.token, { requestedAt, returnedAt: requestedAt, request: Promise.resolve() });
+  expect(events("lab-main-play-returned")).toHaveLength(4);
+  let rejectMain!: () => void;
+  const pending = new Promise<void>((_, reject) => { rejectMain = () => reject(new DOMException("obsolete", "AbortError")); });
+  controller.observeMainPlay(token, { requestedAt, returnedAt: requestedAt, request: pending });
+  expect(events("lab-main-play-returned")).toHaveLength(5);
+  controller.release(token);
+  rejectMain(); await Promise.resolve();
+  expect(events("lab-main-play-settled")).toHaveLength(4);
+  expect(main.paused).toBe(true);
+});
+
+test("live main promise rejection is measured without changing playback or starting another call", async () => {
+  const s = await scenario({ rateMode: "steady" });
+  let rejectMain!: () => void;
+  const pending = new Promise<void>((_, reject) => { rejectMain = () => reject(new DOMException("test denial", "NotAllowedError")); });
+  const requestedAt = performance.now(); jest.advanceTimersByTime(10);
+  const calls = jest.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
+  controller.observeMainPlay(s.token, { requestedAt, returnedAt: performance.now(), request: pending });
+  jest.advanceTimersByTime(30); rejectMain(); await Promise.resolve();
+  expect(events("lab-main-play-settled")[0].detail).toEqual(expect.objectContaining({
+    requestId: 1, result: "rejected", elapsedMs: 40, afterReturnMs: 30,
+  }));
+  expect(jest.mocked(HTMLMediaElement.prototype.play).mock.calls.length).toBe(calls);
+  expect(s.main.paused).toBe(false); expect(s.bridge.paused).toBe(false);
+});
+
+test("debug-off native timing does not attach diagnostic settlement handlers", async () => {
+  // Capture mode is intentionally fixed for a page session, so changing the
+  // test URL cannot disable an already-enabled module instance.
+  jest.spyOn(feedDiagnostics, "feedTraceEnabled").mockReturnValue(false);
+  const s = await scenario({ rateMode: "steady" });
+  const then = jest.fn();
+  controller.observeMainPlay(s.token, { requestedAt: performance.now(), returnedAt: performance.now(),
+    request: { then } as unknown as Promise<void> });
+  expect(then).not.toHaveBeenCalled();
+  expect(events("lab-main-play-returned")).toHaveLength(0);
+  expect(events("lab-main-play-settled")).toHaveLength(0);
+  expect(events("lab-bridge-play-returned")).toHaveLength(0);
 });
 
 test("source readback withholds a prior unrelated URL until the activation source matches", async () => {

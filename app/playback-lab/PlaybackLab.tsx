@@ -75,7 +75,12 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
     if (mobileFeedSeekFailed(owned.token)) { fail(owned, "The requested position could not load. Export the trace before Retry."); return; }
     owned.video.muted = mutedRef.current;
     recordFeedEvent("play-request", { muted: owned.video.muted, retried: false }, owned.video);
+    const requestedAt = feedTraceEnabled() ? performance.now() : null;
     const request = owned.video.play();
+    const returnedAt = requestedAt === null ? null : performance.now();
+    if (requestedAt !== null && returnedAt !== null && "observeMainPlay" in controller) {
+      controller.observeMainPlay(owned.token, { requestedAt, returnedAt, request });
+    }
     controller.playRequested(owned.token);
     void request?.catch((error: unknown) => {
       if (owner.current !== owned || owned.terminal || !controller.canPlay(owned.token)) return;
