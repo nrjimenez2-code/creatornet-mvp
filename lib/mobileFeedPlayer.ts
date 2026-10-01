@@ -15,6 +15,7 @@ let currentPostId: string | null = null;
 let currentContentVersion = "";
 let managedResume = true;
 let parkedSnapshot: ResumeSnapshot | null = null;
+let pendingParking: { video: HTMLVideoElement; postId: string | null } | null = null;
 
 const RESUME_WINDOW_MS = 5_000;
 const MAX_RECENT_POSITIONS = 2;
@@ -173,6 +174,8 @@ function getParkingPlace(): HTMLDivElement {
 }
 
 export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; snapshot?: ResumeSnapshot; contentVersion?: string; managedResume?: boolean; warmEligible?: boolean; reload?: boolean; boundedSeekRecovery?: boolean }): HTMLVideoElement {
+  const transfer = pendingParking;
+  pendingParking = null;
   if (!player) {
     player = document.createElement("video");
     player.playsInline = true;
@@ -192,6 +195,7 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
   seekOutcome = null;
   host.appendChild(player);
   beginFeedVideoTrace(player, postId, src, options?.warmEligible ?? null);
+  if (transfer?.video === player) recordFeedEvent("main-transfer", { mode: "direct", fromPostId: transfer.postId }, player);
   if (changedSource) {
     player.src = src;
   }
@@ -212,7 +216,7 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
   return player;
 }
 
-export function releaseMobileFeedPlayer(token: symbol, departure = true): void {
+export function releaseMobileFeedPlayer(token: symbol, departure = true, options?: { deferParking?: boolean }): void {
   if (!player || owner !== token) return;
   player.pause();
   if (departure) rememberPosition();
@@ -220,7 +224,21 @@ export function releaseMobileFeedPlayer(token: symbol, departure = true): void {
   cancelPendingSeek();
   endFeedVideoTrace(player);
   owner = null;
-  getParkingPlace().appendChild(player);
+  pendingParking = null;
+  if (departure && options?.deferParking) {
+    // Preview control only: an immediate new claim moves the same paused player
+    // straight between card hosts. Revoke ownership and save the departure now;
+    // if no claim follows in this task, still park before the next paint.
+    const transfer = { video: player, postId: currentPostId };
+    pendingParking = transfer;
+    queueMicrotask(() => {
+      // A superseded release must never park a newer owner or release ticket.
+      if (pendingParking !== transfer || owner !== null || player !== transfer.video) return;
+      pendingParking = null;
+      recordFeedEvent("main-transfer", { mode: "parked", reason: "no-immediate-claim", fromPostId: transfer.postId });
+      getParkingPlace().appendChild(transfer.video);
+    });
+  } else getParkingPlace().appendChild(player);
 }
 
 /** Stop sound as soon as a top-level mobile tab is selected. Card cleanup still
