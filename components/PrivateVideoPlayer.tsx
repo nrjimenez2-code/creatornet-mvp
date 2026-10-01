@@ -10,8 +10,12 @@ export default function PrivateVideoPlayer({assetId,purchaseId,position=0}:{asse
   let restoreListener:(()=>void)|undefined,current=position,playing=false,rate=1;
   const video=videoRef.current;if(!video)return;
   const controller=new AbortController();
-  const remember=()=>{if(!restoring){current=video.currentTime;playing=!video.paused;rate=video.playbackRate;}};
-  for(const name of ["timeupdate","play","pause","ratechange"]) video.addEventListener(name,remember);
+  const remember=()=>{if(!restoring){
+   // Native Play can reload an errored source with time/rate reset before metadata.
+   if(video.readyState>=1){current=video.currentTime;rate=video.playbackRate;}
+   playing=!video.paused;
+  }};
+  for(const name of ["timeupdate","seeking","play","pause","ratechange"]) video.addEventListener(name,remember);
   const refresh=async()=>{
    if(disposed || refreshing)return;
    refreshing=true;clearTimeout(timer);
@@ -31,11 +35,13 @@ export default function PrivateVideoPlayer({assetId,purchaseId,position=0}:{asse
     if(initialized)remember();restoring=true;
     if(restoreListener)video.removeEventListener("loadedmetadata",restoreListener);
     restoreListener=()=>{
-     video.currentTime=Number.isFinite(video.duration)?Math.min(current,video.duration):current;
+     const nativeReload=initialized && !restoring;
+     const target=nativeReload && Number.isFinite(video.duration) && current>=video.duration?0:current;
+     video.currentTime=Number.isFinite(video.duration)?Math.min(target,video.duration):target;
      video.playbackRate=rate;restoring=false;initialized=true;
      if(playing)void video.play().catch(()=>{playing=false;});
     };
-    video.addEventListener("loadedmetadata",restoreListener,{once:true});
+    video.addEventListener("loadedmetadata",restoreListener);
     if(access.url.includes("/manifest/video.m3u8") && !video.canPlayType("application/vnd.apple.mpegurl")){
      const {default:HlsClient}=await import("hls.js");
      if(disposed)return;
@@ -53,7 +59,7 @@ export default function PrivateVideoPlayer({assetId,purchaseId,position=0}:{asse
   document.addEventListener("visibilitychange",visible);void refresh();
   return()=>{
    disposed=true;controller.abort();clearTimeout(timer);document.removeEventListener("visibilitychange",visible);
-   for(const name of ["timeupdate","play","pause","ratechange"])video.removeEventListener(name,remember);
+   for(const name of ["timeupdate","seeking","play","pause","ratechange"])video.removeEventListener(name,remember);
    if(restoreListener)video.removeEventListener("loadedmetadata",restoreListener);
    hls?.destroy();video.pause();video.removeAttribute("src");video.load();
   };

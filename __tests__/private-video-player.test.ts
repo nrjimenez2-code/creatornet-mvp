@@ -44,3 +44,36 @@ test("revocation at renewal removes the prior URL and stops playback",async()=>{
  expect(paused).toBe(true);expect(video.getAttribute("src")).toBeNull();
  expect(container.textContent).toContain("No current purchased access.");
 });
+
+test("native reload after an end seek keeps the latest seek and playback speed",async()=>{
+ video.playbackRate=1.5;
+ await act(async()=>video.dispatchEvent(new Event("ratechange")));
+ video.currentTime=7200;
+ await act(async()=>video.dispatchEvent(new Event("seeking")));
+ await act(async()=>video.dispatchEvent(new Event("error")));
+ video.currentTime=6480;
+ await act(async()=>video.dispatchEvent(new Event("seeking")));
+ // Native Play reloads the same source after the seek error, before metadata returns.
+ Object.defineProperty(video,"readyState",{configurable:true,value:0});
+ video.currentTime=0;video.playbackRate=1;paused=false;
+ await act(async()=>video.dispatchEvent(new Event("play")));
+ await act(async()=>video.dispatchEvent(new Event("loadstart")));
+ Object.defineProperty(video,"readyState",{configurable:true,value:4});
+ await act(async()=>video.dispatchEvent(new Event("loadedmetadata")));
+ expect(video.currentTime).toBe(6480);
+ expect(video.playbackRate).toBe(1.5);
+ expect(paused).toBe(false);
+ expect((fetch as jest.Mock).mock.calls.filter(([url])=>url.includes("/playback"))).toHaveLength(1);
+});
+
+test("native Play at the exact end restarts rather than restoring the failed end seek",async()=>{
+ video.currentTime=7200;
+ await act(async()=>video.dispatchEvent(new Event("seeking")));
+ Object.defineProperty(video,"readyState",{configurable:true,value:0});
+ video.currentTime=0;paused=false;
+ await act(async()=>video.dispatchEvent(new Event("play")));
+ Object.defineProperty(video,"readyState",{configurable:true,value:4});
+ await act(async()=>video.dispatchEvent(new Event("loadedmetadata")));
+ expect(video.currentTime).toBe(0);
+ expect(paused).toBe(false);
+});
