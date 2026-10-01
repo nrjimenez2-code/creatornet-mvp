@@ -3,6 +3,7 @@ import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
+import { premiumSchemaReady } from "@/lib/premiumReadiness";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -98,6 +99,16 @@ export async function POST(req: NextRequest) {
     }
 
     console.log("[bookings-seed] 🎯 Attempting to create booking:", { userId, post_id });
+
+    if (premiumSchemaReady()) {
+      const free = await admin.from("free_booking_checkouts").select("id")
+        .eq("buyer_id", userId).eq("post_id", post_id).eq("status", "complete").limit(1);
+      const source = await admin.from("posts").select("action_version,video_action").eq("id", post_id).maybeSingle();
+      if (free.error || source.error) return NextResponse.json({ error: "Booking status is unavailable." }, { status: 503 });
+      if (free.data?.length || source.data?.action_version === 1 && source.data.video_action === "book") {
+        return NextResponse.json({ error: "Choose a calendar time to schedule the call." }, { status: 409 });
+      }
+    }
 
     const { data: post, error: postErr } = await admin
       .from("posts")

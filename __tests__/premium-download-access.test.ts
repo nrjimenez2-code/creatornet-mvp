@@ -9,6 +9,7 @@ let user: { id: string } | null;
 let accessGranted: boolean;
 let purchaseError: boolean;
 let premiumPath: string;
+let disputeStatus: string | null;
 const sign = jest.fn();
 const bucket = jest.fn();
 
@@ -28,14 +29,16 @@ beforeEach(() => {
   accessGranted = false;
   purchaseError = false;
   premiumPath = "creator-one/private-file.pdf";
+  disputeStatus = null;
   sign.mockReset().mockResolvedValue({ data: { signedUrl: "https://example.invalid/test-download" }, error: null });
   bucket.mockClear();
   db = createMockClient((op) => {
     if (op.table === "posts") return { data: { id: "post-one", creator_id: "creator-one", premium_path: premiumPath }, error: null };
     if (op.table === "purchases") return {
-      data: accessGranted && op.filters.buyer_id === "buyer-one" && op.filters.post_id === "post-one" && op.filters.access_granted === true ? { id: "purchase-one" } : null,
+      data: accessGranted && op.filters.buyer_id === "buyer-one" && op.filters.post_id === "post-one" && op.filters.access_granted === true ? { id: "purchase-one", buyer_id: "buyer-one", status: "paid", access_granted: true, payment_intent_id: "pi_test" } : null,
       error: purchaseError ? { message: "lookup failed" } : null,
     };
+    if (op.table === "payment_dispute_state") return { data: disputeStatus ? { stripe_dispute_id: "dp_test", stripe_payment_intent_id: "pi_test", stripe_charge_id: "ch_test", disputed_amount_cents: 5000, currency: "usd", status: disputeStatus, stripe_event_created: 1 } : null, error: null };
     return undefined;
   });
 });
@@ -59,7 +62,7 @@ test("owner deletes a paid post; buyer still downloads, while a nonbuyer cannot"
       return { data: post, error: null };
     }
     if (op.table === "purchases" && op.kind === "select") return {
-      data: op.filters.buyer_id === "buyer-one" && op.filters.post_id === id && op.filters.access_granted === true ? { id: "purchase-one" } : null, error: null,
+      data: op.filters.buyer_id === "buyer-one" && op.filters.post_id === id && op.filters.access_granted === true ? { id: "purchase-one", buyer_id: "buyer-one", status: "paid", access_granted: true } : null, error: null,
     };
     throw Error("Unexpected operation touching paid content");
   });
@@ -109,13 +112,20 @@ test("a paid or partially refunded buyer with retained access gets the private-b
   expect(bucket).toHaveBeenCalledWith("premium");
   expect(sign).toHaveBeenCalledWith("creator-one/private-file.pdf", 3600);
 });
+test.each(["needs_response", "under_review", "lost"])("an unresolved %s dispute cannot mint a legacy download even with retained access", async status => {
+  accessGranted = true; disputeStatus = status;
+  expect((await download()).status).toBe(402); expect(sign).not.toHaveBeenCalled();
+  const { POST } = await import("@/app/api/premium/access/route");
+  expect((await POST(new NextRequest("https://example.invalid/api/premium/access", { method: "POST", body: JSON.stringify({ post_id: "post-one" }) }))).status).toBe(403);
+  expect(sign).not.toHaveBeenCalled();
+});
 
 test("the owner may preview only their own premium path", async () => {
   user = { id: "creator-one" };
   expect((await download()).status).toBe(200);
   sign.mockClear();
   premiumPath = "other-creator/private-file.pdf";
-  expect((await download()).status).toBe(402);
+  expect((await download()).status).toBe(403);
   expect(sign).not.toHaveBeenCalled();
 });
 

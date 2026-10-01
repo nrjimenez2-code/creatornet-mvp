@@ -347,7 +347,8 @@ describe("policy links in the purchase flow", () => {
         expect(dropdown).not.toBeNull();
         expect(container.querySelector("[data-feed-keyboard-ancestor]")?.contains(dropdown)).toBe(false);
         const items = Array.from(dropdown.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled]), a[href]'));
-        expect(items).toHaveLength(3);
+        expect(items).toHaveLength(2);
+        expect(items.some(item => item.textContent?.includes("Book"))).toBe(false);
         expect(document.activeElement).toBe(items[0]);
         const pressFocused = async (pressedKey: string) => {
           const focused = document.activeElement as HTMLElement;
@@ -358,7 +359,7 @@ describe("policy links in the purchase flow", () => {
         };
 
         const event = await pressFocused(key);
-        const expectedIndex = key === "ArrowDown" ? 1 : key === "Home" ? 0 : 2;
+        const expectedIndex = key === "Home" ? 0 : 1;
         expect(document.activeElement).toBe(items[expectedIndex]);
         expect(event.defaultPrevented).toBe(true);
         expect(ancestorKeys).toEqual([]);

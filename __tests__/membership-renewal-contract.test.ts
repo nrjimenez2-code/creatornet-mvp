@@ -69,3 +69,13 @@ test("steps 1/8: captured renewal records the real charge, invoice and agreed se
   expect(result.providerProof).toMatchObject({ invoiceId: "in_fixture", paymentIntentId: "pi_renewal", paymentMethodId: "pm_fixture",
     applicationFeeAmountCents: 1590, collectionRequestId: "req_fixture" });
 });
+test.each(["2026-10-01T00:00:00.000Z", "2026-10-01T01:15:00.000Z", "2027-01-01T00:00:00.000Z"])(
+  "steps 1/8: the default captured renewal fixture is current at %s", timestamp => {
+    jest.useFakeTimers().setSystemTime(new Date(timestamp));
+    try {
+      const f = membershipRenewalFixture(); Object.assign(f.invoice, membershipInvoiceConfiguration(f.a, f.proof, 2)); f.capture();
+      const result = inspectMembershipRenewalCapture(f.a, f.proof, 2, f.invoice, f.invoicePayment, f.paymentIntent, f.charge, f.balance, "req_fixture");
+      expect(result.period.start).toBeLessThanOrEqual(f.charge.created);
+      expect(result.period.end).toBeGreaterThan(f.charge.created);
+    } finally { jest.useRealTimers(); }
+  });

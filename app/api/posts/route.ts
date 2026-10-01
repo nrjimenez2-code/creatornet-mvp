@@ -5,6 +5,9 @@ import { normalizeInterests } from "@/lib/interestCategories";
 import { NextResponse } from "next/server";
 import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
 import { publicMessage } from "@/lib/apiError";
+import { readPostAction } from "@/lib/productDelivery";
+import type { PostAction } from "@/lib/productDelivery";
+import { premiumPostingReady, premiumSchemaReady } from "@/lib/premiumReadiness";
 import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { headR2Object, deleteR2Object, r2KeyFromPublicUrl, readR2ObjectPrefix } from "@/lib/r2";
@@ -80,6 +83,26 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
+    if (premiumSchemaReady() && !premiumPostingReady()) {
+      return NextResponse.json({ error: "New video posting is not enabled yet." }, { status: 409 });
+    }
+    const canonicalAction = Object.prototype.hasOwnProperty.call(body, "video_action");
+    if (premiumPostingReady() && !canonicalAction) {
+      return NextResponse.json({ error: "Choose the video button when publishing.", code: "VIDEO_ACTION_REQUIRED" }, { status: 400 });
+    }
+    let videoAction: PostAction = null;
+    if (canonicalAction) {
+      if (!premiumPostingReady()) return NextResponse.json({ error: "New video posting is not enabled yet." }, { status: 409 });
+      try { videoAction = readPostAction(body.video_action); }
+      catch { return NextResponse.json({ error: "Invalid video button." }, { status: 400 }); }
+      if ((videoAction !== "buy" && (body.product_id || body.premium_path || Number(body.price_cents || 0) !== 0)) ||
+          (videoAction !== "book" && (body.allow_booking || body.booking_url)) ||
+          (videoAction !== "tip" && body.tips_enabled) ||
+          body.offering_id || body.fulfillment_url || body.booking_url_override || body.display_price ||
+          body.cta_type && body.cta_type !== "none") {
+        return NextResponse.json({ error: "Choose only one video button.", code: "CONFLICTING_VIDEO_ACTION" }, { status: 400 });
+      }
+    }
     const automatic = body?.classification_version !== undefined;
     if (automatic && body.classification_version !== AUTOMATIC_POST_CLASSIFICATION_VERSION) {
       return NextResponse.json({ success: false, error: "Unsupported classification version." }, { status: 400 });
@@ -106,9 +129,9 @@ export async function POST(req: Request) {
       body?.product_id != null && String(body.product_id).trim()
         ? String(body.product_id).trim()
         : null;
-    const price_cents = typeof body?.price_cents === "number" ? body.price_cents : null;
-    const allow_booking = Boolean(body?.allow_booking);
-    const tips_enabled = body?.tips_enabled === true;
+    let price_cents = typeof body?.price_cents === "number" ? body.price_cents : null;
+    const allow_booking = canonicalAction ? videoAction === "book" : Boolean(body?.allow_booking);
+    const tips_enabled = canonicalAction ? videoAction === "tip" : body?.tips_enabled === true;
     const bookingRaw = (body?.booking_url ?? "")?.trim() || null;
     if (bookingRaw && !isSafeBookingTarget(bookingRaw)) {
       return NextResponse.json(
@@ -168,6 +191,28 @@ export async function POST(req: Request) {
     const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     const finalProductId =
       resolvedProductId && uuidRegex.test(resolvedProductId) ? resolvedProductId : null;
+
+    if (canonicalAction && videoAction === "buy") {
+      if (!finalProductId) return NextResponse.json({ error: "Select an owned product." }, { status: 400 });
+      const selected = await supabaseAdmin.from("products").select("id,creator_id,type,price_cents,active,is_active,delivery_revision,deliver_url,discord_invite_url,whop_listing_url")
+        .eq("id", finalProductId).eq("creator_id", user.id).maybeSingle();
+      if (selected.error || !selected.data || selected.data.active === false || selected.data.is_active === false) {
+        return NextResponse.json({ error: "Product unavailable." }, { status: 409 });
+      }
+      if (price_cents !== null && price_cents !== selected.data.price_cents) {
+        return NextResponse.json({ error: "Buy uses the saved product price.", code: "PRODUCT_PRICE_REQUIRED" }, { status: 400 });
+      }
+      price_cents = selected.data.price_cents;
+      if (!Number.isSafeInteger(price_cents) || Number(price_cents) < 50) {
+        return NextResponse.json({ error: "Save a product price of at least $0.50 before publishing Buy." }, { status: 409 });
+      }
+      if (["video", "bundle", "course", "mentorship"].includes(selected.data.type) && !selected.data.delivery_revision) {
+        return NextResponse.json({ error: "Complete the product delivery before publishing." }, { status: 409 });
+      }
+    }
+    if (canonicalAction && videoAction === "book" && !booking_url) {
+      return NextResponse.json({ error: "Choose a free-call scheduling destination." }, { status: 400 });
+    }
 
     let profileContext: { bio?: string | null; tagline?: string | null } = {};
     if (automatic) {
@@ -241,6 +286,7 @@ export async function POST(req: Request) {
       allow_booking,
       booking_url,
       tips_enabled,
+      ...(canonicalAction ? { video_action: videoAction, action_version: 1 } : {}),
       hashtags,
     };
 
@@ -263,7 +309,7 @@ export async function POST(req: Request) {
       // production. For a priced post the honest outcome is to fail, so the
       // creator finds out now instead of discovering it when a buyer can't pay.
       const isPriced = typeof price_cents === "number" && price_cents > 0;
-      if (isPriced) {
+      if (isPriced || canonicalAction && videoAction === "buy") {
         return NextResponse.json(
           {
             success: false,

@@ -82,6 +82,21 @@ function expectConfirmationRequestsOnly() {
   }
 }
 
+test("cardless Book records attribution only and opens scheduling without seeding a booked call", async () => {
+  locationFor("session_id=cs_test_free&kind=booking");
+  mockAuth = { session: { access_token: "synthetic-booking-token" }, loading: false };
+  mockFetch.mockResolvedValueOnce(response(200, {
+    ok: true, kind: "booking", booking_attribution_only: true, post_id: "synthetic-post", booking_redirect_url: null,
+  }));
+  await render();
+  expect(container.textContent).toContain("No card or payment required");
+  expect(container.textContent).toContain("Choose a calendar time");
+  expect(mockFetch).toHaveBeenCalledTimes(1);
+  expect(String(mockFetch.mock.calls[0][0])).toContain("/api/confirm-purchase");
+  expect(container.textContent).not.toContain("Payment method saved");
+  expect(container.textContent).not.toContain("Creating booking record");
+});
+
 beforeEach(() => {
   jest.useFakeTimers();
   jest.clearAllMocks();

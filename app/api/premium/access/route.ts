@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
+import { isLibraryPurchaseEligible } from "@/lib/libraryAccess";
+import { isOwnPremiumPath } from "@/lib/premiumPath";
 
 /**
  * POST body: { post_id: string }
@@ -38,7 +40,7 @@ export async function POST(req: Request) {
     // does user own a purchase for this post?
     let purchaseQuery = admin
       .from("purchases")
-      .select("id")
+      .select("id,buyer_id,status,access_granted,payment_intent_id")
       .eq("buyer_id", userId)
       .eq("post_id", post_id)
       .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled");
@@ -49,7 +51,7 @@ export async function POST(req: Request) {
       console.error("purchase lookup error:", purchaseErr);
       return NextResponse.json({ success: false, error: "Purchase lookup failed" }, { status: 500 });
     }
-    if (!hasPurchase) {
+    if (!hasPurchase || !await isLibraryPurchaseEligible(admin, hasPurchase, userId)) {
       return NextResponse.json({ success: false, error: "No access" }, { status: 403 });
     }
     const accessSeconds = membershipLedgerReady() ? await membershipAccessSeconds(admin, hasPurchase.id, userId) : 3600;
@@ -58,7 +60,7 @@ export async function POST(req: Request) {
     // fetch post to get its premium_path
     const { data: post, error: postErr } = await admin
       .from("posts")
-      .select("premium_path")
+      .select("premium_path,creator_id")
       .eq("id", post_id)
       .maybeSingle();
 
@@ -68,6 +70,9 @@ export async function POST(req: Request) {
     }
     if (!post?.premium_path) {
       return NextResponse.json({ success: false, error: "No premium file for this post" }, { status: 404 });
+    }
+    if (!isOwnPremiumPath(post.premium_path, post.creator_id)) {
+      return NextResponse.json({ success: false, error: "Invalid premium file ownership" }, { status: 403 });
     }
 
     // generate short-lived signed URL (60 minutes)
@@ -80,7 +85,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Failed to sign URL" }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, url: signed.signedUrl }, { status: 200 });
+    return NextResponse.json({ success: true, url: signed.signedUrl }, { status: 200, headers: { "Cache-Control": "private, no-store" } });
   } catch (e: unknown) {
     console.error("access route error:", (e as { message?: string })?.message || e);
     return NextResponse.json({ success: false, error: "Server error" }, { status: 500 });
