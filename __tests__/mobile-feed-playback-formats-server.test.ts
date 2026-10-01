@@ -59,3 +59,30 @@ test("arbitrary source and controller parameters cannot replace the fixed compar
   expect(result.props.controllerMode).toBe("steady");
   expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
 });
+
+test("direct transfer is an explicit Preview-only steady MP4 control with the same sources", async () => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "transfer-build" };
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "direct" }) });
+  expect(result.key).toBe("formats:mp4:direct");
+  expect(result.props).toEqual(expect.objectContaining({ controllerMode: "steady", sourceFormat: "mp4", directMainTransfer: true, buildCommit: "transfer-build" }));
+  expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
+  process.env = { ...originalEnvironment, VERCEL_ENV: "production" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "direct" }) })).rejects.toThrow("NOT_FOUND");
+});
+
+test.each([
+  { format: "mp4", transfer: "DIRECT" }, { format: "mp4", transfer: "" },
+  { format: "mp4", transfer: ["direct", "parked"] },
+  { format: "original", transfer: "direct" }, { format: "hls", transfer: "direct" },
+  { transfer: "direct" },
+])("rejects unsupported transfer selection %j", async params => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve(params) })).rejects.toThrow("NOT_FOUND");
+});
+
+test.each([undefined, "parked"])("transfer %s preserves the original format route", async transfer => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer }) });
+  expect(result.key).toBe("formats:mp4");
+  expect(result.props.directMainTransfer).toBe(false);
+});

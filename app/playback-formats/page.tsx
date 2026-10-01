@@ -10,10 +10,16 @@ export const metadata: Metadata = {
   referrer: "no-referrer",
 };
 
-export default async function PlaybackFormatsPage({ searchParams }: { searchParams: Promise<{ format?: string | string[] }> }) {
+export default async function PlaybackFormatsPage({ searchParams }: { searchParams: Promise<{ format?: string | string[]; transfer?: string | string[] }> }) {
   if (process.env.VERCEL_ENV !== "preview") notFound();
-  const format = (await searchParams).format ?? "hls";
+  const params = await searchParams;
+  const format = params.format ?? "hls";
   if (format !== "original" && format !== "mp4" && format !== "hls") notFound();
-  return <PlaybackLab key={`formats:${format}`} controllerMode="steady" sourceFormat={format}
+  const transfer = params.transfer ?? "parked";
+  if (transfer !== "parked" && transfer !== "direct") notFound();
+  // Keep this one-variable control on the measured processed-MP4 fixture pair.
+  if (transfer === "direct" && format !== "mp4") notFound();
+  return <PlaybackLab key={`formats:${format}${transfer === "direct" ? ":direct" : ""}`} controllerMode="steady" sourceFormat={format}
+    directMainTransfer={transfer === "direct"}
     fixtures={playbackFormatFixtures(format)} buildCommit={process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown"} />;
 }

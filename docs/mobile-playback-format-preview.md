@@ -42,6 +42,39 @@ the observed bridge handoffs use unaligned watchdog recovery.
   duration is null. These local events do not change playback or handoff guards
   and do not measure physical pixels or sound.
 
+## Processed-MP4 direct transfer control
+
+The recorded `683310b` first swipe shows the muted presentation bridge ahead of
+the shared player carrying sound. The trace's watchdog lead is 0.700 seconds;
+the paired recording corroborates the initial mismatch and later convergence.
+It does not establish why the native main player starts later.
+
+`/playback-formats?format=mp4&transfer=direct&feedDebug=1` is a new, opt-in Preview
+control. For an actual post-to-post switch, release still pauses the main,
+revokes ownership, saves the fixed departure snapshot and cancels its seek
+immediately. An immediate claim moves that same element straight to the next
+card instead of first appending it to the hidden 1px parking container. If no
+claim follows before the queued microtask, it parks normally. Stale parking
+callbacks cannot move a newer owner or supersede a later release.
+
+This changes one DOM transfer step. A benefit on iPhone is a hypothesis, not a
+verified cause or fix. It keeps the same steady bridge, source pair, sound
+element, native play calls, frame/target/alignment guards, rates, seeks and
+three-second watchdog. Retry and unmount use immediate parking. Default format
+routes and the normal feed retain their existing parking path. `transfer=parked`
+selects that baseline explicitly; other transfer values or direct transfer with
+original/HLS return 404.
+
+The footer identifies the direct comparison. The automatic `labMainTransfer`
+field records `direct` or `parked`; `main-transfer` proves an actual direct move
+or the no-immediate-claim fallback. Use the retained `683310b` recording as the
+baseline. After a new exact-build Preview is verified, capture one matched
+first Carlos-to-Noah physical swipe with sound and a short paired recording.
+Keep the JSON, failed outcomes and observations. Improvement must include sound
+and picture together, without slowing the already-smooth picture. Do not repeat
+the old baseline merely to confirm its already-measured symptom. This control
+does not satisfy normal-feed acceptance or authorize a Production release.
+
 ## Initial phone comparison
 
 Use the same iPhone Safari, network, orientation, power and starting thermal

@@ -23,6 +23,7 @@ const mockController = {
   canPlay: jest.fn((token: symbol) => mockActive?.token === token),
   playRequested: jest.fn(),
   release: jest.fn<void, [symbol, boolean?]>(token => { if (mockActive?.token === token) { mockVideo?.pause(); mockActive = null; } }),
+  releaseForTransfer: jest.fn<void, [symbol]>(token => { if (mockActive?.token === token) { mockVideo?.pause(); mockActive = null; } }),
   // The real suspend() cancels preparation without revoking active ownership.
   // A harness terminal error must block playback independently of this method.
   suspend: jest.fn(),
@@ -91,8 +92,8 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" = "current", sourceFormat?: PlaybackFormat) {
-  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat })));
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
+  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer })));
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(element => element.textContent === label);
@@ -281,4 +282,39 @@ test("Retry forces one reload without forcing reload again on a later return", a
   await swipeTo(0);
   expect(latestActivation().postId).toBe("lab-a");
   expect(latestActivation().reload).toBe(false);
+});
+
+test("direct MP4 control defers parking only for a post change, retaining sound and immediate Retry/exit release", async () => {
+  await render("steady", "mp4", true);
+  expect(container.textContent).toContain("Direct player transfer comparison");
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ labMainTransfer: "direct", labFormat: "mp4", labController: "steady" }));
+  await click("Play"); await click("Tap for sound");
+  const carlos = latestActivation().token, shared = mockVideo;
+  await swipeTo(1);
+  expect(mockController.releaseForTransfer).toHaveBeenCalledTimes(1);
+  expect(mockController.releaseForTransfer).toHaveBeenCalledWith(carlos);
+  expect(mockVideo).toBe(shared);
+  expect(mockVideo!.muted).toBe(false);
+
+  await act(async () => mockVideo!.dispatchEvent(new Event("error")));
+  expect(mockController.release).toHaveBeenLastCalledWith(latestActivation().token, false);
+  await click("Retry video");
+  expect(latestActivation().reload).toBe(true);
+  expect(mockController.releaseForTransfer).toHaveBeenCalledTimes(1);
+  const last = latestActivation().token;
+  await act(async () => root.unmount());
+  expect(mockController.release).toHaveBeenLastCalledWith(last, true);
+  expect(mockController.releaseForTransfer).toHaveBeenCalledTimes(1);
+});
+
+test.each([
+  ["steady", "mp4", false], ["steady", "hls", true],
+  ["steady", "original", true], ["current", "mp4", true],
+] as const)("%s/%s with direct=%s keeps ordinary parking outside the explicit control", async (mode, format, direct) => {
+  await render(mode, format, direct);
+  expect(container.textContent).not.toContain("Direct player transfer comparison");
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ labMainTransfer: "parked" }));
+  await click("Play"); await swipeTo(1);
+  expect(mockController.releaseForTransfer).not.toHaveBeenCalled();
+  expect(mockController.release).toHaveBeenLastCalledWith(expect.any(Symbol), true);
 });

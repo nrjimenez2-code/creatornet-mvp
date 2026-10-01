@@ -144,6 +144,36 @@ async function scenario(options: { lead?: number; startMs?: number; mainMedia?: 
     maxBridgeSubmissionGapMs: () => maxBridgeSubmissionGapMs };
 }
 
+test("explicit direct transfer stops obsolete bridges while the same audible main moves straight to its new host", async () => {
+  const s = await scenario({ rateMode: "steady" });
+  const oldHost = s.main.parentElement;
+  const obsolete = [...(callbacks.get(s.bridge)?.values() ?? [])];
+  s.main.muted = false;
+  controller.releaseForTransfer(s.token);
+  expect(s.main.parentElement).toBe(oldHost);
+  expect(s.main.paused).toBe(true);
+  expect(controller.canPlay(s.token)).toBe(false);
+  expect(s.bridge.paused).toBe(true);
+  expect(s.bridge.hasAttribute("src")).toBe(false);
+  expect(callbacks.get(s.bridge)?.size ?? 0).toBe(0);
+
+  const host = document.createElement("div"); document.body.appendChild(host);
+  const next = Symbol("direct-next");
+  const main = controller.activate({ postId: "direct-next", src: "https://example.test/direct-next.mp4", token: next,
+    host, previewHost: document.createElement("div"), present: jest.fn(), ready: jest.fn() });
+  expect(main).toBe(s.main);
+  expect(main.muted).toBe(false);
+  jest.runAllTicks();
+  expect(main.parentElement).toBe(host);
+  expect(controller.canPlay(next)).toBe(true);
+  expect(events("main-transfer").map(event => event.detail.mode)).toEqual(["direct"]);
+  obsolete.forEach(callback => callback(performance.now(), { mediaTime: 0.6, presentedFrames: 19 } as VideoFrameCallbackMetadata));
+  expect(s.ready).not.toHaveBeenCalled();
+  expect(writes.filter(write => write.video === main)).toHaveLength(0);
+  controller.release(next);
+  expect(main.parentElement).not.toBe(host);
+});
+
 test("startup samples retain submission age and stay bounded during an unaligned session", async () => {
   const s = await scenario({ lead: 0.6, startMs: 200, mainSubmissionAgeMs: 75, rateMode: "steady" });
   const first = events("lab-main-startup-frame");

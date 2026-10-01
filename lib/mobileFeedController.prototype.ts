@@ -676,11 +676,18 @@ export class MobileFeedController {
     if (this.active?.token === token) this.active.playRequested();
   }
   release(token: symbol, departure = true) {
+    this.releaseOwned(token, departure, false);
+  }
+  /** Explicit Preview comparison; Retry, route exit and dispose use release(). */
+  releaseForTransfer(token: symbol) {
+    this.releaseOwned(token, true, true);
+  }
+  private releaseOwned(token: symbol, departure: boolean, deferParking: boolean) {
     if (this.active?.token !== token) return;
     const old = this.active; old.stop(); this.active = null;
     if (old.bridge) this.clear(old.bridge);
     if (old.partial) this.clear(old.partial);
-    releaseMobileFeedPlayer(token, departure);
+    releaseMobileFeedPlayer(token, departure, { deferParking });
   }
   suspend() {
     this.cancelPreparation();

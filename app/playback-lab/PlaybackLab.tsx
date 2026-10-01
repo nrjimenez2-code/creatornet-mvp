@@ -22,10 +22,11 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial"; sourceFormat?: PlaybackFormat }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const isHls = sourceFormat === undefined || sourceFormat === "hls";
+  const directTransfer = directMainTransfer && controllerMode === "steady" && sourceFormat === "mp4";
   const nativePlayback = useSyncExternalStore(subscribeCapabilities, isHls ? nativeHlsSnapshot : nativeMp4Snapshot, () => null);
   const sourceLabel = sourceFormat === "original" ? "original MP4" : sourceFormat === "mp4" ? "processed MP4" : "direct native HLS";
   const debug = useSyncExternalStore(subscribeCapabilities, feedTraceEnabled, () => false);
@@ -91,9 +92,9 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
 
   useEffect(() => {
     setFeedRunContext({ feed: sourceFormat ? "preview-playback-format-lab" : "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
-      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls",
+      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: directTransfer ? "direct" : "parked",
       surface: sourceFormat ? `Preview / playback format lab / ${sourceFormat} / ${controllerMode}` : `Preview / direct HLS controller lab / ${controllerMode}` });
-  }, [buildCommit, controllerMode, sourceFormat]);
+  }, [buildCommit, controllerMode, directTransfer, sourceFormat]);
 
   useLayoutEffect(() => { unmounting.current = false; return () => { unmounting.current = true; }; }, []);
 
@@ -134,10 +135,12 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
     return () => {
       video.removeEventListener("error", mediaError);
       if (owner.current === activatedOwner) owner.current = null;
-      controller.release(token, activeIndexRef.current !== activeIndex || unmounting.current);
+      const changedPost = activeIndexRef.current !== activeIndex;
+      if (directTransfer && changedPost && !unmounting.current && "releaseForTransfer" in controller) controller.releaseForTransfer(token);
+      else controller.release(token, changedPost || unmounting.current);
       updatePresentation(fixture.id, { preview: false, ready: false });
     };
-  }, [activeIndex, controller, fail, fixtures, nativePlayback, playWhenReady, retry, started, updatePresentation]);
+  }, [activeIndex, controller, directTransfer, fail, fixtures, nativePlayback, playWhenReady, retry, started, updatePresentation]);
 
   useLayoutEffect(() => {
     // Single-player control keeps the same shared main, sources and layout,
@@ -233,6 +236,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
       {debug && <MobileFeedDiagnostics activePostId={activeId} getVideo={id => owner.current?.postId === id ? owner.current.video : null} />}
       <div className="absolute bottom-0 left-0 right-0 z-40 space-y-2 bg-black/90 p-3 text-sm">
         <p>{sourceFormat ? "Preview format comparison" : "Preview controller experiment"} · {controllerMode} · {sourceFormat && `${sourceFormat} · `}{buildCommit.slice(0, 12)}</p>
+        {directTransfer && <p>Direct player transfer comparison</p>}
         <p role="status">{nativePlayback === false ? `This browser does not report native ${isHls ? "HLS" : "MP4"} support.` : status}</p>
         <div className="flex flex-wrap gap-2">
           <button disabled={nativePlayback !== true || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={play}>Play</button>
