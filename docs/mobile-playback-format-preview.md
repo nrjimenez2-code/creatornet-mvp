@@ -67,6 +67,42 @@ support investigating native synchronous work; a quick return followed by a
 long settlement would support investigating asynchronous startup/scheduling.
 Neither result alone identifies a native decoder or source-fetch cause.
 
+The completed `fc1c402` phone run separates those boundaries: the main native
+call measured 0 ms at timestamp resolution, followed by a 319 ms promise wait;
+bridge native work measured 99 ms, followed by 41 ms. The main's first callback
+reported media time/position zero, then its next callback arrived 527 ms later
+while the bridge continued regular callbacks. The recording confirms about
+0.66–0.69 seconds of picture lead, then a backward content step at the unaligned
+watchdog. Preserve that completed trace/recording; another symptom-only capture
+is unnecessary. Main native startup and media-clock progress remain unresolved.
+
+With `feedDebug=1`, at most 32 existing accepted `bridge-frame` events per
+activation now also contain `mainClock*` fields: main position, readiness,
+network/buffer, pause/seek/mute/rate, source match, playing-event state and latest
+main callback. These observe the main between its callbacks using the already
+scheduled bridge callback. They add no timer, frame request or trace event.
+Later bridge events omit these fields. Existing bounded main native-return,
+settlement and startup-frame samples also read the available audio-session
+state/type. Only documented enum values are recorded; unsupported, missing
+state and thrown getters are explicitly unavailable.
+
+These reads never set `navigator.audioSession.type`, request permission, attach
+session listeners or change playback calls, source/seek/rate/grant behavior,
+ownership, guards or budgets. Debug-off does not access the audio-session API.
+The state is page-wide and may be unavailable or policy-filtered; it is not
+acoustic onset, per-player state or proof of a native decoder/buffering cause.
+The purpose is to distinguish late main callback delivery from slow main
+media-clock progress, and retain any observable session admission/interruption.
+Use paired recording plus a newly approved exact-build export for that new
+question; do not treat local fixtures, an active session or a playing event as
+sound/performance acceptance.
+
+Primary-source review: [WebKit HTMLMediaElement](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/html/HTMLMediaElement.cpp)
+already invokes its load/reset path when `src` changes. [AudioSession IDL](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/audiosession/DOMAudioSession.idl)
+and [implementation](https://github.com/WebKit/WebKit/blob/main/Source/WebCore/Modules/audiosession/DOMAudioSession.cpp)
+show state availability gates and page-level reads. Current upstream source is
+context, not identification of the WebKit build installed on the phone.
+
 ## Processed-MP4 direct transfer control
 
 The recorded `683310b` first swipe shows the muted presentation bridge ahead of

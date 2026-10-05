@@ -12,6 +12,22 @@ const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 const STARTUP_FRAME_SAMPLE_LIMIT = 8;
 const NATIVE_PLAY_SAMPLE_LIMIT = 4;
+const MAIN_CLOCK_SAMPLE_LIMIT = 32;
+
+function audioSessionSnapshot(): Record<string, string | null> {
+  // Observe only. Changing the session type could change sound/route behavior.
+  try {
+    const session = (navigator as Navigator & { audioSession?: { state?: unknown; type?: unknown } }).audioSession;
+    if (!session) return { audioSessionAvailability: "unsupported", audioSessionState: null, audioSessionType: null };
+    const state = session.state, type = session.type;
+    const stateKnown = state === "active" || state === "inactive" || state === "interrupted";
+    const typeKnown = type === "auto" || type === "playback" || type === "ambient" || type === "transient" || type === "transient-solo" || type === "play-and-record";
+    return { audioSessionAvailability: stateKnown ? "available" : "state-unavailable",
+      audioSessionState: stateKnown ? state : null, audioSessionType: typeKnown ? type : null };
+  } catch {
+    return { audioSessionAvailability: "unavailable", audioSessionState: null, audioSessionType: null };
+  }
+}
 
 function submittedAt(metadata: VideoFrameCallbackMetadata, now: number) {
   // Callback delivery can be late. It cannot refresh an old submitted frame.
@@ -334,6 +350,7 @@ export class MobileFeedController {
     const collectFrameDiagnostics = feedTraceEnabled();
     const expectedSource = collectFrameDiagnostics ? new URL(input.src, document.baseURI).href : "";
     let mainSourceRead = false, bridgeSourceRead = false, bridgePlayRequests = 0, mainPlayRequests = 0;
+    let mainClockSamples = 0;
     const readSelectedSource = (element: HTMLVideoElement, role: "main" | "bridge") => {
       if (!collectFrameDiagnostics || (role === "main" ? mainSourceRead : bridgeSourceRead) ||
           element.src !== expectedSource || element.currentSrc !== expectedSource) return;
@@ -368,13 +385,13 @@ export class MobileFeedController {
       const requestId = ++mainPlayRequests;
       recordFeedEvent("lab-main-play-returned", { requestId, activationMs: requestedAt - activatedAt,
         elapsedMs: returnedAt - requestedAt, position: video.currentTime, paused: video.paused,
-        seeking: video.seeking, readyState: video.readyState, muted: video.muted }, video);
+        seeking: video.seeking, readyState: video.readyState, muted: video.muted, ...audioSessionSnapshot() }, video);
       const settled = (result: "resolved" | "rejected") => {
         if (!current()) return;
         const settledAt = performance.now();
         recordFeedEvent("lab-main-play-settled", { requestId, result, elapsedMs: settledAt - requestedAt,
           afterReturnMs: settledAt - returnedAt, position: video.currentTime, paused: video.paused,
-          readyState: video.readyState, muted: video.muted }, video);
+          readyState: video.readyState, muted: video.muted, ...audioSessionSnapshot() }, video);
       };
       void request?.then(() => settled("resolved"), () => settled("rejected"));
     };
@@ -517,12 +534,23 @@ export class MobileFeedController {
           preview.frameTime = metadata.mediaTime;
           preview.frameCount = metadata.presentedFrames;
           lastBridgeAt = submission;
+          const mainClock: Record<string, string | number | boolean | null> = collectFrameDiagnostics && mainClockSamples < MAIN_CLOCK_SAMPLE_LIMIT ? {
+            mainClockSample: ++mainClockSamples, mainClockAt: performance.now(), mainClockPosition: video.currentTime,
+            mainClockReadyState: video.readyState, mainClockNetworkState: video.networkState,
+            mainClockPaused: video.paused, mainClockSeeking: video.seeking, mainClockMuted: video.muted,
+            mainClockRate: video.playbackRate, mainClockBuffer: playableBuffer(video),
+            mainClockSourceMatches: video.currentSrc === expectedSource, mainClockPlayingEventSeen: active.playing,
+            mainClockCallbacks: mainCallbackCount, mainClockLastMediaTime: lastMainMediaTime,
+            mainClockLastCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+            ...audioSessionSnapshot(),
+          } : {};
           recordFeedEvent("bridge-frame", {
             mediaTime: metadata.mediaTime, muted: preview.video.muted, rate: preview.video.playbackRate,
             paused: preview.video.paused, presentedFrames: metadata.presentedFrames, callbackTime: now,
             presentationTime: metadata.presentationTime ?? null, expectedDisplayTime: metadata.expectedDisplayTime ?? null,
             processingDuration: metadata.processingDuration ?? null, width: metadata.width ?? null, height: metadata.height ?? null,
             submissionAgeMs: Number.isFinite(submission) ? now - submission : null,
+            ...mainClock,
           }, video);
           align();
         } else if (collectFrameDiagnostics) {
@@ -574,6 +602,7 @@ export class MobileFeedController {
               readyState: video.readyState, networkState: video.networkState, paused: video.paused,
               seeking: video.seeking, buffer: playableBuffer(video), rate: video.playbackRate,
               currentSourceMatches: video.currentSrc === expectedSource,
+              ...audioSessionSnapshot(),
             }, video);
           }
         }

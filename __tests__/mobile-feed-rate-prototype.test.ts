@@ -16,6 +16,7 @@ let writes: RateWrite[];
 let nextId: number;
 let originalRequest: typeof HTMLVideoElement.prototype.requestVideoFrameCallback;
 let originalCancel: typeof HTMLVideoElement.prototype.cancelVideoFrameCallback;
+let originalAudioSession: PropertyDescriptor | undefined;
 let scenarioNumber = 0;
 
 function media(video: HTMLVideoElement) {
@@ -42,6 +43,7 @@ beforeEach(() => {
   callbacks = new Map(); paused = new WeakMap(); rates = new WeakMap(); modes = new WeakMap(); frozenUntil = new WeakMap(); writes = [];
   originalRequest = HTMLVideoElement.prototype.requestVideoFrameCallback;
   originalCancel = HTMLVideoElement.prototype.cancelVideoFrameCallback;
+  originalAudioSession = Object.getOwnPropertyDescriptor(navigator, "audioSession");
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
   jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
   jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(function (this: HTMLMediaElement) {
@@ -73,6 +75,8 @@ afterEach(() => {
   else delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).requestVideoFrameCallback;
   if (originalCancel) HTMLVideoElement.prototype.cancelVideoFrameCallback = originalCancel;
   else delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).cancelVideoFrameCallback;
+  if (originalAudioSession) Object.defineProperty(navigator, "audioSession", originalAudioSession);
+  else Reflect.deleteProperty(navigator, "audioSession");
   jest.restoreAllMocks(); jest.useRealTimers();
 });
 
@@ -219,6 +223,73 @@ test("native bridge timing separates an injected synchronous call delay from pro
   expect(writes).toHaveLength(0); expect(events("bridge-align-seek")).toHaveLength(0);
 });
 
+test("bridge-clock samples retain main progress between missing main callbacks without changing playback", async () => {
+  let state = "inactive";
+  const setType = jest.fn();
+  const session = { get state() { return state; } };
+  Object.defineProperty(session, "type", { get: () => "auto", set: setType });
+  const getSession = jest.fn(() => session);
+  Object.defineProperty(navigator, "audioSession", { configurable: true, get: getSession });
+  const s = await scenario({ lead: 0.6, startMs: 200, rateMode: "steady" });
+  const calls = jest.mocked(HTMLMediaElement.prototype.play).mock.calls.length;
+  const loads = jest.mocked(HTMLMediaElement.prototype.load).mock.calls.length;
+  const timers = jest.getTimerCount();
+  const mainCallbacks = events("lab-main-startup-frame").length;
+  Object.defineProperty(s.main, "readyState", { configurable: true, value: 3 });
+  Object.defineProperty(s.main, "buffered", { configurable: true, value: { length: 1, start: () => 0, end: () => 1.515 } });
+  s.main.currentTime = 0;
+  for (let i = 1; i <= 10; i++) { jest.advanceTimersByTime(33); deliver(s.bridge, 0.7 + i / 30); }
+  const stalled = events("bridge-frame").at(-1)!.detail;
+  expect(stalled).toEqual(expect.objectContaining({
+    mainClockPosition: 0, mainClockReadyState: 3, mainClockBuffer: 1.515,
+    mainClockCallbacks: 2, mainClockSourceMatches: true, mainClockPlayingEventSeen: true,
+    audioSessionAvailability: "available", audioSessionState: "inactive", audioSessionType: "auto",
+  }));
+  expect(stalled.mainClockLastCallbackAgeMs).toBe(330);
+  state = "active";
+  Object.defineProperty(s.main, "readyState", { configurable: true, value: 4 });
+  Object.defineProperty(s.main, "buffered", { configurable: true, value: { length: 1, start: () => 0, end: () => 60 } });
+  s.main.currentTime = 0.4;
+  jest.advanceTimersByTime(33); deliver(s.bridge, 1.1);
+  expect(events("bridge-frame").at(-1)!.detail).toEqual(expect.objectContaining({
+    mainClockPosition: 0.4, mainClockReadyState: 4, mainClockCallbacks: 2, audioSessionState: "active",
+  }));
+  for (let i = 1; i <= 40; i++) { jest.advanceTimersByTime(33); deliver(s.bridge, 1.1 + i / 30); }
+  const samples = events("bridge-frame").filter(event => event.detail.mainClockSample !== undefined);
+  expect(samples).toHaveLength(32);
+  expect(samples.map(event => event.detail.mainClockSample)).toEqual(Array.from({ length: 32 }, (_, i) => i + 1));
+  expect(events("bridge-frame").at(-1)!.detail.mainClockPosition).toBeUndefined();
+  expect(events("lab-main-startup-frame")).toHaveLength(mainCallbacks);
+  expect(getSession).toHaveBeenCalledTimes(32 + mainCallbacks);
+  expect(setType).not.toHaveBeenCalled();
+  expect(jest.mocked(HTMLMediaElement.prototype.play).mock.calls.length).toBe(calls);
+  expect(jest.mocked(HTMLMediaElement.prototype.load).mock.calls.length).toBe(loads);
+  expect(jest.getTimerCount()).toBe(timers);
+  expect(callbacks.get(s.bridge)?.size).toBe(1);
+  expect(writes).toHaveLength(0); expect(events("bridge-align-seek")).toHaveLength(0);
+  expect(s.main.muted).toBe(s.initialMainMuted); expect(s.bridge.muted).toBe(true);
+});
+
+test.each([
+  { session: undefined, availability: "unsupported", state: null, type: null },
+  { session: { type: "auto" }, availability: "state-unavailable", state: null, type: "auto" },
+  { session: { get state() { throw new Error("unavailable getter"); } }, availability: "unavailable", state: null, type: null },
+  { session: { state: "unexpected-private-state", type: "unexpected-private-type" }, availability: "state-unavailable", state: null, type: null },
+])("audio-session readback reports $availability without changing playback", async ({ session, availability, state, type }) => {
+  Object.defineProperty(navigator, "audioSession", { configurable: true, value: session });
+  const s = await scenario({ rateMode: "steady" });
+  const returnedAt = performance.now();
+  controller.observeMainPlay(s.token, { requestedAt: returnedAt, returnedAt, request: Promise.resolve() });
+  await Promise.resolve();
+  const expected = { audioSessionAvailability: availability, audioSessionState: state, audioSessionType: type };
+  expect(events("lab-main-play-returned")[0].detail).toEqual(expect.objectContaining(expected));
+  expect(events("lab-main-play-settled")[0].detail).toEqual(expect.objectContaining(expected));
+  expect(events("lab-main-startup-frame")[0].detail).toEqual(expect.objectContaining(expected));
+  expect(events("bridge-frame")[0].detail).toEqual(expect.objectContaining(expected));
+  expect(JSON.stringify(exportFeedTrace())).not.toContain("unexpected-private");
+  expect(s.main.paused).toBe(false); expect(s.bridge.paused).toBe(false); expect(writes).toHaveLength(0);
+});
+
 test("main native timing is bounded and excludes obsolete owners and promise settlements", async () => {
   const s = await scenario({ rateMode: "steady" });
   const play = jest.mocked(HTMLMediaElement.prototype.play), calls = play.mock.calls.length;
@@ -270,6 +341,8 @@ test("debug-off native timing does not attach diagnostic settlement handlers", a
   // Capture mode is intentionally fixed for a page session, so changing the
   // test URL cannot disable an already-enabled module instance.
   jest.spyOn(feedDiagnostics, "feedTraceEnabled").mockReturnValue(false);
+  const getSession = jest.fn(() => { throw new Error("debug-off must not read session"); });
+  Object.defineProperty(navigator, "audioSession", { configurable: true, get: getSession });
   const s = await scenario({ rateMode: "steady" });
   const then = jest.fn();
   controller.observeMainPlay(s.token, { requestedAt: performance.now(), returnedAt: performance.now(),
@@ -278,6 +351,8 @@ test("debug-off native timing does not attach diagnostic settlement handlers", a
   expect(events("lab-main-play-returned")).toHaveLength(0);
   expect(events("lab-main-play-settled")).toHaveLength(0);
   expect(events("lab-bridge-play-returned")).toHaveLength(0);
+  expect(getSession).not.toHaveBeenCalled();
+  expect(events("bridge-frame").every(event => event.detail.mainClockSample === undefined)).toBe(true);
 });
 
 test("source readback withholds a prior unrelated URL until the activation source matches", async () => {
@@ -310,14 +385,19 @@ test("obsolete startup callbacks and bridge play settlements cannot label the ne
   });
   const s = await scenario({ lead: 0.6, startMs: 200, rateMode: "steady" });
   const obsolete = [...(callbacks.get(s.main)?.values() ?? [])];
+  const obsoleteBridge = [...(callbacks.get(s.bridge)?.values() ?? [])];
   const sampleCount = events("lab-main-startup-frame").length;
+  const clockCount = events("bridge-frame").filter(event => event.detail.mainClockSample !== undefined).length;
   const settledCount = events("lab-bridge-play-settled").length;
   controller.activate({ postId: "next-owner", src: "https://example.test/next-owner.mp4", token: Symbol("next-owner"),
     host: document.createElement("div"), previewHost: document.createElement("div"), present: jest.fn(), ready: jest.fn() });
   obsolete.forEach(callback => callback(performance.now(), { mediaTime: 0.1, presentedFrames: 4,
     presentationTime: performance.now(), expectedDisplayTime: performance.now() } as VideoFrameCallbackMetadata));
+  obsoleteBridge.forEach(callback => callback(performance.now(), { mediaTime: 0.8, presentedFrames: 25,
+    presentationTime: performance.now(), expectedDisplayTime: performance.now() } as VideoFrameCallbackMetadata));
   resolveBridge(); await Promise.resolve(); await Promise.resolve();
   expect(events("lab-main-startup-frame")).toHaveLength(sampleCount);
+  expect(events("bridge-frame").filter(event => event.detail.mainClockSample !== undefined)).toHaveLength(clockCount);
   expect(events("lab-bridge-play-settled")).toHaveLength(settledCount);
   expect(events("lab-source-readback").some(event => event.postId === "next-owner")).toBe(false);
 });
