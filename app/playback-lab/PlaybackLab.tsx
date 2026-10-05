@@ -10,7 +10,7 @@ import { feedTraceEnabled, observeFeedScroll, recordFeedEvent, setFeedRunContext
 import type { PlaybackFormat } from "@/lib/playbackFormatFixtures";
 
 export type PlaybackFixture = { id: string; label: string; src: string; contentVersion: string };
-type Owner = { token: symbol; video: HTMLVideoElement; postId: string; terminal: boolean };
+type Owner = { token: symbol; video: HTMLVideoElement; postId: string; terminal: boolean; playAttempt: number; soundBlocked: boolean };
 type Presentation = { postId: string; preview: boolean; ready: boolean; error: string | null };
 
 const subscribeCapabilities = () => () => {};
@@ -22,11 +22,12 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const isHls = sourceFormat === undefined || sourceFormat === "hls";
   const directTransfer = directMainTransfer && controllerMode === "steady" && sourceFormat === "mp4";
+  const preparedPlayer = controllerMode === "prepared";
   const nativePlayback = useSyncExternalStore(subscribeCapabilities, isHls ? nativeHlsSnapshot : nativeMp4Snapshot, () => null);
   const sourceLabel = sourceFormat === "original" ? "original MP4" : sourceFormat === "mp4" ? "processed MP4" : "direct native HLS";
   const debug = useSyncExternalStore(subscribeCapabilities, feedTraceEnabled, () => false);
@@ -70,36 +71,49 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
     setStatus(message);
   }, [controller, updatePresentation]);
 
-  const playOwned = useCallback((owned: Owner) => {
-    if (owner.current !== owned || owned.terminal || !controller.canPlay(owned.token) || document.hidden || !intentRef.current) return;
+  const playOwned = useCallback((owned: Owner, gesture = false) => {
+    if (owner.current !== owned || owned.terminal || !controller.canPlay(owned.token) || document.hidden || !intentRef.current ||
+        (preparedPlayer && owned.soundBlocked && !gesture)) return;
     if (mobileFeedSeekFailed(owned.token)) { fail(owned, "The requested position could not load. Export the trace before Retry."); return; }
     owned.video.muted = mutedRef.current;
     recordFeedEvent("play-request", { muted: owned.video.muted, retried: false }, owned.video);
-    const requestedAt = feedTraceEnabled() ? performance.now() : null;
-    const request = owned.video.play();
+    const attempt = ++owned.playAttempt, requestedMuted = owned.video.muted;
+    const rejected = (error: unknown) => {
+      if (owner.current !== owned || owned.terminal || owned.playAttempt !== attempt || !controller.canPlay(owned.token)) return;
+      const name = error instanceof DOMException ? error.name : "PlaybackError";
+      recordFeedEvent("lab-play-rejected", { name, muted: requestedMuted, preparedPlayer, outputMeasured: false }, owned.video);
+      if (preparedPlayer) {
+        owned.video.pause(); controller.suspend();
+        if (name === "NotAllowedError") {
+          owned.soundBlocked = true; mutedRef.current = true; setMuted(true); owned.video.muted = true;
+          setStatus("Playback permission was denied. Export this failed attempt, then tap for sound or Play to try with a gesture.");
+        } else fail(owned, `${name}: this video could not play. Export the trace before Retry.`);
+      } else setStatus(`${name}: tap Play again. Export the trace if it persists.`);
+    };
+    const requestedAt = feedTraceEnabled() || preparedPlayer ? performance.now() : null;
+    let request: Promise<void> | undefined;
+    try { request = owned.video.play(); } catch (error) { rejected(error); return; }
     const returnedAt = requestedAt === null ? null : performance.now();
     if (requestedAt !== null && returnedAt !== null && "observeMainPlay" in controller) {
       controller.observeMainPlay(owned.token, { requestedAt, returnedAt, request });
     }
     controller.playRequested(owned.token);
-    void request?.catch((error: unknown) => {
-      if (owner.current !== owned || owned.terminal || !controller.canPlay(owned.token)) return;
-      const name = error instanceof DOMException ? error.name : "PlaybackError";
-      setStatus(`${name}: tap Play again. Export the trace if it persists.`);
-    });
-  }, [controller, fail]);
+    void request?.then(() => {
+      if (owner.current === owned && owned.playAttempt === attempt && !owned.terminal) owned.soundBlocked = false;
+    }, rejected);
+  }, [controller, fail, preparedPlayer]);
 
-  const playWhenReady = useCallback((owned: Owner) => {
+  const playWhenReady = useCallback((owned: Owner, gesture = false) => {
     if (owned.terminal || owner.current !== owned) return;
     const pending = mobileFeedPlaybackReady(owned.token);
-    if (pending) void pending.then(() => playOwned(owned)); else playOwned(owned);
+    if (pending) void pending.then(() => playOwned(owned, gesture)); else playOwned(owned, gesture);
   }, [playOwned]);
 
   useEffect(() => {
     setFeedRunContext({ feed: sourceFormat ? "preview-playback-format-lab" : "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
-      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: directTransfer ? "direct" : "parked",
+      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: preparedPlayer ? "prepared" : directTransfer ? "direct" : "parked",
       surface: sourceFormat ? `Preview / playback format lab / ${sourceFormat} / ${controllerMode}` : `Preview / direct HLS controller lab / ${controllerMode}` });
-  }, [buildCommit, controllerMode, directTransfer, sourceFormat]);
+  }, [buildCommit, controllerMode, directTransfer, preparedPlayer, sourceFormat]);
 
   useLayoutEffect(() => { unmounting.current = false; return () => { unmounting.current = true; }; }, []);
 
@@ -123,8 +137,9 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
     const video = controller.activate({ postId: fixture.id, src: fixture.src, contentVersion: fixture.contentVersion,
       host, previewHost, token, present: preview => update({ preview }), ready: () => update({ ready: true }),
       failed: () => { if (owned) fail(owned, "This video could not load. Export the trace before Retry."); },
+      ...(preparedPlayer ? { playingIntent: intentRef.current } : {}),
       reload });
-    owned = { token, video, postId: fixture.id, terminal: false };
+    owned = { token, video, postId: fixture.id, terminal: false, playAttempt: 0, soundBlocked: false };
     const activatedOwner = owned;
     owner.current = owned;
     video.className = "absolute inset-0 h-full w-full object-cover";
@@ -145,7 +160,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
       else controller.release(token, changedPost || unmounting.current);
       updatePresentation(fixture.id, { preview: false, ready: false });
     };
-  }, [activeIndex, controller, directTransfer, fail, fixtures, nativePlayback, playWhenReady, retry, started, updatePresentation]);
+  }, [activeIndex, controller, directTransfer, fail, fixtures, nativePlayback, playWhenReady, preparedPlayer, retry, started, updatePresentation]);
 
   useLayoutEffect(() => {
     // Single-player control keeps the same shared main, sources and layout,
@@ -161,7 +176,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
 
   useEffect(() => {
     const visibility = () => {
-      if (document.hidden) { controller.suspend(); owner.current?.video.pause(); }
+      if (document.hidden) { controller.suspend(); if (owner.current) { owner.current.playAttempt++; owner.current.video.pause(); } }
       else if (owner.current) playWhenReady(owner.current);
     };
     document.addEventListener("visibilitychange", visibility);
@@ -203,16 +218,23 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
   const play = () => {
     if (owner.current?.terminal) return;
     intentRef.current = true; setPlayingIntent(true);
-    if (!started) setStarted(true); else if (owner.current) playWhenReady(owner.current);
+    if (!started) setStarted(true); else if (owner.current) playWhenReady(owner.current, true);
   };
-  const pause = () => { intentRef.current = false; setPlayingIntent(false); owner.current?.video.pause(); };
+  const pause = () => {
+    intentRef.current = false; setPlayingIntent(false);
+    if (owner.current) {
+      owner.current.playAttempt++;
+      if ("pauseRequested" in controller) controller.pauseRequested(owner.current.token);
+      owner.current.video.pause();
+    }
+  };
   const sound = () => {
     const owned = owner.current;
     if (!owned || owned.terminal || !controller.canPlay(owned.token)) return;
     mutedRef.current = !mutedRef.current; setMuted(mutedRef.current);
     owned.video.muted = mutedRef.current;
     recordFeedEvent("sound-state", { muted: owned.video.muted, volume: owned.video.volume, outputMeasured: false }, owned.video);
-    if (intentRef.current) playWhenReady(owned);
+    if (intentRef.current) playWhenReady(owned, true);
   };
   const activeId = started ? fixtures[activeIndex]?.id ?? null : null;
   const activePresentation = activeId ? presentations[activeId] : undefined;
@@ -242,6 +264,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
       <div className="absolute bottom-0 left-0 right-0 z-40 space-y-2 bg-black/90 p-3 text-sm">
         <p>{sourceFormat ? "Preview format comparison" : "Preview controller experiment"} · {controllerMode} · {sourceFormat && `${sourceFormat} · `}{buildCommit.slice(0, 12)}</p>
         {directTransfer && <p>Direct player transfer comparison</p>}
+        {preparedPlayer && <p>Prepared player carries picture and sound · sound permission is under test</p>}
         <p role="status">{nativePlayback === false ? `This browser does not report native ${isHls ? "HLS" : "MP4"} support.` : status}</p>
         <div className="flex flex-wrap gap-2">
           <button disabled={nativePlayback !== true || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={play}>Play</button>

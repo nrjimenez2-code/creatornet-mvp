@@ -5,8 +5,10 @@
  *
  * This module owns the element and two short-lived playback positions. Feed
  * cards own their presentation, listeners and muted previews. Desktop never calls it.
+ * The closed Preview format lab alone can adopt a prepared element explicitly;
+ * normal feed claims preserve the shared element and its grant.
  */
-import { beginFeedVideoTrace, endFeedVideoTrace, recordFeedEvent } from "./mobileFeedDiagnostics";
+import { beginFeedVideoTrace, endFeedVideoTrace, playableBuffer, recordFeedEvent } from "./mobileFeedDiagnostics";
 
 let player: HTMLVideoElement | null = null;
 let parkingPlace: HTMLDivElement | null = null;
@@ -72,8 +74,14 @@ export function onMobileResumeExpiry(listener: (snapshot: ResumeSnapshot) => voi
   expiryListeners.add(listener); return () => { expiryListeners.delete(listener); };
 }
 /** Non-consuming reads and retries cannot extend the departure deadline. */
-export function mobileFeedResumeSnapshot(postId: string, contentVersion: string): ResumeSnapshot {
+export function mobileFeedResumeSnapshot(postId: string, contentVersion: string, strictDeadline = false): ResumeSnapshot {
   expirePositions();
+  // Preview promotion also enforces the exact boundary on a departure saved by
+  // conventional playback. Preserve conventional callers' existing deadline.
+  const departing = recentPositions.get(postId);
+  if (strictDeadline && departing && departing.expiresAt !== null && Date.now() >= departing.expiresAt) {
+    discardPosition(departing, "deadline"); scheduleExpiry();
+  }
   const saved = recentPositions.get(postId);
   if (saved && saved.contentVersion !== contentVersion) { discardPosition(saved, "content-replaced"); scheduleExpiry(); }
   if (!owner && parkedSnapshot?.expiresAt === null && parkedSnapshot.postId === postId && parkedSnapshot.contentVersion === contentVersion) return parkedSnapshot;
@@ -214,6 +222,43 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
     if (saved > 0 || !changedSource || (managedResume && player.currentTime > 0)) seekBeforePlayback(player, token, saved, options?.boundedSeekRecovery === true);
   }
   return player;
+}
+
+/** Preview experiment only. The caller must revoke the departing owner and
+ * detach preparation observers first. Recheck the live snapshot and media before
+ * replacing the shared element; adoption never reloads or seeks the selected video.
+ * A fulfilled play promise on this new element still does not prove audible output.
+ */
+export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number): HTMLVideoElement | null {
+  const latest = mobileFeedResumeSnapshot(snapshot.postId, snapshot.contentVersion, true);
+  const remaining = video.duration - snapshot.position;
+  if (owner !== null || video === player || document.hidden || !sameMobileResume(snapshot, latest) ||
+      video.getAttribute("src") !== src || video.currentSrc !== video.src || !video.paused || !video.muted ||
+      video.seeking || video.readyState < 2 || video.playbackRate !== 1 || video.error ||
+      video.videoWidth <= 0 || video.videoHeight <= 0 || !Number.isFinite(remaining) || remaining <= 0 ||
+      !Number.isFinite(frameTime) || Math.abs(frameTime - snapshot.position) > 0.1 ||
+      !Number.isFinite(video.currentTime) || Math.abs(video.currentTime - frameTime) > 0.1 ||
+      playableBuffer(video, snapshot.position) + 0.001 < Math.min(1, remaining)) return null;
+
+  // Clear the obsolete source only after all rejection paths. The released
+  // element may have a deferred parking ticket; it must never reclaim this owner.
+  const retired = player;
+  pendingParking = null;
+  cancelPendingSeek();
+  if (retired) {
+    retired.pause(); retired.muted = true; endFeedVideoTrace(retired);
+    retired.removeAttribute("src"); retired.load(); retired.remove();
+  }
+  player = video; owner = token; seekOutcome = null;
+  currentPostId = snapshot.postId; currentContentVersion = snapshot.contentVersion;
+  managedResume = true; parkedSnapshot = null;
+  recentPositions.delete(snapshot.postId); scheduleExpiry();
+  host.appendChild(video);
+  beginFeedVideoTrace(video, snapshot.postId, src, true);
+  recordFeedEvent("main-transfer", { mode: "prepared", retiredSourceRemoved: !retired?.hasAttribute("src"), position: video.currentTime }, video);
+  recordFeedEvent("resume-decision", { postId: snapshot.postId, contentVersion: snapshot.contentVersion, position: snapshot.position,
+    expiresAt: latest.expiresAt, decision: snapshot.position > 0 ? "resume" : "restart" }, video);
+  return video;
 }
 
 export function releaseMobileFeedPlayer(token: symbol, departure = true, options?: { deferParking?: boolean }): void {

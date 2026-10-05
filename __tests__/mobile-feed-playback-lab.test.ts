@@ -46,7 +46,7 @@ jest.mock("@/components/MobileFeedDiagnostics", () => ({ __esModule: true, defau
 
 import PlaybackLab from "@/app/playback-lab/PlaybackLab";
 import { MobileFeedController as RateController } from "@/lib/mobileFeedController.prototype";
-import { setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
+import { recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
 import { playbackFormatFixtures, type PlaybackFormat } from "@/lib/playbackFormatFixtures";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -95,7 +95,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer })));
 }
 async function click(label: string) {
@@ -134,6 +134,50 @@ test("debug-off lab keeps the existing play calls without native timing observat
   expect(play).toHaveBeenCalledTimes(1);
   expect(mockController.playRequested).toHaveBeenCalledWith(latestActivation().token);
   expect(mockController.observeMainPlay).not.toHaveBeenCalled();
+});
+
+test("prepared lab distinguishes the build/mode and observes acceptance even when debug is off", async () => {
+  await render("prepared", "mp4"); await click("Play");
+  expect(RateController).toHaveBeenCalledWith("prepared");
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ labMainTransfer: "prepared", labController: "prepared", labFormat: "mp4" }));
+  expect(container.textContent).toContain("Prepared player carries picture and sound");
+  expect(mockController.observeMainPlay).toHaveBeenCalledTimes(1);
+  await click("Tap for sound"); await swipeTo(1);
+  expect(mockVideo!.muted).toBe(false); expect(mockController.releaseForTransfer).not.toHaveBeenCalled();
+  await click("Pause"); const requests = play.mock.calls.length;
+  await render("prepared", "mp4"); await click("Mute"); await visibility(true); await visibility(false);
+  expect(play).toHaveBeenCalledTimes(requests);
+});
+
+test.each(["promise", "synchronous"])("prepared %s sound denial stays recorded and foreground cannot retry without a gesture", async kind => {
+  await render("prepared", "mp4"); await click("Play"); await click("Tap for sound");
+  const deny = () => { const error = new DOMException("gesture required", "NotAllowedError"); if (kind === "synchronous") throw error; return Promise.reject(error); };
+  play.mockImplementationOnce(deny);
+  await swipeTo(1);
+  expect(container.querySelector('[role="status"]')?.textContent).toContain("Playback permission was denied");
+  expect(recordFeedEvent).toHaveBeenCalledWith("lab-play-rejected", expect.objectContaining({ name: "NotAllowedError", muted: false, preparedPlayer: true, outputMeasured: false }), mockVideo);
+  expect(mockVideo!.muted).toBe(true); expect(mockVideo!.paused).toBe(true);
+  const requests = play.mock.calls.length; await visibility(true); await visibility(false);
+  expect(play).toHaveBeenCalledTimes(requests);
+  await click("Tap for sound"); expect(play.mock.calls.length).toBe(requests + 1); expect(mockVideo!.muted).toBe(false);
+});
+
+test("a rejected old prepared owner cannot mute or relabel its successor", async () => {
+  await render("prepared", "mp4"); await click("Play"); await click("Tap for sound");
+  let reject!: (error: DOMException) => void;
+  play.mockImplementationOnce(() => new Promise<void>((_, rejectRequest) => { reject = rejectRequest; }));
+  await swipeTo(1); await swipeTo(0);
+  await act(async () => reject(new DOMException("old gesture", "NotAllowedError")));
+  expect(mockVideo!.muted).toBe(false);
+  expect(container.querySelector('[role="status"]')?.textContent).not.toContain("denied");
+});
+
+test("prepared non-permission failure requires Retry and preserves the sound intent", async () => {
+  await render("prepared", "mp4"); await click("Play"); await click("Tap for sound");
+  play.mockRejectedValueOnce(new DOMException("bad media", "NotSupportedError")); await swipeTo(1);
+  expect(container.querySelector('[role="alert"]')).not.toBeNull(); const requests = play.mock.calls.length;
+  await visibility(true); await visibility(false); expect(play).toHaveBeenCalledTimes(requests);
+  await click("Retry video"); expect(latestActivation().reload).toBe(true); expect(mockVideo!.muted).toBe(false);
 });
 
 test.each(["original", "mp4"] as const)("%s comparison uses native MP4 support, pins both sources and keeps sound/ownership", async format => {

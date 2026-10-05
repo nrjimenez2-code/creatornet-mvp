@@ -86,3 +86,21 @@ test.each([undefined, "parked"])("transfer %s preserves the original format rout
   expect(result.key).toBe("formats:mp4");
   expect(result.props.directMainTransfer).toBe(false);
 });
+
+test("prepared transfer opts in to the sole prepared player only for the closed Preview MP4 pair", async () => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "prepared-build" };
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "prepared" }) });
+  expect(result.key).toBe("formats:mp4:prepared"); expect(result.props.controllerMode).toBe("prepared");
+  expect(result.props.directMainTransfer).toBe(false); expect(result.props.buildCommit).toBe("prepared-build");
+  expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
+});
+
+test.each([undefined, "hls", "original"])("prepared transfer rejects %s sources", async format => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format, transfer: "prepared" }) })).rejects.toThrow("NOT_FOUND");
+});
+
+test("prepared transfer is unavailable in Production", async () => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "production" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "prepared" }) })).rejects.toThrow("NOT_FOUND");
+});
