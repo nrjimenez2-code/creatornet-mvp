@@ -1,3 +1,7 @@
+import {writeProductCheckoutPending} from "@/lib/productCheckoutPending";
+import {productCheckoutOrderMatches} from "@/lib/productCheckoutOrder";
+import { recoverProductCheckoutOriginalRequest } from "@/lib/productCheckoutOriginalRequest";
+import { retireProductCheckoutSession } from "@/lib/productCheckoutExpiry";
 import { discoverEnabled, recordDiscoverEvent, linkDiscoverHistory } from "@/lib/discoverServer";
 // app/api/checkout/route.ts
 import { publicMessage } from "@/lib/apiError";
@@ -8,7 +12,8 @@ import { paidCallsReady, validPaidCallTarget } from "@/lib/paidCalls";
 import "server-only";
 import { requireProductConsent } from "@/lib/purchaseConsent";
 import { PURCHASE_POLICY_VERSION } from "@/lib/purchasePolicies";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { productCheckoutFingerprint } from "@/lib/productCheckoutFingerprint";
 import type { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
@@ -76,6 +81,8 @@ type ProductCheckoutRow = {
 };
 
 type ProductCheckoutAttempt = {
+  original_request_protocol?: "product-checkout-original-v1" | null;
+  checkout_kind?: "full" | "installments";
   id: string;
   buyer_id: string;
   purchase_identity: string;
@@ -90,16 +97,11 @@ type ProductCheckoutAttempt = {
   status: "creating" | "open" | "complete";
 };
 
-const PRODUCT_CHECKOUT_ATTEMPT_COLUMNS =
-  "id, buyer_id, purchase_identity, creator_id, product_id, post_id, attempt_key, order_id, terms_fingerprint, stripe_checkout_session_id, stripe_checkout_url, status";
-
-function productCheckoutFingerprint(value: Record<string, string | number | null>): string {
-  const canonical = Object.keys(value)
-    .sort()
-    .map((key) => `${key}=${String(value[key] ?? "")}`)
-    .join("\n");
-  return createHash("sha256").update(canonical).digest("hex");
-}
+// Server-only row read must retain persisted protocol/mode markers even when a
+// rollout flag is disabled. Selecting named new columns would break older
+// schemas; selecting only old columns could hide durable payment ownership.
+// No attempt row or saved provider request is returned to the browser.
+const PRODUCT_CHECKOUT_ATTEMPT_COLUMNS = "*" as const;
 
 function isUniqueViolation(error: unknown): boolean {
   return Boolean(
@@ -164,8 +166,8 @@ export async function POST(req: NextRequest) {
 
   // Identity comes from the verified session ONLY. This used to be
   //   (body as BodyBase).buyer_id ?? authUser?.id
-  // which let a caller attribute a checkout — and the purchases row the webhook
-  // later writes from this session's metadata — to any user id they chose.
+  // which let a caller attribute a checkout â€” and the purchases row the webhook
+  // later writes from this session's metadata â€” to any user id they chose.
   // The browser does send buyer_id (components/VideoCard.tsx:735); it is now
   // ignored, and for a legitimate user it was already equal to the session id.
   const resolvedBuyerId = authUser?.id ?? null;
@@ -174,85 +176,10 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Sign in required to checkout." }, { status: 401 });
   }
 
-  async function writePending(
-    session_id: string,
-    amount_cents: number,
-    currency: string,
-    order_id: string | null,
-    creatorId: string | null,
-    postId: string | null,
-    productId: string,
-    reusablePurchaseId: string | null,
-    expectedPriorSessionId: string | null
-  ): Promise<boolean> {
-    const buyerId = resolvedBuyerId;
-    const insert: Record<string, unknown> = {
-      session_id,
-      status: "pending",
-      product_id: productId,
-      post_id: postId,
-      creator_id: creatorId,
-      buyer_id: buyerId,
-      amount_cents,
-      currency,
-    };
-    if (order_id) insert.order_id = order_id;
-    if (buyerId) {
-      insert.buyer_user_id = buyerId;
-    }
-
-    const loadWinner = async () => {
-      const identityColumn = postId ? "post_id" : "product_id";
-      const identityValue = postId || productId;
-      const { data, error } = await supabase
-        .from("purchases")
-        .select("id, status, session_id, order_id")
-        .eq("buyer_id", buyerId)
-        .eq(identityColumn, identityValue)
-        .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled")
-        .maybeSingle();
-      if (error) {
-        throw new Error(`Failed to verify checkout winner: ${error.message}`);
-      }
-      return data as
-        | { id: string; status: string; session_id: string | null; order_id: string | null }
-        | null;
-    };
-
-    if (reusablePurchaseId) {
-      let update = supabase
-        .from("purchases")
-        .update(insert)
-        .eq("id", reusablePurchaseId)
-        .in("status", ["pending", "processing", "failed"]);
-      update = expectedPriorSessionId
-        ? update.eq("session_id", expectedPriorSessionId)
-        : update.is("session_id", null);
-      const { data, error } = await update
-        .select("id")
-        .maybeSingle();
-      if (error) {
-        throw new Error(
-          `Failed to reuse pending purchase: ${error.message}`
-        );
-      }
-      if (data?.id) return true;
-
-      const winner = await loadWinner();
-      return Boolean(winner && winner.session_id === session_id && winner.order_id === order_id);
-    }
-
-    const { error } = await supabase.from("purchases").insert(insert).select("id").single();
-    if (!error) return true;
-    if (!isUniqueViolation(error)) {
-      throw new Error(`Failed to write pending purchase: ${error.message}`);
-    }
-
-    // A simultaneous request can win the buyer/product uniqueness constraint.
-    // It is safe only when Stripe returned the same idempotent session to both.
-    const winner = await loadWinner();
-    return Boolean(winner && winner.session_id === session_id && winner.order_id === order_id);
-  }
+  const writePending=(sessionId:string,amountCents:number,currency:string,orderId:string|null,
+    creatorId:string|null,postId:string|null,productId:string,reusablePurchaseId:string|null,expectedPriorSessionId:string|null)=>
+    writeProductCheckoutPending({admin:supabase,buyerId:resolvedBuyerId,sessionId,amountCents,currency,orderId,
+      creatorId,postId,productId,reusablePurchaseId,expectedPriorSessionId});
 
   try {
     if (body.type === "product") {
@@ -281,7 +208,7 @@ export async function POST(req: NextRequest) {
       const amount_cents = Number(prod.amount_cents ?? prod.price_cents ?? 0);
       const currency = (prod.currency as string) ?? "usd";
       if (!Number.isFinite(amount_cents) || amount_cents < 50) {
-        throw new Error("Invalid amount (Stripe min 50¢)");
+        throw new Error("Invalid amount (Stripe min 50Â¢)");
       }
 
       // The creator who gets paid is the product's owner. The browser still
@@ -340,7 +267,7 @@ export async function POST(req: NextRequest) {
 
       // purchases.post_id is NOT NULL in the live schema. Without this bail the
       // route happily opened a Stripe Checkout Session for a product no post
-      // sells, then failed to insert the purchase row — the buyer is charged and
+      // sells, then failed to insert the purchase row â€” the buyer is charged and
       // nothing records it, which is the worst outcome available. Fail before
       // Stripe is touched, not after.
       if (!postId) {
@@ -354,8 +281,8 @@ export async function POST(req: NextRequest) {
       }
 
       // The Buy button renders posts.price_cents; Stripe is charged
-      // products.amount_cents. Nothing keeps the two in step — no constraint, no
-      // shared write path — so editing one and not the other silently bills a
+      // products.amount_cents. Nothing keeps the two in step â€” no constraint, no
+      // shared write path â€” so editing one and not the other silently bills a
       // different number than the buyer agreed to. One live post already shows
       // $2,500 against a product that would charge $5,000.
       //
@@ -373,7 +300,7 @@ export async function POST(req: NextRequest) {
       const postPriceCents = Number(postPricing?.price_cents ?? 0);
       if (Number.isFinite(postPriceCents) && postPriceCents > 0 && postPriceCents !== amount_cents) {
         console.error(
-          "[checkout] price mismatch — refusing to charge. post:",
+          "[checkout] price mismatch â€” refusing to charge. post:",
           postId,
           "shows",
           postPriceCents,
@@ -398,7 +325,7 @@ export async function POST(req: NextRequest) {
       // A "video" or "course" promises a file. The buyer gets it from
       // posts.premium_path (signed by GET /api/watch/[postId]) or from a
       // fulfillment link on the product. When a product of those types has
-      // NEITHER, the buyer pays and receives a 404 — the charge-and-deliver-
+      // NEITHER, the buyer pays and receives a 404 â€” the charge-and-deliver-
       // nothing case. As of this commit that describes 16 live posts.
       //
       // Deliberately narrow: only the two types that promise a file are
@@ -435,6 +362,23 @@ export async function POST(req: NextRequest) {
             { status: 409 }
           );
         }
+      }
+
+      // Once manual mentorship checkout is active, the legacy endpoint is
+      // navigation only. A stale client or direct POST must not create an
+      // automatically confirmed Checkout Session around the manual protocol.
+      // Existing attempts keep their separate original-only recovery routes.
+      if (productType === "mentorship" && process.env.CREATOR_MENTORSHIP_MANUAL_CHECKOUT_UI_READY === "true") {
+        const review = new URL("/purchase/review", site);
+        review.searchParams.set("product_id", String(prod.id));
+        review.searchParams.set("post_id", postId);
+        if (b.purchase_consent != null) return Response.json({
+          error: "Review this mentorship and continue through its payment form. Recover any original payment before starting another.",
+          code: "MANUAL_MENTORSHIP_PAYMENT_REQUIRED", url: review.toString(),
+        }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
+        return Response.json({ url: review.toString(), requires_consent: true }, {
+          headers: { "Cache-Control": "private, no-store" },
+        });
       }
 
       // The current schema intentionally has one purchase row per buyer/post
@@ -478,6 +422,8 @@ export async function POST(req: NextRequest) {
       }
 
       const stripe = getStripe();
+      const originalRequestReady = process.env.CREATOR_PRODUCT_CHECKOUT_ORIGINAL_REQUEST_SCHEMA_READY === "true" &&
+        process.env.CREATOR_PRODUCT_CHECKOUT_ORIGINAL_REQUEST_READY === "true";
       const feeMeta = { ...creatorFeeMetadata(fees), ...(consentId ? {
         purchase_consent_id: consentId, purchase_policy_version: PURCHASE_POLICY_VERSION,
         ...(prod.fixed_service_months != null ? { fixed_service_version: "fixed-service-months-v1" } : {}),
@@ -510,7 +456,7 @@ export async function POST(req: NextRequest) {
       const loadAttempt = async (): Promise<ProductCheckoutAttempt | null> => {
         const { data, error } = await supabase
           .from("product_checkout_attempts")
-          .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+          .select<typeof PRODUCT_CHECKOUT_ATTEMPT_COLUMNS, ProductCheckoutAttempt>(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
           .eq("buyer_id", resolvedBuyerId)
           .eq("purchase_identity", purchaseIdentity)
           .maybeSingle();
@@ -537,12 +483,14 @@ export async function POST(req: NextRequest) {
           ...(consentId ? { purchase_consent_id: consentId } : {}),
           stripe_checkout_session_id: priorPurchase?.session_id || null,
           stripe_checkout_url: null,
+          ...(originalRequestReady && productType === "mentorship" && !priorPurchase?.session_id
+            ? { original_request_protocol: "product-checkout-original-v1", checkout_kind: "full" } : {}),
           status: priorPurchase?.session_id ? "open" : "creating",
         };
         const { data, error } = await supabase
           .from("product_checkout_attempts")
           .insert(candidate)
-          .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+          .select<typeof PRODUCT_CHECKOUT_ATTEMPT_COLUMNS, ProductCheckoutAttempt>(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
           .maybeSingle();
         if (!error && data) return data as ProductCheckoutAttempt;
         if (error && !isUniqueViolation(error)) {
@@ -577,7 +525,7 @@ export async function POST(req: NextRequest) {
           .update(replacement)
           .eq("id", current.id)
           .eq("attempt_key", current.attempt_key)
-          .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+          .select<typeof PRODUCT_CHECKOUT_ATTEMPT_COLUMNS, ProductCheckoutAttempt>(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
           .maybeSingle();
         if (error) throw new Error(`Failed to rotate checkout attempt: ${error.message}`);
         if (data) {
@@ -629,19 +577,8 @@ export async function POST(req: NextRequest) {
         if (loadError || !existing) {
           throw new Error(`Failed to verify existing order: ${loadError?.message ?? "missing"}`);
         }
-        const matches =
-          existing.buyer_id === resolvedBuyerId &&
-          existing.creator_id === creatorId &&
-          (existing.post_id ?? null) === postId &&
-          Number(existing.amount_cents) === amount_cents &&
-          Number(existing.gross_amount) === amount_cents &&
-          Number(existing.platform_fee) === fees.platformFeeCents &&
-          Number(existing.processing_fee) === fees.processingFeeCents &&
-          Number(existing.total_creator_deduction) === fees.totalCreatorDeductionCents &&
-          Number(existing.creator_amount) === fees.creatorNetCents &&
-          existing.fee_schedule_version === fees.feeScheduleVersion &&
-          existing.status === "created" &&
-          String(existing.currency).toLowerCase() === currency.toLowerCase();
+        const matches = productCheckoutOrderMatches(existing,{orderId:attempt.order_id,buyerId:resolvedBuyerId,
+          creatorId,postId,amountCents:amount_cents,currency,fees});
         if (!matches) throw new Error("Existing checkout order does not match current terms.");
       };
 
@@ -682,24 +619,9 @@ export async function POST(req: NextRequest) {
         );
       };
 
-      const expirePayableSession = async (
-        session: Stripe.Checkout.Session
-      ): Promise<"expired" | "complete"> => {
-        if (session.status === "complete" || session.payment_status === "paid") return "complete";
-        if (session.status === "expired") return "expired";
-        try {
-          const expired = await stripe.checkout.sessions.expire(session.id);
-          return expired.status === "complete" || expired.payment_status === "paid"
-            ? "complete"
-            : "expired";
-        } catch {
-          // Another request may have expired or completed it between retrieve
-          // and expire. Re-read it; only an explicit terminal state is safe.
-          const current = await retrieveSession(session.id);
-          if (!current || current.status === "expired") return "expired";
-          if (current.status === "complete" || current.payment_status === "paid") return "complete";
-          throw new Error("Prior Stripe Checkout Session could not be retired safely.");
-        }
+      const expirePayableSession = (session: Stripe.Checkout.Session) => {
+        if (attempt.original_request_protocol) throw new Error("Original checkout requires durable stop reconciliation.");
+        return retireProductCheckoutSession({stripe,session,attemptKey:attempt.attempt_key});
       };
 
       const retireOpenOrder = async (orderId: string): Promise<void> => {
@@ -723,6 +645,16 @@ export async function POST(req: NextRequest) {
       // CAS rotation can lose to another request. Re-evaluate the winning row a
       // bounded number of times instead of ever creating from stale state.
       for (let pass = 0; pass < 4; pass += 1) {
+        if (attempt.checkout_kind === "installments") return Response.json({
+          error: "This offer has an accepted installment checkout. Review the existing payment plan before starting another purchase.",
+          code: "INSTALLMENT_CHECKOUT_EXISTS",
+        }, { status: 409, headers: { "Cache-Control": "private, no-store" } });
+        if (attempt.original_request_protocol) {
+          if (!originalRequestReady || attempt.terms_fingerprint !== termsFingerprint) {
+            throw new Error("Original checkout requires recovery before changing terms.");
+          }
+          break; // Owned original runtime handles retrieval/replay, never legacy rotation.
+        }
         if (attempt.stripe_checkout_session_id) {
           const existingSession = await retrieveSession(attempt.stripe_checkout_session_id);
           if (existingSession?.status === "complete" || existingSession?.payment_status === "paid") {
@@ -766,14 +698,15 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          if (existingSession?.status === "open") {
-            const retired = await expirePayableSession(existingSession);
-            if (retired === "complete") {
-              return completedCheckoutResponse(attempt, existingSession.id);
-            }
-          } else if (existingSession && existingSession.status !== "expired") {
-            throw new Error("Prior Stripe Checkout Session is in an unknown state.");
-          }
+          if (!existingSession) throw new Error("Prior Stripe Checkout Session requires reconciliation.");
+          const retired = await expirePayableSession(existingSession);
+          if (retired === "complete") return completedCheckoutResponse(attempt, existingSession.id);
+        }
+
+        // An unbound attempt may have reached Stripe before its response was
+        // lost. Changed terms cannot authorize a fresh key or replacement charge.
+        if (!attempt.stripe_checkout_session_id && attempt.terms_fingerprint !== termsFingerprint) {
+          throw new Error("Original checkout attempt requires reconciliation before changing terms.");
         }
 
         if (
@@ -788,7 +721,7 @@ export async function POST(req: NextRequest) {
 
       if (
         attempt.terms_fingerprint !== termsFingerprint ||
-        attempt.stripe_checkout_session_id
+        (attempt.stripe_checkout_session_id && !attempt.original_request_protocol)
       ) {
         throw new Error("Checkout attempt could not be stabilized safely.");
       }
@@ -810,12 +743,12 @@ export async function POST(req: NextRequest) {
         ...feeMeta,
       });
 
-      let session: Stripe.Checkout.Session;
-      try {
-        session = await stripe.checkout.sessions.create(
-          {
+      const checkoutParams: Stripe.Checkout.SessionCreateParams = {
             mode: "payment",
             payment_method_types: ["card"],
+            // Country collection is required by either pre-charge enforcement
+            // approach. It is not itself a US-only payment restriction.
+            ...(productType === "mentorship" ? { billing_address_collection: "required" as const } : {}),
             line_items: [
               {
                 price_data: {
@@ -841,14 +774,19 @@ export async function POST(req: NextRequest) {
               `Service: ${prod.fixed_service_months} calendar months from confirmed payment. One payment; no automatic renewal.`
             } } } : {}),
             ...(productType === "call" ? { custom_text: { submit: { message: "One standalone paid call. Scheduling becomes available after payment is confirmed. Keep your receipt and return to Your paid calls in Library to schedule." } } } : {}),
-          },
-          { idempotencyKey: `creatornet-product-checkout:${attempt.attempt_key}` }
-        );
-      } catch (e) {
-        // Do not cancel the stable order here: an ambiguous network error can
-        // still have created the session, and the next request must retry with
-        // the same key and exact parameters to recover it.
-        throw e;
+          };
+      const session = attempt.original_request_protocol
+        ? await recoverProductCheckoutOriginalRequest({ buyerId: resolvedBuyerId!, attemptId: attempt.id,
+          attemptKey: attempt.attempt_key, candidate: checkoutParams })
+        : await stripe.checkout.sessions.create(checkoutParams,
+          { idempotencyKey: `creatornet-product-checkout:${attempt.attempt_key}` });
+      // An ambiguous response retains the original operation. A redirect is not
+      // payment proof; accounting remains the existing independent receipt path.
+      if (attempt.original_request_protocol) {
+        if (session.status === "complete" || session.payment_status === "paid") return completedCheckoutResponse(attempt, session.id);
+        if (session.status !== "open" || session.payment_status !== "unpaid" || !session.url) {
+          throw new Error("Original checkout requires reconciliation before another purchase.");
+        }
       }
 
       if (!session.url) {
@@ -857,8 +795,9 @@ export async function POST(req: NextRequest) {
         throw new Error("Stripe did not return a Checkout URL.");
       }
 
-      const { data: savedAttempt, error: saveAttemptError } = await supabase
-        .from("product_checkout_attempts")
+      const { data: savedAttempt, error: saveAttemptError } = attempt.original_request_protocol
+        ? { data: { ...attempt, stripe_checkout_session_id: session.id, stripe_checkout_url: session.url }, error: null }
+        : await supabase.from("product_checkout_attempts")
         .update({
           stripe_checkout_session_id: session.id,
           stripe_checkout_url: session.url,
@@ -868,7 +807,7 @@ export async function POST(req: NextRequest) {
         .eq("id", attempt.id)
         .eq("attempt_key", attempt.attempt_key)
         .eq("terms_fingerprint", termsFingerprint)
-        .select(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
+        .select<typeof PRODUCT_CHECKOUT_ATTEMPT_COLUMNS, ProductCheckoutAttempt>(PRODUCT_CHECKOUT_ATTEMPT_COLUMNS)
         .maybeSingle();
       if (saveAttemptError) {
         const retired = await expirePayableSession(session);

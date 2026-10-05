@@ -123,7 +123,7 @@ export function assertContextHeldObject(object: Stripe.Product | Stripe.Subscrip
     s.default_tax_rates?.length === 0 && s.pending_update === null && s.schedule === null && s.test_clock === null &&
     isDeepStrictEqual(s.metadata, metadata(intent, "subscription")) && s.items?.has_more === false && s.items.data.length === 1 &&
     s.items.data[0].quantity === 1 && s.items.data[0].tax_rates?.length === 0 && s.items.data[0].discounts?.length === 0 &&
-    price?.active === true && price.livemode === live && price.currency === "usd" && price.product === deps.productId &&
+    typeof price?.active === "boolean" && price.livemode === live && price.currency === "usd" && price.product === deps.productId &&
     price.unit_amount === expected.items![0].price_data!.unit_amount && price.billing_scheme === "per_unit" &&
     price.recurring?.interval === "month" && price.recurring.interval_count === 1 && price.recurring.usage_type === "licensed" &&
     s.payment_settings?.save_default_payment_method === "off" &&

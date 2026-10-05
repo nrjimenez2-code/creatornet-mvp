@@ -61,6 +61,14 @@ export function createMembershipPayoffRuntime(d: MembershipBillingDependencies) 
       q.payoffAmountCents === p.terms.amountCents && q.minimumEnd === p.terms.periodEnd, "Payoff balance changed; do not pay an old quote");
     await heldProvider(a);
   }
+  /** Internal manual-source gate. This never claims a Checkout or an intent. */
+  async function assertManualPayoffEligible(a: MembershipRecord, p: MembershipPayoffRecord) {
+    check(env.CREATOR_MONTHLY_MANUAL_PAYOFF_READY === "true", "Monthly manual payoff is not enabled");
+    check(p.status === "accepted" && p.checkout_request === null && p.checkout_dispatched_at === null &&
+      p.stripe_checkout_session_id === null && p.ledger_id === null && p.provider_proof === null,
+      "Original payoff payment requires recovery");
+    await eligible(a, p);
+  }
   const completeUrl = (a: MembershipRecord, p: MembershipPayoffRecord) =>
     buildMembershipPayoffCheckout(a, p).success_url!;
   async function recoverCheckout(a: MembershipRecord, p: MembershipPayoffRecord) {
@@ -80,14 +88,20 @@ export function createMembershipPayoffRuntime(d: MembershipBillingDependencies) 
     check(!bound.error && typeof bound.data === "boolean", "Recovered payoff checkout needs publication review");
     return readMembershipPayoff({ ...p, stripe_checkout_session_id: session.id, status: "checkout_ready" }, a);
   }
-  async function acceptAndPreparePayoff(id: string, buyerId: string, consent: { accepted: boolean; version: string; fingerprint: string }) {
+  async function acceptPayoff(id: string, buyerId: string, consent: { accepted: boolean; version: string; fingerprint: string }) {
     checkoutReady(); check(consent?.accepted === true && consent.version === MEMBERSHIP_PAYOFF_VERSION, "Separate payoff confirmation required");
     const a = await load(id, buyerId), quote = await quotePayoff(id, buyerId);
     check(consent.fingerprint === quote.fingerprint, "Payoff quote changed; review again");
     const reserved = await admin.rpc("reserve_monthly_mentorship_payoff_v1", { p_id: a.id, p_buyer_id: a.buyer_id,
       p_context: context, p_terms: quote.terms, p_fingerprint: quote.fingerprint, p_accepted: true });
     check(!reserved.error && reserved.data, "Payoff reservation needs fresh review");
-    let p = readMembershipPayoff(reserved.data, a);
+    const p = readMembershipPayoff(reserved.data, a);
+    return { agreement: a, payoff: p };
+  }
+  async function acceptAndPreparePayoff(id: string, buyerId: string, consent: { accepted: boolean; version: string; fingerprint: string }) {
+    const saved = await acceptPayoff(id, buyerId, consent);
+    const a = saved.agreement;
+    let p = saved.payoff;
     if (p.status === "captured") return { url: completeUrl(a, p), payoffId: p.id };
     check(p.status !== "abandoned", "Abandoned payoff requires new acceptance");
     await observeContext();
@@ -186,5 +200,6 @@ export function createMembershipPayoffRuntime(d: MembershipBillingDependencies) 
     check(!saved.error && typeof saved.data === "boolean", "Payoff abandonment needs reconciliation");
     return { status: "abandoned" as const, payoffId: p.id, originalMonthlyPaymentsMayResume: !a.debit_revoked_at && !a.renewal_stopped_at };
   }
-  return { quotePayoff, acceptAndPreparePayoff, confirmPayoff, abandonPayoff };
+  return { quotePayoff, acceptPayoff, assertManualPayoffEligible,
+    acceptAndPreparePayoff, confirmPayoff, abandonPayoff };
 }

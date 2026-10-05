@@ -61,6 +61,15 @@ test.each([false, true])("steps 1/5/8: original bank capability for replacement=
   expect(h.stripe.paymentIntents.confirm).not.toHaveBeenCalled(); expect(h.stripe.paymentIntents.create).not.toHaveBeenCalled();
   expect(h.stripe.subscriptions.update).not.toHaveBeenCalled();
 });
+test.each([false, true])("manual first receipt permits the same saved bank challenge for replacement=%s", async replacement => {
+  const h = harness(replacement);
+  h.f.a.stripe_checkout_session_id = null; h.f.proof.checkoutSessionId = null;
+  Object.assign(h.f.proof, { manualPayment: { attemptId: "40000000-0000-4000-8000-000000000011",
+    confirmationOperationId: "40000000-0000-4000-8000-000000000012" } });
+  expect((await h.challenge()).status).toBe("bank_verification_ready");
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
+  expect(h.stripe.paymentIntents.confirm).not.toHaveBeenCalled();
+});
 test.each(["key_mode", "key_missing", "card_owner", "card_id", "card_mode", "invoice_id", "invoice_default", "invoice_amount",
   "link_payment", "link_paid", "link_extra", "payment_id", "payment_owner", "payment_amount", "payment_received", "payment_capturable",
   "payment_card", "payment_mode", "payment_fee", "payment_destination", "manual_confirmation", "manual_capture", "redirect_action", "wrong_secret", "succeeded"] as const)(

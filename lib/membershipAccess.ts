@@ -3,7 +3,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 const monthlyReady = () => process.env.CREATOR_MONTHLY_MENTORSHIPS_LEDGER_SCHEMA_READY === "true";
 const fixedReady = () => process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY === "true";
-export const membershipLedgerReady = () => monthlyReady() || fixedReady();
+const buyerReady = () => process.env.CREATOR_MENTORSHIP_INSTALLMENT_RECEIPT_SCHEMA_READY === "true" &&
+  process.env.CREATOR_MENTORSHIP_INSTALLMENT_ACCESS_READY === "true";
+export const membershipLedgerReady = () => monthlyReady() || fixedReady() || buyerReady();
 
 function seconds(value: unknown): number {
   if (!value || typeof value !== "object" || !("allowed" in value) || value.allowed !== true ||
@@ -15,6 +17,11 @@ function seconds(value: unknown): number {
  * readers therefore cannot turn a bounded service into permanent access. */
 export async function membershipAccessSeconds(admin: SupabaseClient, purchaseId: string, buyerId: string): Promise<number> {
   const args = { p_purchase_id: purchaseId, p_buyer_id: buyerId };
+  if (buyerReady()) {
+    const buyer = await admin.rpc("read_buyer_mentorship_entitlement_v1", args);
+    if (buyer.error || !buyer.data || typeof buyer.data !== "object" || typeof buyer.data.applicable !== "boolean") return 0;
+    if (buyer.data.applicable || !fixedReady() && !monthlyReady()) return seconds(buyer.data);
+  }
   if (fixedReady()) {
     const fixed = await admin.rpc("read_fixed_service_entitlement_v1", args);
     if (fixed.error || !fixed.data || typeof fixed.data !== "object" ||

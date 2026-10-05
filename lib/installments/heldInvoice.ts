@@ -3,6 +3,7 @@ import "server-only";
 import type Stripe from "stripe";
 import { calculateInstallmentPlan } from "../installmentPlan";
 import { creatorFeeMetadata, type ProcessingFeeSchedule } from "../money";
+import { assertAgreementId } from "./agreementStore";
 
 /** New agreements only. This is deliberately not the legacy exact-percent-v1. */
 export const HELD_INSTALLMENT_VERSION = "exact-cents-held-v1";
@@ -31,6 +32,27 @@ export type HeldInvoiceAuthorization = Readonly<{
   feeSchedule: ProcessingFeeSchedule;
 }>;
 
+/** Buyer-owned protocol identity. Never manufacture a bookingPaymentId to use
+ * the common amount/fee/invoice algorithm. Existing public entry stays legacy. */
+export type BuyerHeldInvoiceAuthorization = Omit<HeldInvoiceAuthorization,"bookingPaymentId"> & Readonly<{
+  protocol:"buyer-mentorship-installments-v1";buyerReservationId:string;buyerRequestId:string;bookingPaymentId?:never;
+}>;
+type SupportedAuthorization=HeldInvoiceAuthorization|BuyerHeldInvoiceAuthorization;
+
+function identityMetadata(a:SupportedAuthorization):Record<string,string> {
+  if("buyerReservationId" in a) {
+    requireThat(a.protocol==="buyer-mentorship-installments-v1" && !("bookingPaymentId" in a) && a.planId===a.buyerReservationId,"buyer identity differs");
+    assertAgreementId(a.buyerReservationId);assertAgreementId(a.buyerRequestId);
+    return {installment_plan_id:a.planId,creatornet_installment_reservation_id:a.buyerReservationId,creatornet_installment_request_id:a.buyerRequestId};
+  }
+  requireThat(!("protocol" in a) && typeof a.bookingPaymentId==="string" && /^[a-zA-Z0-9_-]{1,100}$/.test(a.bookingPaymentId),"booking identity differs");
+  return {installment_plan_id:a.planId,booking_payment_id:a.bookingPaymentId};
+}
+function matchesIdentity(metadata:Record<string,string>|null|undefined,a:SupportedAuthorization) {
+  return metadata && (!("buyerReservationId" in a) || metadata.booking_payment_id==null) &&
+    Object.entries(identityMetadata(a)).every(([key,value])=>metadata[key]===value);
+}
+
 type InvoiceStripe = {
   invoices: {
     retrieve(id: string): Promise<Stripe.Invoice>;
@@ -51,8 +73,9 @@ function id(value: string | { id: string } | null | undefined) {
   return typeof value === "string" ? value : value?.id ?? null;
 }
 
-function validateAuthorization(a: HeldInvoiceAuthorization) {
-  for (const value of [a.planId, a.bookingPaymentId, a.invoiceId,
+function validateAuthorization(a: SupportedAuthorization) {
+  identityMetadata(a);
+  for (const value of [a.planId, a.invoiceId,
     a.subscriptionId, a.subscriptionItemId, a.customerId, a.destinationId]) {
     requireThat(typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value), "invalid identifier");
   }
@@ -90,7 +113,7 @@ function assertSubscription(sub: Stripe.Subscription, a: HeldInvoiceAuthorizatio
 
 function assertInvoice(
   invoice: Stripe.Invoice,
-  a: HeldInvoiceAuthorization,
+  a: SupportedAuthorization,
   amounts: ReadonlyArray<number>,
   paid = false,
   recovery = false,
@@ -147,8 +170,7 @@ function assertInvoice(
       adjustment.parent?.type === "invoice_item_details" && source?.proration === false &&
       (source.subscription == null || source.subscription === a.subscriptionId) &&
       adjustment.metadata.installment_adjustment === "final-cent-v1" &&
-      adjustment.metadata.installment_plan_id === a.planId &&
-      adjustment.metadata.booking_payment_id === a.bookingPaymentId &&
+      matchesIdentity(adjustment.metadata,a) &&
       adjustment.discountable === false, "unrecognized final balance adjustment");
   }
   requireThat(line.amount + (adjustments[0]?.amount ?? 0) === invoice.amount_due,
@@ -159,19 +181,19 @@ function assertInvoice(
  * require the subscription still to be active: a valid delayed paid event can
  * arrive after its fixed end. Local credit/access safeguards remain separate. */
 export function assertPaidHeldInvoice(invoice: Stripe.Invoice, a: HeldInvoiceAuthorization) {
+  requireThat(!("buyerReservationId" in a) && !("protocol" in a),"public entry requires booking identity");
   return assertPaidHeldInvoiceUsingContract(invoice, a, { expectedLiveMode: false, collectionVersion: HELD_INSTALLMENT_VERSION, metadata: {} });
 }
 
 /** Internal owned-context inspection. Existing public receipt entry stays Sandbox. */
-export function assertPaidHeldInvoiceUsingContract(invoice: Stripe.Invoice, a: HeldInvoiceAuthorization,
-  contract: Pick<HeldInvoicePreparationContract, "expectedLiveMode" | "collectionVersion" | "metadata">) {
+export function assertPaidHeldInvoiceUsingContract<A extends SupportedAuthorization>(invoice: Stripe.Invoice, a: A,
+  contract: Pick<HeldInvoicePreparationContract<A>, "expectedLiveMode" | "collectionVersion" | "metadata">) {
   const { payment } = validateAuthorization(a);
   assertInvoice(invoice,a,[payment.amountCents],true,false,contract.expectedLiveMode);
   // Current Stripe invoice types do not expose fee/transfer fields on retrieve;
   // the caller verifies those on the invoice's actual default PaymentIntent.
   requireThat(invoice.metadata?.installment_collection_version === contract.collectionVersion &&
-    invoice.metadata.installment_plan_id === a.planId && invoice.metadata.installment_number === String(a.paymentNumber) &&
-    invoice.metadata.booking_payment_id === a.bookingPaymentId &&
+    matchesIdentity(invoice.metadata,a) && invoice.metadata.installment_number === String(a.paymentNumber) &&
     Object.entries(contract.metadata).every(([k,v]) => invoice.metadata?.[k] === v), "paid invoice fee/identity changed");
   return payment;
 }
@@ -179,17 +201,18 @@ export function assertPaidHeldInvoiceUsingContract(invoice: Stripe.Invoice, a: H
 /** Read-only validation after an admitted attempt, including a decline/SCA.
  * Does not relax the preparer's zero-attempt guard or authorize another pay. */
 export function assertRecoveryHeldInvoice(invoice:Stripe.Invoice,a:HeldInvoiceAuthorization) {
+  requireThat(!("buyerReservationId" in a) && !("protocol" in a),"public entry requires booking identity");
   return assertRecoveryHeldInvoiceUsingContract(invoice,a,{expectedLiveMode:false,collectionVersion:HELD_INSTALLMENT_VERSION,metadata:{}});
 }
 
 /** Read-only owned-context variant; never grants payment or retry permission. */
-export function assertRecoveryHeldInvoiceUsingContract(invoice:Stripe.Invoice,a:HeldInvoiceAuthorization,
-  contract:Pick<HeldInvoicePreparationContract,"expectedLiveMode"|"collectionVersion"|"metadata">) {
+export function assertRecoveryHeldInvoiceUsingContract<A extends SupportedAuthorization>(invoice:Stripe.Invoice,a:A,
+  contract:Pick<HeldInvoicePreparationContract<A>,"expectedLiveMode"|"collectionVersion"|"metadata">) {
   const {payment}=validateAuthorization(a);
   assertInvoice(invoice,a,[payment.amountCents],false,true,contract.expectedLiveMode);
   requireThat(Number.isSafeInteger(invoice.attempt_count)&&invoice.attempt_count>=0&&
-    invoice.metadata?.installment_collection_version===contract.collectionVersion&&invoice.metadata.installment_plan_id===a.planId&&
-    invoice.metadata.installment_number===String(a.paymentNumber)&&invoice.metadata.booking_payment_id===a.bookingPaymentId&&
+    invoice.metadata?.installment_collection_version===contract.collectionVersion&&matchesIdentity(invoice.metadata,a)&&
+    invoice.metadata.installment_number===String(a.paymentNumber)&&
     Object.entries(contract.metadata).every(([k,v])=>invoice.metadata?.[k]===v),
   "recovery invoice identity changed");
   return payment;
@@ -205,28 +228,29 @@ export function assertRecoveryHeldInvoiceUsingContract(invoice:Stripe.Invoice,a:
  * edit the default invoice PaymentIntent directly (Stripe does not permit it).
  * No ledger, access, purchase, customer, subscription or payment-state writes.
  */
-export type HeldInvoicePreparationContract = Readonly<{
+export type HeldInvoicePreparationContract<A extends SupportedAuthorization=HeldInvoiceAuthorization> = Readonly<{
   expectedLiveMode: boolean;
   collectionVersion: string;
   idempotencyPrefix: string;
   metadata: Readonly<Record<string, string>>;
-  assertSubscription: (subscription: Stripe.Subscription, authorization: HeldInvoiceAuthorization) => void;
+  assertSubscription: (subscription: Stripe.Subscription, authorization: A) => void;
 }>;
 
 /** Complete existing requests, shared with the context transport's exact-body
  * check. Neither these parameters nor their existence grants permission to send. */
-export function heldInvoicePreparationRequests(a: HeldInvoiceAuthorization, c: HeldInvoicePreparationContract) {
+export function heldInvoicePreparationRequests<A extends SupportedAuthorization>(a: A, c: HeldInvoicePreparationContract<A>) {
   const { plan, payment } = validateAuthorization(a);
+  requireThat(!("buyerReservationId" in a) || !("booking_payment_id" in c.metadata),"buyer contract cannot adopt a booking");
   return {
     adjustment: { lines: [{ amount: payment.amountCents - plan.regularAmountCents,
       description: "Final installment balance adjustment", discountable: false,
       period: { start: a.periodStart, end: a.periodEnd }, metadata: {
-        installment_adjustment: "final-cent-v1", installment_plan_id: a.planId, booking_payment_id: a.bookingPaymentId,
+        installment_adjustment: "final-cent-v1", ...identityMetadata(a),
       } }] } satisfies Stripe.InvoiceAddLinesParams,
     configure: { auto_advance: false, application_fee_amount: payment.fees.totalCreatorDeductionCents,
       transfer_data: { destination: a.destinationId }, payment_settings: { payment_method_types: ["card"] },
-      metadata: { ...c.metadata, installment_collection_version: c.collectionVersion, installment_plan_id: a.planId,
-        booking_payment_id: a.bookingPaymentId, installment_number: String(a.paymentNumber), ...creatorFeeMetadata(payment.fees) },
+      metadata: { ...c.metadata, installment_collection_version: c.collectionVersion, ...identityMetadata(a),
+        installment_number: String(a.paymentNumber), ...creatorFeeMetadata(payment.fees) },
     } satisfies Stripe.InvoiceUpdateParams,
     finalize: { auto_advance: false } satisfies Stripe.InvoiceFinalizeInvoiceParams,
   };
@@ -235,10 +259,10 @@ export function heldInvoicePreparationRequests(a: HeldInvoiceAuthorization, c: H
 /** Shared request/amount algorithm, not a collection authority. A context
  * caller must supply its owned contract and private, write-admitted transport.
  * The original public Sandbox entry below keeps its hard restrictions. */
-export async function prepareHeldInvoiceUsingContract(
+export async function prepareHeldInvoiceUsingContract<A extends SupportedAuthorization>(
   stripe: InvoiceStripe,
-  authorization: HeldInvoiceAuthorization,
-  contract: HeldInvoicePreparationContract,
+  authorization: A,
+  contract: HeldInvoicePreparationContract<A>,
 ): Promise<Readonly<{
   invoiceId: string;
   paymentIntentId: string;
@@ -249,7 +273,7 @@ export async function prepareHeldInvoiceUsingContract(
 }>> {
   // Snapshot nested input before awaiting; don't let a caller mutate the agreed
   // amount, identity, period or schedule in the middle of the API sequence.
-  const a = Object.freeze({ ...authorization, feeSchedule: Object.freeze({ ...authorization.feeSchedule }) });
+  const a = Object.freeze({ ...authorization, feeSchedule: Object.freeze({ ...authorization.feeSchedule }) }) as A;
   const c = Object.freeze({ ...contract, metadata: Object.freeze({ ...contract.metadata }) });
   const { plan, payment } = validateAuthorization(a);
   const subscription = await stripe.subscriptions.retrieve(a.subscriptionId);
@@ -284,6 +308,9 @@ export async function prepareHeldInvoiceUsingContract(
 
   assertInvoice(invoice, a, [payment.amountCents], false, false, c.expectedLiveMode);
   requireThat(invoice.status === "open", "finalization did not return an unpaid open invoice");
+  if("buyerReservationId" in a) requireThat(matchesIdentity(invoice.metadata,a) &&
+    invoice.metadata?.installment_collection_version===c.collectionVersion && invoice.metadata.installment_number===String(a.paymentNumber) &&
+    Object.entries(c.metadata).every(([key,value])=>invoice.metadata?.[key]===value),"buyer invoice identity differs");
   const payments = await stripe.invoicePayments.list({ invoice: a.invoiceId, limit: 100 });
   requireThat(payments.has_more === false && payments.data.length === 1, "ambiguous invoice payment linkage");
   const linked = payments.data[0];
@@ -316,6 +343,7 @@ export async function prepareHeldInvoiceUsingContract(
 
 /** Existing Sandbox-only entry: no caller-selectable live mode or new context. */
 export function prepareHeldInstallmentInvoice(stripe: InvoiceStripe, authorization: HeldInvoiceAuthorization) {
+  requireThat(!("buyerReservationId" in authorization) && !("protocol" in authorization),"public entry requires booking identity");
   return prepareHeldInvoiceUsingContract(stripe, authorization, {
     expectedLiveMode: false, collectionVersion: HELD_INSTALLMENT_VERSION,
     idempotencyPrefix: `${HELD_INSTALLMENT_VERSION}:${authorization.planId}:${authorization.invoiceId}`,

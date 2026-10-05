@@ -1504,6 +1504,37 @@ export async function POST(req: NextRequest) {
   try {
     // Signature and durable event claim are already verified above. Exact
     // Checkout/invoices must never also enter legacy one-time accounting.
+    const { handoffBuyerMentorshipRefundWebhook, handoffBuyerMentorshipDisputeWebhook } = await import("@/lib/mentorshipInstallmentWebhook");
+    if (await handoffBuyerMentorshipDisputeWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    if (await handoffBuyerMentorshipRefundWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { handoffBuyerMentorshipLaterWebhook } = await import("@/lib/mentorshipInstallmentLaterWebhook");
+    if (await handoffBuyerMentorshipLaterWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { handoffBuyerMentorshipManualLifecycle } = await import("@/lib/mentorshipInstallmentManualLifecycle");
+    if (await handoffBuyerMentorshipManualLifecycle({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { handoffBuyerMentorshipFirstWebhook } = await import("@/lib/mentorshipInstallmentFirstWebhook");
+    if (await handoffBuyerMentorshipFirstWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { rejectUnimplementedBuyerInstallmentEvent } = await import("@/lib/mentorshipInstallmentWebhook");
+    await rejectUnimplementedBuyerInstallmentEvent({ event, admin, stripe: getStripe(), env: process.env });
+    const { handoffFullServerPaymentWebhook } = await import("@/lib/fullServerPaymentWebhook");
+    if (await handoffFullServerPaymentWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
     const { handoffMonthlyMentorshipWebhook } = await import("@/lib/membershipWebhook");
     if (await handoffMonthlyMentorshipWebhook({ event, admin, env: process.env })) {
       await completeStripeEvent(claimKey, claim.claimToken);
