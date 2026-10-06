@@ -15,9 +15,16 @@ export function useDesktopViewport() {
 
 function subscribeVisibility(notify: () => void) {
   document.addEventListener("visibilitychange", notify);
-  return () => document.removeEventListener("visibilitychange", notify);
+  window.addEventListener('creatornet:visibility', notify);
+  return () => { document.removeEventListener("visibilitychange", notify); window.removeEventListener('creatornet:visibility', notify); };
 }
-const visibilitySnapshot = () => document.visibilityState !== "hidden";
+let nativeVisible: boolean | null = null;
+/** The installed app supplies lifecycle state; website visibility keeps its existing behavior. */
+export function setNativePageVisible(visible: boolean | null) {
+  nativeVisible = visible;
+  window.dispatchEvent(new Event('creatornet:visibility'));
+}
+const visibilitySnapshot = () => nativeVisible !== false && document.visibilityState !== "hidden";
 export function usePageVisible() {
   return useSyncExternalStore(subscribeVisibility, visibilitySnapshot, () => true);
 }

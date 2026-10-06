@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useRef, useState } from "react";
 import { activeBioMention, replaceBioMention, type BioMention, type MentionAccount } from "@/lib/profileBio";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";

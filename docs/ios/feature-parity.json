@@ -1,0 +1,1587 @@
+{
+  "schemaVersion": 1,
+  "goal": "Complete CreatorNet iPhone app, US App Store first, submission-ready without distribution/submission.",
+  "baseline": {
+    "revision": "9abccd86dc16611bb0046cef439d09f3a5e85329",
+    "branch": "main",
+    "deployment": "dpl_nkLwdsNWx5Qs3VjrcDve5ftoWZke",
+    "state": "READY",
+    "productionAliases": [
+      "www.creatornet.net",
+      "creatornet.net"
+    ],
+    "verifiedOn": "2026-10-06"
+  },
+  "requiredWebsiteDependencies": [
+    {
+      "pr": 264,
+      "head": "9c55b9f43b37c94b18228e5646c09ebb14c02b0c",
+      "owner": "Existing premium-delivery chat",
+      "status": "Unfinished website acceptance/release; retained TEST identities and receipts must not be repeated."
+    },
+    {
+      "branch": "experiment/mobile-hls-lab",
+      "head": "cf3455500bfb7e7567afedd1a44a2f8ab187aa80",
+      "owner": "Existing mobile-playback chat",
+      "status": "Candidate playback work remains separately owned; main renderer is the first app baseline."
+    }
+  ],
+  "deferredOnly": [
+    "New managed offline Library playback",
+    "Background audio",
+    "Background upload continuation",
+    "Dedicated Mac app",
+    "iPad redesign"
+  ],
+  "items": [
+    {
+      "id": "route-001",
+      "websiteRoute": "/access/[purchaseId]",
+      "websiteSource": "app/access/[purchaseId]/page.tsx",
+      "websiteBehavior": "Existing /access/[purchaseId] screen, role/ownership checks and associated website API behavior.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-002",
+      "websiteRoute": "/admin/commerce/installments",
+      "websiteSource": "app/admin/commerce/installments/page.tsx",
+      "websiteBehavior": "Administrator installment status, recovery and authorized actions.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-003",
+      "websiteRoute": "/admin/commerce",
+      "websiteSource": "app/admin/commerce/page.tsx",
+      "websiteBehavior": "Administrator commerce/refund/reconciliation controls with existing release gates.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-004",
+      "websiteRoute": "/admin/content",
+      "websiteSource": "app/admin/content/page.tsx",
+      "websiteBehavior": "Administrator content review, approval, hide/unhide, removal and reports.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-005",
+      "websiteRoute": "/admin",
+      "websiteSource": "app/admin/page.tsx",
+      "websiteBehavior": "Verified administrator dashboard and existing moderation/commerce metrics.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-006",
+      "websiteRoute": "/admin/reviews",
+      "websiteSource": "app/admin/reviews/page.tsx",
+      "websiteBehavior": "Administrator review moderation and removal.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-007",
+      "websiteRoute": "/admin/users",
+      "websiteSource": "app/admin/users/page.tsx",
+      "websiteBehavior": "Administrator user review, ban/unban and associated permissions.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-008",
+      "websiteRoute": "/auth",
+      "websiteSource": "app/auth/page.tsx",
+      "websiteBehavior": "Apple, Google, and admitted six-digit email code sign-in; returning-user onboarding decision.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Native PKCE/email-code candidate with Keychain adapter; hosted configuration and device acceptance pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-009",
+      "websiteRoute": "/calls",
+      "websiteSource": "app/calls/page.tsx",
+      "websiteBehavior": "Buyer paid calls, scheduling and existing fulfillment state.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-010",
+      "websiteRoute": "/cancel",
+      "websiteSource": "app/cancel/page.tsx",
+      "websiteBehavior": "Canceled website checkout with retry preserving the original operation.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-011",
+      "websiteRoute": "/continue",
+      "websiteSource": "app/continue/page.tsx",
+      "websiteBehavior": "Resume watching existing progress with current moderation/access rules.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-012",
+      "websiteRoute": "/creators/[creatorId]",
+      "websiteSource": "app/creators/[creatorId]/page.tsx",
+      "websiteBehavior": "Public profile resolved by account ID or username, moderated posts, offers, rating, follow state and biography links.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Shared public-profile components and read API; rating and complete actions pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-013",
+      "websiteRoute": "/creators/[creatorId]/reviews",
+      "websiteSource": "app/creators/[creatorId]/reviews/page.tsx",
+      "websiteBehavior": "Existing creator ratings/reviews, eligibility, posting and moderation behavior.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-014",
+      "websiteRoute": "/dashboard/analytics",
+      "websiteSource": "app/dashboard/analytics/page.tsx",
+      "websiteBehavior": "Creator analytics periods, graphs, details and supported metrics.",
+      "roles": [
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-015",
+      "websiteRoute": "/dashboard/closers",
+      "websiteSource": "app/dashboard/closers/page.tsx",
+      "websiteBehavior": "Creator bookings, Calendly/Google connections and event selection, installment links and booking management.",
+      "roles": [
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-016",
+      "websiteRoute": "/dashboard/earnings",
+      "websiteSource": "app/dashboard/earnings/page.tsx",
+      "websiteBehavior": "Gross/Net by currency and period, paginated history and Stripe Connect status/onboarding.",
+      "roles": [
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-017",
+      "websiteRoute": "/dashboard",
+      "websiteSource": "app/dashboard/page.tsx",
+      "websiteBehavior": "Discover and Following feed; ranking, position, sound, swipe playback, likes, comments, shares, Buy/Book/Tip, insights, reports.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Existing FeedList and VideoCard with routing/Supabase/API adapters; related mutations/commerce still pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-018",
+      "websiteRoute": "/legal/cookies",
+      "websiteSource": "app/legal/cookies/page.tsx",
+      "websiteBehavior": "Existing cookies policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-019",
+      "websiteRoute": "/legal/creators",
+      "websiteSource": "app/legal/creators/page.tsx",
+      "websiteBehavior": "Existing creators policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-020",
+      "websiteRoute": "/legal/delivery",
+      "websiteSource": "app/legal/delivery/page.tsx",
+      "websiteBehavior": "Existing delivery policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-021",
+      "websiteRoute": "/legal/privacy",
+      "websiteSource": "app/legal/privacy/page.tsx",
+      "websiteBehavior": "Existing privacy policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-022",
+      "websiteRoute": "/legal/purchase-agreement",
+      "websiteSource": "app/legal/purchase-agreement/page.tsx",
+      "websiteBehavior": "Existing purchase-agreement policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-023",
+      "websiteRoute": "/legal/refunds",
+      "websiteSource": "app/legal/refunds/page.tsx",
+      "websiteBehavior": "Existing refunds policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-024",
+      "websiteRoute": "/legal/support",
+      "websiteSource": "app/legal/support/page.tsx",
+      "websiteBehavior": "Existing support policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-025",
+      "websiteRoute": "/legal/terms",
+      "websiteSource": "app/legal/terms/page.tsx",
+      "websiteBehavior": "Existing terms policy/support text and links, adapted locally with accurate review disclosures.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-026",
+      "websiteRoute": "/library/[purchaseId]/[assetId]",
+      "websiteSource": "app/library/[purchaseId]/[assetId]/page.tsx",
+      "websiteBehavior": "Ordered entitled private-video playback, per-video progress, renewal, speed, seek and protected MP4 download.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "PR264 premium delivery remains required; integrate its completed website work after its owner clears the release/acceptance gates.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-027",
+      "websiteRoute": "/library",
+      "websiteSource": "app/library/page.tsx",
+      "websiteBehavior": "Entitled purchased products and legacy delivery; access reflects refund, dispute and membership status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-028",
+      "websiteRoute": "/memberships/complete",
+      "websiteSource": "app/memberships/complete/page.tsx",
+      "websiteBehavior": "Existing complete membership flow, frozen terms/consent, original operation identity and authoritative status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-029",
+      "websiteRoute": "/memberships",
+      "websiteSource": "app/memberships/page.tsx",
+      "websiteBehavior": "Buyer memberships, commitment/installments, recovery and lifecycle controls.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-030",
+      "websiteRoute": "/memberships/payoff",
+      "websiteSource": "app/memberships/payoff/page.tsx",
+      "websiteBehavior": "Existing payoff membership flow, frozen terms/consent, original operation identity and authoritative status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-031",
+      "websiteRoute": "/memberships/recovery",
+      "websiteSource": "app/memberships/recovery/page.tsx",
+      "websiteBehavior": "Existing recovery membership flow, frozen terms/consent, original operation identity and authoritative status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-032",
+      "websiteRoute": "/memberships/renewal-recovery",
+      "websiteSource": "app/memberships/renewal-recovery/page.tsx",
+      "websiteBehavior": "Existing renewal-recovery membership flow, frozen terms/consent, original operation identity and authoritative status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-033",
+      "websiteRoute": "/memberships/renewal-retry",
+      "websiteSource": "app/memberships/renewal-retry/page.tsx",
+      "websiteBehavior": "Existing renewal-retry membership flow, frozen terms/consent, original operation identity and authoritative status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-034",
+      "websiteRoute": "/memberships/review",
+      "websiteSource": "app/memberships/review/page.tsx",
+      "websiteBehavior": "Existing review membership flow, frozen terms/consent, original operation identity and authoritative status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-035",
+      "websiteRoute": "/onboarding",
+      "websiteSource": "app/onboarding/page.tsx",
+      "websiteBehavior": "Save existing interest categories and complete account setup.",
+      "roles": [
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Existing interest setup with secure-Supabase/routing adapters; device acceptance pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-036",
+      "websiteRoute": "/",
+      "websiteSource": "app/page.tsx",
+      "websiteBehavior": "Existing landing, account/onboarding admission, and entry to Discover.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-037",
+      "websiteRoute": "/payments",
+      "websiteSource": "app/payments/page.tsx",
+      "websiteBehavior": "Existing payment/recovery journeys and operation status.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-038",
+      "websiteRoute": "/payments/recovery/[agreementId]",
+      "websiteSource": "app/payments/recovery/[agreementId]/page.tsx",
+      "websiteBehavior": "Existing /payments/recovery/[agreementId] screen, role/ownership checks and associated website API behavior.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-039",
+      "websiteRoute": "/profile/[username]",
+      "websiteSource": "app/profile/[username]/page.tsx",
+      "websiteBehavior": "Existing public username alias to the resolved creator profile.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-040",
+      "websiteRoute": "/profile/edit",
+      "websiteSource": "app/profile/edit/page.tsx",
+      "websiteBehavior": "Edit profile identity, bio/mentions, validated website, avatar selection/crop and save.",
+      "roles": [
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Existing editor via secure-Supabase/routing adapters; native picker and device acceptance pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-041",
+      "websiteRoute": "/profile",
+      "websiteSource": "app/profile/page.tsx",
+      "websiteBehavior": "Own profile, bio mentions, website, posts/offers, follower lists, reviews, share, inbox and account menu.",
+      "roles": [
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Shared profile components and new profile read interface; menus, ratings and complete actions pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-042",
+      "websiteRoute": "/purchase/review",
+      "websiteSource": "app/purchase/review/page.tsx",
+      "websiteBehavior": "Existing /purchase/review screen, role/ownership checks and associated website API behavior.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-043",
+      "websiteRoute": "/scheduling/book/[connection]",
+      "websiteSource": "app/scheduling/book/[connection]/page.tsx",
+      "websiteBehavior": "Existing [connection] provider consent/booking flow with preserved state and authorization.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-044",
+      "websiteRoute": "/scheduling/complete",
+      "websiteSource": "app/scheduling/complete/page.tsx",
+      "websiteBehavior": "Existing complete provider consent/booking flow with preserved state and authorization.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-045",
+      "websiteRoute": "/scheduling/connect",
+      "websiteSource": "app/scheduling/connect/page.tsx",
+      "websiteBehavior": "Existing connect provider consent/booking flow with preserved state and authorization.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-046",
+      "websiteRoute": "/scheduling/google",
+      "websiteSource": "app/scheduling/google/page.tsx",
+      "websiteBehavior": "Existing google provider consent/booking flow with preserved state and authorization.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-047",
+      "websiteRoute": "/search",
+      "websiteSource": "app/search/page.tsx",
+      "websiteBehavior": "Recent/suggested searches and creator, video, offering results with existing filters and playback.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Existing client search page with platform adapters; mobile read endpoints/acceptance pending.",
+      "appState": "candidate-partial",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-048",
+      "websiteRoute": "/success",
+      "websiteSource": "app/success/page.tsx",
+      "websiteBehavior": "Authoritative purchase confirmation, pending webhook handling and immutable purchased delivery.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-049",
+      "websiteRoute": "/tag/[hashtag]",
+      "websiteSource": "app/tag/[hashtag]/page.tsx",
+      "websiteBehavior": "Hashtag posts and opened-video playback.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "route-050",
+      "websiteRoute": "/watch/[postId]",
+      "websiteSource": "app/watch/[postId]/page.tsx",
+      "websiteBehavior": "Direct post playback, comments, creator navigation, access and moderation checks.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required local app screen and platform adaptation pending.",
+      "appState": "pending",
+      "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
+      "acceptanceCases": [
+        "Exercise each applicable role on the exact candidate physical iPhone build.",
+        "Deny protected reads/actions to unauthorized roles and changed/deleted accounts.",
+        "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "creator-publishing",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Creator public video/product composer, uploads, size/duration limits, moderation, editing/deletion and Buy/Book/Tip selection.",
+      "roles": [
+        "creator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Existing composer + required PR264 integration; native selection/recovery pending.",
+      "acceptanceCases": [
+        "Creator public video/product composer, uploads, size/duration limits, moderation, editing/deletion and Buy/Book/Tip selection.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "private-upload-recovery",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Private masterclass/bundle/course media, original TUS identities, pause/reopen, processing and publication of Ready assets.",
+      "roles": [
+        "creator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "PR264 owner retains assets/receipts; no duplicate uploads or reservations.",
+      "acceptanceCases": [
+        "Private masterclass/bundle/course media, original TUS identities, pause/reopen, processing and publication of Ready assets.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "commerce-browser-return",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "All purchase, booking, tipping, memberships/installments, recovery and creator-onboarding journeys in the system browser.",
+      "roles": [
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Server-owned return contexts, initiating-account equality, authoritative status and no charge retry pending.",
+      "acceptanceCases": [
+        "All purchase, booking, tipping, memberships/installments, recovery and creator-onboarding journeys in the system browser.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "external-provider-consent",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Preserve existing Calendly/Google connections, scopes/state and app return through the system browser.",
+      "roles": [
+        "creator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Website provider owners retain setup and consent operations.",
+      "acceptanceCases": [
+        "Preserve existing Calendly/Google connections, scopes/state and app return through the system browser.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "native-push",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Opt-in APNs alerts for existing notification events with inbox preserved and privacy-conscious lock-screen text.",
+      "roles": [
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Authenticated registrations, reviewed additive storage/outbox, dedup/retry, APNs config and physical-device acceptance pending.",
+      "acceptanceCases": [
+        "Opt-in APNs alerts for existing notification events with inbox preserved and privacy-conscious lock-screen text.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "native-media-files",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Photo/video/Files selection, Files export, entitled downloads, native sharing and current upload interruption/recovery.",
+      "roles": [
+        "viewer",
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Native selection/download adapters and physical-device acceptance pending.",
+      "acceptanceCases": [
+        "Photo/video/Files selection, Files export, entitled downloads, native sharing and current upload interruption/recovery.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "account-controls",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Report/block/moderation/support and account deletion including active-session revocation and documented retention.",
+      "roles": [
+        "viewer",
+        "buyer",
+        "creator",
+        "administrator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Reports/moderation exist. Blocking/deletion completeness requires code/schema audit and reviewed additions.",
+      "acceptanceCases": [
+        "Report/block/moderation/support and account deletion including active-session revocation and documented retention.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "playback-device-gate",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Cold/rapid swipes, reversals, profile return, pause/mute/seek/speed, background/foreground, private renewal, failed media and long sessions.",
+      "roles": [
+        "anonymous",
+        "viewer",
+        "buyer",
+        "creator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Reuse current renderer first; physical-iPhone measurements are mandatory before any native-player decision.",
+      "acceptanceCases": [
+        "Cold/rapid swipes, reversals, profile return, pause/mute/seek/speed, background/foreground, private renewal, failed media and long sessions.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "submission-materials",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Accurate icons/screenshots, description, privacy/permissions/SDK manifests, age rating, review access/notes and US-only settings.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Final accepted build/device/backend evidence and owner account facts pending.",
+      "acceptanceCases": [
+        "Accurate icons/screenshots, description, privacy/permissions/SDK manifests, age rating, review access/notes and US-only settings.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    },
+    {
+      "id": "signed-release",
+      "websiteRoute": null,
+      "websiteSource": null,
+      "websiteBehavior": "Signed archive/export matching the accepted source revision, current Apple SDK and verified identifier/team/capabilities.",
+      "roles": [
+        "administrator"
+      ],
+      "appImplementation": "Required implementation/acceptance pending.",
+      "appState": "pending",
+      "dependency": "Mac, Xcode, Apple signing and physical iPhone required. No upload, distribution, submission or publication authorized.",
+      "acceptanceCases": [
+        "Signed archive/export matching the accepted source revision, current Apple SDK and verified identifier/team/capabilities.",
+        "Record revision/build/backend/device and negative/recovery cases; retained evidence keeps its original scope."
+      ],
+      "acceptanceEvidence": {
+        "status": "none",
+        "revision": null,
+        "build": null,
+        "backend": null,
+        "device": null
+      }
+    }
+  ]
+}

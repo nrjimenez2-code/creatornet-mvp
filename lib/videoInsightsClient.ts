@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { IntervalWatch } from "./qualifiedWatch";
 import type { InsightSource } from "./videoInsights";
 

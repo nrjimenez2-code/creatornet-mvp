@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useRef, useState } from "react";
 import { EMPTY_SEARCH, type SearchResponse } from "@/lib/searchTypes";
 import { trackEvent } from "@/lib/posthog";

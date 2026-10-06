@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useState, useEffect } from "react";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
 import { useUser } from "@/lib/useUser";

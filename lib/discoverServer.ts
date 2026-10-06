@@ -42,7 +42,7 @@ export async function discoverEventIdentity(req: NextRequest): Promise<DiscoverE
   return { actorCandidate: identity.actor, userId: identity.userId, anonymousClaimCheck: deferred ? 'context' : 'complete' };
 }
 async function resolveDiscoverIdentity(req: NextRequest, deferAnonymousClaimCheck: boolean, clientOptions?: ServerClientOptions) {
-  const { data, error } = await createServerClient(clientOptions).auth.getUser();
+  const { data, error } = await createServerClient({ ...clientOptions, request: req }).auth.getUser();
   if (error && error.name !== "AuthSessionMissingError")
     throw new Error("Could not verify feed identity");
   const anonymous = verifiedAnonymousIdentity(req);

@@ -49,6 +49,9 @@ jobs:
       SENTRY_AUTH_TOKEN: ""
       # Keep Sentry from trying to upload source maps during a CI build.
       SENTRY_SUPPRESS_GLOBAL_ERROR_HANDLER_FILE_WARNING: "1"
+      VITE_CREATORNET_API_ORIGIN: https://example.invalid
+      VITE_SUPABASE_URL: https://example.invalid
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-not-a-real-key
 
     steps:
       - uses: actions/checkout@v5
@@ -68,6 +71,15 @@ jobs:
 
       - name: Typecheck
         run: npx tsc --noEmit
+
+      - name: iPhone client typecheck
+        run: npm run ios:typecheck
+
+      - name: iPhone parity scope
+        run: npm run ios:parity
+
+      - name: Locally packaged iPhone client build
+        run: npm run ios:build
 
       - name: Test scope safeguards
         run: node --test scripts/ci-tests.test.cjs

@@ -14,7 +14,7 @@ import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
  */
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createServerClient();
+    const supabase = createServerClient({ request: req });
     const {
       data: { user },
       error: authError,
