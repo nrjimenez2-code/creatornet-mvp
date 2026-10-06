@@ -272,6 +272,7 @@ export class MobileFeedController {
   }
 
   private activatePrepared(input: ActivationInput) {
+    const activationRequestedAt = feedTraceEnabled() ? performance.now() : null;
     this.watchExpiry();
     if (this.active) this.release(this.active.token);
     this.preparedActiveReady = false;
@@ -318,7 +319,8 @@ export class MobileFeedController {
     input.present(!!promoted);
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
     recordFeedEvent("prepared-player-selection", { result: promoted ? "promoted" : "cold-fallback", target, position: video.currentTime,
-      warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false }, video);
+      warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false,
+      ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
     const armWatchdog = () => {
       if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;
       watchdogDeadline ??= performance.now() + 3_000;
@@ -352,7 +354,8 @@ export class MobileFeedController {
           complete = true; this.preparedActiveReady = true; clearTimeout(watchdog); watchdog = undefined;
           input.ready();
           recordFeedEvent("presentation-handoff", { warmEligible: !!promoted, reason: promoted ? "prepared-player" : "main-only",
-            independentBridge: false, activationMs: now - activatedAt, muted: video.muted, outputMeasured: false }, video);
+            independentBridge: false, activationMs: now - activatedAt, muted: video.muted, outputMeasured: false,
+            ...(activationRequestedAt === null ? {} : { requestToHandoffMs: now - activationRequestedAt }) }, video);
           this.resumePreparation();
         }
         previous = fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src ? metadata.mediaTime : null;

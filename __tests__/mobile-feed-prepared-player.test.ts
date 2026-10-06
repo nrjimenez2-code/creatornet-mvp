@@ -2,8 +2,8 @@
 // Ownership/guard tests only. Mocked media cannot establish WebKit sound grants,
 // picture/audio continuity, native decoder release or physical performance.
 import { MobileFeedController } from "@/lib/mobileFeedController.prototype";
-import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, ownsMobileFeedPlayer, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
-import { exportFeedTrace, resetFeedTrace } from "@/lib/mobileFeedDiagnostics";
+import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, ownsMobileFeedPlayer, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import * as diagnostics from "@/lib/mobileFeedDiagnostics";
 
 let controller: MobileFeedController;
 let callbacks: Map<HTMLVideoElement, Map<number, VideoFrameRequestCallback>>;
@@ -12,7 +12,7 @@ let requestId = 0;
 let originalRequest: typeof HTMLVideoElement.prototype.requestVideoFrameCallback;
 let originalCancel: typeof HTMLVideoElement.prototype.cancelVideoFrameCallback;
 const src = (id: string) => `https://example.test/prepared-${id}.mp4`;
-const events = (kind: string) => exportFeedTrace().events.filter(event => event.kind === kind);
+const events = (kind: string) => diagnostics.exportFeedTrace().events.filter(event => event.kind === kind);
 
 function media(video: HTMLVideoElement) {
   Object.defineProperties(video, {
@@ -64,7 +64,7 @@ async function cold(id: string) {
 
 beforeEach(() => {
   jest.useFakeTimers(); jest.setSystemTime(100_000);
-  window.history.replaceState({}, "", "/?feedDebug=1"); resetFeedTrace(); requestId = 0;
+  window.history.replaceState({}, "", "/?feedDebug=1"); diagnostics.resetFeedTrace(); requestId = 0;
   Object.defineProperty(document, "hidden", { configurable: true, value: false });
   callbacks = new Map(); paused = new WeakMap();
   originalRequest = HTMLVideoElement.prototype.requestVideoFrameCallback;
@@ -112,6 +112,67 @@ test("promotion revokes the old token, records one departure and keeps the prepa
   expect(events("presentation-handoff").at(-1)?.detail).toEqual(expect.objectContaining({ reason: "prepared-player", muted: false, outputMeasured: false }));
   controller.dispose();
   expect(promoted.video.getAttribute("src")).toBe(src("b")); expect(promoted.video.paused).toBe(true);
+});
+
+test("retirement timing preserves native calls, source and ownership", async () => {
+  const enabled = true;
+  const first = await cold(`timing-first-${enabled}`), prepared = prepare(`timing-next-${enabled}`);
+  controller.release(first.token);
+  const host = document.createElement("div"), token = Symbol("timed-owner"); document.body.appendChild(host);
+  const snapshot = mobileFeedResumeSnapshot(`timing-next-${enabled}`, src(`timing-next-${enabled}`));
+  let now = 100, muted = first.video.muted;
+  jest.spyOn(diagnostics, "feedTraceEnabled").mockReturnValue(enabled);
+  jest.spyOn(performance, "now").mockImplementation(() => now);
+  jest.mocked(HTMLMediaElement.prototype.pause).mockClear();
+  jest.mocked(HTMLMediaElement.prototype.pause).mockImplementation(function (this: HTMLMediaElement) {
+    paused.set(this, true); this.dispatchEvent(new Event("pause")); if (this === first.video) now += 2;
+  });
+  Object.defineProperty(first.video, "muted", { configurable: true, get: () => muted, set: value => { muted = value; now += 3; } });
+  const load = jest.mocked(HTMLMediaElement.prototype.load); load.mockClear();
+  load.mockImplementation(function (this: HTMLMediaElement) { if (this === first.video) now += 7; });
+  const append = host.appendChild.bind(host);
+  jest.spyOn(host, "appendChild").mockImplementation(child => { now += 5; return append(child); });
+  const position = prepared.video.currentTime;
+  const promoted = adoptPreparedMobileFeedPlayer(host, token, prepared.video, src(`timing-next-${enabled}`), snapshot, prepared.target + 1 / 30);
+  expect(promoted).toBe(prepared.video); expect(ownsMobileFeedPlayer(token, prepared.video)).toBe(true);
+  expect(prepared.video.currentTime).toBe(position); expect(prepared.video.getAttribute("src")).toBe(src(`timing-next-${enabled}`));
+  expect(first.video.hasAttribute("src")).toBe(false); expect(first.video.isConnected).toBe(false); expect(muted).toBe(true);
+  expect(load.mock.contexts).toEqual([first.video]); expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1);
+  expect(events("main-transfer").at(-1)?.detail).toEqual(expect.objectContaining({
+    adoptionStartedAt: 100, retiredPostId: `timing-first-${enabled}`, retiredPauseReturnedMs: 2, retiredMuteAppliedMs: 5,
+    retiredTraceEndedMs: 5, retiredSourceRemovedMs: 5, retiredLoadReturnedMs: 12, retiredDetachedMs: 12, promotedAttachedMs: 17,
+  }));
+  releaseMobileFeedPlayer(token);
+});
+
+test("diagnostics-off adoption adds no timing clock reads", () => {
+  window.history.replaceState({}, "", "/");
+  jest.isolateModules(() => {
+    const api = jest.requireActual<typeof import("@/lib/mobileFeedPlayer")>("@/lib/mobileFeedPlayer");
+    const firstToken = Symbol("off-first"), nextToken = Symbol("off-next"), host = document.createElement("div");
+    document.body.appendChild(host);
+    const first = api.claimMobileFeedPlayer(host, firstToken, src("off-first"), "off-first"); media(first);
+    api.releaseMobileFeedPlayer(firstToken);
+    const prepared = document.createElement("video"); prepared.src = src("off-next"); prepared.muted = true; media(prepared);
+    prepared.currentTime = 1 / 30;
+    const snapshot = api.mobileFeedResumeSnapshot("off-next", src("off-next"));
+    const clock = jest.spyOn(performance, "now");
+    expect(api.adoptPreparedMobileFeedPlayer(host, nextToken, prepared, src("off-next"), snapshot, 1 / 30)).toBe(prepared);
+    expect(api.ownsMobileFeedPlayer(nextToken, prepared)).toBe(true);
+    expect(clock).not.toHaveBeenCalled();
+    api.releaseMobileFeedPlayer(nextToken);
+  });
+});
+
+test("prepared handoff timing includes retirement before the existing activation trace starts", async () => {
+  const first = await cold("timing-origin-first"); prepare("timing-origin-next");
+  let now = 100; jest.spyOn(performance, "now").mockImplementation(() => now);
+  jest.mocked(HTMLMediaElement.prototype.load).mockImplementation(function (this: HTMLMediaElement) { if (this === first.video) now += 70; });
+  const next = activate("timing-origin-next"); await play(next);
+  now = 200; deliver(next.video, 1 / 30);
+  now = 230; deliver(next.video, 2 / 30);
+  expect(events("prepared-player-selection").at(-1)?.detail).toEqual(expect.objectContaining({ activationRequestedAt: 100, selectionElapsedMs: 70 }));
+  expect(events("presentation-handoff").at(-1)?.detail).toEqual(expect.objectContaining({ activationMs: 60, requestToHandoffMs: 130, outputMeasured: false }));
 });
 
 test.each(["source", "content", "target", "clock", "playing", "unmuted", "rate", "buffer", "dimensions", "ready", "seeking", "reload"])("%s mismatch rejects promotion and uses a cold main without an independent bridge", async mismatch => {

@@ -28,6 +28,16 @@ Other native/media/seek failures require explicit Retry. Keep the failed export
 before trying either action; gesture recovery does not erase or qualify the failure.
 A fulfilled promise, unmuted property or frame callback is not measured sound output.
 
+With `feedDebug=1`, prepared selection records its request timestamp and selection
+duration. The existing transfer event adds cumulative return times for departing
+pause, mute, trace cleanup, source removal, load and detach, followed by promoted
+attachment. Handoff also reports time from the selection request. These passive
+timestamps expose synchronous retirement work that preceded the existing activation
+trace; they do not measure native audio drain/admission or change media calls,
+ownership, watchdog deadlines or readiness. The existing `activationMs` keeps its
+original origin. A recorded output gap remains a failed continuity result even if
+unmuted native play resolves and later picture/audio match.
+
 Readiness requires source/target-qualified advancing frames with finite advancing
 frame counts, fresh submissions and accepted native playback. The three-second
 watchdog keeps the automatic activation deadline, including return-seek waiting;

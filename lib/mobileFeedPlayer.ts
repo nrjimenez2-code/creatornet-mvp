@@ -8,7 +8,7 @@
  * The closed Preview format lab alone can adopt a prepared element explicitly;
  * normal feed claims preserve the shared element and its grant.
  */
-import { beginFeedVideoTrace, endFeedVideoTrace, playableBuffer, recordFeedEvent } from "./mobileFeedDiagnostics";
+import { beginFeedVideoTrace, endFeedVideoTrace, feedTraceEnabled, playableBuffer, recordFeedEvent } from "./mobileFeedDiagnostics";
 
 let player: HTMLVideoElement | null = null;
 let parkingPlace: HTMLDivElement | null = null;
@@ -243,19 +243,31 @@ export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, 
   // Clear the obsolete source only after all rejection paths. The released
   // element may have a deferred parking ticket; it must never reclaim this owner.
   const retired = player;
+  // Preview diagnostics only: cumulative synchronous operation return times.
+  // These do not timestamp native audio drain, admission or decoder release.
+  const adoptionStartedAt = feedTraceEnabled() ? performance.now() : null;
+  const timing: Record<string, string | number | null> | null = adoptionStartedAt === null ? null
+    : { adoptionStartedAt, retiredPostId: currentPostId };
+  const mark = (step: string) => { if (timing && adoptionStartedAt !== null) timing[step] = performance.now() - adoptionStartedAt; };
   pendingParking = null;
   cancelPendingSeek();
   if (retired) {
-    retired.pause(); retired.muted = true; endFeedVideoTrace(retired);
-    retired.removeAttribute("src"); retired.load(); retired.remove();
+    retired.pause(); mark("retiredPauseReturnedMs");
+    retired.muted = true; mark("retiredMuteAppliedMs");
+    endFeedVideoTrace(retired); mark("retiredTraceEndedMs");
+    retired.removeAttribute("src"); mark("retiredSourceRemovedMs");
+    retired.load(); mark("retiredLoadReturnedMs");
+    retired.remove(); mark("retiredDetachedMs");
   }
   player = video; owner = token; seekOutcome = null;
   currentPostId = snapshot.postId; currentContentVersion = snapshot.contentVersion;
   managedResume = true; parkedSnapshot = null;
   recentPositions.delete(snapshot.postId); scheduleExpiry();
   host.appendChild(video);
+  mark("promotedAttachedMs");
   beginFeedVideoTrace(video, snapshot.postId, src, true);
-  recordFeedEvent("main-transfer", { mode: "prepared", retiredSourceRemoved: !retired?.hasAttribute("src"), position: video.currentTime }, video);
+  recordFeedEvent("main-transfer", { mode: "prepared", retiredSourceRemoved: !retired?.hasAttribute("src"), position: video.currentTime,
+    ...(timing ?? {}) }, video);
   recordFeedEvent("resume-decision", { postId: snapshot.postId, contentVersion: snapshot.contentVersion, position: snapshot.position,
     expiresAt: latest.expiresAt, decision: snapshot.position > 0 ? "resume" : "restart" }, video);
   return video;
