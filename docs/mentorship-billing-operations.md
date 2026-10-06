@@ -3,6 +3,22 @@
 Deployment candidate only. These source changes do not enable production billing
 or establish hosted acceptance.
 
+## Maintenance runtime identity
+
+`GET /api/internal/mentorship-preview-identity` on the immutable deployment
+origin selects the maintenance profile only when
+`CREATOR_MANUAL_PAYMENT_ADMISSION_PAUSED` is literally `true`. It requires the
+exact custom Preview target, nine closed admission gates and retained recovery
+prerequisites. The response observes the runtime Stripe TEST account/mode and
+owner-provisioned database pin through three read requests. It reports configured
+pause and gates with `paymentAuthorization:false`; it does not dispatch payment
+or database writes. The original authoring profile retains its separate response.
+
+This observation does not prove actual ingress closure, provider drain, signed
+completion, exact payment acceptance, publishable-key account binding, actual
+fees or Storage upload. Those remain separate hosted acceptance gates. Do not
+reopen checkout gates to obtain a maintenance identity response.
+
 ## Schedules
 
 The maintenance candidate retains only the four existing search and Google
