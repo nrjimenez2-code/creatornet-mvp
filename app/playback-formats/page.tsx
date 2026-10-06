@@ -16,10 +16,10 @@ export default async function PlaybackFormatsPage({ searchParams }: { searchPara
   const format = params.format ?? "hls";
   if (format !== "original" && format !== "mp4" && format !== "hls") notFound();
   const transfer = params.transfer ?? "parked";
-  if (transfer !== "parked" && transfer !== "direct" && transfer !== "prepared") notFound();
+  if (transfer !== "parked" && transfer !== "direct" && transfer !== "prepared" && transfer !== "prepared-audio") notFound();
   // Keep this one-variable control on the measured processed-MP4 fixture pair.
   if (transfer !== "parked" && format !== "mp4") notFound();
-  return <PlaybackLab key={`formats:${format}${transfer !== "parked" ? `:${transfer}` : ""}`} controllerMode={transfer === "prepared" ? "prepared" : "steady"} sourceFormat={format}
+  return <PlaybackLab key={`formats:${format}${transfer !== "parked" ? `:${transfer}` : ""}`} controllerMode={transfer === "prepared" || transfer === "prepared-audio" ? transfer : "steady"} sourceFormat={format}
     directMainTransfer={transfer === "direct"}
     fixtures={playbackFormatFixtures(format)} buildCommit={process.env.VERCEL_GIT_COMMIT_SHA ?? "unknown"} />;
 }

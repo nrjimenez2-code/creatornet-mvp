@@ -5,9 +5,9 @@ import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } fro
 type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
 type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
-type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: (reason?: string) => void; decode: () => void; onReady?: () => void; present: Presentation };
+type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; audioEnabled: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: (reason?: string) => void; decode: () => void; onReady?: () => void; present: Presentation };
 type NativePlayTiming = { requestedAt: number; returnedAt: number; request: Promise<void> | undefined };
-type ActivationInput = { postId: string; src: string; contentVersion?: string; host: HTMLElement; previewHost: HTMLElement; token: symbol; present: Presentation; ready: () => void; failed?: () => void; position?: number; reload?: boolean; playingIntent?: boolean };
+type ActivationInput = { postId: string; src: string; contentVersion?: string; host: HTMLElement; previewHost: HTMLElement; token: symbol; present: Presentation; ready: () => void; failed?: () => void; position?: number; reload?: boolean; playingIntent?: boolean; soundIntent?: boolean };
 type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; current: () => boolean; playRequested: () => void; pauseRequested?: () => void; observeMainPlay: (timing: NativePlayTiming) => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
@@ -50,11 +50,13 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 /** Preview only. Ordinary modes retain the shared sound element; prepared mode
  * explicitly tests promoting a qualified paused neighbor into sole ownership. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" = "reactive") {}
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" = "reactive") {}
+  private get preparedPlayer() { return this.rateMode === "prepared" || this.rateMode === "prepared-audio"; }
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
   private preparedActiveReady = false;
+  private acceptedPreparationSound = false;
   private sequence = 0;
   private unsubscribeExpiry: (() => void) | null = null;
   private watchExpiry() {
@@ -68,12 +70,38 @@ export class MobileFeedController {
   private decodeAllowed() {
     const active = this.active;
     const remaining = active && Number.isFinite(active.video.duration) ? active.video.duration - active.video.currentTime : BUFFER_TARGET;
-    return !document.hidden && !active?.bridge && (this.rateMode !== "prepared" || !active || this.preparedActiveReady) &&
+    return !document.hidden && !active?.bridge && (!this.preparedPlayer || !active || this.preparedActiveReady) &&
       (!active || (active.playing && !active.video.paused && !active.video.seeking && active.video.readyState >= 2 && remaining > 0 && playableBuffer(active.video) >= Math.min(BUFFER_TARGET, remaining)));
   }
   private resumePreparation() {
+    this.refreshPreparationSound();
     const slot = this.active?.partial ?? this.preparing;
     if (this.decodeAllowed()) slot?.decode(); else slot?.pause("main-priority");
+  }
+
+  private refreshPreparationSound() {
+    if (this.rateMode !== "prepared-audio" || !this.preparing) return;
+    const slot = this.preparing, video = slot.video, active = this.active;
+    const remaining = video.duration - slot.target;
+    // This control changes mute only after decoding has stopped. A native play
+    // resolution on the current unmuted main permits the experiment; it is not
+    // evidence of audible output or a transferable WebKit gesture grant.
+    const enabled = !!active?.current() && this.acceptedPreparationSound && this.preparedActiveReady &&
+      active.playing && !active.video.paused && !active.video.muted && !document.hidden &&
+      slot.ready && slot.phase === "ready" && video.paused && !video.seeking && video.playbackRate === 1 &&
+      !video.error && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 &&
+      Number.isFinite(slot.frameTime) && Number.isFinite(slot.frameCount) &&
+      Math.abs((slot.frameTime ?? Infinity) - slot.target) <= 0.1 &&
+      Number.isFinite(video.currentTime) && Math.abs(video.currentTime - (slot.frameTime ?? Infinity)) <= 0.1 &&
+      Number.isFinite(remaining) && remaining > 0 && playableBuffer(video, slot.target) + 0.001 >= Math.min(BUFFER_TARGET, remaining) &&
+      video.getAttribute("src") === slot.src && video.currentSrc === video.src &&
+      sameMobileResume(slot.snapshot, mobileFeedResumeSnapshot(slot.postId, slot.snapshot.contentVersion, true));
+    if (slot.audioEnabled === enabled && video.muted === !enabled) return;
+    // The slot never plays after ready. Cancellation, background and expiry
+    // mute/remove it; promotion removes it from preparation before main play.
+    video.muted = !enabled; slot.audioEnabled = enabled;
+    recordFeedEvent("preparation-sound-state", { postId: slot.postId, enabled, paused: video.paused,
+      muted: video.muted, position: video.currentTime, outputMeasured: false });
   }
 
   private clear(slot: Slot) {
@@ -86,7 +114,7 @@ export class MobileFeedController {
     // must never inherit a correction rate from the preceding activation.
     try { if (slot.video.playbackRate !== 1) slot.video.playbackRate = 1; } catch { /* Source removal below still bounds cleanup. */ }
     slot.present(false);
-    slot.ready = false; slot.frameTime = slot.frameStep = slot.frameCount = null;
+    slot.ready = false; slot.audioEnabled = false; slot.frameTime = slot.frameStep = slot.frameCount = null;
     slot.video.removeAttribute("src"); slot.video.load(); slot.video.remove();
     slot.postId = slot.src = "";
     if (this.preparing === slot) this.preparing = null;
@@ -95,19 +123,19 @@ export class MobileFeedController {
   private slot(): Slot {
     const available = this.slots.find(slot => slot !== this.active?.bridge && slot !== this.active?.partial && slot !== this.preparing);
     if (available) { this.clear(available); return available; }
-    if (this.slots.length >= (this.rateMode === "prepared" ? 1 : 2)) throw new Error("Mobile preparation resource limit");
+    if (this.slots.length >= (this.preparedPlayer ? 1 : 2)) throw new Error("Mobile preparation resource limit");
     const video = document.createElement("video");
     video.playsInline = true; video.loop = true; video.muted = true; video.preload = "auto";
     video.className = "absolute inset-0 h-full w-full object-cover pointer-events-none";
     video.style.visibility = "hidden";
     video.dataset.mobilePreparation = "true";
-    const slot: Slot = { video, generation: ++this.sequence, postId: "", src: "", snapshot: mobileFeedResumeSnapshot("", ""), phase: "cancelled", target: 0, ready: false, frameTime: null, frameCount: null, frameStep: null, stop: () => {}, pause: () => video.pause(), decode: () => {}, present: () => {} };
+    const slot: Slot = { video, generation: ++this.sequence, postId: "", src: "", snapshot: mobileFeedResumeSnapshot("", ""), phase: "cancelled", target: 0, ready: false, audioEnabled: false, frameTime: null, frameCount: null, frameStep: null, stop: () => {}, pause: () => video.pause(), decode: () => {}, present: () => {} };
     this.slots.push(slot); return slot;
   }
   prepare(input: Preparation) {
     this.watchExpiry();
     if (document.hidden || this.active?.postId === input.postId) return;
-    const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, this.rateMode === "prepared");
+    const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, this.preparedPlayer);
     if (this.preparing?.postId === input.postId && this.preparing.src === input.src && sameMobileResume(this.preparing.snapshot, snapshot)) return;
     if (this.preparing) this.clear(this.preparing);
     const slot = this.slot(); this.preparing = slot;
@@ -162,6 +190,7 @@ export class MobileFeedController {
       if (!current() || !usable() || slot.ready) return;
       const detail = diagnostics();
       slot.ready = true; slot.phase = "ready"; slot.pause("ready"); slot.stop();
+      this.refreshPreparationSound();
       if (this.rateMode === "prearmed" && frameTarget === 0 && video.paused) {
         try {
           video.playbackRate = 0.75;
@@ -279,6 +308,11 @@ export class MobileFeedController {
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, true);
     const target = input.position ?? snapshot.position;
     const prepared = this.preparing;
+    const preparedAudioEnabled = this.rateMode === "prepared-audio" && this.acceptedPreparationSound &&
+      prepared?.audioEnabled === true && input.soundIntent === true && input.playingIntent !== false;
+    // A changed sound/pause intent revokes this control before selection. An
+    // unexpected unmuted slot in the original prepared mode remains ineligible.
+    if (prepared?.audioEnabled && !preparedAudioEnabled) { prepared.video.muted = true; prepared.audioEnabled = false; }
     let promoted: HTMLVideoElement | null = null;
     if (!input.reload && prepared?.ready && prepared.phase === "ready" && prepared.postId === input.postId && prepared.src === input.src &&
         sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && target === snapshot.position &&
@@ -287,7 +321,8 @@ export class MobileFeedController {
       // clear(), this cancellation never removes or reloads the qualified source.
       prepared.generation = ++this.sequence; prepared.stop(); prepared.stop = () => {};
       prepared.decode = () => {}; prepared.onReady = undefined;
-      promoted = adoptPreparedMobileFeedPlayer(input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime);
+      promoted = adoptPreparedMobileFeedPlayer(input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
+        preparedAudioEnabled ? { expectedMuted: false } : undefined);
       if (promoted) {
         this.preparing = null; this.slots = this.slots.filter(slot => slot !== prepared);
         prepared.present(false); prepared.phase = "cancelled";
@@ -303,6 +338,7 @@ export class MobileFeedController {
     const video = promoted ?? claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, {
       position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: false, reload: input.reload, boundedSeekRecovery: true,
     });
+    this.acceptedPreparationSound = false;
     const activatedAt = performance.now();
     let alive = true, complete = false, accepted = false, playAttempted = false;
     let frame: number | undefined, watchdog: ReturnType<typeof setTimeout> | undefined;
@@ -320,6 +356,7 @@ export class MobileFeedController {
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
     recordFeedEvent("prepared-player-selection", { result: promoted ? "promoted" : "cold-fallback", target, position: video.currentTime,
       warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false,
+      ...(this.rateMode === "prepared-audio" ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
       ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
     const armWatchdog = () => {
       if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;
@@ -369,6 +406,7 @@ export class MobileFeedController {
     };
     const pauseState = (resetDeadline = true) => {
       playEpoch++; accepted = false; active.playing = false; previous = previousCount = null;
+      this.acceptedPreparationSound = false; this.refreshPreparationSound();
       clearTimeout(watchdog); watchdog = undefined;
       if (resetDeadline) watchdogDeadline = null;
       this.preparing?.pause("main-paused");
@@ -389,12 +427,14 @@ export class MobileFeedController {
       playAttempted = true;
       const requestEpoch = ++playEpoch, requestId = ++playRequests, requestedMuted = video.muted;
       accepted = false;
+      this.acceptedPreparationSound = false; this.refreshPreparationSound();
       const sampled = feedTraceEnabled() && requestId <= NATIVE_PLAY_SAMPLE_LIMIT;
       if (sampled) recordFeedEvent("lab-main-play-returned", { requestId, activationMs: requestedAt - activatedAt, elapsedMs: returnedAt - requestedAt,
         position: video.currentTime, paused: video.paused, muted: requestedMuted, ...audioSessionSnapshot() }, video);
       void request?.then(() => {
         if (!current() || requestEpoch !== playEpoch) return;
         accepted = true; active.playing = !video.paused;
+        this.acceptedPreparationSound = !requestedMuted && !video.muted && !video.paused;
         if (sampled) recordFeedEvent("lab-main-play-settled", { requestId, result: "resolved", muted: requestedMuted,
           elapsedMs: performance.now() - requestedAt, afterReturnMs: performance.now() - returnedAt, outputMeasured: false }, video);
         play(); progress();
@@ -421,7 +461,7 @@ export class MobileFeedController {
   }
 
   activate(input: ActivationInput) {
-    if (this.rateMode === "prepared") return this.activatePrepared(input);
+    if (this.preparedPlayer) return this.activatePrepared(input);
     this.watchExpiry();
     if (this.active) this.release(this.active.token);
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src);

@@ -95,7 +95,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer })));
 }
 async function click(label: string) {
@@ -149,8 +149,20 @@ test("prepared lab distinguishes the build/mode and observes acceptance even whe
   expect(play).toHaveBeenCalledTimes(requests);
 });
 
-test.each(["promise", "synchronous"])("prepared %s sound denial stays recorded and foreground cannot retry without a gesture", async kind => {
-  await render("prepared", "mp4"); await click("Play"); await click("Tap for sound");
+test.each(["prepared", "prepared-audio"] as const)("%s sound control passes current sound intent and keeps denial behind an explicit gesture", async mode => {
+  await render(mode, "mp4"); await click("Play"); await click("Tap for sound");
+  await swipeTo(1);
+  expect(latestActivation()).toEqual(expect.objectContaining({ soundIntent: true, playingIntent: true }));
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ labController: mode, labMainTransfer: mode }));
+  await click("Mute"); await swipeTo(0);
+  expect(latestActivation()).toEqual(expect.objectContaining({ soundIntent: false }));
+});
+
+test.each([
+  ["prepared", "promise"], ["prepared", "synchronous"],
+  ["prepared-audio", "promise"], ["prepared-audio", "synchronous"],
+] as const)("%s %s sound denial stays recorded and foreground cannot retry without a gesture", async (mode, kind) => {
+  await render(mode, "mp4"); await click("Play"); await click("Tap for sound");
   const deny = () => { const error = new DOMException("gesture required", "NotAllowedError"); if (kind === "synchronous") throw error; return Promise.reject(error); };
   play.mockImplementationOnce(deny);
   await swipeTo(1);

@@ -227,13 +227,15 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
 /** Preview experiment only. The caller must revoke the departing owner and
  * detach preparation observers first. Recheck the live snapshot and media before
  * replacing the shared element; adoption never reloads or seeks the selected video.
+ * The original mode requires muted preparation. Only the separately selected
+ * paused-audio Preview control supplies expectedMuted:false after sound checks.
  * A fulfilled play promise on this new element still does not prove audible output.
  */
-export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number): HTMLVideoElement | null {
+export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number, options?: { expectedMuted: boolean }): HTMLVideoElement | null {
   const latest = mobileFeedResumeSnapshot(snapshot.postId, snapshot.contentVersion, true);
   const remaining = video.duration - snapshot.position;
   if (owner !== null || video === player || document.hidden || !sameMobileResume(snapshot, latest) ||
-      video.getAttribute("src") !== src || video.currentSrc !== video.src || !video.paused || !video.muted ||
+      video.getAttribute("src") !== src || video.currentSrc !== video.src || !video.paused || video.muted !== (options?.expectedMuted ?? true) ||
       video.seeking || video.readyState < 2 || video.playbackRate !== 1 || video.error ||
       video.videoWidth <= 0 || video.videoHeight <= 0 || !Number.isFinite(remaining) || remaining <= 0 ||
       !Number.isFinite(frameTime) || Math.abs(frameTime - snapshot.position) > 0.1 ||

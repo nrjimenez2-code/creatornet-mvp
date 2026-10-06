@@ -1,6 +1,7 @@
 # Prepared player Preview experiment
 
-Status: local prototype, physical sound/grant/continuity/performance acceptance pending.
+Status: prepared control published; paused-audio control local. Physical
+sound/grant/continuity/performance acceptance remains pending.
 The normal feed and existing format comparisons keep their defaults.
 
 The Preview-only route `/playback-formats?format=mp4&transfer=prepared&feedDebug=1`
@@ -8,6 +9,39 @@ opts into the existing closed Carlos/Noah processed-MP4 pair. Other formats cann
 use this selector, and the route returns not-found outside `VERCEL_ENV=preview`.
 Its footer and exported context identify `prepared` plus the exact build commit.
 Use an immutable deployment only after exact-head publication approval and full CI.
+
+The separate `transfer=prepared-audio` selector keeps these same Preview/MP4/source
+restrictions and reports `prepared-audio` in its footer and exported controller/
+transfer context. Preparation still decodes muted. Only after qualified preparation
+has paused, and the current moving main's unmuted native play has resolved, can this
+control leave the paused neighbor unmuted before selection. No preparation play,
+load, seek, rate change or extra gesture is added at that point. Pause, mute,
+pending/rejected main play, background, cancellation and expiry revoke that state.
+Selection rechecks current sound/play intent and every existing promotion guard;
+the default `prepared` control still rejects unexpected unmuted preparation.
+The departing main is paused/muted before the promoted element can play. At most
+one element can be playing unmuted; no second active audio timeline is introduced.
+
+This is an audio-startup hypothesis, not a demonstrated fix. Current upstream
+[WebKit AVFoundation code](https://github.com/WebKit/WebKit/blob/60582f61a44ec4d1ad1c3b7ae313868be8249eda/Source/WebCore/platform/graphics/avfoundation/objc/MediaPlayerPrivateAVFoundationObjC.mm#L2310-L2337)
+updates audio suppression/system-audio connection when mute changes. That source
+does not identify the owner's installed Safari binary or prove the cause of the
+captured gap. A momentary unmute followed by remute while paused would restore
+suppression in that implementation, so this control retains the paused state
+until promotion or revocation. A resolved unmuted play permits the local control;
+it does not prove audible output, transferred permission or native audio readiness.
+Permission denial still records failure and requires an explicit recovery gesture.
+With diagnostics enabled, `preparation-sound-state` records paused/mute state and
+selection reports `preparationAudio`; these are properties, not acoustic metrics.
+
+The 8511b88 Safari capture retained a 374.875ms recorded audio gap. Synchronous
+old-source retirement/attachment took 1ms, main play returned after 75ms and
+resolved after 94ms, and moving/handoff callbacks arrived after 210/211ms. Original
+stereo verification found both channels exactly zero in the gap's interior while
+the aligned source contains opening sound. The later matched picture/audio segment
+had no supported backward step; this single warm attempt fails continuity and is
+not a p95 cohort. Native audio startup remains unproven. Compare this new control
+against `prepared` on an exact approved build without pooling their cohorts.
 
 A qualified paused, muted, 1x preparation can become the sole active player. Its
 literal source, current source, content version, fixed departure snapshot, target,
@@ -42,8 +76,9 @@ Readiness requires source/target-qualified advancing frames with finite advancin
 frame counts, fresh submissions and accepted native playback. The three-second
 watchdog keeps the automatic activation deadline, including return-seek waiting;
 intentional pause/background cancels it, and resumed playback rearms it. One active
-element plus at most one muted preparation
-slot is retained. Neighbor decoding waits for qualified active motion. Disposal and
+element plus at most one preparation slot is retained. Decoding remains muted;
+only the explicit audio control may unmute a qualified paused slot.
+Neighbor decoding waits for qualified active motion. Disposal and
 expiry operate only on still-owned preparation; a promoted slot cannot unload the
 active video. Released active video uses the ordinary five-second parked lifecycle.
 Source removal and mocked element counts do not prove immediate native decoder release.
