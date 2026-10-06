@@ -38,6 +38,8 @@ xcodebuild -project apps/ios/ios/App/App.xcodeproj \
 
 Retain the compiler exit status and useful diagnostics. Confirm that `CreatorNetSecureStoragePlugin`, `CreatorNetSystemBrowserPlugin`, and `CreatorNetViewController` compile, and that `SceneDelegate` instantiates the custom view controller. Fix native failures on this same app branch, preserving other work.
 
+The prepared `.github/workflows/ios-native.yml` runs this unsigned device-target compile on GitHub's standard `macos-26` runner using Xcode 26.6 and the same fake app values. It records the actual tested Git SHA, Node/Xcode versions, SDK list and compiler log. Its artifact contains only text metadata/logs, with no app binary, archive, export, signing identity or credential. Check the exact workflow revision/result before reusing its native compilation evidence. The owner still needs a Mac/physical phone for signing, installing and the scenarios below; CI does not satisfy those gates. [GitHub runner tools](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)
+
 ## Inputs required before hosted/device acceptance
 
 - The owner's actual Apple team and existing bundle identifier. `net.creatornet.ios` is still a draft identifier. No Apple identifier or capability has been registered.
