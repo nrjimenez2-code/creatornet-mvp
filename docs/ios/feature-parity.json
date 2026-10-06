@@ -215,7 +215,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Native PKCE/email-code candidate with Keychain adapter; hosted configuration and device acceptance pending.",
+      "appImplementation": "Shared website AuthView and email-code controls with native PKCE/Keychain actions; hosted configuration and device acceptance pending.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
@@ -318,7 +318,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Shared public-profile components and read API; rating and complete actions pending.",
+      "appImplementation": "Website mobile profile layout and shared bio/stats/posts/offers/back/share controls with a read API; rating, existing follow state and complete actions pending.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
@@ -446,7 +446,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Existing FeedList and VideoCard with routing/Supabase/API adapters; related mutations/commerce still pending.",
+      "appImplementation": "Website dashboard, FeedList, VideoCard and MobileTabNav with routing/Supabase/API adapters; related mutations/commerce still pending.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
@@ -1079,7 +1079,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Shared profile components and new profile read interface; menus, ratings and complete actions pending.",
+      "appImplementation": "Website centered mobile profile layout, ProfileMobileHeader and shared posts/offers with a profile read interface; complete account-menu destinations/actions pending.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [

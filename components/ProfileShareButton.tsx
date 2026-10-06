@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 
-export default function ProfileShareButton({ appearance = "icon" }: { appearance?: "icon" | "menu-item" }) {
+export default function ProfileShareButton({ appearance = "icon", shareUrl }: { appearance?: "icon" | "menu-item"; shareUrl?: string }) {
   const [copied, setCopied] = useState(false);
 
   async function handleCopy() {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(shareUrl ?? window.location.href);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 2000);
     } catch (err) {

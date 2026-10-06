@@ -5,12 +5,26 @@ import { secureStorage } from './secureStorage';
 import { openSystemBrowser } from './systemBrowser';
 import { appApi } from './api';
 const pendingKey = 'creatornet.ios.pending-auth';
-type Pending = { state: string; started: number };
+type Pending = { state: string; started: number; provider: 'apple' | 'google' };
 let callbackBusy = false;
+/** The native account boundary replaces browser cookie synchronization. */
+export async function validateNativeSession(userId: string): Promise<boolean> {
+  const result = await appApi.json<{ profile: { id: string } }>('/api/mobile/profile/me');
+  return result.profile.id === userId;
+}
+export async function pendingOAuth(): Promise<'apple' | 'google' | null> {
+  const raw = await secureStorage.getItem(pendingKey);
+  if (!raw) return null;
+  try {
+    const pending = JSON.parse(raw) as Pending;
+    const age = Date.now() - pending.started;
+    if (!['apple', 'google'].includes(pending.provider) || !Number.isFinite(age) || age < 0 || age > 600_000) { await cancelOAuth(); return null; }
+    return pending.provider;
+  } catch { await cancelOAuth(); return null; }
+}
 export async function beginOAuth(provider: 'apple' | 'google') {
-  const previous = await secureStorage.getItem(pendingKey);
-  if (previous) throw new Error('Complete or cancel your current sign-in first.');
-  const pending: Pending = { state: crypto.randomUUID(), started: Date.now() };
+  if (await pendingOAuth()) throw new Error('Complete or cancel your current sign-in first.');
+  const pending: Pending = { state: crypto.randomUUID(), started: Date.now(), provider };
   await secureStorage.setItem(pendingKey, JSON.stringify(pending));
   try {
     const redirect = new URL(readAppConfig().authReturn);
@@ -23,6 +37,7 @@ export async function beginOAuth(provider: 'apple' | 'google') {
 export async function cancelOAuth() {
   await secureStorage.removeItem(pendingKey);
   await secureStorage.removeItem('creatornet.ios.session-code-verifier');
+  window.dispatchEvent(new Event('creatornet:auth-pending-changed'));
 }
 export async function completeOAuth(link: Extract<AppLink, { kind: 'auth' }>): Promise<boolean> {
   if (callbackBusy) return false;
@@ -33,7 +48,8 @@ export async function completeOAuth(link: Extract<AppLink, { kind: 'auth' }>): P
     let pending: Pending;
     try { pending = JSON.parse(raw) as Pending; } catch { await cancelOAuth(); return false; }
     if (pending.state !== link.state) return false;
-    if (Date.now() - pending.started > 600_000 || link.cancelled || !link.code) { await cancelOAuth(); return false; }
+    const age = Date.now() - pending.started;
+    if (!Number.isFinite(age) || age < 0 || age > 600_000 || link.cancelled || !link.code) { await cancelOAuth(); return false; }
     const { error } = await supabase.auth.exchangeCodeForSession(link.code);
     await cancelOAuth();
     if (error) throw new Error('Your sign-in expired. Please try again.');

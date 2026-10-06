@@ -1,15 +1,16 @@
 import { Component, lazy, Suspense, useEffect, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, NavLink, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { App as NativeApp } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
-import { Home, Search, UserRound, Bell } from 'lucide-react';
+import MobileTabNav from '@/components/MobileTabNav';
+import SoundPreferenceSync from '@/components/SoundPreferenceSync';
 import { UserProvider, useUser } from '@/lib/useUser';
 import { parseAppLink } from '@creatornet/shared/appLinks';
 import { readAppConfig } from './config';
 import { completeOAuth, logout } from './platform/auth';
 import { supabase } from './platform/supabase';
 import { setNativePageVisible } from '@/lib/browserVisibility';
-const Feed = lazy(() => import('./pages/Feed'));
+const Feed = lazy(() => import('@/app/dashboard/page'));
 const Auth = lazy(() => import('./pages/Auth'));
 const Profile = lazy(() => import('./pages/Profile'));
 const EditProfile = lazy(() => import('@/app/profile/edit/page'));
@@ -49,9 +50,6 @@ function AppShell() {
     <Route path="/profile/:creatorId" element={<Profile />} /><Route path="/notifications" element={<Notifications />} />
     <Route path="/settings" element={<main className="app-page"><h1>Settings</h1>{userId && <button type="button" className="app-action" onClick={() => { void logout().then(() => navigate('/auth', { replace: true })); }}>Sign out</button>}</main>} />
     <Route path="*" element={<main className="app-page"><p role="alert">This page could not be opened.</p></main>} />
-  </Routes></Suspense><nav className="app-tabs" aria-label="Main navigation">
-    <NavLink to="/dashboard"><Home size={22} aria-hidden="true" />Home</NavLink><NavLink to="/search"><Search size={22} aria-hidden="true" />Search</NavLink>
-    <NavLink to="/notifications"><Bell size={22} aria-hidden="true" />Notifications</NavLink><NavLink to="/profile"><UserRound size={22} aria-hidden="true" />Profile</NavLink>
-  </nav></div>;
+  </Routes></Suspense><Suspense fallback={null}><MobileTabNav /></Suspense><SoundPreferenceSync /></div>;
 }
 export default function App() { return <AppErrorBoundary><BrowserRouter><UserProvider><AppShell /></UserProvider></BrowserRouter></AppErrorBoundary>; }
