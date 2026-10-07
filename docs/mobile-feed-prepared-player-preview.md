@@ -1,7 +1,9 @@
 # Prepared player Preview experiment
 
-Status: prepared control published; paused-audio control local. Physical
-sound/grant/continuity/performance acceptance remains pending.
+Status: both controls published in draft PR #248 at 63ef2c0. Physical captures
+still fail sound continuity; the Low Power Mode off capture also hit the watchdog
+while its recording showed moving picture. Callback diagnostics below are local.
+Sound/grant/continuity/performance acceptance remains pending.
 The normal feed and existing format comparisons keep their defaults.
 
 The Preview-only route `/playback-formats?format=mp4&transfer=prepared&feedDebug=1`
@@ -42,6 +44,27 @@ the aligned source contains opening sound. The later matched picture/audio segme
 had no supported backward step; this single warm attempt fails continuity and is
 not a p95 cohort. Native audio startup remains unproven. Compare this new control
 against `prepared` on an exact approved build without pooling their cohorts.
+
+Two 63ef2c0 Safari/iPhone 17 Pro Max captures retain the failed attempts. With
+owner-confirmed Low Power Mode on, the original stereo startup gap was about
+450ms; the off capture retained about 380ms. Both aligned source intervals contain
+opening sound. These individual captures do not establish a power-mode effect.
+The off capture exported 104 contiguous events with zero drops: selected source
+unchanged, paused-unmuted preparation promoted, play resolved after 88ms, but no
+Noah startup-frame callbacks or handoff. At three seconds the existing watchdog
+paused playback and displayed the error. Its recording shows source-corresponding
+moving Noah picture before that stop; the native cause and callback delivery state
+remain unknown. Do not interpret the advancing clock as qualified readiness.
+
+With `feedDebug=1`, the local diagnostics sample the first eight controller frame
+requests and record pending handle/age, delivery/discard/cancellation counts and
+the last discard/cancellation reason at native play settlement and timeout. The
+timeout also reads playback-quality counters and connection/visibility/media
+state before its own pause. Unsupported quality reads remain null. These data
+distinguish a pending callback from one discarded by owner/epoch checks. Existing
+readiness, callback scheduling, play/pause/load/seek calls, rate and watchdog
+behavior stay unchanged. A new exact-head Preview publication and physical capture are
+required to observe them. Existing captures cannot prove the new diagnosis.
 
 A qualified paused, muted, 1x preparation can become the sole active player. Its
 literal source, current source, content version, fixed departure snapshot, target,

@@ -145,6 +145,46 @@ test("retirement timing preserves native calls, source and ownership", async () 
   releaseMobileFeedPlayer(token);
 });
 
+test("a moving media clock and quality counters without frame delivery retain the watchdog failure and expose its pending observer", async () => {
+  await cold("missing-frame-first"); prepare("missing-frame-next");
+  const active = activate("missing-frame-next");
+  const quality = jest.fn().mockReturnValue({ totalVideoFrames: 90, droppedVideoFrames: 0 });
+  Object.defineProperty(active.video, "getVideoPlaybackQuality", { configurable: true, value: quality });
+  await play(active);
+  active.video.currentTime = 2.9;
+  jest.advanceTimersByTime(3_001);
+  expect(active.ready).not.toHaveBeenCalled(); expect(active.failed).toHaveBeenCalledTimes(1);
+  expect(active.video.paused).toBe(true);
+  const timeout = events("handoff-timeout").at(-1);
+  expect(timeout?.detail).toEqual(expect.objectContaining({
+    targetObserved: false, playAccepted: true, position: 2.9,
+    frameRequestCount: expect.any(Number), frameDeliveryCount: 0, frameDiscardCount: 0,
+    frameRequestPending: true, frameRequestHandle: expect.any(Number), framePendingMs: expect.any(Number),
+    totalVideoFrames: 90, connected: true, hidden: false, paused: false,
+  }));
+  expect(timeout?.detail.framePendingMs).toBeGreaterThanOrEqual(3_000);
+  expect(events("lab-main-frame-request").filter(event => event.postId === "missing-frame-next").length).toBeLessThanOrEqual(8);
+});
+
+test("callback diagnostics stay off and cannot turn delivered obsolete callbacks into successor readiness", async () => {
+  await cold("obsolete-frame-first"); prepare("obsolete-frame-next");
+  const active = activate("obsolete-frame-next");
+  const pending = [...(callbacks.get(active.video)?.values() ?? [])];
+  controller.release(active.token);
+  const successor = activate("obsolete-frame-successor");
+  pending.forEach(callback => callback(performance.now(), { mediaTime: 0.1, presentedFrames: 4 } as VideoFrameCallbackMetadata));
+  expect(successor.ready).not.toHaveBeenCalled(); expect(active.ready).not.toHaveBeenCalled();
+  controller.dispose();
+  window.history.replaceState({}, "", "/");
+  jest.spyOn(diagnostics, "feedTraceEnabled").mockReturnValue(false);
+  controller = new MobileFeedController("prepared");
+  const quiet = activate("quiet-frame-diagnostics");
+  const quality = jest.fn().mockReturnValue({ totalVideoFrames: 90, droppedVideoFrames: 0 });
+  Object.defineProperty(quiet.video, "getVideoPlaybackQuality", { configurable: true, value: quality });
+  await play(quiet); jest.advanceTimersByTime(3_001);
+  expect(quiet.failed).toHaveBeenCalledTimes(1); expect(quality).not.toHaveBeenCalled();
+});
+
 test("diagnostics-off adoption adds no timing clock reads", () => {
   window.history.replaceState({}, "", "/");
   jest.isolateModules(() => {

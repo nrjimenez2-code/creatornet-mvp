@@ -348,6 +348,35 @@ export class MobileFeedController {
     let epoch = 0, playEpoch = 0, playRequests = 0, callbacks = 0;
     let previous: number | null = null, previousCount: number | null = null;
     let intendedPosition = target, targetObserved = false;
+    const collectFrameDiagnostics = feedTraceEnabled();
+    let frameRequests = 0, frameDeliveries = 0, frameDiscards = 0, frameCancellations = 0;
+    let frameRequestedAt: number | null = null;
+    let lastFrameDiscardReason: string | null = null, lastFrameCancelReason: string | null = null;
+    const quality = () => {
+      try {
+        const value = video.getVideoPlaybackQuality?.();
+        return { totalVideoFrames: value?.totalVideoFrames ?? null, droppedVideoFrames: value?.droppedVideoFrames ?? null };
+      } catch { return { totalVideoFrames: null, droppedVideoFrames: null }; }
+    };
+    const initialQuality = collectFrameDiagnostics ? quality() : null;
+    const frameDiagnostics = (includeQuality = false): Record<string, string | number | boolean | null> => {
+      if (!collectFrameDiagnostics) return {};
+      const currentQuality = includeQuality ? quality() : null;
+      return {
+        frameRequestCount: frameRequests, frameDeliveryCount: frameDeliveries, frameDiscardCount: frameDiscards,
+        frameCancellationCount: frameCancellations, lastFrameDiscardReason, lastFrameCancelReason,
+        frameRequestPending: frame !== undefined, frameRequestHandle: frame ?? null,
+        framePendingMs: frame !== undefined && frameRequestedAt !== null ? performance.now() - frameRequestedAt : null,
+        frameEpoch: epoch,
+        ...(currentQuality ? {
+          totalVideoFrames: currentQuality.totalVideoFrames, droppedVideoFrames: currentQuality.droppedVideoFrames,
+          totalVideoFramesDelta: currentQuality.totalVideoFrames !== null && initialQuality?.totalVideoFrames !== null && initialQuality?.totalVideoFrames !== undefined
+            ? currentQuality.totalVideoFrames - initialQuality.totalVideoFrames : null,
+          connected: video.isConnected, hidden: document.hidden, visibilityStyle: video.style.visibility,
+          paused: video.paused, seeking: video.seeking, playingIntent: active.playing,
+        } : {}),
+      };
+    };
     const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
     const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, bridge: null, partial: null,
       playing: false, current, playRequested: () => {}, observeMainPlay: () => {}, stop: () => {} };
@@ -365,7 +394,8 @@ export class MobileFeedController {
         watchdog = undefined;
         if (!current() || complete || document.hidden || video.paused) return;
         recordFeedEvent("handoff-timeout", { mode: "prepared", targetObserved, playAccepted: accepted, position: video.currentTime,
-          readyState: video.readyState, buffer: playableBuffer(video), currentSourceMatches: video.currentSrc === video.src }, video);
+          readyState: video.readyState, buffer: playableBuffer(video), currentSourceMatches: video.currentSrc === video.src,
+          ...frameDiagnostics(true) }, video);
         input.present(false); video.pause(); active.stop(); input.failed?.();
         recordFeedEvent("handoff-recovery", { result: "retry", mode: "prepared" }, video);
       }, Math.max(0, watchdogDeadline - performance.now()));
@@ -373,9 +403,18 @@ export class MobileFeedController {
     const observe = () => {
       if (!current() || complete || frame !== undefined || !video.requestVideoFrameCallback) return;
       const requestedEpoch = epoch;
+      if (collectFrameDiagnostics) { frameRequests++; frameRequestedAt = performance.now(); }
       frame = video.requestVideoFrameCallback((callbackAt, metadata) => {
-        if (!current() || requestedEpoch !== epoch || complete) return;
+        if (collectFrameDiagnostics) frameDeliveries++;
+        if (!current() || requestedEpoch !== epoch || complete) {
+          if (collectFrameDiagnostics) {
+            frameDiscards++;
+            lastFrameDiscardReason = !current() ? "obsolete-owner" : requestedEpoch !== epoch ? "obsolete-epoch" : "complete";
+          }
+          return;
+        }
         frame = undefined; callbacks++;
+        frameRequestedAt = null;
         const now = performance.now(), fresh = now - submittedAt(metadata, now) <= 100;
         if (fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src &&
             metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (now - activatedAt) / 1_000 + 0.25) targetObserved = true;
@@ -399,9 +438,13 @@ export class MobileFeedController {
         previousCount = fresh ? metadata.presentedFrames : null;
         observe();
       });
+      if (collectFrameDiagnostics && frameRequests <= STARTUP_FRAME_SAMPLE_LIMIT) recordFeedEvent("lab-main-frame-request", {
+        ...frameDiagnostics(), position: video.currentTime, paused: video.paused, playAccepted: accepted,
+      }, video);
     };
     const seeking = () => {
       epoch++; previous = previousCount = null; intendedPosition = video.currentTime; targetObserved = false;
+      if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "seeking"; }
       if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observe();
     };
     const pauseState = (resetDeadline = true) => {
@@ -430,13 +473,14 @@ export class MobileFeedController {
       this.acceptedPreparationSound = false; this.refreshPreparationSound();
       const sampled = feedTraceEnabled() && requestId <= NATIVE_PLAY_SAMPLE_LIMIT;
       if (sampled) recordFeedEvent("lab-main-play-returned", { requestId, activationMs: requestedAt - activatedAt, elapsedMs: returnedAt - requestedAt,
-        position: video.currentTime, paused: video.paused, muted: requestedMuted, ...audioSessionSnapshot() }, video);
+        position: video.currentTime, paused: video.paused, muted: requestedMuted, ...audioSessionSnapshot(), ...frameDiagnostics() }, video);
       void request?.then(() => {
         if (!current() || requestEpoch !== playEpoch) return;
         accepted = true; active.playing = !video.paused;
         this.acceptedPreparationSound = !requestedMuted && !video.muted && !video.paused;
         if (sampled) recordFeedEvent("lab-main-play-settled", { requestId, result: "resolved", muted: requestedMuted,
-          elapsedMs: performance.now() - requestedAt, afterReturnMs: performance.now() - returnedAt, outputMeasured: false }, video);
+          elapsedMs: performance.now() - requestedAt, afterReturnMs: performance.now() - returnedAt, outputMeasured: false,
+          ...frameDiagnostics() }, video);
         play(); progress();
       }, () => {
         if (!current() || requestEpoch !== playEpoch) return;
@@ -449,6 +493,7 @@ export class MobileFeedController {
     video.addEventListener("progress", progress); video.addEventListener("stalled", progress);
     active.stop = () => {
       alive = false; this.preparedActiveReady = false; epoch++; playEpoch++; clearTimeout(watchdog);
+      if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "stop"; }
       if (frame !== undefined) video.cancelVideoFrameCallback?.(frame);
       video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play);
       video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting);
