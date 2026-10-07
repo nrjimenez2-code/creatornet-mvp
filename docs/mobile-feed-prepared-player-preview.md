@@ -1,10 +1,39 @@
 # Prepared player Preview experiment
 
-Status: both controls published in draft PR #248 at 63ef2c0. Physical captures
-still fail sound continuity; the Low Power Mode off capture also hit the watchdog
-while its recording showed moving picture. Callback diagnostics below are local.
+Status: prepared/audio controls and callback diagnostics published in draft PR
+#248 at 505c543. Physical captures still fail sound continuity. One Low Power
+Mode off capture hit the watchdog while showing moving picture; the latest off
+capture completed handoff in 259ms and continued sampled playback past 18s.
+The separate in-place comparison below is local and unpublished.
 Sound/grant/continuity/performance acceptance remains pending.
 The normal feed and existing format comparisons keep their defaults.
+
+The local `transfer=prepared-inplace-audio` comparison preserves the paused-audio
+policy of `prepared-audio` while keeping a promoted video in its connected
+preparation host. It rejects wrong/disconnected placement before retiring the
+departing source. Eligible adoption omits the DOM append; source, target,
+permission, buffer, fresh-frame, sole audible owner, return and watchdog guards
+remain required. Cold, ineligible and explicit Retry still use the ordinary main
+host. Retired source cleanup retains its existing order and media calls.
+The lab's preparation/main hosts have the same picture geometry; the promoted
+video becomes the sole main owner and leaves preparation bookkeeping.
+
+This tests whether reparenting a qualified prepared element disrupts native state;
+it does not prove that reparenting caused the captured sound loss. No extra
+play/load/seek/rate, audio-session or microphone action is added. The new selector
+remains restricted to Preview and the same fixed processed-MP4 pair, with its own
+footer/export context. Debug trace reports `preparedAttachmentRetained` on
+selection and successful transfer. Existing `prepared-audio` remains available
+for a comparison on the same build; never pool their physical results.
+
+The latest 505c543 capture retains ~460ms of original stereo silence. The source's
+own opening is quiet until about 0.151s, but source audio from approximately
+0.151..0.504s is absent in the recording. Two delivered source-qualified
+controller callbacks and a successful handoff do not establish audio continuity
+or explain the prior intermittent missing-callback failure. Local tests cannot
+validate either native hypothesis. New exact-head publication approval, full CI,
+matched Ready Preview and separate physical captures are required before this
+local comparison can be evaluated as a playback change.
 
 The Preview-only route `/playback-formats?format=mp4&transfer=prepared&feedDebug=1`
 opts into the existing closed Carlos/Noah processed-MP4 pair. Other formats cannot
@@ -56,15 +85,17 @@ paused playback and displayed the error. Its recording shows source-correspondin
 moving Noah picture before that stop; the native cause and callback delivery state
 remain unknown. Do not interpret the advancing clock as qualified readiness.
 
-With `feedDebug=1`, the local diagnostics sample the first eight controller frame
+With `feedDebug=1`, the published diagnostics sample the first eight controller frame
 requests and record pending handle/age, delivery/discard/cancellation counts and
 the last discard/cancellation reason at native play settlement and timeout. The
 timeout also reads playback-quality counters and connection/visibility/media
 state before its own pause. Unsupported quality reads remain null. These data
 distinguish a pending callback from one discarded by owner/epoch checks. Existing
 readiness, callback scheduling, play/pause/load/seek calls, rate and watchdog
-behavior stay unchanged. A new exact-head Preview publication and physical capture are
-required to observe them. Existing captures cannot prove the new diagnosis.
+behavior stay unchanged. The successful 505c543 capture shows callback delivery
+for that attempt; it cannot explain the earlier failure. The new local in-place
+comparison retains these diagnostics and needs its own approved publication and
+physical evidence.
 
 A qualified paused, muted, 1x preparation can become the sole active player. Its
 literal source, current source, content version, fixed departure snapshot, target,

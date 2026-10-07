@@ -105,20 +105,22 @@ test("prepared transfer is unavailable in Production", async () => {
   await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "prepared" }) })).rejects.toThrow("NOT_FOUND");
 });
 
-test("paused audio control is a separate exact-build Preview MP4 selector with unchanged fixtures", async () => {
+test.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s is a separate exact-build Preview MP4 selector with unchanged fixtures", async transfer => {
   process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "audio-control-build" };
-  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "prepared-audio" }) });
-  expect(result.key).toBe("formats:mp4:prepared-audio");
-  expect(result.props).toEqual(expect.objectContaining({ controllerMode: "prepared-audio", buildCommit: "audio-control-build", directMainTransfer: false }));
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer }) });
+  expect(result.key).toBe(`formats:mp4:${transfer}`);
+  expect(result.props).toEqual(expect.objectContaining({ controllerMode: transfer, buildCommit: "audio-control-build", directMainTransfer: false }));
   expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
 });
 
-test.each([undefined, "hls", "original"])("paused audio control rejects %s sources", async format => {
-  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
-  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format, transfer: "prepared-audio" }) })).rejects.toThrow("NOT_FOUND");
-});
+describe.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s restrictions", transfer => {
+  test.each([undefined, "hls", "original"])("rejects %s sources", async format => {
+    process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+    await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format, transfer }) })).rejects.toThrow("NOT_FOUND");
+  });
 
-test.each([undefined, "production", "development", "Preview"])("paused audio control rejects %s environment", async environment => {
-  process.env = { ...originalEnvironment, VERCEL_ENV: environment };
-  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "prepared-audio" }) })).rejects.toThrow("NOT_FOUND");
+  test.each([undefined, "production", "development", "Preview"])("rejects %s environment", async environment => {
+    process.env = { ...originalEnvironment, VERCEL_ENV: environment };
+    await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer }) })).rejects.toThrow("NOT_FOUND");
+  });
 });

@@ -231,10 +231,11 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
  * paused-audio Preview control supplies expectedMuted:false after sound checks.
  * A fulfilled play promise on this new element still does not prove audible output.
  */
-export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number, options?: { expectedMuted: boolean }): HTMLVideoElement | null {
+export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number, options?: { expectedMuted: boolean; retainAttachment?: boolean }): HTMLVideoElement | null {
   const latest = mobileFeedResumeSnapshot(snapshot.postId, snapshot.contentVersion, true);
   const remaining = video.duration - snapshot.position;
   if (owner !== null || video === player || document.hidden || !sameMobileResume(snapshot, latest) ||
+      (options?.retainAttachment && (!host.isConnected || video.parentElement !== host)) ||
       video.getAttribute("src") !== src || video.currentSrc !== video.src || !video.paused || video.muted !== (options?.expectedMuted ?? true) ||
       video.seeking || video.readyState < 2 || video.playbackRate !== 1 || video.error ||
       video.videoWidth <= 0 || video.videoHeight <= 0 || !Number.isFinite(remaining) || remaining <= 0 ||
@@ -265,10 +266,13 @@ export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, 
   currentPostId = snapshot.postId; currentContentVersion = snapshot.contentVersion;
   managedResume = true; parkedSnapshot = null;
   recentPositions.delete(snapshot.postId); scheduleExpiry();
-  host.appendChild(video);
+  // The separate in-place Preview control keeps the qualified connected node
+  // in its preparation host. Rejected placement cannot retire the old source.
+  if (!options?.retainAttachment) host.appendChild(video);
   mark("promotedAttachedMs");
   beginFeedVideoTrace(video, snapshot.postId, src, true);
   recordFeedEvent("main-transfer", { mode: "prepared", retiredSourceRemoved: !retired?.hasAttribute("src"), position: video.currentTime,
+    ...(options?.retainAttachment ? { preparedAttachmentRetained: true } : {}),
     ...(timing ?? {}) }, video);
   recordFeedEvent("resume-decision", { postId: snapshot.postId, contentVersion: snapshot.contentVersion, position: snapshot.position,
     expiresAt: latest.expiresAt, decision: snapshot.position > 0 ? "resume" : "restart" }, video);

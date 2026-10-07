@@ -50,8 +50,9 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 /** Preview only. Ordinary modes retain the shared sound element; prepared mode
  * explicitly tests promoting a qualified paused neighbor into sole ownership. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" = "reactive") {}
-  private get preparedPlayer() { return this.rateMode === "prepared" || this.rateMode === "prepared-audio"; }
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" = "reactive") {}
+  private get preparedAudio() { return this.rateMode === "prepared-audio" || this.rateMode === "prepared-inplace-audio"; }
+  private get preparedPlayer() { return this.rateMode === "prepared" || this.preparedAudio; }
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
@@ -80,7 +81,7 @@ export class MobileFeedController {
   }
 
   private refreshPreparationSound() {
-    if (this.rateMode !== "prepared-audio" || !this.preparing) return;
+    if (!this.preparedAudio || !this.preparing) return;
     const slot = this.preparing, video = slot.video, active = this.active;
     const remaining = video.duration - slot.target;
     // This control changes mute only after decoding has stopped. A native play
@@ -308,7 +309,8 @@ export class MobileFeedController {
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, true);
     const target = input.position ?? snapshot.position;
     const prepared = this.preparing;
-    const preparedAudioEnabled = this.rateMode === "prepared-audio" && this.acceptedPreparationSound &&
+    const retainAttachment = this.rateMode === "prepared-inplace-audio";
+    const preparedAudioEnabled = this.preparedAudio && this.acceptedPreparationSound &&
       prepared?.audioEnabled === true && input.soundIntent === true && input.playingIntent !== false;
     // A changed sound/pause intent revokes this control before selection. An
     // unexpected unmuted slot in the original prepared mode remains ineligible.
@@ -321,8 +323,8 @@ export class MobileFeedController {
       // clear(), this cancellation never removes or reloads the qualified source.
       prepared.generation = ++this.sequence; prepared.stop(); prepared.stop = () => {};
       prepared.decode = () => {}; prepared.onReady = undefined;
-      promoted = adoptPreparedMobileFeedPlayer(input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
-        preparedAudioEnabled ? { expectedMuted: false } : undefined);
+      promoted = adoptPreparedMobileFeedPlayer(retainAttachment ? input.previewHost : input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
+        retainAttachment ? { expectedMuted: !preparedAudioEnabled, retainAttachment: true } : preparedAudioEnabled ? { expectedMuted: false } : undefined);
       if (promoted) {
         this.preparing = null; this.slots = this.slots.filter(slot => slot !== prepared);
         prepared.present(false); prepared.phase = "cancelled";
@@ -385,7 +387,8 @@ export class MobileFeedController {
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
     recordFeedEvent("prepared-player-selection", { result: promoted ? "promoted" : "cold-fallback", target, position: video.currentTime,
       warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false,
-      ...(this.rateMode === "prepared-audio" ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
+      ...(this.preparedAudio ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
+      ...(retainAttachment ? { preparedAttachmentRetained: !!promoted } : {}),
       ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
     const armWatchdog = () => {
       if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;

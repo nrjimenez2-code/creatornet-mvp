@@ -22,12 +22,13 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const isHls = sourceFormat === undefined || sourceFormat === "hls";
   const directTransfer = directMainTransfer && controllerMode === "steady" && sourceFormat === "mp4";
-  const preparedPlayer = controllerMode === "prepared" || controllerMode === "prepared-audio";
+  const preparedAudio = controllerMode === "prepared-audio" || controllerMode === "prepared-inplace-audio";
+  const preparedPlayer = controllerMode === "prepared" || preparedAudio;
   const nativePlayback = useSyncExternalStore(subscribeCapabilities, isHls ? nativeHlsSnapshot : nativeMp4Snapshot, () => null);
   const sourceLabel = sourceFormat === "original" ? "original MP4" : sourceFormat === "mp4" ? "processed MP4" : "direct native HLS";
   const debug = useSyncExternalStore(subscribeCapabilities, feedTraceEnabled, () => false);
@@ -265,7 +266,8 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
         <p>{sourceFormat ? "Preview format comparison" : "Preview controller experiment"} · {controllerMode} · {sourceFormat && `${sourceFormat} · `}{buildCommit.slice(0, 12)}</p>
         {directTransfer && <p>Direct player transfer comparison</p>}
         {preparedPlayer && <p>Prepared player carries picture and sound · sound permission is under test</p>}
-        {controllerMode === "prepared-audio" && <p>Paused preparation sound control; audio continuity is under test</p>}
+        {preparedAudio && <p>Paused preparation sound control; audio continuity is under test</p>}
+        {controllerMode === "prepared-inplace-audio" && <p>Prepared player stays in place during selection; audio continuity is under test</p>}
         <p role="status">{nativePlayback === false ? `This browser does not report native ${isHls ? "HLS" : "MP4"} support.` : status}</p>
         <div className="flex flex-wrap gap-2">
           <button disabled={nativePlayback !== true || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={play}>Play</button>
