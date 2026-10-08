@@ -12,6 +12,10 @@ This is a proposed first physical feasibility gate for the complete iPhone app. 
 - This Mac is Apple silicon (`Mac16,12`), macOS 15.7.7, with Command Line Tools and no full Xcode. Software Update currently offers macOS 27.0.1 (13.5 GB, restart required). The owner's iPhone 17 Pro Max/iOS 26.6 is reported, not yet independently verified or paired.
 - A temporary verified Node 22.23.3/npm 10.9.9 toolchain under `/private/tmp/creatornet-node-v22.23.3` installed the locked dependencies in the isolated app worktree. Local static/type/build checks use fake public CI values; they do not establish hosted or device acceptance.
 
+## Mobile API admission reviewed before enabling Preview
+
+`lib/mobileApi.ts` returns 503 unless `CREATORNET_IOS_API_ENABLED` is exactly `true`. Its explicit `/api/mobile/*` routes cover feed, feed events, profiles, one profile, notifications, feed offers and email code. The boundary accepts the packaged `capacitor://localhost` origin, or one explicitly configured loopback development origin. It checks the route method, rate limits requests, limits JSON bodies to 65,536 bytes, strips request cookies and response `Set-Cookie`, and rejects a malformed or invalid supplied bearer token. For authenticated calls it resolves the Supabase user and checks that the profile exists and is not banned before invoking the route. The branch-scoped flag proposed below enables only this allowlisted surface; it does not add a financial or administrative catchall.
+
 ## Proposed configuration for the chosen Staging Preview
 
 1. Retain the existing **CreatorNet Staging** Preview mapping. Do not repoint Preview or create another project.
