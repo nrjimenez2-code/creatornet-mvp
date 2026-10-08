@@ -73,7 +73,7 @@ jobs:
         run: node --test scripts/ci-tests.test.cjs
 
       - name: Sandbox configuration safeguards
-        run: node --test release-checks/preview-maintenance.test.mjs
+        run: node --test release-checks/preview-maintenance.test.mjs release-checks/original-monthly-completion.test.cjs
 
       - name: Tests
         run: node scripts/ci-tests.cjs
