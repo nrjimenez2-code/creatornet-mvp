@@ -42,12 +42,12 @@ The prepared `.github/workflows/ios-native.yml` runs this unsigned device-target
 
 ## Inputs required before hosted/device acceptance
 
-- The owner's actual Apple team and existing bundle identifier. `net.creatornet.ios` is still a draft identifier. No Apple identifier or capability has been registered.
+- Apple team `87Z6A36W7G` and registered bundle identifier `com.creatornet.webapp` were verified October 8. Candidate source now matches; Associated Domains is prepared in source but still needs an approved portal capability/provisioning step.
 - An explicitly reviewed backend/Preview revision with `CREATORNET_IOS_API_ENABLED=true`, using existing Supabase accounts and services. Record deployment ID, URL and exact SHA. Production configuration/release is separately scoped.
 - The matching public `VITE_CREATORNET_API_ORIGIN`, `VITE_SUPABASE_URL`, and `VITE_SUPABASE_PUBLISHABLE_KEY`, supplied locally through the process environment. Never include service keys or APNs/OAuth secrets in the app.
 - Reviewed Supabase redirect allowlisting for the exact `/app/auth/callback` URI with pending `cn_state`, plus the custom-scheme fallback as applicable. Reuse existing Apple/Google providers; do not recreate credentials or consent.
-- A reviewed AASA document and associated-domain entitlement for the actual team/bundle and supported routes. Without these, manual custom-scheme fallback can be investigated, but universal-link/cold-launch acceptance remains pending.
-- The owner's paired physical iPhone, its iOS version and Developer Mode/signing setup. Install/run directly from Xcode on this owner's device. Do not upload to App Store Connect or TestFlight or distribute to testers.
+- The candidate includes AASA and an associated-domain entitlement limited to the exact Preview branch alias and `/app/auth/callback`. Hosted accessibility, response headers, Apple CDN retrieval and portal capability still need approval and verification; universal-link/cold-launch acceptance remains pending.
+- This Mac currently has macOS 15.7.7 and Command Line Tools, but no Xcode. Software Update offers macOS 27.0.1; Apple lists Xcode 27 on macOS Tahoe 26.6+ with device support including iOS 26.6. Update/install a compatible toolchain, then verify the owner's reported iPhone 17 Pro Max/iOS 26.6, pair it, enable Developer Mode as needed and obtain exact signing approval. Install/run directly from Xcode on this owner's device. Do not upload to App Store Connect or TestFlight or distribute to testers.
 
 Resolve these inputs through `configuration-review.md`; no settings have been applied by the Windows work. Do not use another chat's setup/redeployment approvals for this app.
 

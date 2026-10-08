@@ -1,0 +1,10 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["87Z6A36W7G.com.creatornet.webapp"],
+        "components": [{ "/": "/app/auth/callback" }]
+      }
+    ]
+  }
+}

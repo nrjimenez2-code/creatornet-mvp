@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleURLTypes</key>
-	<array><dict><key>CFBundleURLName</key><string>net.creatornet.auth-return</string><key>CFBundleURLSchemes</key><array><string>creatornet</string></array></dict></array>
+	<array><dict><key>CFBundleURLName</key><string>com.creatornet.webapp.auth-return</string><key>CFBundleURLSchemes</key><array><string>creatornet</string></array></dict></array>
   <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
