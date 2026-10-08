@@ -50,8 +50,9 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 /** Preview only. Ordinary modes retain the shared sound element; prepared mode
  * explicitly tests promoting a qualified paused neighbor into sole ownership. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" = "reactive") {}
-  private get preparedAudio() { return this.rateMode === "prepared-audio" || this.rateMode === "prepared-inplace-audio"; }
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "reactive") {}
+  private get pausedPreparation() { return this.rateMode === "prepared-preload-audio"; }
+  private get preparedAudio() { return this.rateMode === "prepared-audio" || this.rateMode === "prepared-inplace-audio" || this.pausedPreparation; }
   private get preparedPlayer() { return this.rateMode === "prepared" || this.preparedAudio; }
   private slots: Slot[] = [];
   private active: Activation | null = null;
@@ -253,6 +254,10 @@ export class MobileFeedController {
     };
     const error = () => miss("media-or-play-error", { mediaErrorCode: video.error?.code ?? null });
     const play = () => {
+      // Separate Preview control: acquire a paused load's actual opening frame,
+      // without starting and pausing a muted playback timeline. Every caller
+      // (progress, seek completion and retry) must preserve that policy.
+      if (this.pausedPreparation) return;
       const requestedEpoch = playEpoch;
       const requestedAttempt = attemptEpoch;
       if (collectDiagnostics) playRequestCount++;
@@ -288,14 +293,20 @@ export class MobileFeedController {
       recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
       timer = setTimeout(() => miss("attempt-timeout"), PREPARATION_BUDGET_MS);
       if (video.readyState >= 1) seek();
-      observe(); play();
+      observe();
+      if (this.pausedPreparation) {
+        // Install the callback before loading, and load only after the same
+        // active-player buffer/motion budget admits preparation. No callback
+        // means no qualified preparation; bounded misses keep the cold path.
+        video.src = input.src; video.load();
+      } else play();
     };
     slot.stop = () => { playEpoch++; clearTimeout(timer); clearTimeout(retryTimer); cancelFrame(); video.removeEventListener("loadedmetadata", seek); video.removeEventListener("seeked", seeked); video.removeEventListener("progress", progress); video.removeEventListener("error", error); };
     video.addEventListener("loadedmetadata", seek); video.addEventListener("seeked", seeked);
     video.addEventListener("progress", progress); video.addEventListener("error", error);
     recordFeedEvent("preparation-start", { postId: slot.postId, target: slot.target, generation, phase: slot.phase, contentVersion: snapshot.contentVersion, expiresAt: snapshot.expiresAt });
-    video.src = input.src;
-    video.load(); slot.decode();
+    if (!this.pausedPreparation) { video.src = input.src; video.load(); }
+    slot.decode();
   }
   cancelPreparation(postId?: string) {
     if (this.preparing && (!postId || this.preparing.postId === postId)) this.clear(this.preparing);
@@ -309,7 +320,7 @@ export class MobileFeedController {
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, true);
     const target = input.position ?? snapshot.position;
     const prepared = this.preparing;
-    const retainAttachment = this.rateMode === "prepared-inplace-audio";
+    const retainAttachment = this.rateMode === "prepared-inplace-audio" || this.pausedPreparation;
     const preparedAudioEnabled = this.preparedAudio && this.acceptedPreparationSound &&
       prepared?.audioEnabled === true && input.soundIntent === true && input.playingIntent !== false;
     // A changed sound/pause intent revokes this control before selection. An
@@ -389,6 +400,7 @@ export class MobileFeedController {
       warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false,
       ...(this.preparedAudio ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
       ...(retainAttachment ? { preparedAttachmentRetained: !!promoted } : {}),
+      ...(this.pausedPreparation ? { preparationPlayback: "paused-load" } : {}),
       ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
     const armWatchdog = () => {
       if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;

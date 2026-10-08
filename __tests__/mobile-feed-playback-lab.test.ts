@@ -95,7 +95,7 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
   await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer })));
 }
 
@@ -105,6 +105,14 @@ test("in-place sound comparison identifies its separate controller, transfer, bu
   expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ buildCommit: "fixture-build", labController: "prepared-inplace-audio",
     labMainTransfer: "prepared-inplace-audio", labFormat: "mp4", labFixtureSet: "carlos-noah-v1" }));
   expect(container.textContent).toContain("Prepared player stays in place during selection");
+});
+
+test("paused preload identifies its distinct preparation control and exact processed MP4 cohort", async () => {
+  await render("prepared-preload-audio", "mp4");
+  expect(RateController).toHaveBeenCalledWith("prepared-preload-audio");
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ buildCommit: "fixture-build", labController: "prepared-preload-audio",
+    labMainTransfer: "prepared-preload-audio", labFormat: "mp4", labFixtureSet: "carlos-noah-v1" }));
+  expect(container.textContent).toContain("Paused preload comparison");
 });
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(element => element.textContent === label);
@@ -157,7 +165,7 @@ test("prepared lab distinguishes the build/mode and observes acceptance even whe
   expect(play).toHaveBeenCalledTimes(requests);
 });
 
-test.each(["prepared", "prepared-audio", "prepared-inplace-audio"] as const)("%s sound control passes current sound intent and keeps denial behind an explicit gesture", async mode => {
+test.each(["prepared", "prepared-audio", "prepared-inplace-audio", "prepared-preload-audio"] as const)("%s sound control passes current sound intent and keeps denial behind an explicit gesture", async mode => {
   await render(mode, "mp4"); await click("Play"); await click("Tap for sound");
   await swipeTo(1);
   expect(latestActivation()).toEqual(expect.objectContaining({ soundIntent: true, playingIntent: true }));
@@ -170,6 +178,7 @@ test.each([
   ["prepared", "promise"], ["prepared", "synchronous"],
   ["prepared-audio", "promise"], ["prepared-audio", "synchronous"],
   ["prepared-inplace-audio", "promise"], ["prepared-inplace-audio", "synchronous"],
+  ["prepared-preload-audio", "promise"], ["prepared-preload-audio", "synchronous"],
 ] as const)("%s %s sound denial stays recorded and foreground cannot retry without a gesture", async (mode, kind) => {
   await render(mode, "mp4"); await click("Play"); await click("Tap for sound");
   const deny = () => { const error = new DOMException("gesture required", "NotAllowedError"); if (kind === "synchronous") throw error; return Promise.reject(error); };

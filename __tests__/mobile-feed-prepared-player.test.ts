@@ -149,7 +149,7 @@ test("retirement timing preserves native calls, source and ownership", async () 
   releaseMobileFeedPlayer(token);
 });
 
-test.each(["prepared", "prepared-inplace-audio"] as const)("%s advancing clock and quality without frame delivery retain watchdog failure and expose its pending observer", async mode => {
+test.each(["prepared", "prepared-inplace-audio", "prepared-preload-audio"] as const)("%s advancing clock and quality without frame delivery retain watchdog failure and expose its pending observer", async mode => {
   controller.dispose(); controller = new MobileFeedController(mode);
   await cold("missing-frame-first"); prepare("missing-frame-next");
   const active = activate("missing-frame-next");
@@ -220,7 +220,7 @@ test("prepared handoff timing includes retirement before the existing activation
   expect(events("presentation-handoff").at(-1)?.detail).toEqual(expect.objectContaining({ activationMs: 60, requestToHandoffMs: 130, outputMeasured: false }));
 });
 
-describe.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s sound policy", mode => {
+describe.each(["prepared-audio", "prepared-inplace-audio", "prepared-preload-audio"] as const)("%s sound policy", mode => {
   async function audioControl(id: string) {
     controller.dispose(); controller = new MobileFeedController(mode);
     const first = await cold(id); first.video.muted = false; await play(first);
@@ -264,12 +264,12 @@ describe.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s sound p
     expect(prepared.video.muted).toBe(false); expect(prepared.video.paused).toBe(true);
   });
 
-  test("audio control decodes muted and cannot enable a stale ready source on later main sound acceptance", async () => {
+  test("audio preparation stays muted while acquiring its frame and rejects a later stale buffer", async () => {
     await audioControl("audio-acquire-first");
     const host = document.createElement("div"); document.body.appendChild(host);
     controller.prepare({ postId: "audio-acquire-next", src: src("audio-acquire-next"), host, present: jest.fn() });
     const video = host.querySelector("video")!; media(video);
-    expect(video.muted).toBe(true); expect(video.paused).toBe(false);
+    expect(video.muted).toBe(true); expect(video.paused).toBe(mode === "prepared-preload-audio");
     video.dispatchEvent(new Event("loadedmetadata")); deliver(video, 1 / 30);
     expect(video.paused).toBe(true); expect(video.muted).toBe(false);
     Object.defineProperty(video, "buffered", { value: { length: 0 } });
@@ -322,6 +322,62 @@ describe.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s sound p
     expect(events("resume-decision").at(-1)?.detail.position).toBe(0);
     expect(prepared.video.muted).toBe(true); expect(prepared.video.paused).toBe(true);
   });
+});
+
+test("paused preload waits for main readiness, registers before load, and cannot play until promotion", async () => {
+  controller.dispose(); controller = new MobileFeedController("prepared-preload-audio");
+  const first = activate("preload-budget-first"); first.video.muted = false; await play(first);
+  const host = document.createElement("div"); document.body.appendChild(host);
+  const load = jest.mocked(HTMLMediaElement.prototype.load), loads = load.mock.calls.length;
+  controller.prepare({ postId: "preload-budget-next", src: src("preload-budget-next"), host, present: jest.fn() });
+  const video = host.querySelector("video")!; media(video);
+  expect(video.hasAttribute("src")).toBe(false); expect(load).toHaveBeenCalledTimes(loads);
+  load.mockImplementation(function (this: HTMLMediaElement) {
+    if (this === video) expect(callbacks.get(video)?.size).toBe(1);
+  });
+  deliver(first.video, 1 / 30); deliver(first.video, 2 / 30);
+  expect(video.getAttribute("src")).toBe(src("preload-budget-next"));
+  video.dispatchEvent(new Event("loadedmetadata")); video.dispatchEvent(new Event("loadeddata"));
+  video.dispatchEvent(new Event("seeked")); video.dispatchEvent(new Event("progress"));
+  expect(video.paused).toBe(true); expect(video.muted).toBe(true);
+  expect(events("preparation-ready").filter(e => e.detail.postId === "preload-budget-next")).toHaveLength(0);
+  expect(jest.mocked(HTMLMediaElement.prototype.play).mock.contexts.filter(element => element === video)).toHaveLength(0);
+  deliver(video, 0, 1);
+  expect(video.paused).toBe(true); expect(video.muted).toBe(false);
+  expect(events("preparation-ready").at(-1)?.detail).toEqual(expect.objectContaining({ playRequestCount: 0, frameCallbackCount: 1, frameValid: true }));
+  const next = activate("preload-budget-next", { soundIntent: true });
+  expect(next.video).toBe(video); expect(video.parentElement).toBe(host);
+  expect(first.video.paused).toBe(true); expect(first.video.muted).toBe(true); expect(first.video.hasAttribute("src")).toBe(false);
+  expect(events("prepared-player-selection").at(-1)?.detail).toEqual(expect.objectContaining({ result: "promoted", preparedAttachmentRetained: true, preparationPlayback: "paused-load" }));
+  await play(next); deliver(video, 0, 1); deliver(video, 1 / 30, 2);
+  expect(next.ready).toHaveBeenCalledTimes(1);
+  expect(jest.mocked(HTMLMediaElement.prototype.play).mock.contexts.filter(element => element === video)).toHaveLength(1);
+  expect([...document.querySelectorAll("video")].filter(element => !element.paused && !element.muted)).toEqual([video]);
+});
+
+test.each(["missing-frame", "wrong-source", "cancel", "hidden", "stale-callback"])("paused preload %s cannot manufacture readiness or automatically play the neighbor", async reason => {
+  controller.dispose(); controller = new MobileFeedController("prepared-preload-audio");
+  await cold(`preload-reject-first-${reason}`);
+  const host = document.createElement("div"); document.body.appendChild(host);
+  controller.prepare({ postId: `preload-reject-next-${reason}`, src: src(`preload-reject-next-${reason}`), host, present: jest.fn() });
+  const video = host.querySelector("video")!; media(video); video.dispatchEvent(new Event("loadedmetadata"));
+  const obsolete = [...(callbacks.get(video)?.values() ?? [])];
+  if (reason === "wrong-source") Object.defineProperty(video, "currentSrc", { configurable: true, value: "https://example.test/other.mp4" });
+  if (reason === "cancel" || reason === "stale-callback") controller.cancelPreparation();
+  if (reason === "hidden") { Object.defineProperty(document, "hidden", { value: true }); controller.suspend(); }
+  if (reason === "stale-callback") obsolete.forEach(callback => callback(performance.now(), { mediaTime: 0, presentedFrames: 1 } as VideoFrameCallbackMetadata));
+  else if (reason === "wrong-source") deliver(video, 0, 1);
+  else if (reason === "missing-frame") { video.dispatchEvent(new Event("loadeddata")); video.dispatchEvent(new Event("progress")); jest.advanceTimersByTime(5_251); }
+  expect(video.paused).toBe(true);
+  expect(jest.mocked(HTMLMediaElement.prototype.play).mock.contexts.filter(element => element === video)).toHaveLength(0);
+  expect(events("preparation-ready").filter(e => e.detail.postId === `preload-reject-next-${reason}`)).toHaveLength(0);
+  if (reason === "missing-frame") {
+    expect(events("preparation-miss").filter(e => e.detail.postId === `preload-reject-next-${reason}`)).toHaveLength(2);
+    expect(video.hasAttribute("src")).toBe(false);
+    const next = activate(`preload-reject-next-${reason}`, { soundIntent: true });
+    expect(next.video).not.toBe(video);
+    expect(events("prepared-player-selection").at(-1)?.detail.result).toBe("cold-fallback");
+  }
 });
 
 test("in-place promotion retains connected prepared ownership without a DOM move, selected-source load, seek or early play", async () => {
@@ -472,7 +528,7 @@ test.each(["initial", "requested"])("a deliberately %s paused activation can wai
   jest.advanceTimersByTime(1); expect(active.failed).toHaveBeenCalledTimes(1);
 });
 
-test.each(["prepared", "prepared-inplace-audio"] as const)("%s repeated promotion bounds source-bearing elements and disposal cannot clear the promoted source", async mode => {
+test.each(["prepared", "prepared-inplace-audio", "prepared-preload-audio"] as const)("%s repeated promotion bounds source-bearing elements and disposal cannot clear the promoted source", async mode => {
   controller.dispose(); controller = new MobileFeedController(mode);
   let active = await cold("bounded-0"); const retired: HTMLVideoElement[] = [];
   for (let i = 1; i <= 30; i++) {

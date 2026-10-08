@@ -105,7 +105,7 @@ test("prepared transfer is unavailable in Production", async () => {
   await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer: "prepared" }) })).rejects.toThrow("NOT_FOUND");
 });
 
-test.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s is a separate exact-build Preview MP4 selector with unchanged fixtures", async transfer => {
+test.each(["prepared-audio", "prepared-inplace-audio", "prepared-preload-audio"] as const)("%s is a separate exact-build Preview MP4 selector with unchanged fixtures", async transfer => {
   process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "audio-control-build" };
   const result = await PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "mp4", transfer }) });
   expect(result.key).toBe(`formats:mp4:${transfer}`);
@@ -113,7 +113,7 @@ test.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s is a separa
   expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
 });
 
-describe.each(["prepared-audio", "prepared-inplace-audio"] as const)("%s restrictions", transfer => {
+describe.each(["prepared-audio", "prepared-inplace-audio", "prepared-preload-audio"] as const)("%s restrictions", transfer => {
   test.each([undefined, "hls", "original"])("rejects %s sources", async format => {
     process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
     await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format, transfer }) })).rejects.toThrow("NOT_FOUND");

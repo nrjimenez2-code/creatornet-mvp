@@ -1,14 +1,51 @@
 # Prepared player Preview experiment
 
-Status: prepared/audio controls and callback diagnostics published in draft PR
-#248 at 505c543. Physical captures still fail sound continuity. One Low Power
-Mode off capture hit the watchdog while showing moving picture; the latest off
-capture completed handoff in 259ms and continued sampled playback past 18s.
-The separate in-place comparison below is local and unpublished.
+Status: prepared/audio/in-place controls published in draft PR #248 at 1550d6f.
+Two digital captures omit about 354ms of non-silent opening source audio. An
+external retained-player capture with owner-confirmed screen recording off,
+Low Power Mode off and speaker output also contains very weak opening audio.
+The direct-player camera control captures that opening, but main motion starts
+at 940ms, behind its muted bridge; the 3000ms watchdog recovers without alignment.
+These are separate individual failures, not a controlled performance cohort or
+proof of a native cause. The paused preload comparison below is local only.
 Sound/grant/continuity/performance acceptance remains pending.
 The normal feed and existing format comparisons keep their defaults.
 
-The local `transfer=prepared-inplace-audio` comparison preserves the paused-audio
+## Paused preload comparison
+
+`transfer=prepared-preload-audio` is a separate Preview-only fixed processed-MP4
+control. It retains the connected preparation host and existing paused-audio
+policy, but never calls `play()` during preparation. Once the same main-player
+motion/buffer budget admits preparation, it registers a video-frame callback
+before assigning/loading the source. The existing exact target, actual frame,
+source, snapshot, dimensions and buffer checks still qualify the paused slot.
+Metadata/loadeddata alone, an advancing clock or a promise cannot qualify it.
+Progress, seek completion and both bounded preparation attempts cannot play it.
+If no qualifying paused-load frame arrives, existing bounded cancellation and
+cold main fallback remain; do not weaken the checks to manufacture eligibility.
+
+Only the selected main receives its first play request, after sole-owner transfer
+and existing old-source retirement. It still needs accepted play and fresh
+advancing source-qualified frames within the unchanged 3000ms watchdog. Mute,
+pause, background, denial, expiry and cancellation retain the same revocations.
+No extra decoder, deferred old-source cleanup, rate/session/microphone action or
+forward seek is introduced. Saved-position preparation retains its existing
+snapshot-target positioning. Export identifies `prepared-preload-audio`,
+`preparationPlayback:paused-load` and retained attachment; an eligible trial must
+also show preparation `playRequestCount:0` and an actual qualified target frame.
+
+This tests whether prior muted play/pause history contributes to opening loss.
+[WebKit's frame-loading guidance](https://bugs.webkit.org/show_bug.cgi?id=236604#c2)
+supports installing the callback before loading; it does not establish that this
+phone, hidden preparation host or native sound pipeline will qualify or improve.
+Pausing preload also postpones source load until the existing budget admits it.
+Native eligibility, opening audio, performance and reliability remain unproven.
+Local checks cannot replace exact-head CI/Preview and a new original external
+camera/JSON comparison. New-head publication needs separate exact approval.
+
+## Published controls and historical observations
+
+The `transfer=prepared-inplace-audio` comparison preserves the paused-audio
 policy of `prepared-audio` while keeping a promoted video in its connected
 preparation host. It rejects wrong/disconnected placement before retiring the
 departing source. Eligible adoption omits the DOM append; source, target,
