@@ -7,6 +7,7 @@ import VideoViewCount from "@/components/VideoViewCount";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
+import { apiFetch as fetch } from "@/lib/apiFetch";
 import { normalizeCategory } from "@/lib/posthog";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import { LoadingLabel, Skeleton, TagGridSkeleton } from "@/components/loading/Skeletons";

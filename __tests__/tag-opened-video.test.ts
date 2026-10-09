@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { setApiTransport } from "@/lib/apiFetch";
 
 jest.mock("next/navigation", () => ({ useParams: () => ({ hashtag: "trading" }) }));
 jest.mock("@/components/BackButton", () => ({ __esModule: true, default: () => null }));
@@ -21,20 +22,21 @@ test("opened hashtag video shows the feed title instead of repeating its raw has
   const host = document.createElement("div");
   document.body.append(host);
   const root: Root = createRoot(host);
-  const originalFetch = global.fetch;
   const originalObserver = global.IntersectionObserver;
   const originalScrollIntoView = Element.prototype.scrollIntoView;
   const originalRaf = window.requestAnimationFrame;
-  global.fetch = jest.fn(async () => ({ ok: true, json: async () => ({ items: [{
+  const apiTransport = jest.fn(async () => ({ ok: true, json: async () => ({ items: [{
     id: "post-1", title: "demo", content: "#trading", video_url: "video.mp4", poster_url: null,
     creator_id: "creator-1", creator: { username: "noah", full_name: "Noah", avatar_url: null, verified: true },
     interests: ["trading"], hashtags: ["trading"],
   }], hasMore: false, nextOffset: 1 }) })) as unknown as typeof fetch;
+  setApiTransport(apiTransport);
   global.IntersectionObserver = class { observe() {} disconnect() {} } as unknown as typeof IntersectionObserver;
   Element.prototype.scrollIntoView = jest.fn();
   window.requestAnimationFrame = callback => { callback(0); return 1; };
   try {
     await act(async () => root.render(createElement(TagFeedPage)));
+    expect(apiTransport).toHaveBeenCalledWith("/api/tag/trading?offset=0&limit=12", expect.objectContaining({ credentials: "include" }));
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Open post: demo"]')!.click());
     const opened = host.querySelector<HTMLElement>('[data-opened-video="post-1"]')!;
     expect(opened.getAttribute("data-caption")).toBe("demo");
@@ -45,7 +47,7 @@ test("opened hashtag video shows the feed title instead of repeating its raw has
   } finally {
     await act(async () => root.unmount());
     host.remove();
-    global.fetch = originalFetch;
+    setApiTransport(null);
     global.IntersectionObserver = originalObserver;
     Element.prototype.scrollIntoView = originalScrollIntoView;
     window.requestAnimationFrame = originalRaf;

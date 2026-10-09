@@ -16,6 +16,7 @@ const Profile = lazy(() => import('./pages/Profile'));
 const EditProfile = lazy(() => import('@/app/profile/edit/page'));
 const Onboarding = lazy(() => import('@/app/onboarding/page'));
 const SearchPage = lazy(() => import('@/app/search/page'));
+const TagFeedPage = lazy(() => import('@/app/tag/[hashtag]/page'));
 const Notifications = lazy(() => import('./pages/Notifications'));
 const Library = lazy(() => import('./pages/Library'));
 const Watch = lazy(() => import('./pages/Watch'));
@@ -47,7 +48,7 @@ function AppShell() {
   return <div className="app-shell">{import.meta.env.DEV && import.meta.env.VITE_CREATORNET_RENDERER_FIXTURE === 'true' && <p style={{ position: 'fixed', top: 0, right: 0, zIndex: 100, background: '#261d4b', padding: '4px 8px', fontSize: 11 }}>Renderer fixture · no hosted/device acceptance</p>}<Suspense fallback={<main className="app-page" aria-busy="true">Loading…</main>}><Routes>
     <Route path="/" element={<Navigate to="/dashboard" replace />} /><Route path="/dashboard" element={<Feed />} />
     <Route path="/auth" element={<Auth />} /><Route path="/onboarding" element={<Onboarding />} />
-    <Route path="/search" element={<SearchPage />} /><Route path="/library" element={<Library />} /><Route path="/watch/:postId" element={<Watch />} /><Route path="/profile" element={<Profile />} />
+    <Route path="/search" element={<SearchPage />} /><Route path="/tag/:hashtag" element={<TagFeedPage />} /><Route path="/library" element={<Library />} /><Route path="/watch/:postId" element={<Watch />} /><Route path="/profile" element={<Profile />} />
     <Route path="/profile/edit" element={<EditProfile />} /><Route path="/creators/:creatorId" element={<Profile />} />
     <Route path="/profile/:creatorId" element={<Profile />} /><Route path="/notifications" element={<Notifications />} />
     <Route path="/settings" element={<main className="app-page"><h1>Settings</h1>{userId && <button type="button" className="app-action" onClick={() => { void logout().then(() => navigate('/auth', { replace: true })); }}>Sign out</button>}</main>} />

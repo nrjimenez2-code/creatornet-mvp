@@ -1298,8 +1298,8 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Required local app screen and platform adaptation pending.",
-      "appState": "pending",
+      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch uses the native API transport and a guarded public mobile tag endpoint.",
+      "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
         "Exercise each applicable role on the exact candidate physical iPhone build.",
