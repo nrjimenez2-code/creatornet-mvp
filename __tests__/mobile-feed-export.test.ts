@@ -49,12 +49,69 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   await act(async () => root.unmount());
+  jest.restoreAllMocks();
+  jest.useRealTimers();
   container.remove();
   for (const [name, descriptor] of Object.entries(descriptors)) {
     const target = name === "canShare" || name === "share" ? navigator : URL;
     if (descriptor) Object.defineProperty(target, name, descriptor);
     else Reflect.deleteProperty(target, name);
   }
+});
+
+test("capture-only controls avoid live media reads across swipes and still export the complete trace", async () => {
+  jest.useFakeTimers();
+  const interval = jest.spyOn(window, "setInterval");
+  const getVideo = jest.fn(() => document.createElement("video"));
+  await act(async () => root.render(createElement(MobileFeedDiagnostics, { activePostId: "carlos", getVideo, liveReadout: false })));
+  await fill("runId", "capture-only-01");
+  await click("Hide capture controls");
+  recordFeedEvent("prepared-player-selection", { warmEligible: true });
+  await act(async () => {
+    root.render(createElement(MobileFeedDiagnostics, { activePostId: "noah", getVideo, liveReadout: false }));
+  });
+  await act(async () => { jest.advanceTimersByTime(2_000); });
+  expect(getVideo).not.toHaveBeenCalled();
+  expect(interval).not.toHaveBeenCalled();
+  expect(container.textContent).toBe("Capture controls");
+  recordFeedEvent("presentation-handoff", { requestToHandoffMs: 469 });
+  const before = exportFeedTrace();
+  interval.mockRestore();
+  jest.useRealTimers();
+  await click("Capture controls");
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="runId"]')!.value).toBe("capture-only-01");
+  await click("Export trace");
+  const json = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(files[0]);
+  });
+  expect(JSON.parse(json)).toEqual(expect.objectContaining({ events: before.events, context: before.context, droppedEvents: before.droppedEvents }));
+  expect(exportFeedTrace().events).toEqual(before.events);
+  expect(container.querySelector("a[download]")).not.toBeNull();
+  expect(getVideo).not.toHaveBeenCalled();
+});
+
+test("the default live readout still polls and switching to capture-only clears its interval", async () => {
+  jest.useFakeTimers();
+  const interval = jest.spyOn(window, "setInterval");
+  const clearInterval = jest.spyOn(window, "clearInterval");
+  const video = document.createElement("video");
+  video.src = "https://example.test/noah.mp4";
+  const getVideo = jest.fn(() => video);
+  await act(async () => root.render(createElement(MobileFeedDiagnostics, { activePostId: "noah", getVideo })));
+  expect(interval).toHaveBeenCalledWith(expect.any(Function), 500);
+  const handle = interval.mock.results[0].value;
+  expect(getVideo).toHaveBeenCalledTimes(1);
+  await act(async () => { jest.advanceTimersByTime(1_000); });
+  expect(getVideo).toHaveBeenCalledTimes(3);
+  expect(container.textContent).toContain("buffer");
+  await act(async () => root.render(createElement(MobileFeedDiagnostics, { activePostId: "noah", getVideo, liveReadout: false })));
+  await act(async () => { jest.advanceTimersByTime(1_000); });
+  expect(getVideo).toHaveBeenCalledTimes(3);
+  expect(clearInterval).toHaveBeenCalledWith(handle);
+  expect(container.textContent).not.toContain("buffer");
 });
 
 test("a rejected native share keeps a real JSON download and the captured events", async () => {

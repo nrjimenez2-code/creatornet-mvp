@@ -42,9 +42,10 @@ jest.mock("@/lib/mobileFeedDiagnostics", () => ({
   feedTraceEnabled: () => mockTraceEnabled, observeFeedScroll: () => () => {},
   recordFeedEvent: jest.fn(), setFeedRunContext: jest.fn(),
 }));
-jest.mock("@/components/MobileFeedDiagnostics", () => ({ __esModule: true, default: () => null }));
+jest.mock("@/components/MobileFeedDiagnostics", () => ({ __esModule: true, default: jest.fn(() => null) }));
 
 import PlaybackLab from "@/app/playback-lab/PlaybackLab";
+import MobileFeedDiagnostics from "@/components/MobileFeedDiagnostics";
 import { MobileFeedController as RateController } from "@/lib/mobileFeedController.prototype";
 import { recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
 import { playbackFormatFixtures, type PlaybackFormat } from "@/lib/playbackFormatFixtures";
@@ -95,8 +96,8 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false) {
-  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer })));
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false, liveReadout = true) {
+  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer, liveReadout })));
 }
 
 test("in-place sound comparison identifies its separate controller, transfer, build and fixed MP4 fixture cohort", async () => {
@@ -113,6 +114,26 @@ test("paused preload identifies its distinct preparation control and exact proce
   expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ buildCommit: "fixture-build", labController: "prepared-preload-audio",
     labMainTransfer: "prepared-preload-audio", labFormat: "mp4", labFixtureSet: "carlos-noah-v1" }));
   expect(container.textContent).toContain("Paused preload comparison");
+});
+
+test.each([
+  { trace: true, readout: true, mode: "live" },
+  { trace: true, readout: false, mode: "capture-only" },
+  { trace: false, readout: false, mode: "off" },
+])("readout $mode preserves prepared playback and labels its diagnostic cohort", async ({ trace, readout, mode }) => {
+  mockTraceEnabled = trace;
+  await render("prepared-preload-audio", "mp4", false, readout);
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({
+    labDiagnosticReadout: mode, labController: "prepared-preload-audio", labFixtureSet: "carlos-noah-v1",
+  }));
+  if (trace) expect(jest.mocked(MobileFeedDiagnostics).mock.calls.at(-1)![0].liveReadout).toBe(readout);
+  else expect(MobileFeedDiagnostics).not.toHaveBeenCalled();
+  expect(container.textContent?.includes("Trace capture on · live readout off")).toBe(trace && !readout);
+  await click("Play");
+  expect(play).toHaveBeenCalledTimes(1);
+  expect(mockController.observeMainPlay).toHaveBeenCalledWith(latestActivation().token, {
+    requestedAt: expect.any(Number), returnedAt: expect.any(Number), request: play.mock.results[0].value,
+  });
 });
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(element => element.textContent === label);

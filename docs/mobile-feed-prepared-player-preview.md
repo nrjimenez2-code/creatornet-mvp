@@ -1,6 +1,7 @@
 # Prepared player Preview experiment
 
-Status: paused preload published in draft PR #248 at 20bb6b8; earlier
+Status: paused preload published in draft PR #248 at 20bb6b8, with passive
+startup pipeline diagnostics published at c03e525; earlier
 prepared/audio/in-place controls were published at 1550d6f.
 Two digital captures omit about 354ms of non-silent opening source audio. An
 external retained-player capture with owner-confirmed screen recording off,
@@ -13,9 +14,38 @@ promotion with zero preparation plays. The recorded trial includes the formerly
 missing opening audio; the unrecorded owner reports good opening sound and sync.
 Advancing callbacks still take 403/544ms and qualified handoff 471/611ms. These
 individual results leave startup smoothness and native cause unresolved. The
-pipeline timing supplement below is local only and has no publication approval.
+capture-only readout comparison below is local only and has no publication approval.
 Sound/grant/continuity/performance acceptance remains pending.
 The normal feed and existing format comparisons keep their defaults.
+
+## Local capture-only readout comparison
+
+The c03e525 unrecorded trace 1791507631417 qualifies paused-load preparation with
+zero preparation plays and retained promotion. It reports moving trace callback
++402ms and qualified handoff +469ms from selection; the owner reports good sound
+and sync with an initial catch. With diagnostics off, the owner subsequently
+reports a much smoother start. In two further fresh-tab diagnostics-off runs,
+the owner confirms a slight remaining catch, complete synchronized opening words,
+screen recording off, Low Power Mode off and phone speaker output. These last
+two observations have no JSON or recording and establish neither exact physical
+timing, matched statistical performance nor the cause of the improvement.
+
+The local comparison keeps `feedDebug=1` and adds `feedReadout=0` only to the
+Preview fixed processed-MP4 `transfer=prepared-preload-audio` pair. All trace
+observers, controller samples and capture/export controls remain. The live
+readout's media-property polling and displayed post/buffer/frame readings stop;
+the collapsed overlay retains a static Capture controls button. Hide the controls
+before swiping, then reopen them to export without resetting. Trace context labels
+`labDiagnosticReadout` as `live`, `capture-only` or `off` so cohorts stay distinct.
+Omitted or non-exact readout parameters preserve the live readout, and other
+format/transfer comparisons keep their existing behavior.
+
+This isolates the live readout from the remaining tracing work. It is not a
+playback fix: source/target/frame/ownership/permission qualification, zero-play
+preparation, source retirement, decoder budget, exact return boundary and watchdog
+are unchanged. Native cause and full sound/physical/performance/LIVE acceptance
+remain open. Local checks and a fresh exact-head publication approval are required
+before this comparison can be tested on the phone.
 
 ## Paused preload comparison
 
@@ -51,7 +81,7 @@ remains unproven.
 Local checks cannot replace exact-head CI/Preview and a new original external
 camera/JSON comparison. New-head publication needs separate exact approval.
 
-## Local startup pipeline timing supplement
+## Published startup pipeline timing supplement
 
 20bb6b8 trace 1791504741148 is contiguous/monotonic, zero-drop and unreset. The
 owner confirmed recording off, Low Power Mode off and phone speaker. Noah was
@@ -64,7 +94,7 @@ and no watchdog or playback rejection occurred. The first two submissions were
 uncontrolled runs do not quantify a recorder effect, physical display latency or
 p95. The native reason remains unknown.
 
-The local supplement adds raw `presentationTime`, `expectedDisplayTime`,
+The published supplement adds raw `presentationTime`, `expectedDisplayTime`,
 `processingDuration`, `width` and `height` to the existing first-eight
 `lab-main-startup-frame` samples under `feedDebug=1`. Missing/nonfinite values
 remain null. It adds no callback or media call and changes no qualification,
@@ -74,8 +104,8 @@ watchdog policy. Future expected display time cannot qualify a stale submission.
 The [frame-callback specification](https://wicg.github.io/video-rvfc/) distinguishes
 submission time, expected display time and optional packet-to-decoded-frame
 processing duration; callback delivery has no strict timing guarantee. These
-fields can distinguish reported pipeline stages on the next approved diagnostic
-build. They do not identify the installed native cause or prove acoustic/display
+fields can distinguish reported pipeline stages in each diagnostic capture.
+They do not identify the installed native cause or prove acoustic/display
 output, and this supplement does not fix the measured startup catch.
 
 ## Published controls and historical observations

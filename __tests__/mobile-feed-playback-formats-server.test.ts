@@ -25,6 +25,22 @@ const sources = {
   ],
 };
 
+test.each([
+  { format: "mp4", transfer: "prepared-preload-audio", feedReadout: "0", live: false },
+  { format: "mp4", transfer: "prepared-preload-audio", feedReadout: undefined, live: true },
+  { format: "mp4", transfer: "prepared-preload-audio", feedReadout: "1", live: true },
+  { format: "mp4", transfer: "prepared-preload-audio", feedReadout: ["0"], live: true },
+  { format: "mp4", transfer: "prepared-audio", feedReadout: "0", live: true },
+  { format: "hls", transfer: "parked", feedReadout: "0", live: true },
+])("capture-only readout is an exact opt-in in the paused-preload MP4 Preview: %j", async ({ live, ...params }) => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve(params) });
+  expect(result.props.liveReadout).toBe(live);
+  expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources[params.format as keyof typeof sources]);
+  process.env = { ...originalEnvironment, VERCEL_ENV: "production" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve(params) })).rejects.toThrow("NOT_FOUND");
+});
+
 test.each([undefined, "production", "development", "Preview", ""])("format page is unavailable in %s environment", async environment => {
   process.env = { ...originalEnvironment, VERCEL_ENV: environment };
   await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "original" }) })).rejects.toThrow("NOT_FOUND");

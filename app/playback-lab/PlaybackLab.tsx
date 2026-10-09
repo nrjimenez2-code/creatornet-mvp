@@ -22,7 +22,7 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false, liveReadout = true }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean; liveReadout?: boolean }) {
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const isHls = sourceFormat === undefined || sourceFormat === "hls";
@@ -113,8 +113,9 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
   useEffect(() => {
     setFeedRunContext({ feed: sourceFormat ? "preview-playback-format-lab" : "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
       labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: preparedPlayer ? controllerMode : directTransfer ? "direct" : "parked",
+      labDiagnosticReadout: debug ? liveReadout ? "live" : "capture-only" : "off",
       surface: sourceFormat ? `Preview / playback format lab / ${sourceFormat} / ${controllerMode}` : `Preview / direct HLS controller lab / ${controllerMode}` });
-  }, [buildCommit, controllerMode, directTransfer, preparedPlayer, sourceFormat]);
+  }, [buildCommit, controllerMode, debug, directTransfer, liveReadout, preparedPlayer, sourceFormat]);
 
   useLayoutEffect(() => { unmounting.current = false; return () => { unmounting.current = true; }; }, []);
 
@@ -261,9 +262,10 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
           </section>;
         })}
       </div>
-      {debug && <MobileFeedDiagnostics activePostId={activeId} getVideo={id => owner.current?.postId === id ? owner.current.video : null} />}
+      {debug && <MobileFeedDiagnostics liveReadout={liveReadout} activePostId={activeId} getVideo={id => owner.current?.postId === id ? owner.current.video : null} />}
       <div className="absolute bottom-0 left-0 right-0 z-40 space-y-2 bg-black/90 p-3 text-sm">
         <p>{sourceFormat ? "Preview format comparison" : "Preview controller experiment"} · {controllerMode} · {sourceFormat && `${sourceFormat} · `}{buildCommit.slice(0, 12)}</p>
+        {debug && !liveReadout && <p>Trace capture on · live readout off</p>}
         {directTransfer && <p>Direct player transfer comparison</p>}
         {preparedPlayer && <p>Prepared player carries picture and sound · sound permission is under test</p>}
         {preparedAudio && <p>Paused preparation sound control; audio continuity is under test</p>}
