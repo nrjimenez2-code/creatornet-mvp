@@ -60,6 +60,35 @@ test('separate configuration closes inherited admission and leaves the original 
   assert.deepEqual(validateConfiguration(environment(), generatedNames), bindings);
 });
 
+test('build environment uses the original completion profile and its closed admission gates', async () => {
+  const config = prepareConfiguration(base, bindings);
+  const buildEnvironment = { ...environment(), ...config.build.env };
+  assert.deepEqual(validateConfiguration(buildEnvironment, names), bindings);
+  assert.equal(buildEnvironment.CREATOR_PURCHASE_POLICIES_LEGAL_APPROVED, 'false');
+  assert.equal(buildEnvironment.CREATOR_MANUAL_PAYMENT_ADMISSION_PAUSED, 'true');
+  for (const [name, value] of Object.entries(config.env)) assert.equal(config.build.env[name], value);
+  const request = transport();
+  const proof = await checkIdentity(buildEnvironment, names, request.fetcher);
+  assert.equal(request.calls.length, 3);
+  assert.equal(proof.originalAgreementContextsVerified, true);
+  assert.equal(proof.paymentAuthorization, false);
+});
+
+test('build environment preserves unrelated settings and closes inherited build-only readiness', () => {
+  const inherited = { ...base, build: { ...base.build, customBuildOption: 'preserved', env: {
+    ...base.build.env, BUILD_ONLY_OPTION: 'preserved', CREATOR_BUILD_ONLY_READY: 'true',
+  } } };
+  const original = JSON.stringify(inherited);
+  const config = prepareConfiguration(inherited, bindings);
+  assert.equal(JSON.stringify(inherited), original);
+  assert.equal(config.build.customBuildOption, 'preserved');
+  assert.equal(config.build.env.BUILD_ONLY_OPTION, 'preserved');
+  assert.equal(config.build.env.CREATOR_BUILD_ONLY_READY, 'false');
+  assert.notEqual(config.build, inherited.build);
+  assert.notEqual(config.build.env, inherited.build.env);
+  assert.deepEqual(validateConfiguration({ ...environment(), ...config.build.env }, names), bindings);
+});
+
 test('identity proof uses only the original account, TEST mode and two sealed stored context projections', async () => {
   const request = transport(); const proof = await checkIdentity(environment(), names, request.fetcher);
   assert.equal(request.calls.length, 3); assert.equal(proof.originalAgreementContextsVerified, true);

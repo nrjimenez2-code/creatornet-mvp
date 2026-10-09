@@ -17,6 +17,9 @@ Preparation requires exactly two separately reviewed agreement ID/fingerprint
 bindings. Real bindings belong in the sealed local deployment package, rather
 than in this public source or test fixtures. It generates a separate deployment
 configuration with automatic Git deployments and cron schedules disabled.
+The prepared runtime `env` and `build.env` share the original completion profile
+and closed admission gates. Unrelated build settings are preserved; inherited
+build-only readiness gates are closed. The manual sandbox base remains unchanged.
 
 Before deploying, bind the source tree and final configuration digest to the
 approved package, prove the required installed schema/ACL compatibility, verify

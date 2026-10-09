@@ -57,7 +57,10 @@ function prepareConfiguration(base, bindings) {
     NEXT_PUBLIC_SITE_URL: CONTEXT.siteOrigin,
     NEXT_PUBLIC_SUPABASE_URL: `https://${CONTEXT.supabaseProjectRef}.supabase.co`,
   });
-  return { ...base, env, crons: [], git: { deploymentEnabled: false },
+  const buildEnv = { ...base.build?.env, ...env };
+  for (const name of Object.keys(buildEnv))
+    if (readinessPattern.test(name)) buildEnv[name] = allowed.has(name) ? 'true' : 'false';
+  return { ...base, env, build: { ...base.build, env: buildEnv }, crons: [], git: { deploymentEnabled: false },
     buildCommand: 'node release-checks/original-monthly-completion.cjs && npm run build' };
 }
 
