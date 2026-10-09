@@ -51,7 +51,9 @@ export async function createFreeBooking(admin:SupabaseClient,stripe:Stripe,input
  }
  if(!row || row.creator_id!==input.creatorId || row.destination!==input.destination) throw Error("Booking source changed.");
  const session=await stripe.checkout.sessions.create({
-  mode:"payment",payment_method_collection:"if_required",
+  // Payment-mode zero totals skip payment details automatically on the SDK's
+  // API version. payment_method_collection is only valid for subscriptions.
+  mode:"payment",
   line_items:[{price_data:{currency:"usd",unit_amount:0,product_data:{name:"Free call"}},quantity:1}],
   metadata:{kind:"free_booking_v1",free_booking_id:row.id,buyer_id:row.buyer_id,buyer_user_id:row.buyer_id,creator_id:row.creator_id,post_id:row.post_id,booking_redirect_url:row.destination},
   success_url:row.checkout_origin+"/success?session_id={CHECKOUT_SESSION_ID}&kind=booking",cancel_url:row.checkout_origin+"/dashboard",

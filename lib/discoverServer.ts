@@ -244,7 +244,7 @@ export async function discoverInventory(
           p.poster_url?.trim()),
     )
     .map((p) => {
-      const found = productsById.get(p.product_id),
+      const found = p.product_id ? productsById.get(p.product_id) : undefined,
         foundOffering = offeringsById.get(p.offering_id);
       const product =
         found?.active !== false && found?.creator_id === p.creator_id

@@ -30,10 +30,14 @@ test("another buyer cannot confirm or obtain the destination",async()=>{
 test("lost creation retries use stored origin and the same idempotency key with no card requirement",async()=>{
  const row={id:"free",buyer_id:"buyer",creator_id:"creator",post_id:"post",destination:"https://calendar.invalid/free",checkout_origin:"https://saved.invalid",stripe_session_id:null,status:"creating"};
  const db=createMockClient(op=>({data:op.kind==="update"?{id:"free"}:row,error:null}));
- const create=jest.fn().mockResolvedValue({id:base.id,url:"https://checkout.stripe.com/synthetic"});
+ const create=jest.fn<Promise<{id:string;url:string}>,[Stripe.Checkout.SessionCreateParams,Stripe.RequestOptions]>(async params=>{
+  if(params.payment_method_collection) throw Error("You can only set payment_method_collection if there are recurring prices.");
+  return {id:base.id,url:"https://checkout.stripe.com/synthetic"};
+ });
  const stripe={checkout:{sessions:{create}}} as unknown as Stripe;
  for(let i=0;i<2;i++)await createFreeBooking(db as unknown as SupabaseClient,stripe,{buyerId:"buyer",creatorId:"creator",postId:"post",destination:row.destination,site:"https://changed.invalid"});
  expect(create.mock.calls[0]).toEqual(create.mock.calls[1]);
- expect(create.mock.calls[0][0]).toMatchObject({mode:"payment",payment_method_collection:"if_required",success_url:"https://saved.invalid/success?session_id={CHECKOUT_SESSION_ID}&kind=booking",line_items:[{price_data:{unit_amount:0},quantity:1}]});
+ expect(create.mock.calls[0][0]).toMatchObject({mode:"payment",success_url:"https://saved.invalid/success?session_id={CHECKOUT_SESSION_ID}&kind=booking",line_items:[{price_data:{unit_amount:0},quantity:1}]});
+ expect(create.mock.calls[0][0]).not.toHaveProperty("payment_method_collection");
  expect(create.mock.calls[0][0].payment_method_types).toBeUndefined();expect(create.mock.calls[0][1]).toEqual({idempotencyKey:"creatornet-free-booking:free"});
 });
