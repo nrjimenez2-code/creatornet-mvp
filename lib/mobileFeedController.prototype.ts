@@ -1,0 +1,1029 @@
+// PREVIEW LAB ONLY: bounded bridge-rate convergence; never imported by the normal feed.
+import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
+import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
+
+type Presentation = (ready: boolean) => void;
+type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
+type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
+type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; audioEnabled: boolean; frameTime: number | null; frameCount: number | null; frameStep: number | null; stop: () => void; pause: (reason?: string) => void; decode: () => void; onReady?: () => void; present: Presentation };
+type NativePlayTiming = { requestedAt: number; returnedAt: number; request: Promise<void> | undefined };
+type ActivationInput = { postId: string; src: string; contentVersion?: string; host: HTMLElement; previewHost: HTMLElement; token: symbol; present: Presentation; ready: () => void; failed?: () => void; position?: number; reload?: boolean; playingIntent?: boolean; soundIntent?: boolean };
+type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; bridge: Slot | null; partial: Slot | null; current: () => boolean; playRequested: () => void; pauseRequested?: () => void; observeMainPlay: (timing: NativePlayTiming) => void; stop: () => void };
+const BUFFER_TARGET = 1;
+const PREPARATION_BUDGET_MS = 2_500;
+const STARTUP_FRAME_SAMPLE_LIMIT = 8;
+const NATIVE_PLAY_SAMPLE_LIMIT = 4;
+const MAIN_CLOCK_SAMPLE_LIMIT = 32;
+
+function audioSessionSnapshot(): Record<string, string | null> {
+  // Observe only. Changing the session type could change sound/route behavior.
+  try {
+    const session = (navigator as Navigator & { audioSession?: { state?: unknown; type?: unknown } }).audioSession;
+    if (!session) return { audioSessionAvailability: "unsupported", audioSessionState: null, audioSessionType: null };
+    const state = session.state, type = session.type;
+    const stateKnown = state === "active" || state === "inactive" || state === "interrupted";
+    const typeKnown = type === "auto" || type === "playback" || type === "ambient" || type === "transient" || type === "transient-solo" || type === "play-and-record";
+    return { audioSessionAvailability: stateKnown ? "available" : "state-unavailable",
+      audioSessionState: stateKnown ? state : null, audioSessionType: typeKnown ? type : null };
+  } catch {
+    return { audioSessionAvailability: "unavailable", audioSessionState: null, audioSessionType: null };
+  }
+}
+
+function submittedAt(metadata: VideoFrameCallbackMetadata, now: number) {
+  // Callback delivery can be late. It cannot refresh an old submitted frame.
+  return Number.isFinite(metadata.presentationTime) && metadata.presentationTime >= 0 && metadata.presentationTime <= now
+    ? metadata.presentationTime : -Infinity;
+}
+
+function preparationBuffer(video: HTMLVideoElement, target: number) {
+  // The iPhone HLS trace starts its first range at 0.000001 even with a valid
+  // opening frame. Normalize only that zero-start boundary, not real gaps or
+  // saved return positions, and count only the duration actually buffered.
+  if (target === 0 && video.buffered.length) {
+    const start = video.buffered.start(0);
+    if (start > 0 && start <= 0.000001) return Math.max(0, video.buffered.end(0) - start);
+  }
+  return playableBuffer(video, target);
+}
+
+/** Preview only. Ordinary modes retain the shared sound element; prepared mode
+ * explicitly tests promoting a qualified paused neighbor into sole ownership. */
+export class MobileFeedController {
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "reactive") {}
+  private get pausedPreparation() { return this.rateMode === "prepared-preload-audio"; }
+  private get preparedAudio() { return this.rateMode === "prepared-audio" || this.rateMode === "prepared-inplace-audio" || this.pausedPreparation; }
+  private get preparedPlayer() { return this.rateMode === "prepared" || this.preparedAudio; }
+  private slots: Slot[] = [];
+  private active: Activation | null = null;
+  private preparing: Slot | null = null;
+  private preparedActiveReady = false;
+  private acceptedPreparationSound = false;
+  private sequence = 0;
+  private unsubscribeExpiry: (() => void) | null = null;
+  private watchExpiry() {
+    this.unsubscribeExpiry ??= onMobileResumeExpiry(snapshot => {
+      for (const slot of this.slots) {
+        if (slot !== this.active?.bridge && slot !== this.active?.partial && sameMobileResume(slot.snapshot, snapshot)) this.clear(slot);
+      }
+    });
+  }
+
+  private decodeAllowed() {
+    const active = this.active;
+    const remaining = active && Number.isFinite(active.video.duration) ? active.video.duration - active.video.currentTime : BUFFER_TARGET;
+    return !document.hidden && !active?.bridge && (!this.preparedPlayer || !active || this.preparedActiveReady) &&
+      (!active || (active.playing && !active.video.paused && !active.video.seeking && active.video.readyState >= 2 && remaining > 0 && playableBuffer(active.video) >= Math.min(BUFFER_TARGET, remaining)));
+  }
+  private resumePreparation() {
+    this.refreshPreparationSound();
+    const slot = this.active?.partial ?? this.preparing;
+    if (this.decodeAllowed()) slot?.decode(); else slot?.pause("main-priority");
+  }
+
+  private refreshPreparationSound() {
+    if (!this.preparedAudio || !this.preparing) return;
+    const slot = this.preparing, video = slot.video, active = this.active;
+    const remaining = video.duration - slot.target;
+    // This control changes mute only after decoding has stopped. A native play
+    // resolution on the current unmuted main permits the experiment; it is not
+    // evidence of audible output or a transferable WebKit gesture grant.
+    const enabled = !!active?.current() && this.acceptedPreparationSound && this.preparedActiveReady &&
+      active.playing && !active.video.paused && !active.video.muted && !document.hidden &&
+      slot.ready && slot.phase === "ready" && video.paused && !video.seeking && video.playbackRate === 1 &&
+      !video.error && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 &&
+      Number.isFinite(slot.frameTime) && Number.isFinite(slot.frameCount) &&
+      Math.abs((slot.frameTime ?? Infinity) - slot.target) <= 0.1 &&
+      Number.isFinite(video.currentTime) && Math.abs(video.currentTime - (slot.frameTime ?? Infinity)) <= 0.1 &&
+      Number.isFinite(remaining) && remaining > 0 && playableBuffer(video, slot.target) + 0.001 >= Math.min(BUFFER_TARGET, remaining) &&
+      video.getAttribute("src") === slot.src && video.currentSrc === video.src &&
+      sameMobileResume(slot.snapshot, mobileFeedResumeSnapshot(slot.postId, slot.snapshot.contentVersion, true));
+    if (slot.audioEnabled === enabled && video.muted === !enabled) return;
+    // The slot never plays after ready. Cancellation, background and expiry
+    // mute/remove it; promotion removes it from preparation before main play.
+    video.muted = !enabled; slot.audioEnabled = enabled;
+    recordFeedEvent("preparation-sound-state", { postId: slot.postId, enabled, paused: video.paused,
+      muted: video.muted, position: video.currentTime, outputMeasured: false });
+  }
+
+  private clear(slot: Slot) {
+    slot.generation = ++this.sequence;
+    slot.stop(); slot.stop = () => {}; slot.decode = () => {}; slot.onReady = undefined; slot.phase = "cancelled";
+    recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase });
+    slot.pause("cancelled"); slot.video.muted = true;
+    slot.video.style.visibility = "hidden";
+    // Reset only after the obsolete bridge is paused and hidden. Reused slots
+    // must never inherit a correction rate from the preceding activation.
+    try { if (slot.video.playbackRate !== 1) slot.video.playbackRate = 1; } catch { /* Source removal below still bounds cleanup. */ }
+    slot.present(false);
+    slot.ready = false; slot.audioEnabled = false; slot.frameTime = slot.frameStep = slot.frameCount = null;
+    slot.video.removeAttribute("src"); slot.video.load(); slot.video.remove();
+    slot.postId = slot.src = "";
+    if (this.preparing === slot) this.preparing = null;
+    if (this.active?.partial === slot) this.active.partial = null;
+  }
+  private slot(): Slot {
+    const available = this.slots.find(slot => slot !== this.active?.bridge && slot !== this.active?.partial && slot !== this.preparing);
+    if (available) { this.clear(available); return available; }
+    if (this.slots.length >= (this.preparedPlayer ? 1 : 2)) throw new Error("Mobile preparation resource limit");
+    const video = document.createElement("video");
+    video.playsInline = true; video.loop = true; video.muted = true; video.preload = "auto";
+    video.className = "absolute inset-0 h-full w-full object-cover pointer-events-none";
+    video.style.visibility = "hidden";
+    video.dataset.mobilePreparation = "true";
+    const slot: Slot = { video, generation: ++this.sequence, postId: "", src: "", snapshot: mobileFeedResumeSnapshot("", ""), phase: "cancelled", target: 0, ready: false, audioEnabled: false, frameTime: null, frameCount: null, frameStep: null, stop: () => {}, pause: () => video.pause(), decode: () => {}, present: () => {} };
+    this.slots.push(slot); return slot;
+  }
+  prepare(input: Preparation) {
+    this.watchExpiry();
+    if (document.hidden || this.active?.postId === input.postId) return;
+    const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, this.preparedPlayer);
+    if (this.preparing?.postId === input.postId && this.preparing.src === input.src && sameMobileResume(this.preparing.snapshot, snapshot)) return;
+    if (this.preparing) this.clear(this.preparing);
+    const slot = this.slot(); this.preparing = slot;
+    const video = slot.video;
+    const generation = slot.generation;
+    const current = () => slot.generation === generation && (this.preparing === slot || this.active?.partial === slot) && !document.hidden;
+    slot.postId = input.postId; slot.src = input.src; slot.present = input.present;
+    slot.snapshot = snapshot; slot.target = snapshot.position; slot.phase = "loading";
+    input.host.appendChild(video);
+    let frame: number | undefined;
+    let frameValid = false;
+    let positioned = false;
+    let frameTarget = slot.target;
+    let attempt = 0;
+    let attemptEpoch = 0;
+    let playEpoch = 0;
+    let correctiveSeek = false;
+    let decoding = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const collectDiagnostics = feedTraceEnabled();
+    let frameRequestCount = 0, frameCallbackCount = 0;
+    let playRequestCount = 0, playResolvedCount = 0, playRejectedCount = 0, obsoletePlayRejectionCount = 0;
+    let lastFrameMediaTime: number | null = null;
+    let lastFrameReject: string | null = null;
+    let lastPauseReason: string | null = null;
+    const diagnostics = (): Record<string, string | number | boolean | null> => {
+      if (!collectDiagnostics) return {};
+      const buffered = video.buffered;
+      const ranges = Array.from({ length: Math.min(buffered.length, 4) }, (_, i) => [buffered.start(i), buffered.end(i)]);
+      const main = this.active;
+      return {
+        frameTarget, position: video.currentTime, bufferAtPosition: playableBuffer(video),
+        bufferedRanges: JSON.stringify(ranges), bufferedRangeCount: buffered.length,
+        readyState: video.readyState, networkState: video.networkState, paused: video.paused, seeking: video.seeking,
+        currentSourceMatches: video.currentSrc === video.src, positioned, frameValid, frameRequestPending: frame !== undefined,
+        frameRequestCount, frameCallbackCount, lastFrameMediaTime, lastFrameReject,
+        playRequestCount, playResolvedCount, playRejectedCount, obsoletePlayRejectionCount, lastPauseReason,
+        decodeAllowed: this.decodeAllowed(), mainPaused: main?.video.paused ?? null,
+        mainPlaying: main?.playing ?? null, mainBuffer: main ? playableBuffer(main.video) : null,
+      };
+    };
+    // pause() can reject pending play promises in a later browser task. Mark
+    // those requests obsolete before resuming or starting the next attempt.
+    slot.pause = reason => { if (collectDiagnostics) lastPauseReason = reason ?? "unspecified"; playEpoch++; video.pause(); };
+    const usable = () => {
+      const remaining = Number.isFinite(video.duration) ? video.duration - frameTarget : BUFFER_TARGET;
+      const buffer = preparationBuffer(video, frameTarget);
+      return frameValid && !video.seeking && remaining > 0 && buffer + 0.001 >= Math.min(BUFFER_TARGET, remaining);
+    };
+    const ready = () => {
+      if (!current() || !usable() || slot.ready) return;
+      const detail = diagnostics();
+      slot.ready = true; slot.phase = "ready"; slot.pause("ready"); slot.stop();
+      this.refreshPreparationSound();
+      if (this.rateMode === "prearmed" && frameTarget === 0 && video.paused) {
+        try {
+          video.playbackRate = 0.75;
+          recordFeedEvent("preparation-rate-prearm", { postId: slot.postId, result: video.playbackRate === 0.75 ? "applied" : "ignored", rate: 0.75, paused: video.paused });
+        } catch {
+          recordFeedEvent("preparation-rate-prearm", { postId: slot.postId, result: "unsupported", rate: 0.75, paused: video.paused });
+        }
+      }
+      recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
+      video.style.visibility = "visible";
+      if (slot.onReady) slot.onReady(); else slot.present(true);
+      recordFeedEvent("preparation-ready", { ...detail, postId: slot.postId, position: frameTarget, buffer: preparationBuffer(video, frameTarget), generation, bufferTarget: BUFFER_TARGET });
+    };
+    const observe = () => {
+      if (!current() || !video.requestVideoFrameCallback) return;
+      const observedEpoch = attemptEpoch;
+      if (collectDiagnostics) frameRequestCount++;
+      frame = video.requestVideoFrameCallback((_now, metadata) => {
+        if (!current() || observedEpoch !== attemptEpoch) return;
+        frame = undefined;
+        if (collectDiagnostics) { frameCallbackCount++; lastFrameMediaTime = metadata.mediaTime; }
+        if (positioned && video.readyState >= 2 && !video.seeking && video.currentSrc === video.src && Math.abs(metadata.mediaTime - frameTarget) <= 0.1) {
+          frameValid = true; slot.frameTime = metadata.mediaTime; slot.frameCount = metadata.presentedFrames; slot.pause("target-frame"); ready();
+        } else if (positioned && !video.seeking && video.currentSrc === video.src && metadata.mediaTime > frameTarget + 0.1 && !correctiveSeek) {
+          if (collectDiagnostics) lastFrameReject = "position-mismatch";
+          correctiveSeek = true; slot.pause("corrective-seek"); positioned = false;
+          recordFeedEvent("preparation-corrective-seek", { postId: slot.postId, attempt, target: frameTarget, reported: metadata.mediaTime });
+          try { video.currentTime = frameTarget; positioned = !video.seeking; } catch { /* The bounded attempt can retry. */ }
+          observe();
+          if (positioned && this.decodeAllowed()) play();
+        } else {
+          if (collectDiagnostics) lastFrameReject = !positioned ? "unpositioned" : video.readyState < 2 ? "ready-state"
+            : video.seeking ? "seeking" : video.currentSrc !== video.src ? "current-source-mismatch" : "position-mismatch";
+          observe();
+        }
+      });
+    };
+    const seek = () => {
+      if (!current()) return;
+      frameTarget = Number.isFinite(video.duration) ? Math.min(slot.target, Math.max(0, video.duration - 0.01)) : slot.target;
+      try { if (Math.abs(video.currentTime - frameTarget) > 0.01) video.currentTime = frameTarget; positioned = true; }
+      catch { positioned = false; }
+    };
+    const cancelFrame = () => { attemptEpoch++; if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; };
+    const miss = (reason: string, detail: { errorName?: string; mediaErrorCode?: number | null } = {}) => {
+      if (!current() || slot.ready || slot.phase === "retrying") return;
+      // Capture before our own pause/cancel obscures the state that missed readiness.
+      const snapshot = diagnostics();
+      slot.pause("attempt-miss"); cancelFrame(); clearTimeout(timer); decoding = false;
+      recordFeedEvent("preparation-miss", { postId: slot.postId, reason, attempt, buffer: preparationBuffer(video, frameTarget), ...snapshot, ...detail });
+      if (attempt >= 2) return this.clear(slot);
+      slot.phase = "retrying";
+      recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
+      retryTimer = setTimeout(() => {
+        if (!current()) return;
+        slot.phase = "loading"; correctiveSeek = false; frameValid = false; positioned = false;
+        slot.decode();
+      }, 250);
+    };
+    const error = () => miss("media-or-play-error", { mediaErrorCode: video.error?.code ?? null });
+    const play = () => {
+      // Separate Preview control: acquire a paused load's actual opening frame,
+      // without starting and pausing a muted playback timeline. Every caller
+      // (progress, seek completion and retry) must preserve that policy.
+      if (this.pausedPreparation) return;
+      const requestedEpoch = playEpoch;
+      const requestedAttempt = attemptEpoch;
+      if (collectDiagnostics) playRequestCount++;
+      void video.play()?.then(() => {
+        if (collectDiagnostics && current() && requestedAttempt === attemptEpoch) playResolvedCount++;
+      }, (reason: unknown) => {
+        const errorName = reason && typeof reason === "object" && "name" in reason && typeof reason.name === "string" ? reason.name : "unknown";
+        if (collectDiagnostics && current() && requestedAttempt === attemptEpoch) {
+          playRejectedCount++;
+          if (requestedEpoch !== playEpoch) obsoletePlayRejectionCount++;
+        }
+        if (requestedEpoch !== playEpoch) {
+          if (current()) recordFeedEvent("preparation-play-obsolete", { postId: slot.postId, attempt, errorName });
+          return;
+        }
+        miss("media-or-play-error", { errorName });
+      });
+    };
+    const seeked = () => {
+      if (!current() || !decoding || video.seeking) return;
+      positioned = Math.abs(video.currentTime - frameTarget) <= 0.01;
+      if (!frameValid && this.decodeAllowed()) play();
+    };
+    const progress = () => { ready(); slot.decode(); };
+    slot.decode = () => {
+      if (!current() || slot.ready || slot.phase === "retrying" || !this.decodeAllowed()) return;
+      if (decoding) { if (!frameValid && video.paused) play(); return; }
+      decoding = true; attempt++; slot.phase = "acquiring-frame"; correctiveSeek = false;
+      if (collectDiagnostics) {
+        frameRequestCount = frameCallbackCount = playRequestCount = playResolvedCount = playRejectedCount = obsoletePlayRejectionCount = 0;
+        lastFrameMediaTime = null; lastFrameReject = lastPauseReason = null;
+      }
+      recordFeedEvent("preparation-state", { postId: slot.postId, phase: slot.phase, attempt });
+      timer = setTimeout(() => miss("attempt-timeout"), PREPARATION_BUDGET_MS);
+      if (video.readyState >= 1) seek();
+      observe();
+      if (this.pausedPreparation) {
+        // Install the callback before loading, and load only after the same
+        // active-player buffer/motion budget admits preparation. No callback
+        // means no qualified preparation; bounded misses keep the cold path.
+        video.src = input.src; video.load();
+      } else play();
+    };
+    slot.stop = () => { playEpoch++; clearTimeout(timer); clearTimeout(retryTimer); cancelFrame(); video.removeEventListener("loadedmetadata", seek); video.removeEventListener("seeked", seeked); video.removeEventListener("progress", progress); video.removeEventListener("error", error); };
+    video.addEventListener("loadedmetadata", seek); video.addEventListener("seeked", seeked);
+    video.addEventListener("progress", progress); video.addEventListener("error", error);
+    recordFeedEvent("preparation-start", { postId: slot.postId, target: slot.target, generation, phase: slot.phase, contentVersion: snapshot.contentVersion, expiresAt: snapshot.expiresAt });
+    if (!this.pausedPreparation) { video.src = input.src; video.load(); }
+    slot.decode();
+  }
+  cancelPreparation(postId?: string) {
+    if (this.preparing && (!postId || this.preparing.postId === postId)) this.clear(this.preparing);
+  }
+
+  private activatePrepared(input: ActivationInput) {
+    const activationRequestedAt = feedTraceEnabled() ? performance.now() : null;
+    this.watchExpiry();
+    if (this.active) this.release(this.active.token);
+    this.preparedActiveReady = false;
+    const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, true);
+    const target = input.position ?? snapshot.position;
+    const prepared = this.preparing;
+    const retainAttachment = this.rateMode === "prepared-inplace-audio" || this.pausedPreparation;
+    const preparedAudioEnabled = this.preparedAudio && this.acceptedPreparationSound &&
+      prepared?.audioEnabled === true && input.soundIntent === true && input.playingIntent !== false;
+    // A changed sound/pause intent revokes this control before selection. An
+    // unexpected unmuted slot in the original prepared mode remains ineligible.
+    if (prepared?.audioEnabled && !preparedAudioEnabled) { prepared.video.muted = true; prepared.audioEnabled = false; }
+    let promoted: HTMLVideoElement | null = null;
+    if (!input.reload && prepared?.ready && prepared.phase === "ready" && prepared.postId === input.postId && prepared.src === input.src &&
+        sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && target === snapshot.position &&
+        prepared.frameTime !== null && prepared.frameCount !== null && Number.isFinite(prepared.frameCount)) {
+      // Invalidate every preparation callback/settlement before adoption. Unlike
+      // clear(), this cancellation never removes or reloads the qualified source.
+      prepared.generation = ++this.sequence; prepared.stop(); prepared.stop = () => {};
+      prepared.decode = () => {}; prepared.onReady = undefined;
+      promoted = adoptPreparedMobileFeedPlayer(retainAttachment ? input.previewHost : input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
+        retainAttachment ? { expectedMuted: !preparedAudioEnabled, retainAttachment: true } : preparedAudioEnabled ? { expectedMuted: false } : undefined);
+      if (promoted) {
+        this.preparing = null; this.slots = this.slots.filter(slot => slot !== prepared);
+        prepared.present(false); prepared.phase = "cancelled";
+        delete promoted.dataset.mobilePreparation; promoted.style.visibility = "visible";
+      }
+    }
+    // An ineligible selected preparation cannot become an independent bridge.
+    // Keep a different neighbor only while paused, under the same decoder budget.
+    if (!promoted && prepared) {
+      if (prepared.postId === input.postId) this.clear(prepared);
+      else prepared.pause("activation-priority");
+    }
+    const video = promoted ?? claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, {
+      position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: false, reload: input.reload, boundedSeekRecovery: true,
+    });
+    this.acceptedPreparationSound = false;
+    const activatedAt = performance.now();
+    let alive = true, complete = false, accepted = false, playAttempted = false;
+    let frame: number | undefined, watchdog: ReturnType<typeof setTimeout> | undefined;
+    // Automatic playback keeps the existing activation deadline, including time
+    // spent waiting for a return seek. Intentional pause starts a new attempt.
+    let watchdogDeadline: number | null = input.playingIntent === false ? null : activatedAt + 3_000;
+    let epoch = 0, playEpoch = 0, playRequests = 0, callbacks = 0;
+    let previous: number | null = null, previousCount: number | null = null;
+    let intendedPosition = target, targetObserved = false;
+    const collectFrameDiagnostics = feedTraceEnabled();
+    let frameRequests = 0, frameDeliveries = 0, frameDiscards = 0, frameCancellations = 0;
+    let frameRequestedAt: number | null = null;
+    let lastFrameDiscardReason: string | null = null, lastFrameCancelReason: string | null = null;
+    const quality = () => {
+      try {
+        const value = video.getVideoPlaybackQuality?.();
+        return { totalVideoFrames: value?.totalVideoFrames ?? null, droppedVideoFrames: value?.droppedVideoFrames ?? null };
+      } catch { return { totalVideoFrames: null, droppedVideoFrames: null }; }
+    };
+    const initialQuality = collectFrameDiagnostics ? quality() : null;
+    const frameDiagnostics = (includeQuality = false): Record<string, string | number | boolean | null> => {
+      if (!collectFrameDiagnostics) return {};
+      const currentQuality = includeQuality ? quality() : null;
+      return {
+        frameRequestCount: frameRequests, frameDeliveryCount: frameDeliveries, frameDiscardCount: frameDiscards,
+        frameCancellationCount: frameCancellations, lastFrameDiscardReason, lastFrameCancelReason,
+        frameRequestPending: frame !== undefined, frameRequestHandle: frame ?? null,
+        framePendingMs: frame !== undefined && frameRequestedAt !== null ? performance.now() - frameRequestedAt : null,
+        frameEpoch: epoch,
+        ...(currentQuality ? {
+          totalVideoFrames: currentQuality.totalVideoFrames, droppedVideoFrames: currentQuality.droppedVideoFrames,
+          totalVideoFramesDelta: currentQuality.totalVideoFrames !== null && initialQuality?.totalVideoFrames !== null && initialQuality?.totalVideoFrames !== undefined
+            ? currentQuality.totalVideoFrames - initialQuality.totalVideoFrames : null,
+          connected: video.isConnected, hidden: document.hidden, visibilityStyle: video.style.visibility,
+          paused: video.paused, seeking: video.seeking, playingIntent: active.playing,
+        } : {}),
+      };
+    };
+    const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
+    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, bridge: null, partial: null,
+      playing: false, current, playRequested: () => {}, observeMainPlay: () => {}, stop: () => {} };
+    this.active = active;
+    input.present(!!promoted);
+    recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
+    recordFeedEvent("prepared-player-selection", { result: promoted ? "promoted" : "cold-fallback", target, position: video.currentTime,
+      warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false,
+      ...(this.preparedAudio ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
+      ...(retainAttachment ? { preparedAttachmentRetained: !!promoted } : {}),
+      ...(this.pausedPreparation ? { preparationPlayback: "paused-load" } : {}),
+      ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
+    const armWatchdog = () => {
+      if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;
+      watchdogDeadline ??= performance.now() + 3_000;
+      watchdog = setTimeout(() => {
+        watchdog = undefined;
+        if (!current() || complete || document.hidden || video.paused) return;
+        recordFeedEvent("handoff-timeout", { mode: "prepared", targetObserved, playAccepted: accepted, position: video.currentTime,
+          readyState: video.readyState, buffer: playableBuffer(video), currentSourceMatches: video.currentSrc === video.src,
+          ...frameDiagnostics(true) }, video);
+        input.present(false); video.pause(); active.stop(); input.failed?.();
+        recordFeedEvent("handoff-recovery", { result: "retry", mode: "prepared" }, video);
+      }, Math.max(0, watchdogDeadline - performance.now()));
+    };
+    const observe = () => {
+      if (!current() || complete || frame !== undefined || !video.requestVideoFrameCallback) return;
+      const requestedEpoch = epoch;
+      if (collectFrameDiagnostics) { frameRequests++; frameRequestedAt = performance.now(); }
+      frame = video.requestVideoFrameCallback((callbackAt, metadata) => {
+        if (collectFrameDiagnostics) frameDeliveries++;
+        if (!current() || requestedEpoch !== epoch || complete) {
+          if (collectFrameDiagnostics) {
+            frameDiscards++;
+            lastFrameDiscardReason = !current() ? "obsolete-owner" : requestedEpoch !== epoch ? "obsolete-epoch" : "complete";
+          }
+          return;
+        }
+        frame = undefined; callbacks++;
+        frameRequestedAt = null;
+        const now = performance.now(), fresh = now - submittedAt(metadata, now) <= 100;
+        if (fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src &&
+            metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (now - activatedAt) / 1_000 + 0.25) targetObserved = true;
+        const countAdvances = previousCount !== null && Number.isFinite(previousCount) && Number.isFinite(metadata.presentedFrames) && metadata.presentedFrames > previousCount;
+        const valid = accepted && active.playing && !document.hidden && fresh && countAdvances && targetObserved &&
+          video.playbackRate === 1 && validFeedFrame(video, video.src, metadata.mediaTime, previous);
+        if (feedTraceEnabled() && callbacks <= STARTUP_FRAME_SAMPLE_LIMIT) recordFeedEvent("lab-main-startup-frame", {
+          callback: callbacks, callbackAt, deliveredAt: now, mediaTime: metadata.mediaTime, presentedFrames: metadata.presentedFrames,
+          presentationTime: Number.isFinite(metadata.presentationTime) ? metadata.presentationTime : null,
+          expectedDisplayTime: Number.isFinite(metadata.expectedDisplayTime) ? metadata.expectedDisplayTime : null,
+          processingDuration: typeof metadata.processingDuration === "number" && Number.isFinite(metadata.processingDuration) ? metadata.processingDuration : null,
+          width: Number.isFinite(metadata.width) ? metadata.width : null, height: Number.isFinite(metadata.height) ? metadata.height : null,
+          position: video.currentTime, target: intendedPosition, targetObserved, qualified: valid, submissionAgeMs: now - submittedAt(metadata, now),
+          currentSourceMatches: video.currentSrc === video.src, playAccepted: accepted, muted: video.muted, ...audioSessionSnapshot(),
+        }, video);
+        if (valid) {
+          complete = true; this.preparedActiveReady = true; clearTimeout(watchdog); watchdog = undefined;
+          input.ready();
+          recordFeedEvent("presentation-handoff", { warmEligible: !!promoted, reason: promoted ? "prepared-player" : "main-only",
+            independentBridge: false, activationMs: now - activatedAt, muted: video.muted, outputMeasured: false,
+            ...(activationRequestedAt === null ? {} : { requestToHandoffMs: now - activationRequestedAt }) }, video);
+          this.resumePreparation();
+        }
+        previous = fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src ? metadata.mediaTime : null;
+        previousCount = fresh ? metadata.presentedFrames : null;
+        observe();
+      });
+      if (collectFrameDiagnostics && frameRequests <= STARTUP_FRAME_SAMPLE_LIMIT) recordFeedEvent("lab-main-frame-request", {
+        ...frameDiagnostics(), position: video.currentTime, paused: video.paused, playAccepted: accepted,
+      }, video);
+    };
+    const seeking = () => {
+      epoch++; previous = previousCount = null; intendedPosition = video.currentTime; targetObserved = false;
+      if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "seeking"; }
+      if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observe();
+    };
+    const pauseState = (resetDeadline = true) => {
+      playEpoch++; accepted = false; active.playing = false; previous = previousCount = null;
+      this.acceptedPreparationSound = false; this.refreshPreparationSound();
+      clearTimeout(watchdog); watchdog = undefined;
+      if (resetDeadline) watchdogDeadline = null;
+      this.preparing?.pause("main-paused");
+    };
+    const pause = () => {
+      // A queued pause from the released source cannot extend the deadline while
+      // awaiting a seek, or cancel playback that already resumed on this source.
+      if (video.paused) pauseState(playAttempted);
+    };
+    const play = () => { if (current()) { if (!video.paused) playAttempted = true; armWatchdog(); observe(); } };
+    const progress = () => this.resumePreparation();
+    const playing = () => { active.playing = true; progress(); };
+    const waiting = () => { active.playing = false; progress(); };
+    active.playRequested = play;
+    active.pauseRequested = () => { if (current()) pauseState(); };
+    active.observeMainPlay = ({ requestedAt, returnedAt, request }) => {
+      if (!current()) return;
+      playAttempted = true;
+      const requestEpoch = ++playEpoch, requestId = ++playRequests, requestedMuted = video.muted;
+      accepted = false;
+      this.acceptedPreparationSound = false; this.refreshPreparationSound();
+      const sampled = feedTraceEnabled() && requestId <= NATIVE_PLAY_SAMPLE_LIMIT;
+      if (sampled) recordFeedEvent("lab-main-play-returned", { requestId, activationMs: requestedAt - activatedAt, elapsedMs: returnedAt - requestedAt,
+        position: video.currentTime, paused: video.paused, muted: requestedMuted, ...audioSessionSnapshot(), ...frameDiagnostics() }, video);
+      void request?.then(() => {
+        if (!current() || requestEpoch !== playEpoch) return;
+        accepted = true; active.playing = !video.paused;
+        this.acceptedPreparationSound = !requestedMuted && !video.muted && !video.paused;
+        if (sampled) recordFeedEvent("lab-main-play-settled", { requestId, result: "resolved", muted: requestedMuted,
+          elapsedMs: performance.now() - requestedAt, afterReturnMs: performance.now() - returnedAt, outputMeasured: false,
+          ...frameDiagnostics() }, video);
+        play(); progress();
+      }, () => {
+        if (!current() || requestEpoch !== playEpoch) return;
+        recordFeedEvent("prepared-player-play-rejected", { requestId, muted: requestedMuted, warmEligible: !!promoted, outputMeasured: false }, video);
+        video.pause(); this.cancelPreparation();
+      });
+    };
+    video.addEventListener("seeking", seeking); video.addEventListener("pause", pause); video.addEventListener("play", play);
+    video.addEventListener("playing", playing); video.addEventListener("waiting", waiting);
+    video.addEventListener("progress", progress); video.addEventListener("stalled", progress);
+    active.stop = () => {
+      alive = false; this.preparedActiveReady = false; epoch++; playEpoch++; clearTimeout(watchdog);
+      if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "stop"; }
+      if (frame !== undefined) video.cancelVideoFrameCallback?.(frame);
+      video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play);
+      video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting);
+      video.removeEventListener("progress", progress); video.removeEventListener("stalled", progress);
+    };
+    const pending = mobileFeedPlaybackReady(input.token);
+    if (pending) void pending.then(() => { if (current()) observe(); }); else observe();
+    recordFeedEvent("resource-count", { videoElements: this.slots.length + 1, preparationDecoders: this.preparing ? 1 : 0, mode: "prepared" }, video);
+    return video;
+  }
+
+  activate(input: ActivationInput) {
+    if (this.preparedPlayer) return this.activatePrepared(input);
+    this.watchExpiry();
+    if (this.active) this.release(this.active.token);
+    const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src);
+    const target = input.position ?? snapshot.position;
+    // Diagnostic control: keep neighbor preparation, but unload its element
+    // before the shared main receives this source. Browser cache reuse and
+    // native decoder release timing still require physical-device evidence.
+    const serialPreparation = this.rateMode === "serial" ? this.preparing : null;
+    const serialDiscard = serialPreparation ? {
+      postId: serialPreparation.postId, selectedPostId: input.postId,
+      selectedSourceMatches: serialPreparation.src === input.src,
+      ready: serialPreparation.ready, phase: serialPreparation.phase,
+      target: serialPreparation.target, buffer: preparationBuffer(serialPreparation.video, serialPreparation.target),
+    } : null;
+    if (serialPreparation) this.clear(serialPreparation);
+    const prepared = this.preparing;
+    const remaining = prepared && Number.isFinite(prepared.video.duration) ? prepared.video.duration - target : BUFFER_TARGET;
+    const eligible = !!prepared && prepared.postId === input.postId && prepared.src === input.src && prepared.ready &&
+      sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && remaining > 0 && preparationBuffer(prepared.video, target) + 0.001 >= Math.min(BUFFER_TARGET, remaining);
+    const bridge = eligible ? prepared : null;
+    const partial = prepared && !eligible && prepared.postId === input.postId && prepared.src === input.src && sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && !input.reload ? prepared : null;
+    if (prepared && !bridge && !partial) {
+      if (prepared.postId === input.postId) this.clear(prepared);
+      else {
+        // This is still the selected neighbor. Another card can finish resolving
+        // after its preparation effect ran; selection changes own cancellation.
+        prepared.pause("activation-priority");
+        recordFeedEvent("preparation-retained", { postId: prepared.postId, activatedPostId: input.postId, phase: prepared.phase, position: prepared.target });
+      }
+    }
+    if (partial) { partial.pause("selected-partial"); partial.video.style.visibility = "hidden"; partial.present(false); this.preparing = null; input.previewHost.appendChild(partial.video); }
+    if (bridge) { bridge.stop(); bridge.stop = () => {}; this.preparing = null; bridge.present = input.present; input.previewHost.appendChild(bridge.video); }
+    const video = claimMobileFeedPlayer(input.host, input.token, input.src, input.postId, { position: input.position, snapshot, contentVersion: snapshot.contentVersion, warmEligible: eligible, reload: input.reload, boundedSeekRecovery: true });
+    recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
+    if (serialDiscard && serialPreparation) recordFeedEvent("preparation-serial-discard", {
+      ...serialDiscard, sourceRemoved: !serialPreparation.video.hasAttribute("src"),
+      detached: !serialPreparation.video.isConnected, paused: serialPreparation.video.paused,
+    }, video);
+    const activatedAt = performance.now();
+    let alive = true;
+    let frame: number | undefined;
+    let bridgeFrame: number | undefined;
+    let previousMain: number | null = null;
+    let previousMainCount: number | null = null;
+    let lastMain: number | null = null;
+    let lastMainAt = -Infinity;
+    let mainStep: number | null = null;
+    let complete = false;
+    const resyncAt = -Infinity;
+    let bridgeSeekEpoch = 0;
+    let bridgeSeekTarget: number | null = null;
+    let epoch = 0;
+    let intendedPosition = target;
+    let targetObserved = false;
+    let bridgeMoving = false;
+    let lastBridgeAt = -Infinity;
+    let lastBridgeMotionAt = -Infinity;
+    let bridgeShownAt: number | null = null;
+    let rateAttempted = false;
+    // This diagnostic mode tests whether a rate write made at preparation
+    // readiness avoids the post-write callback gap observed on Safari.
+    // Restrict it to an opening target; returns need their own alignment proof.
+    if (this.rateMode === "prearmed" && bridge && target === 0) {
+      rateAttempted = true;
+      recordFeedEvent("bridge-rate-prototype", { result: bridge.video.playbackRate === 0.75 ? "prearmed" : "missing-prearm", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
+    }
+    if ((this.rateMode === "steady" || this.rateMode === "guarded") && bridge) {
+      recordFeedEvent("bridge-rate-prototype", { result: "steady-1x", rate: bridge.video.playbackRate, paused: bridge.video.paused }, video);
+    }
+    const restoreBridgeRate = (reason: string) => {
+      const preview = active.bridge;
+      try {
+        if (preview && preview.video.playbackRate !== 1) {
+          const previousRate = preview.video.playbackRate;
+          preview.video.playbackRate = 1;
+          recordFeedEvent("bridge-rate-reset", { reason, previousRate, rate: preview.video.playbackRate, paused: preview.video.paused }, video);
+        }
+      } catch { recordFeedEvent("bridge-rate-reset", { reason, result: "unsupported" }, video); }
+    };
+    const collectFrameDiagnostics = feedTraceEnabled();
+    const expectedSource = collectFrameDiagnostics ? new URL(input.src, document.baseURI).href : "";
+    let mainSourceRead = false, bridgeSourceRead = false, bridgePlayRequests = 0, mainPlayRequests = 0;
+    let mainClockSamples = 0;
+    const readSelectedSource = (element: HTMLVideoElement, role: "main" | "bridge") => {
+      if (!collectFrameDiagnostics || (role === "main" ? mainSourceRead : bridgeSourceRead) ||
+          element.src !== expectedSource || element.currentSrc !== expectedSource) return;
+      if (role === "main") mainSourceRead = true; else bridgeSourceRead = true;
+      // The lab has closed public fixtures. Never export an unrelated prior
+      // shared-player source or a URL that does not match this activation.
+      recordFeedEvent("lab-source-readback", { role, selectedSource: element.currentSrc,
+        sourceKind: element.currentSrc.includes(".m3u8") ? "hls" : "mp4", readyState: element.readyState }, video);
+    };
+    const qualityAtActivation = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
+    let mainRequestCount = 0;
+    let mainCallbackCount = 0;
+    let mainValidCount = 0;
+    let firstMainReject: string | null = null;
+    let lastMainReject: string | null = null;
+    let firstMainRequestAt: number | null = null;
+    let firstMainCallbackAt: number | null = null;
+    let firstMainValidAt: number | null = null;
+    let lastMainCallbackAt: number | null = null;
+    let lastMainMediaTime: number | null = null;
+    let lastMainPresentedFrames: number | null = null;
+    let bridgeRequestCount = 0, bridgeCallbackCount = 0, bridgeAcceptedCount = 0;
+    let firstBridgeCallbackAt: number | null = null, lastBridgeCallbackAt: number | null = null;
+    let firstBridgeReject: string | null = null, lastBridgeReject: string | null = null;
+    let lastBridgeMediaTime: number | null = null, lastBridgePresentedFrames: number | null = null;
+    let lastBridgePresentationTime: number | null = null;
+    const current = () => alive && this.active?.token === input.token && ownsMobileFeedPlayer(input.token, video, input.src);
+    const active: Activation = { token: input.token, postId: input.postId, src: input.src, video, playing: false, bridge, partial, current, playRequested: () => {}, observeMainPlay: () => {}, stop: () => {} };
+    this.active = active;
+    active.observeMainPlay = ({ requestedAt, returnedAt, request }) => {
+      if (!collectFrameDiagnostics || !current() || mainPlayRequests >= NATIVE_PLAY_SAMPLE_LIMIT) return;
+      const requestId = ++mainPlayRequests;
+      recordFeedEvent("lab-main-play-returned", { requestId, activationMs: requestedAt - activatedAt,
+        elapsedMs: returnedAt - requestedAt, position: video.currentTime, paused: video.paused,
+        seeking: video.seeking, readyState: video.readyState, muted: video.muted, ...audioSessionSnapshot() }, video);
+      const settled = (result: "resolved" | "rejected") => {
+        if (!current()) return;
+        const settledAt = performance.now();
+        recordFeedEvent("lab-main-play-settled", { requestId, result, elapsedMs: settledAt - requestedAt,
+          afterReturnMs: settledAt - returnedAt, position: video.currentTime, paused: video.paused,
+          readyState: video.readyState, muted: video.muted, ...audioSessionSnapshot() }, video);
+      };
+      void request?.then(() => settled("resolved"), () => settled("rejected"));
+    };
+    const bridgeDiagnostics = (): Record<string, string | number | boolean | null> => {
+      if (!collectFrameDiagnostics) return {};
+      const preview = active.bridge?.video;
+      const now = performance.now();
+      return {
+        bridgeRequestCount, bridgeCallbackCount, bridgeAcceptedCount, firstBridgeReject, lastBridgeReject,
+        firstBridgeCallbackMs: firstBridgeCallbackAt === null ? null : firstBridgeCallbackAt - activatedAt,
+        lastBridgeCallbackAgeMs: lastBridgeCallbackAt === null ? null : now - lastBridgeCallbackAt,
+        lastBridgeSubmissionAgeMs: Number.isFinite(lastBridgeAt) ? now - lastBridgeAt : null,
+        lastBridgeMotionAgeMs: Number.isFinite(lastBridgeMotionAt) ? now - lastBridgeMotionAt : null,
+        lastBridgeMediaTime, lastBridgePresentedFrames, lastBridgePresentationTime,
+        bridgeFrameRequestPending: bridgeFrame !== undefined, bridgeMoving,
+        bridgePosition: preview?.currentTime ?? null, bridgeReadyState: preview?.readyState ?? null,
+        bridgePaused: preview?.paused ?? null, bridgeSeeking: preview?.seeking ?? null,
+        bridgeSourceMatches: preview ? preview.currentSrc === preview.src : null,
+        bridgeWidth: preview?.videoWidth ?? null, bridgeHeight: preview?.videoHeight ?? null,
+      };
+    };
+    input.present(!!bridge);
+    const finish = (reason: "aligned" | "main-only" | "bridge-motion-unverified" | "watchdog" = "aligned") => {
+      if (!current() || complete) return;
+      complete = true;
+      const previewDiagnostic = bridgeDiagnostics();
+      if (active.bridge) { const old = active.bridge; if (bridgeFrame !== undefined) old.video.cancelVideoFrameCallback?.(bridgeFrame); bridgeFrame = undefined; active.bridge = null; this.clear(old); }
+      if (active.partial) this.clear(active.partial);
+      if (collectFrameDiagnostics) {
+        const qualityAtHandoff = video.getVideoPlaybackQuality?.();
+        recordFeedEvent("handoff-frame-diagnostic", {
+          ...previewDiagnostic,
+          mainRequestCount, mainCallbackCount, mainValidCount, firstMainReject, lastMainReject,
+          firstMainRequestMs: firstMainRequestAt === null ? null : firstMainRequestAt - activatedAt,
+          firstMainCallbackMs: firstMainCallbackAt === null ? null : firstMainCallbackAt - activatedAt,
+          firstMainValidMs: firstMainValidAt === null ? null : firstMainValidAt - activatedAt,
+          lastMainCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+          lastMainSubmissionAgeMs: Number.isFinite(lastMainAt) ? performance.now() - lastMainAt : null,
+          targetObserved, totalFramesDelta: qualityAtHandoff && qualityAtActivation ? qualityAtHandoff.totalVideoFrames - qualityAtActivation.totalVideoFrames : null,
+          droppedFramesDelta: qualityAtHandoff && qualityAtActivation ? qualityAtHandoff.droppedVideoFrames - qualityAtActivation.droppedVideoFrames : null,
+        }, video);
+      }
+      input.ready(); recordFeedEvent("presentation-handoff", { warmEligible: eligible, alignmentFrameSeconds: mainStep, reason, aligned: reason === "aligned" }, video);
+      this.resumePreparation();
+    };
+    const align = () => {
+      if (!current() || document.hidden || video.seeking || video.paused || lastMain === null) return;
+      if (!active.bridge) return finish("main-only");
+      const now = performance.now();
+      const preview = active.bridge;
+      // This is recovery from unverified bridge motion, not aligned success.
+      // Only a fresh advancing main frame can withdraw the preview. Never seek
+      // or change the audible player's rate or sound intent to force recovery.
+      if (this.rateMode === "guarded" && bridgeShownAt !== null &&
+        now - Math.max(bridgeShownAt, lastBridgeMotionAt) > 250 && now - lastMainAt <= 100 &&
+        targetObserved && active.playing && video.playbackRate === 1 && video.currentSrc === video.src) {
+        recordFeedEvent("bridge-motion-unverified", {
+          ...bridgeDiagnostics(), activationMs: now - activatedAt,
+          mainMediaTime: lastMain, bridgeMediaTime: preview.frameTime,
+          rawError: preview.frameTime === null ? null : preview.frameTime - lastMain,
+          aligned: false, pixelIntegrityMeasured: false,
+        }, video);
+        finish("bridge-motion-unverified");
+        recordFeedEvent("handoff-recovery", { result: "moving-main", trigger: "bridge-motion-unverified", aligned: false }, video);
+        return;
+      }
+      const frameStep = mainStep ?? preview.frameStep;
+      if (preview.frameTime === null || frameStep === null || preview.video.seeking) return;
+      // The projection can choose a direction or reject apparent alignment;
+      // it can never authorize handoff without aligned actual frames.
+      // Two freshly sampled actual frames still have to meet the original
+      // alignment tolerance. Sparse or differently aged samples cannot start a correction.
+      const mainAgeMs = now - lastMainAt, bridgeAgeMs = now - lastBridgeAt;
+      const fresh = mainAgeMs <= 100 && bridgeAgeMs <= 100 && now - lastBridgeMotionAt <= 100;
+      const rawError = preview.frameTime - lastMain;
+      const tolerance = frameStep + 0.001;
+      const projectedError = rawError + bridgeAgeMs / 1_000 * preview.video.playbackRate - mainAgeMs / 1_000 * video.playbackRate;
+      // A delayed callback is not proof that buffered playback stopped. Keep
+      // an admitted fixed correction, but reject handoff until evidence is fresh.
+      if (!fresh) return;
+      if (!active.playing || video.playbackRate !== 1) {
+        if (rateAttempted) restoreBridgeRate("main-not-playing");
+        return;
+      }
+      // Unequal sample ages may make old submitted frames look aligned while
+      // their timelines have already diverged. Projection can reject this,
+      // but cannot authorize a handoff without actual aligned frame evidence.
+      if (Math.abs(rawError) <= tolerance && Math.abs(projectedError) <= tolerance) return finish();
+      if (rateAttempted || this.rateMode !== "reactive" || !bridgeMoving || preview.video.paused || preview.video.playbackRate !== 1) return;
+      if (!Number.isFinite(projectedError) || Math.sign(projectedError) !== Math.sign(rawError) || Math.abs(projectedError) <= 2 * tolerance) return;
+      // One fixed rate per activation, with an unchanged 3 s watchdog. Reserve
+      // 250 ms for scheduling; ideal convergence is not a physical guarantee.
+      const remainingSeconds = (3_000 - (now - activatedAt)) / 1_000;
+      const requiredSeconds = Math.max(0, Math.max(Math.abs(rawError), Math.abs(projectedError)) - tolerance) / 0.25;
+      rateAttempted = true;
+      if (requiredSeconds > remainingSeconds - 0.25) {
+        recordFeedEvent("bridge-rate-prototype", { result: "insufficient-budget", rawError, projectedError, requiredSeconds, remainingSeconds }, video);
+        return;
+      }
+      const rate = projectedError > 0 ? 0.75 : 1.25;
+      try {
+        preview.video.playbackRate = rate;
+        recordFeedEvent("bridge-rate-prototype", { result: preview.video.playbackRate === rate ? "applied" : "ignored", rate, rawError, projectedError, requiredSeconds, remainingSeconds }, video);
+      } catch {
+        recordFeedEvent("bridge-rate-prototype", { result: "unsupported", rate, rawError, projectedError, requiredSeconds, remainingSeconds }, video);
+      }
+      // Unsupported, ignored, non-converging, and late corrections use the
+      // existing bounded watchdog. This prototype never starts alignment seeks.
+    };
+    const observeBridge = () => {
+      const preview = active.bridge;
+      if (!current() || !preview || bridgeFrame !== undefined || !preview.video.requestVideoFrameCallback) return;
+      const generation = preview.generation;
+      const seekEpoch = bridgeSeekEpoch;
+      if (collectFrameDiagnostics) bridgeRequestCount++;
+      bridgeFrame = preview.video.requestVideoFrameCallback((now, metadata) => {
+        if (!current() || preview !== active.bridge || generation !== preview.generation || seekEpoch !== bridgeSeekEpoch) return;
+        bridgeFrame = undefined;
+        const submission = submittedAt(metadata, performance.now());
+        if (collectFrameDiagnostics) {
+          bridgeCallbackCount++; firstBridgeCallbackAt ??= now; lastBridgeCallbackAt = now;
+          lastBridgeMediaTime = metadata.mediaTime; lastBridgePresentedFrames = metadata.presentedFrames;
+          lastBridgePresentationTime = Number.isFinite(metadata.presentationTime) ? metadata.presentationTime : null;
+        }
+        const alignmentFrame = bridgeSeekTarget === null || (metadata.mediaTime >= bridgeSeekTarget - 0.1 && metadata.mediaTime <= bridgeSeekTarget + (now - resyncAt) / 1_000 + 0.25);
+        if (alignmentFrame && !preview.video.seeking && preview.video.readyState >= 2 && preview.video.currentSrc === preview.video.src && Math.abs(preview.video.currentTime - metadata.mediaTime) <= 0.25) {
+          if (collectFrameDiagnostics) bridgeAcceptedCount++;
+          if (bridgeSeekTarget !== null) {
+            recordFeedEvent("bridge-align-frame", { target: bridgeSeekTarget, mediaTime: metadata.mediaTime, seekMs: now - resyncAt }, video);
+            bridgeSeekTarget = null;
+          }
+          const delta = preview.frameTime === null ? null : metadata.mediaTime - preview.frameTime;
+          const count = preview.frameCount === null ? 0 : metadata.presentedFrames - preview.frameCount;
+          if (delta !== null && delta > 0 && !preview.video.paused) lastBridgeMotionAt = submission;
+          if (delta !== null && delta > 0 && count > 0 && delta / count <= 1) preview.frameStep = Math.min(preview.frameStep ?? Infinity, delta / count);
+          if (!bridgeMoving && delta !== null && delta > 0 && !preview.video.paused) {
+            bridgeMoving = true;
+            recordFeedEvent("moving-presentation", { activationMs: now - activatedAt, mediaTime: metadata.mediaTime, role: "muted-bridge", audioMeasured: false }, video);
+          }
+          preview.frameTime = metadata.mediaTime;
+          preview.frameCount = metadata.presentedFrames;
+          lastBridgeAt = submission;
+          const mainClock: Record<string, string | number | boolean | null> = collectFrameDiagnostics && mainClockSamples < MAIN_CLOCK_SAMPLE_LIMIT ? {
+            mainClockSample: ++mainClockSamples, mainClockAt: performance.now(), mainClockPosition: video.currentTime,
+            mainClockReadyState: video.readyState, mainClockNetworkState: video.networkState,
+            mainClockPaused: video.paused, mainClockSeeking: video.seeking, mainClockMuted: video.muted,
+            mainClockRate: video.playbackRate, mainClockBuffer: playableBuffer(video),
+            mainClockSourceMatches: video.currentSrc === expectedSource, mainClockPlayingEventSeen: active.playing,
+            mainClockCallbacks: mainCallbackCount, mainClockLastMediaTime: lastMainMediaTime,
+            mainClockLastCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+            ...audioSessionSnapshot(),
+          } : {};
+          recordFeedEvent("bridge-frame", {
+            mediaTime: metadata.mediaTime, muted: preview.video.muted, rate: preview.video.playbackRate,
+            paused: preview.video.paused, presentedFrames: metadata.presentedFrames, callbackTime: now,
+            presentationTime: metadata.presentationTime ?? null, expectedDisplayTime: metadata.expectedDisplayTime ?? null,
+            processingDuration: metadata.processingDuration ?? null, width: metadata.width ?? null, height: metadata.height ?? null,
+            submissionAgeMs: Number.isFinite(submission) ? now - submission : null,
+            ...mainClock,
+          }, video);
+          align();
+        } else if (collectFrameDiagnostics) {
+          const reason = !alignmentFrame ? "alignment-target" : preview.video.seeking ? "seeking"
+            : preview.video.readyState < 2 ? "ready-state" : preview.video.currentSrc !== preview.video.src ? "current-source-mismatch"
+              : !Number.isFinite(metadata.mediaTime) ? "invalid-media-time" : "position-drift";
+          firstBridgeReject ??= reason; lastBridgeReject = reason;
+          recordFeedEvent("bridge-frame-rejected", {
+            reason, mediaTime: metadata.mediaTime, position: preview.video.currentTime,
+            presentationTime: metadata.presentationTime ?? null, expectedDisplayTime: metadata.expectedDisplayTime ?? null,
+            presentedFrames: metadata.presentedFrames, paused: preview.video.paused, seeking: preview.video.seeking,
+            readyState: preview.video.readyState, sourceMatches: preview.video.currentSrc === preview.video.src,
+          }, video);
+        }
+        observeBridge();
+      });
+    };
+    const observeMain = () => {
+      if (!current() || complete || frame !== undefined || !video.requestVideoFrameCallback) return;
+      const seekEpoch = epoch;
+      const requestedAt = collectFrameDiagnostics ? performance.now() : 0;
+      if (collectFrameDiagnostics) { mainRequestCount++; firstMainRequestAt ??= performance.now(); }
+      frame = video.requestVideoFrameCallback((callbackAt, metadata) => {
+        if (!current() || seekEpoch !== epoch || complete) return;
+        frame = undefined;
+        if (collectFrameDiagnostics) {
+          mainCallbackCount++;
+          lastMainCallbackAt = performance.now();
+          firstMainCallbackAt ??= lastMainCallbackAt;
+          lastMainMediaTime = metadata.mediaTime;
+          lastMainPresentedFrames = metadata.presentedFrames;
+        }
+        if (!video.seeking && metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (performance.now() - activatedAt) / 1_000 + 0.25) targetObserved = true;
+        const valid = targetObserved && validFeedFrame(video, video.src, metadata.mediaTime, previousMain);
+        if (collectFrameDiagnostics) {
+          readSelectedSource(video, "main");
+          if (mainCallbackCount <= STARTUP_FRAME_SAMPLE_LIMIT) {
+            const deliveredAt = performance.now();
+            recordFeedEvent("lab-main-startup-frame", {
+              callback: mainCallbackCount, requestDelayMs: requestedAt - activatedAt,
+              callbackAt, deliveredAt, callbackWaitMs: deliveredAt - requestedAt,
+              presentationTime: Number.isFinite(metadata.presentationTime) ? metadata.presentationTime : null,
+              expectedDisplayTime: Number.isFinite(metadata.expectedDisplayTime) ? metadata.expectedDisplayTime : null,
+              submissionAgeMs: Number.isFinite(metadata.presentationTime) ? deliveredAt - metadata.presentationTime : null,
+              processingDurationMs: typeof metadata.processingDuration === "number" && Number.isFinite(metadata.processingDuration) ? metadata.processingDuration * 1_000 : null,
+              mediaTime: Number.isFinite(metadata.mediaTime) ? metadata.mediaTime : null,
+              previousMediaTime: previousMain, presentedFrames: Number.isFinite(metadata.presentedFrames) ? metadata.presentedFrames : null,
+              position: video.currentTime, target: intendedPosition, targetObserved, qualified: valid,
+              readyState: video.readyState, networkState: video.networkState, paused: video.paused,
+              seeking: video.seeking, buffer: playableBuffer(video), rate: video.playbackRate,
+              currentSourceMatches: video.currentSrc === expectedSource,
+              ...audioSessionSnapshot(),
+            }, video);
+          }
+        }
+        if (valid) {
+          if (collectFrameDiagnostics) { mainValidCount++; firstMainValidAt ??= performance.now(); }
+          const delta = metadata.mediaTime - previousMain!;
+          const count = previousMainCount === null ? 0 : metadata.presentedFrames - previousMainCount;
+          if (delta > 0 && count > 0 && delta / count <= 1) mainStep = Math.min(mainStep ?? Infinity, delta / count);
+          lastMain = metadata.mediaTime; lastMainAt = submittedAt(metadata, performance.now()); align();
+        } else if (collectFrameDiagnostics) {
+          const reason = !targetObserved ? "target-not-observed" : video.readyState < 2 ? "ready-state" : video.seeking ? "seeking"
+            : video.paused ? "paused" : video.currentSrc !== video.src ? "current-source-mismatch"
+              : !Number.isFinite(metadata.mediaTime) ? "invalid-media-time" : Math.abs(video.currentTime - metadata.mediaTime) > 0.25 ? "position-drift"
+                : previousMain === null ? "first-frame" : metadata.mediaTime <= previousMain + 0.0001 ? "nonadvancing" : "other";
+          firstMainReject ??= reason;
+          lastMainReject = reason;
+        }
+        previousMain = !video.seeking && video.readyState >= 2 && video.currentSrc === video.src ? metadata.mediaTime : null;
+        previousMainCount = metadata.presentedFrames;
+        observeMain();
+      });
+    };
+    const seeking = () => { epoch++; previousMain = lastMain = null; intendedPosition = video.currentTime; targetObserved = false; restoreBridgeRate("main-seeking"); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observeMain(); };
+    const pause = () => { active.playing = false; active.bridge?.video.pause(); bridgeShownAt = null; lastBridgeMotionAt = -Infinity; restoreBridgeRate("main-paused"); active.partial?.pause("main-paused"); this.preparing?.pause("main-paused"); previousMain = lastMain = null; };
+    const play = () => {
+      if (!current() || document.hidden || video.paused) return;
+      if (active.bridge) {
+        bridgeShownAt ??= performance.now();
+        active.bridge.video.style.visibility = "visible"; input.present(true);
+        if (active.bridge.video.paused) {
+          const preview = active.bridge, generation = preview.generation;
+          const requestedAt = collectFrameDiagnostics ? performance.now() : 0;
+          const requestId = ++bridgePlayRequests;
+          const sampled = collectFrameDiagnostics && requestId <= NATIVE_PLAY_SAMPLE_LIMIT;
+          if (sampled) {
+            readSelectedSource(preview.video, "bridge");
+            recordFeedEvent("lab-bridge-play-request", { requestId, activationMs: requestedAt - activatedAt,
+              position: preview.video.currentTime, paused: preview.video.paused, seeking: preview.video.seeking,
+              readyState: preview.video.readyState, buffer: preparationBuffer(preview.video, preview.video.currentTime),
+              rate: preview.video.playbackRate }, video);
+          }
+          const calledAt = sampled ? performance.now() : 0;
+          const request = preview.video.play();
+          const returnedAt = sampled ? performance.now() : 0;
+          if (sampled && current() && active.bridge === preview && preview.generation === generation) {
+            // A play promise's elapsed time includes time inside the native call.
+            // Record that boundary separately before awaiting its settlement.
+            recordFeedEvent("lab-bridge-play-returned", { requestId, elapsedMs: returnedAt - calledAt,
+              requestToCallMs: calledAt - requestedAt,
+              position: preview.video.currentTime, paused: preview.video.paused,
+              seeking: preview.video.seeking, readyState: preview.video.readyState }, video);
+          }
+          if (sampled) void request?.then(() => {
+            if (!current() || active.bridge !== preview || preview.generation !== generation) return;
+            const settledAt = performance.now();
+            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "resolved", elapsedMs: settledAt - requestedAt,
+              afterReturnMs: settledAt - returnedAt,
+              position: preview.video.currentTime, paused: preview.video.paused, readyState: preview.video.readyState }, video);
+          }, () => {
+            if (!current() || active.bridge !== preview || preview.generation !== generation) return;
+            const settledAt = performance.now();
+            recordFeedEvent("lab-bridge-play-settled", { requestId, result: "rejected", elapsedMs: settledAt - requestedAt,
+              afterReturnMs: settledAt - returnedAt }, video);
+          });
+          void request?.catch(() => { if (current() && active.bridge) { recordFeedEvent("bridge-play-rejected", {}, video); input.present(false); active.bridge.video.style.visibility = "hidden"; } });
+        }
+      }
+      this.resumePreparation();
+    };
+    active.playRequested = play;
+    if (partial) partial.onReady = () => {
+      if (!current() || complete || active.partial !== partial) return;
+      active.partial = null; active.bridge = partial; partial.present = input.present;
+      if (this.rateMode === "prearmed" && target === 0) {
+        rateAttempted = true;
+        recordFeedEvent("bridge-rate-prototype", { result: partial.video.playbackRate === 0.75 ? "prearmed-partial" : "missing-prearm", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
+      }
+      if (this.rateMode === "steady" || this.rateMode === "guarded") {
+        recordFeedEvent("bridge-rate-prototype", { result: "steady-1x", rate: partial.video.playbackRate, paused: partial.video.paused }, video);
+      }
+      partial.video.muted = true; input.present(true); play(); observeBridge();
+      recordFeedEvent("preparation-recovery", { postId: input.postId, warmEligible: false, position: target }, video);
+    };
+    // Browsers without frame callbacks retain ordinary playback, but never qualify as measured success.
+    const unsupported = () => { if (!video.requestVideoFrameCallback && !video.seeking && video.readyState >= 2 && video.currentTime > target) { recordFeedEvent("presentation-unverified", {}, video); finish(); } };
+    video.addEventListener("seeking", seeking); video.addEventListener("pause", pause); video.addEventListener("play", play); video.addEventListener("timeupdate", unsupported);
+    const progress = () => this.resumePreparation();
+    const playing = () => { active.playing = true; progress(); };
+    const waiting = () => { active.playing = false; restoreBridgeRate("main-waiting"); progress(); };
+    // A stalled fetch can coexist with healthy buffered playback. Recheck the
+    // buffer budget without waiting for a playing event that may never repeat.
+    video.addEventListener("progress", progress); video.addEventListener("playing", playing); video.addEventListener("waiting", waiting); video.addEventListener("stalled", progress);
+    const watchdog = setTimeout(() => {
+      if (!current() || complete) return;
+      const qualityAtTimeout = collectFrameDiagnostics ? video.getVideoPlaybackQuality?.() : null;
+      recordFeedEvent("handoff-timeout", {
+        ...bridgeDiagnostics(),
+        position: video.currentTime, buffer: playableBuffer(video), mainRequestCount, mainCallbackCount, mainValidCount,
+        firstMainRequestMs: firstMainRequestAt === null ? null : firstMainRequestAt - activatedAt,
+        firstMainCallbackMs: firstMainCallbackAt === null ? null : firstMainCallbackAt - activatedAt,
+        firstMainValidMs: firstMainValidAt === null ? null : firstMainValidAt - activatedAt,
+        firstMainReject, lastMainReject, lastMainCallbackAgeMs: lastMainCallbackAt === null ? null : performance.now() - lastMainCallbackAt,
+        lastMainMediaTime, lastMainPresentedFrames, targetObserved, frameRequestPending: frame !== undefined,
+        readyState: video.readyState, paused: video.paused, seeking: video.seeking, hidden: document.hidden,
+        currentSourceMatches: video.currentSrc === video.src, videoWidth: video.videoWidth, videoHeight: video.videoHeight,
+        totalFramesDelta: qualityAtTimeout && qualityAtActivation ? qualityAtTimeout.totalVideoFrames - qualityAtActivation.totalVideoFrames : null,
+        droppedFramesDelta: qualityAtTimeout && qualityAtActivation ? qualityAtTimeout.droppedVideoFrames - qualityAtActivation.droppedVideoFrames : null,
+      }, video);
+      if (targetObserved && lastMain !== null && performance.now() - lastMainAt <= 250 && !video.paused && !video.seeking && video.readyState >= 2) { finish("watchdog"); recordFeedEvent("handoff-recovery", { result: "moving-main", trigger: "watchdog", aligned: false }, video); }
+      else {
+        if (active.bridge) { const old = active.bridge; if (bridgeFrame !== undefined) old.video.cancelVideoFrameCallback?.(bridgeFrame); bridgeFrame = undefined; active.bridge = null; this.clear(old); }
+        if (active.partial) this.clear(active.partial);
+        input.present(false); video.pause(); active.stop(); input.failed?.();
+        recordFeedEvent("handoff-recovery", { result: "retry" }, video);
+      }
+    }, 3_000);
+    active.stop = () => { alive = false; epoch++; bridgeSeekEpoch++; bridgeSeekTarget = null; clearTimeout(watchdog); if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); if (bridgeFrame !== undefined) active.bridge?.video.cancelVideoFrameCallback?.(bridgeFrame); video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play); video.removeEventListener("timeupdate", unsupported); video.removeEventListener("progress", progress); video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting); video.removeEventListener("stalled", progress); };
+    if (bridge) { bridge.video.muted = true; bridge.video.style.visibility = "visible"; play(); observeBridge(); }
+    const pending = mobileFeedPlaybackReady(input.token);
+    if (pending) void pending.then(() => { if (current()) observeMain(); }); else observeMain();
+    recordFeedEvent("resource-count", { videoElements: this.slots.length + 1, preparationDecoders: bridge ? 1 : 0 }, video);
+    return video;
+  }
+  /** Shared-player ownership survives watchdog Retry; stopped activations may not play. */
+  canPlay(token: symbol) {
+    return this.active?.token === token && this.active.current();
+  }
+  /** The main play call updates paused before its queued play event arrives. */
+  playRequested(token: symbol) {
+    if (this.active?.token === token) this.active.playRequested();
+  }
+  /** Prepared mode only: distinguish user pause from a queued prior-source event. */
+  pauseRequested(token: symbol) {
+    if (this.active?.token === token) this.active.pauseRequested?.();
+  }
+  /** Preview timing only; observes the caller's existing native main play call. */
+  observeMainPlay(token: symbol, timing: NativePlayTiming) {
+    if (this.active?.token === token) this.active.observeMainPlay(timing);
+  }
+  release(token: symbol, departure = true) {
+    this.releaseOwned(token, departure, false);
+  }
+  /** Explicit Preview comparison; Retry, route exit and dispose use release(). */
+  releaseForTransfer(token: symbol) {
+    this.releaseOwned(token, true, true);
+  }
+  private releaseOwned(token: symbol, departure: boolean, deferParking: boolean) {
+    if (this.active?.token !== token) return;
+    const old = this.active; old.stop(); this.active = null;
+    if (old.bridge) this.clear(old.bridge);
+    if (old.partial) this.clear(old.partial);
+    releaseMobileFeedPlayer(token, departure, { deferParking });
+  }
+  suspend() {
+    this.active?.pauseRequested?.();
+    this.cancelPreparation();
+    if (this.active?.bridge) { const old = this.active.bridge; this.active.bridge = null; this.clear(old); }
+    if (this.active?.partial) this.clear(this.active.partial);
+  }
+  dispose() {
+    if (this.active) this.release(this.active.token);
+    this.slots.forEach(slot => this.clear(slot)); this.slots = []; this.preparing = null;
+    this.unsubscribeExpiry?.(); this.unsubscribeExpiry = null;
+  }
+}
+export const mobileFeedController = new MobileFeedController();

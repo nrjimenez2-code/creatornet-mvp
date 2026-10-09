@@ -2,6 +2,97 @@
 
 import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, mobileFeedSeekFailed, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
 
+describe("Preview direct player transfer ownership", () => {
+  let api: typeof import("@/lib/mobileFeedPlayer");
+  let queued: VoidFunction[];
+  beforeEach(async () => {
+    jest.useFakeTimers(); jest.setSystemTime(100_000); queued = [];
+    jest.spyOn(globalThis, "queueMicrotask").mockImplementation(callback => { queued.push(callback); });
+    jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
+    jest.spyOn(HTMLMediaElement.prototype, "currentSrc", "get").mockImplementation(function (this: HTMLMediaElement) { return this.src; });
+    await jest.isolateModulesAsync(async () => { api = await import("@/lib/mobileFeedPlayer"); });
+  });
+  afterEach(() => { queued = []; jest.clearAllTimers(); jest.restoreAllMocks(); jest.useRealTimers(); });
+  function host() { const element = document.createElement("div"); document.body.appendChild(element); return element; }
+
+  test("a same-task switch moves the same sound element once and immediately revokes the departing owner", () => {
+    const first = Symbol("first"), second = Symbol("second"), firstHost = host(), secondHost = host();
+    const video = api.claimMobileFeedPlayer(firstHost, first, "/first.mp4", "first");
+    video.muted = false; video.currentTime = 7;
+    const moves = jest.spyOn(Node.prototype, "appendChild");
+    jest.mocked(HTMLMediaElement.prototype.pause).mockClear();
+    api.releaseMobileFeedPlayer(first, true, { deferParking: true });
+    expect(HTMLMediaElement.prototype.pause).toHaveBeenCalledTimes(1);
+    expect(api.ownsMobileFeedPlayer(first, video)).toBe(false);
+    expect(video.parentElement).toBe(firstHost);
+    expect(api.mobileFeedResumeSnapshot("first", "/first.mp4")).toEqual({ postId: "first", contentVersion: "/first.mp4", position: 7, expiresAt: 105_000 });
+    expect(api.claimMobileFeedPlayer(secondHost, second, "/second.mp4", "second")).toBe(video);
+    queued.shift()!();
+    api.releaseMobileFeedPlayer(first); // obsolete card cleanup
+    expect(video.parentElement).toBe(secondHost);
+    expect(video.muted).toBe(false);
+    expect(api.ownsMobileFeedPlayer(second, video)).toBe(true);
+    expect(moves.mock.calls.filter(([child]) => child === video)).toHaveLength(1);
+    // Another post's expiry must not clear the new source or its audible owner.
+    jest.advanceTimersByTime(5_000);
+    expect(video.getAttribute("src")).toBe("/second.mp4");
+    expect(api.ownsMobileFeedPlayer(second, video)).toBe(true);
+    api.releaseMobileFeedPlayer(second);
+  });
+
+  test("an abandoned transfer parks before the next task and keeps the original five-second deadline", () => {
+    const token = Symbol("abandoned"), firstHost = host();
+    const video = api.claimMobileFeedPlayer(firstHost, token, "/first.mp4", "first");
+    video.currentTime = 9;
+    api.releaseMobileFeedPlayer(token, true, { deferParking: true });
+    queued.shift()!();
+    expect(video.parentElement).not.toBe(firstHost);
+    expect(video.isConnected).toBe(true);
+    expect(video.parentElement!.style.width).toBe("1px");
+    jest.advanceTimersByTime(4_999);
+    expect(api.mobileFeedResumeSnapshot("first", "/first.mp4").position).toBe(9);
+    jest.advanceTimersByTime(1);
+    expect(api.mobileFeedResumeSnapshot("first", "/first.mp4").position).toBe(0);
+    expect(video.hasAttribute("src")).toBe(false);
+  });
+
+  test("an older queued release cannot park a newer pending transfer", () => {
+    const a = Symbol("a"), b = Symbol("b"), firstHost = host(), secondHost = host();
+    const video = api.claimMobileFeedPlayer(firstHost, a, "/a.mp4", "a");
+    api.releaseMobileFeedPlayer(a, true, { deferParking: true });
+    api.claimMobileFeedPlayer(secondHost, b, "/b.mp4", "b");
+    api.releaseMobileFeedPlayer(b, true, { deferParking: true });
+    queued.shift()!();
+    expect(video.parentElement).toBe(secondHost);
+    queued.shift()!();
+    expect(video.parentElement).not.toBe(secondHost);
+    expect(video.isConnected).toBe(true);
+  });
+
+  test("ordinary exit parks immediately after a direct claim and invalidates the previous queued park", () => {
+    const a = Symbol("a"), b = Symbol("b"), firstHost = host(), secondHost = host();
+    const video = api.claimMobileFeedPlayer(firstHost, a, "/a.mp4", "a");
+    api.releaseMobileFeedPlayer(a, true, { deferParking: true });
+    api.claimMobileFeedPlayer(secondHost, b, "/b.mp4", "b");
+    api.releaseMobileFeedPlayer(b);
+    const parking = video.parentElement;
+    expect(parking).not.toBe(secondHost);
+    queued.shift()!();
+    expect(video.parentElement).toBe(parking);
+  });
+
+  test("Retry never defers parking even if a caller requests the transfer option", () => {
+    const token = Symbol("retry"), firstHost = host();
+    const video = api.claimMobileFeedPlayer(firstHost, token, "/a.mp4", "a");
+    video.currentTime = 8;
+    api.releaseMobileFeedPlayer(token, false, { deferParking: true });
+    expect(video.parentElement).not.toBe(firstHost);
+    expect(queued).toHaveLength(0);
+    expect(api.mobileFeedResumeSnapshot("a", "/a.mp4")).toEqual(expect.objectContaining({ position: 8, expiresAt: null }));
+  });
+});
+
 describe("mobile feed media element", () => {
   beforeEach(() => {
     jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
@@ -193,12 +284,12 @@ describe("fixed departure snapshots", () => {
 
 describe("candidate resume seek recovery", () => {
   let api: typeof import("@/lib/mobileFeedPlayer");
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.useFakeTimers(); jest.setSystemTime(100_000);
     jest.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
     jest.spyOn(HTMLMediaElement.prototype, "load").mockImplementation(() => {});
     jest.spyOn(HTMLMediaElement.prototype, "currentSrc", "get").mockImplementation(function (this: HTMLMediaElement) { return this.src; });
-    jest.isolateModules(() => { api = require("@/lib/mobileFeedPlayer"); });
+    await jest.isolateModulesAsync(async () => { api = await import("@/lib/mobileFeedPlayer"); });
   });
   afterEach(() => { jest.clearAllTimers(); jest.restoreAllMocks(); jest.useRealTimers(); });
 

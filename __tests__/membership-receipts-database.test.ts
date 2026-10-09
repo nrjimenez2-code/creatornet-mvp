@@ -225,7 +225,8 @@ describe("SQL 080 provider publication, after the existing 078/079 receipt and j
     beforeAll(async () => { await db.exec(sql("supabase/proposals/081-monthly-mentorship-collection-admission.sql")); });
     async function readyRenewal(activate = true, anchorOverride?: number) {
       const m = await createMembership(3, true, false); await completedBootstrap(m); await m.bind();
-      const first = await ledger(m), date = new Date(), anchor = anchorOverride ?? Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1, 12) / 1000;
+      // Keep collection due throughout UTC day one, including its first hours.
+      const first = await ledger(m), date = new Date(), anchor = anchorOverride ?? Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1) / 1000;
       const proof = { ...first.proof, paymentMethodId: "pm_fixture", paidAt: anchor };
       await record(m, first, 1, anchor, proof);
       const row = (await db.query<{ value: unknown }>("select to_jsonb(a) value from public.monthly_mentorship_agreements_v1 a where id=$1", [m.id])).rows[0].value;

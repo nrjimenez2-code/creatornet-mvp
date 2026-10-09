@@ -6,6 +6,7 @@ import { exportFeedTrace, resetFeedTrace, setFeedRunContext } from "@/lib/mobile
 type Props = {
   activePostId: string | null;
   getVideo: (postId: string) => HTMLVideoElement | null;
+  liveReadout?: boolean;
 };
 
 type Reading = {
@@ -42,7 +43,7 @@ export function readMobileFeedDiagnostics(video: HTMLVideoElement): Reading {
 }
 
 /** Shown only with ?feedDebug=1 so an iPhone screenshot can capture playback evidence. */
-export default function MobileFeedDiagnostics({ activePostId, getVideo }: Props) {
+export default function MobileFeedDiagnostics({ activePostId, getVideo, liveReadout = true }: Props) {
   const [reading, setReading] = useState<Reading | null>(null);
   const [expanded, setExpanded] = useState(false);
   const [status, setStatus] = useState("");
@@ -80,7 +81,7 @@ export default function MobileFeedDiagnostics({ activePostId, getVideo }: Props)
     } finally { setExporting(false); }
   };
   useEffect(() => {
-    if (!activePostId) return;
+    if (!liveReadout || !activePostId) return;
     const update = () => {
       const video = getVideo(activePostId);
       setReading(video ? readMobileFeedDiagnostics(video) : null);
@@ -88,16 +89,18 @@ export default function MobileFeedDiagnostics({ activePostId, getVideo }: Props)
     update();
     const timer = window.setInterval(update, 500);
     return () => window.clearInterval(timer);
-  }, [activePostId, getVideo]);
+  }, [activePostId, getVideo, liveReadout]);
 
   return <div aria-label="Feed playback diagnostics" aria-live="off" className="fixed right-2 top-2 z-[70] max-w-[65vw] rounded-lg bg-black/85 p-2 font-mono text-[10px] leading-4 text-white" data-no-playback-toggle>
-    <div>post {activePostId?.slice(0, 8) ?? "none"}</div>
-    {reading ? <>
-      <div>{reading.source} · ready {reading.readyState} · {reading.muted ? "muted" : "sound requested"}</div>
-      <div>moving frame {reading.startupMs} ms</div>
-      <div>buffer {reading.bufferSeconds} s · dropped {reading.droppedFrames}</div>
-    </> : <div>Waiting for video…</div>}
-    <button type="button" onClick={() => setExpanded(!expanded)} className="underline">{expanded ? "Hide capture controls" : "Capture controls"}</button>
+    {liveReadout && <>
+      <div>post {activePostId?.slice(0, 8) ?? "none"}</div>
+      {reading ? <>
+        <div>{reading.source} · ready {reading.readyState} · {reading.muted ? "muted" : "sound requested"}</div>
+        <div>moving frame {reading.startupMs} ms</div>
+        <div>buffer {reading.bufferSeconds} s · dropped {reading.droppedFrames}</div>
+      </> : <div>Waiting for video…</div>}
+    </>}
+    <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="underline">{expanded ? "Hide capture controls" : "Capture controls"}</button>
     {expanded && <div className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto pt-2">
       {captureFields.map(field => <label key={field}>
         {field}<input aria-label={field} value={context[field] ?? ""} className="block w-full bg-white/10 p-1" onChange={event => {
