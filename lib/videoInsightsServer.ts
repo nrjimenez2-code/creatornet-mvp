@@ -6,6 +6,7 @@ import { supabaseAdmin } from "./supabaseAdmin";
 import { allowRequest, clientKey } from "./rateLimit";
 import { isLibraryPurchaseEligible } from "./libraryAccess";
 import { parseResolvedPlayback, publicVideoKey } from "./feedPlaybackResolution";
+import { aggregateInsights, insightId, type InsightAggregate } from "./videoInsights";
 
 export const collectionEnabled = () => process.env.VIDEO_INSIGHTS_COLLECTION_ENABLED === "true";
 export const uiEnabled = () => process.env.VIDEO_INSIGHTS_UI_ENABLED === "true" && process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED === "true";
@@ -55,6 +56,22 @@ export async function insightPost(postId: string): Promise<InsightPost> {
   if (result.error) throw result.error;
   if (!result.data) throw new InsightError("Video not found.", 404);
   return result.data;
+}
+export async function readOwnedVideoInsights(postId: string, ownerId: string) {
+  if (!insightId(postId)) throw new InsightError("Invalid video.", 400);
+  const post = await insightPost(postId);
+  if (post.creator_id !== ownerId || post.removed_at) throw new InsightError("Video not found.", 404);
+  const media = await insightMedia(post.video_url);
+  let aggregate: InsightAggregate | null = null;
+  if (media) {
+    // The database RPC repeats ownership; never return raw sessions or actor identifiers.
+    const result = await supabaseAdmin.rpc("read_video_insights_v1", { p_post: postId, p_owner: ownerId, p_media: media.contentVersion });
+    if (result.error) throw result.error;
+    aggregate = result.data;
+  }
+  const duration = media?.durationSeconds ?? null;
+  return { postId, title: post.title || "Untitled video", poster: post.poster_url,
+    previewUrl: media?.processedMp4Url ?? media?.originalUrl ?? null, duration, ...aggregateInsights(aggregate, duration) };
 }
 /** Feed video_url is the public sales preview. Watch-page playback additionally requires a live purchase. */
 export async function assertInsightPlayback(post: InsightPost, userId: string | null, surface: string) {
