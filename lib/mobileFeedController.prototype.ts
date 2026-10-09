@@ -438,6 +438,10 @@ export class MobileFeedController {
           video.playbackRate === 1 && validFeedFrame(video, video.src, metadata.mediaTime, previous);
         if (feedTraceEnabled() && callbacks <= STARTUP_FRAME_SAMPLE_LIMIT) recordFeedEvent("lab-main-startup-frame", {
           callback: callbacks, callbackAt, deliveredAt: now, mediaTime: metadata.mediaTime, presentedFrames: metadata.presentedFrames,
+          presentationTime: Number.isFinite(metadata.presentationTime) ? metadata.presentationTime : null,
+          expectedDisplayTime: Number.isFinite(metadata.expectedDisplayTime) ? metadata.expectedDisplayTime : null,
+          processingDuration: typeof metadata.processingDuration === "number" && Number.isFinite(metadata.processingDuration) ? metadata.processingDuration : null,
+          width: Number.isFinite(metadata.width) ? metadata.width : null, height: Number.isFinite(metadata.height) ? metadata.height : null,
           position: video.currentTime, target: intendedPosition, targetObserved, qualified: valid, submissionAgeMs: now - submittedAt(metadata, now),
           currentSourceMatches: video.currentSrc === video.src, playAccepted: accepted, muted: video.muted, ...audioSessionSnapshot(),
         }, video);

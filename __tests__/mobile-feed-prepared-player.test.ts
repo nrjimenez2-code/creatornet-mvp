@@ -22,11 +22,11 @@ function media(video: HTMLVideoElement) {
     buffered: { configurable: true, value: { length: 1, start: () => 0, end: () => 60 } },
   });
 }
-function deliver(video: HTMLVideoElement, time: number, count = Math.round(time * 30) + 1, age = 0) {
+function deliver(video: HTMLVideoElement, time: number, count = Math.round(time * 30) + 1, age = 0, metadata: Partial<VideoFrameCallbackMetadata> = {}) {
   video.currentTime = time;
   const pending = [...(callbacks.get(video)?.values() ?? [])]; callbacks.get(video)?.clear();
   pending.forEach(callback => callback(performance.now(), { mediaTime: time, presentedFrames: count,
-    presentationTime: performance.now() - age } as VideoFrameCallbackMetadata));
+    presentationTime: performance.now() - age, ...metadata } as VideoFrameCallbackMetadata));
 }
 function prepare(id: string, version = src(id)) {
   const host = document.createElement("div"); document.body.appendChild(host);
@@ -169,6 +169,32 @@ test.each(["prepared", "prepared-inplace-audio", "prepared-preload-audio"] as co
   }));
   expect(timeout?.detail.framePendingMs).toBeGreaterThanOrEqual(3_000);
   expect(events("lab-main-frame-request").filter(event => event.postId === "missing-frame-next").length).toBeLessThanOrEqual(8);
+});
+
+test("bounded pipeline metadata cannot qualify stale frames even when their expected display time is in the future", async () => {
+  controller.dispose(); controller = new MobileFeedController("prepared-preload-audio");
+  await cold("pipeline-first"); prepare("pipeline-next");
+  let now = 1_000; jest.spyOn(performance, "now").mockImplementation(() => now);
+  const active = activate("pipeline-next"); await play(active);
+  for (let index = 0; index < 8; index++) {
+    now = 1_000 + index * 34;
+    deliver(active.video, index / 30, index + 2, 150, {
+      expectedDisplayTime: now + 16, processingDuration: Infinity, width: 720, height: 1124,
+    });
+  }
+  expect(active.ready).not.toHaveBeenCalled();
+  const samples = events("lab-main-startup-frame").filter(event => event.postId === "pipeline-next");
+  expect(samples).toHaveLength(8);
+  expect(samples[0].detail).toEqual(expect.objectContaining({
+    presentationTime: 850, expectedDisplayTime: 1_016, processingDuration: null, width: 720, height: 1124,
+    submissionAgeMs: 150, qualified: false,
+  }));
+  now = 1_400; deliver(active.video, 0.4, 14);
+  expect(active.ready).not.toHaveBeenCalled();
+  now = 1_434; deliver(active.video, 0.43333333333333335, 15);
+  expect(active.ready).toHaveBeenCalledTimes(1); expect(active.failed).not.toHaveBeenCalled();
+  expect(events("lab-main-startup-frame").filter(event => event.postId === "pipeline-next")).toHaveLength(8);
+  expect(events("preparation-ready").at(-1)?.detail.playRequestCount).toBe(0);
 });
 
 test("callback diagnostics stay off and cannot turn delivered obsolete callbacks into successor readiness", async () => {

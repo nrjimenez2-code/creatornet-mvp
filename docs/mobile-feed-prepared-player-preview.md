@@ -1,13 +1,19 @@
 # Prepared player Preview experiment
 
-Status: prepared/audio/in-place controls published in draft PR #248 at 1550d6f.
+Status: paused preload published in draft PR #248 at 20bb6b8; earlier
+prepared/audio/in-place controls were published at 1550d6f.
 Two digital captures omit about 354ms of non-silent opening source audio. An
 external retained-player capture with owner-confirmed screen recording off,
 Low Power Mode off and speaker output also contains very weak opening audio.
 The direct-player camera control captures that opening, but main motion starts
 at 940ms, behind its muted bridge; the 3000ms watchdog recovers without alignment.
 These are separate individual failures, not a controlled performance cohort or
-proof of a native cause. The paused preload comparison below is local only.
+proof of a native cause. Two new 20bb6b8 trials qualify paused preload and retained
+promotion with zero preparation plays. The recorded trial includes the formerly
+missing opening audio; the unrecorded owner reports good opening sound and sync.
+Advancing callbacks still take 403/544ms and qualified handoff 471/611ms. These
+individual results leave startup smoothness and native cause unresolved. The
+pipeline timing supplement below is local only and has no publication approval.
 Sound/grant/continuity/performance acceptance remains pending.
 The normal feed and existing format comparisons keep their defaults.
 
@@ -39,9 +45,38 @@ This tests whether prior muted play/pause history contributes to opening loss.
 supports installing the callback before loading; it does not establish that this
 phone, hidden preparation host or native sound pipeline will qualify or improve.
 Pausing preload also postpones source load until the existing budget admits it.
-Native eligibility, opening audio, performance and reliability remain unproven.
+One recorded and one owner-observed unrecorded trial now establish native
+eligibility for those attempts; broad sound/performance/reliability acceptance
+remains unproven.
 Local checks cannot replace exact-head CI/Preview and a new original external
 camera/JSON comparison. New-head publication needs separate exact approval.
+
+## Local startup pipeline timing supplement
+
+20bb6b8 trace 1791504741148 is contiguous/monotonic, zero-drop and unreset. The
+owner confirmed recording off, Low Power Mode off and phone speaker. Noah was
+ready at source target zero with 48.491s buffered, no preparation plays, unchanged
+source and retained attachment. Selection took 1ms, native `play()` returned after
+94ms and its promise settled at request+180ms. First callback delivery was +511ms,
+advancing trace callback +544ms, qualified handoff +611ms; callbacks still arrived
+and no watchdog or playback rejection occurred. The first two submissions were
+133/135ms old. This reproduces the startup catch without recording, but two
+uncontrolled runs do not quantify a recorder effect, physical display latency or
+p95. The native reason remains unknown.
+
+The local supplement adds raw `presentationTime`, `expectedDisplayTime`,
+`processingDuration`, `width` and `height` to the existing first-eight
+`lab-main-startup-frame` samples under `feedDebug=1`. Missing/nonfinite values
+remain null. It adds no callback or media call and changes no qualification,
+ownership, permission, source-retirement, paused-preparation, budget, return or
+watchdog policy. Future expected display time cannot qualify a stale submission.
+
+The [frame-callback specification](https://wicg.github.io/video-rvfc/) distinguishes
+submission time, expected display time and optional packet-to-decoded-frame
+processing duration; callback delivery has no strict timing guarantee. These
+fields can distinguish reported pipeline stages on the next approved diagnostic
+build. They do not identify the installed native cause or prove acoustic/display
+output, and this supplement does not fix the measured startup catch.
 
 ## Published controls and historical observations
 
