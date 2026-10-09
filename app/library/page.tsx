@@ -9,6 +9,7 @@ import { loadPostViewCounts } from "@/lib/postViewCountsClient";
 import type { VideoPreviewCounts } from "@/lib/postViewCounts";
 import VideoViewCount from "@/components/VideoViewCount";
 import BackButton from "@/components/BackButton";
+import PurchasedProductDelivery from "@/components/PurchasedProductDelivery";
 import { LibrarySkeleton } from "@/components/loading/Skeletons";
 
 /* ----------------------------- types & utils ----------------------------- */
@@ -44,9 +45,11 @@ const fmt = (s?: number | null) => {
 function LibraryCard({
   item,
   onPrefetch,
+  deliveryAvailable,
 }: {
   item: LibraryItem;
   onPrefetch: (postId: string) => void;
+  deliveryAvailable?: boolean;
 }) {
   const pct = clampPct(item.position_seconds, item.duration_seconds);
   const showProgress = pct > 0 && pct < 100;
@@ -83,7 +86,7 @@ function LibraryCard({
         {item.video_url ? <VideoViewCount count={item.view_count} /> : null}
       </div>
 
-      {showProgress && (
+      {!deliveryAvailable && showProgress && (
         <div className="px-4 pt-3">
           <div className="h-2 w-full bg-gray-700 rounded">
             <div className="h-2 bg-[#9370DB] rounded" style={{ width: `${pct}%` }} />
@@ -93,14 +96,14 @@ function LibraryCard({
           </div>
         </div>
       )}
-      {!item.duration_seconds && canResume ? (
+      {!deliveryAvailable && !item.duration_seconds && canResume ? (
         <p className="px-4 pt-3 text-[11px] text-gray-400">
           Resume at {fmt(item.position_seconds)}
         </p>
       ) : null}
 
       <div className="p-3">
-        <h2 className="font-medium text-xs mb-2 line-clamp-2 text-white">{item.title}</h2>
+        {!deliveryAvailable && <h2 className="font-medium text-xs mb-2 line-clamp-2 text-white">{item.title}</h2>}
         {item.creator_id && (
           <div className="text-[11px] text-white/50 mb-2 line-clamp-1">
             <Link
@@ -116,13 +119,14 @@ function LibraryCard({
             </Link>
           </div>
         )}
-        <Link
+        {!deliveryAvailable && <Link
           href={`/watch/${item.post_id}`}
           prefetch
           className="inline-block bg-gray-800 text-white text-xs px-3 py-1.5 rounded-md hover:opacity-90"
         >
           {canResume ? "Resume" : "Watch"}
-        </Link>
+        </Link>}
+        {deliveryAvailable && <PurchasedProductDelivery purchaseId={item.id} />}
       </div>
     </div>
   );
@@ -138,6 +142,7 @@ export default function LibraryPage() {
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deliveryAvailable, setDeliveryAvailable] = useState(false);
 
   // cache prefetches per session (ref so it doesn't reset on re-render)
   const prefetchedRef = useRef<Set<string>>(new Set());
@@ -210,6 +215,7 @@ export default function LibraryPage() {
           });
           if (!res.ok) throw Error("Could not check library access.");
           const body = await res.json();
+          if (!cancelled) setDeliveryAvailable(body.premiumDelivery === true);
           if (!Array.isArray(body.purchaseIds) || body.purchaseIds.some((id: unknown) => typeof id !== "string")) {
             throw Error("Could not check library access.");
           }
@@ -450,13 +456,13 @@ export default function LibraryPage() {
         <Link href="/calls" className="mb-6 ml-4 inline-block text-sm underline">Your paid calls</Link>
         <Link href="/memberships" className="mb-6 ml-4 inline-block text-sm underline">Monthly mentorships</Link>
 
-        {continueItems.length > 0 && (
+        {!deliveryAvailable && continueItems.length > 0 && (
           <section className="mb-8">
             <h2 className="text-base font-medium mb-3">Continue watching</h2>
             <div className="flex gap-4 overflow-x-auto pb-1">
               {continueItems.map((it) => (
                 <div key={`cw-${it.id}`} className="min-w-[210px] max-w-[220px]">
-                  <LibraryCard item={it} onPrefetch={prefetchWatch} />
+                  <LibraryCard item={it} onPrefetch={prefetchWatch} deliveryAvailable={deliveryAvailable} />
                 </div>
               ))}
             </div>
@@ -464,12 +470,13 @@ export default function LibraryPage() {
         )}
 
         <section>
-          <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2">
+          <div className={deliveryAvailable ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-5 gap-2"}>
             {items.map((item) => (
               <LibraryCard
                 key={item.id}
                 item={item}
                 onPrefetch={prefetchWatch}
+                deliveryAvailable={deliveryAvailable}
               />
             ))}
           </div>

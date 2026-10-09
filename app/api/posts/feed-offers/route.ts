@@ -33,6 +33,7 @@ export async function GET(req: Request) {
     if (direct.error || aliases.error) throw direct.error || aliases.error;
     const rows = [...(direct.data ?? []), ...(aliases.data ?? [])];
     for (const post of posts.data ?? []) {
+      if (!post.product_id) continue;
       const product = rows.find(p => p.id === post.product_id) ?? rows.find(p => p.product_id === post.product_id);
       if (!product || product.creator_id !== post.creator_id || product.active === false) continue;
       try {

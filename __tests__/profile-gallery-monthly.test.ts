@@ -46,23 +46,19 @@ test("the actual gallery and VideoCard disclose monthly terms and enter the matc
   expect(router.push).toHaveBeenCalledWith("/memberships/review?product_id=product%2F1&post_id=post+%26+1");
   expect((global.fetch as jest.Mock).mock.calls.some(([url]) => url === "/api/checkout" || url === "/api/memberships/checkout")).toBe(false);
 });
-test("unknown product terms disable paid purchase but preserve the separate free Book flow", async () => {
+test("combined Buy and Book keeps only Buy, even when product terms are unavailable", async () => {
   await open({ monthlyTerms: null, purchaseOptionsReady: false });
   expect((await menu("Purchase unavailable")).disabled).toBe(true);
-  const book = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(b => b.textContent!.includes("Book"))!;
-  await act(async () => book.click());
-  const call = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === "/api/checkout")!;
-  expect(JSON.parse(call[1].body)).toEqual({ type: "booking", post_id: post.id, creator_id: "creator", bookingRedirectUrl: post.booking_url });
+  const book = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(b => b.textContent!.includes("Book"));
+  expect(book).toBeUndefined();
+  expect((global.fetch as jest.Mock).mock.calls.some(([url])=>url==="/api/checkout")).toBe(false);
   expect(router.push).not.toHaveBeenCalled();
 });
 test("a booking-only profile post exposes Book without a paid product", async () => {
   await open({ product_id: null, product_type: null, price_cents: null, monthlyTerms: null, purchaseOptionsReady: false });
-  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
-  expect(trigger).not.toBeNull();
-  await act(async () => trigger!.click());
-  const items = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-  expect(items.find(b => b.textContent!.includes("Purchase unavailable"))!.disabled).toBe(true);
-  const book = items.find(b => b.textContent!.includes("Book"))!;
+  expect(container.querySelector('button[aria-haspopup="menu"]')).toBeNull();
+  expect(container.textContent).not.toContain("Purchase unavailable");
+  const book = Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(b=>b.textContent?.includes("Book"))!;
   await act(async () => book.click());
   const call = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === "/api/checkout")!;
   expect(JSON.parse(call[1].body)).toEqual({ type: "booking", post_id: post.id, creator_id: "creator", bookingRedirectUrl: post.booking_url });

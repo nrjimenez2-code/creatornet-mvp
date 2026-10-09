@@ -3,6 +3,8 @@ import { discoverEnabled, recordDiscoverEvent, linkDiscoverHistory } from "@/lib
 import { publicMessage } from "@/lib/apiError";
 import { eitherIdFilter, isSafeId } from "@/lib/ids";
 import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
+import { premiumPostingReady, premiumSchemaReady } from "@/lib/premiumReadiness";
+import { createFreeBooking } from "@/lib/freeBookingCheckout";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { paidCallsReady, validPaidCallTarget } from "@/lib/paidCalls";
 import "server-only";
@@ -73,6 +75,8 @@ type ProductCheckoutRow = {
   discord_invite_url: string | null; whop_listing_url: string | null; deliver_url: string | null;
   membership_terms?: unknown;
   fixed_service_months?: number | null;
+  delivery_revision?: string | null;
+  active?: boolean; is_active?: boolean;
 };
 
 type ProductCheckoutAttempt = {
@@ -262,7 +266,8 @@ export async function POST(req: NextRequest) {
       const { data: prod, error } = await supabase
         .from("products")
         .select(
-          "id, product_id, title, type, amount_cents, price_cents, currency, creator_id, discord_invite_url, whop_listing_url, deliver_url,description" +
+          "id, product_id, title, type, amount_cents, price_cents, currency, creator_id, discord_invite_url, whop_listing_url, deliver_url,description,active,is_active" +
+          (premiumSchemaReady() ? ",delivery_revision" : "") +
           (process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true" ? ",membership_terms" : "") +
           (process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY === "true" ? ",fixed_service_months" : "")
         )
@@ -271,6 +276,8 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
       if (error) throw new Error(`Load product failed: ${error.message}`);
       if (!prod) throw new Error("Product not found");
+      if (prod.active === false || prod.is_active === false) return Response.json({ error: "Product unavailable." }, { status: 409 });
+      if (prod.delivery_revision && !premiumPostingReady()) return Response.json({ error: "New product checkout is temporarily unavailable." }, { status: 409 });
       // #4: membership setup is a distinct owned service contract. Never let
       // an older one-time Checkout charge a month's price for lifetime access.
       if (prod.membership_terms != null) return Response.json({ error: "Monthly mentorship checkout is not enabled yet." }, { status: 409 });
@@ -278,7 +285,7 @@ export async function POST(req: NextRequest) {
         return Response.json({ error: "This fixed-service purchase agreement is not active." }, { status: 409 });
       }
 
-      const amount_cents = Number(prod.amount_cents ?? prod.price_cents ?? 0);
+      const amount_cents = Number(prod.price_cents ?? prod.amount_cents ?? 0);
       const currency = (prod.currency as string) ?? "usd";
       if (!Number.isFinite(amount_cents) || amount_cents < 50) {
         throw new Error("Invalid amount (Stripe min 50¢)");
@@ -364,11 +371,16 @@ export async function POST(req: NextRequest) {
       // a disagreement, so it is skipped.
       const { data: postPricing, error: postPricingErr } = await supabase
         .from("posts")
-        .select("price_cents")
+        .select("price_cents" + (premiumSchemaReady() ? ",action_version,video_action" : ""))
         .eq("id", postId)
+        .returns<{price_cents: number | null; action_version?: number; video_action?: string | null}[]>()
         .maybeSingle();
       if (postPricingErr) {
         throw new Error(`Load post price failed: ${postPricingErr.message}`);
+      }
+      if (premiumSchemaReady() && postPricing?.action_version === 1 &&
+          (!premiumPostingReady() || postPricing.video_action !== "buy")) {
+        return Response.json({ error: "This video checkout is temporarily unavailable." }, { status: 409 });
       }
       const postPriceCents = Number(postPricing?.price_cents ?? 0);
       if (Number.isFinite(postPriceCents) && postPriceCents > 0 && postPriceCents !== amount_cents) {
@@ -406,8 +418,8 @@ export async function POST(req: NextRequest) {
       // not recognise are left alone, because for them the transaction is the
       // booking or a conversation, not a download. Blocking those would cost
       // the creator a legitimate sale.
-      const DIGITAL_GOOD_TYPES = new Set(["video", "course"]);
-      if (DIGITAL_GOOD_TYPES.has(productType)) {
+      const DIGITAL_GOOD_TYPES = new Set(["video", "bundle", "course"]);
+      if (DIGITAL_GOOD_TYPES.has(productType) && !prod.delivery_revision) {
         const p = prod as {
           discord_invite_url?: string | null;
           whop_listing_url?: string | null;
@@ -489,6 +501,7 @@ export async function POST(req: NextRequest) {
       const purchaseIdentity = postId ? `post:${postId}` : `product:${resolvedProductId}`;
       const termsFingerprint = productCheckoutFingerprint({
         version: "creatornet-product-checkout-v1",
+        ...(prod.delivery_revision ? { delivery_revision: prod.delivery_revision } : {}),
         ...(consentId ? { purchase_consent_id: consentId } : {}),
         buyer_id: resolvedBuyerId,
         creator_id: creatorId,
@@ -795,6 +808,15 @@ export async function POST(req: NextRequest) {
 
       await ensureOrder(attempt);
       const orderId = attempt.order_id;
+      if (prod.delivery_revision) {
+        const frozen = await supabase.rpc("prepare_checkout_delivery_v1", {
+          p_order_id: orderId, p_buyer_id: resolvedBuyerId, p_product_id: resolvedProductId,
+          p_revision_id: prod.delivery_revision, p_amount_cents: amount_cents,
+        });
+        if (frozen.error || frozen.data !== prod.delivery_revision) {
+          return Response.json({ error: "Product delivery changed or an included video is not ready.", code: "DELIVERY_UNAVAILABLE" }, { status: 409 });
+        }
+      }
       const meta = stripeMetadataStrings({
         order_id: orderId,
         creator_id: creatorId,
@@ -807,6 +829,7 @@ export async function POST(req: NextRequest) {
         platform_fee_percent: PLATFORM_FEE_PERCENT_STR,
         checkout_attempt_key: attempt.attempt_key,
         checkout_terms_fingerprint: termsFingerprint,
+        ...(prod.delivery_revision ? { delivery_revision: prod.delivery_revision } : {}),
         ...feeMeta,
       });
 
@@ -815,7 +838,6 @@ export async function POST(req: NextRequest) {
         session = await stripe.checkout.sessions.create(
           {
             mode: "payment",
-            payment_method_types: ["card"],
             line_items: [
               {
                 price_data: {
@@ -992,8 +1014,9 @@ export async function POST(req: NextRequest) {
 
       const { data: post, error: postErr } = await supabase
         .from("posts")
-        .select("id, creator_id, booking_url, allow_booking")
+        .select("id, creator_id, booking_url, allow_booking" + (premiumSchemaReady() ? ",action_version,video_action" : ""))
         .eq("id", body.post_id)
+        .returns<{id: string; creator_id: string; booking_url: string | null; allow_booking: boolean; action_version?: number; video_action?: string | null}[]>()
         .maybeSingle();
       if (postErr || !post) {
         return Response.json({ error: "Post not found" }, { status: 404 });
@@ -1005,6 +1028,10 @@ export async function POST(req: NextRequest) {
       if (post.allow_booking === false) {
         return Response.json({ error: "This post does not accept bookings." }, { status: 400 });
       }
+      if (premiumSchemaReady() && post.action_version === 1 &&
+          (!premiumPostingReady() || post.video_action !== "book")) {
+        return Response.json({ error: "This booking checkout is temporarily unavailable." }, { status: 409 });
+      }
 
       // The browser sends bookingRedirectUrl, which it read from the same post
       // row; the stored value is what we trust. A site-relative default such
@@ -1015,6 +1042,13 @@ export async function POST(req: NextRequest) {
         return Response.json({ error: "This creator has no valid booking link." }, { status: 400 });
       }
       const bookingUrl = target.startsWith("/") ? `${site}${target}` : target;
+
+      if (premiumPostingReady()) {
+        return Response.json(await createFreeBooking(supabase, getStripe(), {
+          buyerId: resolvedBuyerId, creatorId: creator_id, postId: String(post.id),
+          destination: bookingUrl, site,
+        }));
+      }
 
       const session = await getStripe().checkout.sessions.create({
         mode: "setup",

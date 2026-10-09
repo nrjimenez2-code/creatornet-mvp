@@ -5,6 +5,8 @@ import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { stripe } from "@/lib/stripe";
+import { premiumPostingReady, premiumSchemaReady } from "@/lib/premiumReadiness";
+import { readProductDelivery } from "@/lib/productDelivery";
 import { paidCallsReady, validPaidCallTarget } from "@/lib/paidCalls";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 import { fixedServiceSchemaReady, fixedServiceOffersReady, readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
@@ -20,7 +22,7 @@ function dollarsToCents(d: unknown): number | null {
 }
 
 type Fulfillment = "FILE" | "DISCORD" | "WHOP";
-type ProductType = "video" | "course" | "mentorship" | "call";
+type ProductType = "video" | "bundle" | "course" | "mentorship" | "call";
 
 type ProductRow = {
   id: string;
@@ -75,9 +77,10 @@ export async function GET() {
       "created_at",
       ...(membershipSchemaReady() ? ["membership_terms"] : []),
       ...(fixedServiceSchemaReady() ? ["fixed_service_months"] : []),
+      ...(premiumSchemaReady() ? ["delivery_revision"] : []),
     ].join(", ");
 
-    const { data, error } = await supabase
+    const { data, error } = await (premiumSchemaReady() ? supabaseAdmin : supabase)
       .from("products")
       .select(sel)
       .eq("creator_id", user.id)
@@ -93,7 +96,8 @@ export async function GET() {
       ...row,
       id: row.id ?? row.product_id,
     }));
-    return NextResponse.json({ success: true, items, capabilities: { monthlyMemberships: membershipOffersReady(), paidCalls: paidCallsReady(), fixedServiceDuration: fixedServiceOffersReady() } });
+    return NextResponse.json({ success: true, items, capabilities: { monthlyMemberships: membershipOffersReady(), paidCalls: paidCallsReady(), fixedServiceDuration: fixedServiceOffersReady(), premiumDelivery: premiumSchemaReady(), premiumDeliveryReady: premiumPostingReady() } },
+      { headers: { "Cache-Control": "private, no-store" } });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: publicMessage("products", e, "Server error") }, { status: 500 });
   }
@@ -105,6 +109,9 @@ export async function GET() {
 const PRODUCT_RATE = { limit: 20, windowMs: 60_000 };
 
 export async function POST(req: Request) {
+  if (premiumSchemaReady() && !premiumPostingReady()) {
+    return NextResponse.json({ error: "New product creation is not enabled yet." }, { status: 409 });
+  }
   if (!allowRequest(clientKey(req), PRODUCT_RATE)) {
     return tooManyRequests();
   }
@@ -176,8 +183,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Title is required" }, { status: 400 });
     }
 
-    if (!["video", "course", "mentorship", "call"].includes(type)) {
+    if (!["video", "bundle", "course", "mentorship", "call"].includes(type)) {
       return NextResponse.json({ success: false, error: "Choose a supported product type." }, { status: 400 });
+    }
+    let delivery: ReturnType<typeof readProductDelivery> | null = null;
+    if (body.delivery !== undefined || type === "bundle") {
+      if (!premiumPostingReady()) return NextResponse.json({ error: "New delivery is not enabled." }, { status: 409 });
+      try { delivery = readProductDelivery(body.delivery, type); }
+      catch (e) { return NextResponse.json({ error: publicMessage("product-delivery", e, "Invalid product delivery.") }, { status: 400 }); }
+      if (delivery.videos.length) {
+        const assets = await supabaseAdmin.from("private_video_assets").select("id,status").eq("creator_id", user.id).in("id", delivery.videos.map(v => v.asset_id));
+        if (assets.error || assets.data?.length !== delivery.videos.length || assets.data.some(a => a.status !== "ready")) {
+          return NextResponse.json({ error: "Every included video must be owned by you and ready." }, { status: 409 });
+        }
+      }
     }
     if (type === "call") {
       if (!paidCallsReady()) return NextResponse.json({ success: false, error: "Paid calls are not enabled yet." }, { status: 409 });
@@ -208,7 +227,7 @@ export async function POST(req: Request) {
     let resolvedStripePriceId = stripe_price_id;
 
     // For sellable products without stripe_price_id: create Stripe Product + Price and use that ID
-    if (!membershipTerms && (type === "course" || type === "mentorship" || type === "video") && !resolvedStripePriceId) {
+    if (!membershipTerms && (type === "course" || type === "mentorship" || type === "video" || type === "bundle") && !resolvedStripePriceId) {
       const cents = price_cents ?? 0;
       if (!Number.isFinite(cents) || cents < 50) {
         return NextResponse.json(
@@ -269,7 +288,7 @@ export async function POST(req: Request) {
       ...(fixedServiceSchemaReady() ? ["fixed_service_months"] : []),
     ].join(", ");
 
-    const insertRes = await supabase.from("products").insert([insertRow]).select(sel).single();
+    const insertRes = await (premiumSchemaReady() ? supabaseAdmin : supabase).from("products").insert([insertRow]).select(sel).single();
 
     if (insertRes.error) {
       return NextResponse.json({ success: false, error: publicMessage("products", insertRes.error, "Could not create the product.") }, { status: 400 });
@@ -277,6 +296,11 @@ export async function POST(req: Request) {
     // Ensure response has both id and product_id so composer/checkout can use it
     const row = insertRes.data as unknown as ProductRow & { product_id?: string };
     const productIdValue = row.product_id ?? row.id;
+    if (delivery) {
+      const saved = await supabaseAdmin.rpc("save_product_delivery_v1", { p_product_id: productIdValue,
+        p_creator_id: user.id, p_links: delivery.links, p_videos: delivery.videos });
+      if (saved.error) return NextResponse.json({ error: "Product was created but delivery needs recovery.", product_id: productIdValue }, { status: 409 });
+    }
     const product = { ...row, id: productIdValue, product_id: productIdValue };
     return NextResponse.json({ success: true, id: productIdValue, product });
   } catch (e: any) {

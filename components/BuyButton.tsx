@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { ChevronRight, ShoppingCart } from "lucide-react";
+import { ChevronRight, ShoppingCart, Calendar, Gift } from "lucide-react";
 
 type Props = {
   /** Optional price in cents — renders next to the label when > 0. */
@@ -15,6 +15,7 @@ type Props = {
   label?: string;
   /** id of the menu this button opens, so screen readers can follow it. */
   menuId?: string;
+  menu?: boolean;
 };
 
 /** Shared sizing for both icons — unchanged from the previous inline SVGs. */
@@ -30,7 +31,7 @@ const ICON_CLASS = "h-3 w-3 md:h-3.5 md:w-3.5";
  * trailing chevron rotates to point down while the dropdown is open.
  */
 const BuyButton = forwardRef<HTMLButtonElement, Props>(function BuyButton(
-  { priceCents, monthly = false, expanded = false, onClick, label = "Buy", menuId },
+  { priceCents, monthly = false, expanded = false, onClick, label = "Buy", menuId, menu = true },
   ref
 ) {
   const showPrice = typeof priceCents === "number" && priceCents > 0;
@@ -40,12 +41,12 @@ const BuyButton = forwardRef<HTMLButtonElement, Props>(function BuyButton(
       ref={ref}
       type="button"
       onClick={onClick}
-      aria-haspopup="menu"
-      aria-expanded={expanded}
-      aria-controls={expanded ? menuId : undefined}
+      aria-haspopup={menu ? "menu" : undefined}
+      aria-expanded={menu ? expanded : undefined}
+      aria-controls={menu && expanded ? menuId : undefined}
       className="inline-flex items-center gap-1 px-1 sm:px-1 md:px-1.5 py-0.5 sm:py-0.5 md:py-1 lg:py-1.5 h-5 sm:h-auto max-sm:!h-7 max-sm:!min-h-3 max-sm:!py-0 max-sm:overflow-hidden rounded-full max-sm:!rounded-xl bg-[#4A35C7] text-white text-xs font-semibold leading-none hover:bg-[#3D2BA3] transition focus:outline-none focus:ring-2 focus:ring-[#B5BAC2]/60"
     >
-      <ShoppingCart className={ICON_CLASS} strokeWidth={2} aria-hidden="true" />
+      {label === "Book" ? <Calendar className={ICON_CLASS} strokeWidth={2} aria-hidden="true" /> : label === "Tip" ? <Gift className={ICON_CLASS} strokeWidth={2} aria-hidden="true" /> : <ShoppingCart className={ICON_CLASS} strokeWidth={2} aria-hidden="true" />}
       <span className="font-semibold leading-none">{label}</span>
       {showPrice && (
         <span className="font-semibold leading-none">

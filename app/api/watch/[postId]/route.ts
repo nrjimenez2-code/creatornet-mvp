@@ -3,6 +3,7 @@ import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { createClient } from "@supabase/supabase-js";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { membershipAccessSeconds, membershipLedgerReady } from "@/lib/membershipAccess";
+import { isLibraryPurchaseEligible } from "@/lib/libraryAccess";
 
 // Optional: keep this dynamic so Vercel won't try to prerender
 export const dynamic = "force-dynamic";
@@ -48,6 +49,9 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
       { status: 404 }
     );
   }
+  if (!isOwnPremiumPath(post.premium_path, post.creator_id)) {
+    return NextResponse.json({ error: "Invalid premium file ownership" }, { status: 403 });
+  }
 
   // The creator may preview their own file, but only a file that lives in
   // their own folder. A post row pointing elsewhere is never signed for them.
@@ -58,14 +62,14 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
   if (!allowed) {
     let purchaseQuery = admin
       .from("purchases")
-      .select("id")
+      .select("id,buyer_id,status,access_granted,payment_intent_id")
       .eq("post_id", postId)
       .eq("buyer_id", user.id)
       .or("kind.is.null,kind.neq.monthly_mentorship_v1,status.is.null,status.neq.canceled");
     if (!membershipLedgerReady()) purchaseQuery = purchaseQuery.eq("access_granted", true);
     const { data: purchase, error: purchaseError } = await purchaseQuery.maybeSingle();
 
-    if (!purchaseError && purchase) {
+    if (!purchaseError && purchase && await isLibraryPurchaseEligible(admin, purchase, user.id)) {
       accessSeconds = membershipLedgerReady() ? await membershipAccessSeconds(admin, purchase.id, user.id) : 3600;
       allowed = accessSeconds > 0;
     }
@@ -83,5 +87,5 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ pos
     return NextResponse.json({ error: "Could not sign URL" }, { status: 500 });
   }
 
-  return NextResponse.json({ url: signed.signedUrl });
+  return NextResponse.json({ url: signed.signedUrl }, { headers: { "Cache-Control": "private, no-store" } });
 }
