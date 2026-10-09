@@ -1298,7 +1298,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch, interest scoring, owner insights, owner soft-delete, and other-viewer reporting use guarded mobile API endpoints with shared website business rules. Not Interested dismisses the opened post locally.",
+      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch, interest and post metric writes, owner insights, owner soft-delete, and other-viewer reporting use guarded mobile API endpoints with shared website business rules. Not Interested dismisses the opened post locally.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
