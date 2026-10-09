@@ -9,18 +9,22 @@ const base={id:"cs_test_synthetic",mode:"payment",status:"complete",payment_stat
 const env={...process.env};
 beforeEach(()=>{jest.clearAllMocks();process.env.CREATOR_PREMIUM_DELIVERY_SCHEMA_READY="true";process.env.CREATOR_PREMIUM_DELIVERY_READY="true";});
 afterEach(()=>{process.env={...env};});
-test.each([{status:"open"},{mode:"setup"},{payment_status:"paid"},{amount_total:1},{currency:"eur"},{payment_intent:"pi_synthetic"},{subscription:"sub_synthetic"},{metadata:{kind:"booking"}}])("rejects an invalid no-cost receipt %p",override=>{
+test.each([{status:"open"},{mode:"setup"},{payment_status:"unpaid"},{amount_total:1},{currency:"eur"},{payment_intent:"pi_synthetic"},{subscription:"sub_synthetic"},{metadata:{kind:"booking"}}])("rejects an invalid no-cost receipt %p",override=>{
  expect(completedFreeBooking({...base,...override} as Stripe.Checkout.Session)).toBe(false);
 });
-test("confirmation records attribution without purchases, earnings or scheduled bookings",async()=>{
+test.each(["no_payment_required","paid"] as const)("accepts completed zero-total %s receipts without a PaymentIntent",payment_status=>{
+ expect(completedFreeBooking({...base,payment_status})).toBe(true);
+});
+test.each(["no_payment_required","paid"] as const)("%s confirmation records attribution without purchases, earnings or scheduled bookings",async payment_status=>{
+ const session={...base,payment_status};
  const row={id:"free",buyer_id:"buyer",creator_id:"creator",post_id:"post",destination:"https://calendar.invalid/free",stripe_session_id:base.id,status:"open"};
  const db=createMockClient(op=>{
   if(op.table==="free_booking_checkouts")return {data:op.kind==="select"?row:{id:"free"},error:null};
   if(op.table==="posts")return {data:{creator_id:"creator",allow_booking:true},error:null};
  });
- const result=await completeFreeBooking(db as unknown as SupabaseClient,base,"buyer");
+ const result=await completeFreeBooking(db as unknown as SupabaseClient,session,"buyer");
  expect(result).toMatchObject({kind:"booking",booking_attribution_only:true,booking_redirect_url:row.destination});
- expect(recordBookingSetup).toHaveBeenCalledWith(base);
+ expect(recordBookingSetup).toHaveBeenCalledWith(session);
  expect(db.ops.map(op=>op.table)).toEqual(["free_booking_checkouts","posts","free_booking_checkouts"]);
 });
 test("another buyer cannot confirm or obtain the destination",async()=>{

@@ -5,11 +5,9 @@ import { randomUUID } from "node:crypto";
 import { premiumPostingReady } from "@/lib/premiumReadiness";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { recordBookingSetup, attributedBookingUrl } from "@/lib/discoverBookings";
+import { completedFreeBooking } from "@/lib/freeBookingReceipt";
+export { completedFreeBooking } from "@/lib/freeBookingReceipt";
 export type FreeBookingRow={id:string;buyer_id:string;creator_id:string;post_id:string;destination:string;checkout_origin:string;stripe_session_id:string|null;status:string};
-export function completedFreeBooking(session:Stripe.Checkout.Session):boolean{
- return session.mode==="payment" && session.status==="complete" && session.payment_status==="no_payment_required" &&
-  session.amount_total===0 && session.currency==="usd" && !session.payment_intent && !session.subscription && session.metadata?.kind==="free_booking_v1";
-}
 export async function completeFreeBooking(admin:SupabaseClient,session:Stripe.Checkout.Session,buyerId?:string){
  if(!completedFreeBooking(session)) throw Error("Free booking checkout is not complete and zero total.");
  const m=session.metadata!;
