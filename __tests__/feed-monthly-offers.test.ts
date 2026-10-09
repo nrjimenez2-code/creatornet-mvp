@@ -8,14 +8,14 @@ const terms = { version: "monthly-mentorship-v1", minimumMonths: 3, autoRenew: t
 const product = { id: "product", product_id: "alias", creator_id: "creator", type: "mentorship", active: true,
   amount_cents: 9900, price_cents: 5000, membership_terms: terms };
 const saved = { ...process.env }, originalFetch = global.fetch;
-let products: Record<string, unknown>[], postProduct: string, error: boolean;
+let products: Record<string, unknown>[], postProduct: string | null, extraPosts: Record<string, unknown>[], error: boolean;
 beforeEach(() => {
   process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY = "true";
   delete process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY;
-  products = [product]; postProduct = "alias"; error = false;
+  products = [product]; postProduct = "alias"; extraPosts = []; error = false;
   db = createMockClient(op => {
     if (error) return { data: null, error: { message: "unavailable" } };
-    if (op.table === "posts") return { data: [{ id: "post", product_id: postProduct, creator_id: "creator" }], error: null };
+    if (op.table === "posts") return { data: [{ id: "post", product_id: postProduct, creator_id: "creator" }, ...extraPosts], error: null };
     if (op.table === "products") return { data: products.map(p => Object.fromEntries(Object.entries(p).filter(([key]) => op.columns!.split(",").includes(key)))), error: null };
     return undefined;
   });
@@ -43,6 +43,35 @@ test("real route enriches RPC mapping with canonical identity, current monthly p
 test("direct ID wins over an alias collision", async () => {
   products = [{ ...product, id: "wrong", product_id: "alias", membership_terms: null }, { ...product, id: "alias" }];
   expect((await (await request()).json()).offers.post.productId).toBe("alias");
+});
+test.each(["book", "tip", "none"])("a mixed batch cannot attach a null-alias product to an unlinked %s post", async action => {
+  postProduct = null;
+  extraPosts = [{ id: "paid", product_id: "product", creator_id: "creator" }];
+  products = [{ ...product, product_id: null, type: "video", membership_terms: null }];
+  const mixedRequest = () => GET(new Request("https://site.invalid/api/posts/feed-offers?ids=post,paid"));
+  const offers = (await (await mixedRequest()).json()).offers;
+  expect(offers.post).toBeNull();
+  expect(offers.paid).toMatchObject({ productId: "product", linkedProductId: "product" });
+  global.fetch = jest.fn(async () => mixedRequest()) as typeof fetch;
+  const [post, paid] = await loadFeedOffers(mapFeedV3Rows([
+    { post_id: "post", creator_id: "creator", product_id: null, price_cents: null, poster_url: "poster.jpg",
+      allow_booking: action === "book", booking_url: action === "book" ? "https://booking.invalid" : null,
+      tips_available: action === "tip" },
+    { post_id: "paid", creator_id: "creator", product_id: "product", price_cents: 9900, poster_url: "paid.jpg" },
+  ]));
+  expect(post).toMatchObject({ product_id: null, price_cents: 0, purchaseOptionsReady: false,
+    allow_booking: action === "book", tips_enabled: action === "tip" });
+  expect(paid).toMatchObject({ product_id: "product", price_cents: 9900, purchaseOptionsReady: true });
+});
+test("the client rejects unsolicited purchase metadata for an unlinked post", async () => {
+  global.fetch = jest.fn(async () => Response.json({ offers: { post: {
+    productId: "product", linkedProductId: null, creatorId: "creator", productType: "video",
+    priceCents: 9900, monthlyTerms: null,
+  } } })) as typeof fetch;
+  const [post] = await loadFeedOffers(mapFeedV3Rows([{ post_id: "post", creator_id: "creator", product_id: null,
+    poster_url: "poster.jpg", allow_booking: true, booking_url: "https://booking.invalid" }]));
+  expect(post).toMatchObject({ product_id: null, price_cents: 0, purchaseOptionsReady: false,
+    allow_booking: true, booking_url: "https://booking.invalid" });
 });
 test.each([
   { membership_terms: { ...terms, minimumMonths: 0 } },
