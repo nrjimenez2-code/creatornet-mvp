@@ -18,22 +18,25 @@ body { margin: 0; }
 .app-shell .tag-modal-back { top: calc(env(safe-area-inset-top) + 1.25rem); }
 .app-shell .tag-feed-back button, .app-shell .tag-modal-back button { min-width: 44px; min-height: 44px; }
 @media (max-width: 1023.98px) {
+  .app-shell {
+    --native-feed-card-height: calc(100dvh - env(safe-area-inset-top) - var(--mobile-tab-bar-height));
+  }
   .app-shell .tag-video-modal {
-    --tag-video-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    --tag-video-height: var(--native-feed-card-height);
   }
   .app-shell .tag-modal-scroll {
     box-sizing: border-box;
     padding-block: 0;
   }
-  /* Each snap position must occupy the entire scrollport. Putting the safe
-     area on the scroll container made a shorter snap slot, so part of the
-     next video appeared below the opened card on the iPhone. */
+  /* Keep a full-viewport snap slot so the next card stays offscreen. Place
+     its card where Discover places one: below the status area and above the
+     navigation lane, with identical media and overlay height. */
   .app-shell .tag-video-slot {
     box-sizing: border-box;
     height: 100dvh;
     min-height: 100dvh;
     padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
+    align-items: flex-start;
   }
   .app-shell .tag-video-slot .feed-mobile-card,
   .app-shell .tag-video-slot .feed-mobile-card > [role="group"],
@@ -42,10 +45,6 @@ body { margin: 0; }
   .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child > img {
     height: var(--tag-video-height);
     min-height: var(--tag-video-height);
-  }
-  .app-shell .tag-video-slot .feed-mobile-card video,
-  .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child > img {
-    object-fit: contain;
   }
 }
 /* The native shell already reserves the top safe area. The shared feed sizes
@@ -58,7 +57,7 @@ body { margin: 0; }
     min-height: calc(100dvh - env(safe-area-inset-top));
   }
   .app-shell .feed-mobile-viewport {
-    --feed-card-height: calc(100dvh - env(safe-area-inset-top) - var(--feed-nav-height, 61px));
+    --feed-card-height: var(--native-feed-card-height);
   }
   .app-shell .dashboard-feed-shell > a[aria-label="Open search"] {
     top: calc(env(safe-area-inset-top) + 0.75rem);
