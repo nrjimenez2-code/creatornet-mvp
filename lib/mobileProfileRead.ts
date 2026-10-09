@@ -7,6 +7,7 @@ import { onlyVisiblePosts } from './visiblePosts';
 import { enrichPostViewCounts } from './postViewCountsServer';
 import { buildOffers, mapProfileGalleryPosts } from './offers';
 import { resolveBioMentions } from './profileMentionsServer';
+import { readLikedPostIds } from './mobileProfileLikes';
 import type { User } from '@supabase/supabase-js';
 
 /** Read interface for existing server-rendered profile screens. Display rules stay shared. */
@@ -40,9 +41,13 @@ export async function readMobileProfile(req: Request, identifier: string, viewer
   const offers = buildOffers(products, posts.filter(post => post.hidden_at === null && post.removed_at === null));
   let likedPostIds: string[] = [];
   if (viewer && posts.length) {
-    const likes = await createServerClient({ request: req, readOnlyAuthCookies: true }).from('likes').select('post_id').eq('user_id', viewer.id).in('post_id', posts.map(post => post.id));
-    if (likes.error) return Response.json({ error: 'Could not load this profile.' }, { status: 503 });
-    likedPostIds = (likes.data ?? []).map(row => row.post_id).filter((value): value is string => typeof value === 'string');
+    const client = createServerClient({ request: req, readOnlyAuthCookies: true });
+    try {
+      likedPostIds = await readLikedPostIds(posts.map(post => post.id), ids =>
+        client.from('likes').select('post_id').eq('user_id', viewer.id).in('post_id', ids));
+    } catch {
+      return Response.json({ error: 'Could not load this profile.' }, { status: 503 });
+    }
   }
   const mentions = await resolveBioMentions(profile.bio ?? '');
   return Response.json({
