@@ -9,6 +9,7 @@ import VideoCard from "@/components/VideoCard";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { apiFetch as fetch } from "@/lib/apiFetch";
 import { normalizeCategory } from "@/lib/posthog";
+import { hasDiscoverSession, sendDiscoverEvent } from "@/lib/discoverClient";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import { LoadingLabel, Skeleton, TagGridSkeleton } from "@/components/loading/Skeletons";
 
@@ -181,6 +182,14 @@ function TagFeed({ hashtag }: { hashtag: string }) {
         tile.focus?.();
       });
     }
+  };
+
+  const removeVisiblePost = (postId: string) => {
+    const removedIndex = items.findIndex((item) => item.id === postId);
+    if (removedIndex < 0) return;
+    setItems((current) => current.filter((item) => item.id !== postId));
+    setActiveIndex((current) => Math.max(0, Math.min(current - (removedIndex < current ? 1 : 0), items.length - 2)));
+    if (items.length <= 1) setIsOpen(false);
   };
 
   const scrollModalToIndex = useCallback((index: number) => {
@@ -372,6 +381,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                 >
                   <div className="w-full">
                     <VideoCard
+                      insightSource="direct"
                       src={p.video_url || undefined}
                       poster={p.poster_url || undefined}
                       desktopFeedMediaKey={frame.mediaKey}
@@ -403,6 +413,11 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                       allowBooking={allowBooking}
                       bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                       tipsEnabled={p.tips_available === true}
+                      onFeedDeleted={removeVisiblePost}
+                      onNotInterested={(postId) => {
+                        if (hasDiscoverSession(postId)) sendDiscoverEvent(postId, "not_interested");
+                        removeVisiblePost(postId);
+                      }}
                     />
                   </div>
                 </div>

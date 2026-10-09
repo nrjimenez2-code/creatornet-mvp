@@ -22,15 +22,14 @@ body { margin: 0; }
     --native-feed-card-height: calc(100dvh - env(safe-area-inset-top) - var(--mobile-tab-bar-height));
   }
   .app-shell .tag-video-modal {
-    --tag-video-height: var(--native-feed-card-height);
+    --tag-video-height: calc(100dvh - env(safe-area-inset-top));
   }
   .app-shell .tag-modal-scroll {
     box-sizing: border-box;
     padding-block: 0;
   }
-  /* Keep a full-viewport snap slot so the next card stays offscreen. Place
-     its card where Discover places one: below the status area and above the
-     navigation lane, with identical media and overlay height. */
+  /* The opened tag view has no tab bar. Fill its entire viewport below the
+     status area while each snap slot still occupies exactly one viewport. */
   .app-shell .tag-video-slot {
     box-sizing: border-box;
     height: 100dvh;
@@ -45,6 +44,15 @@ body { margin: 0; }
   .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child > img {
     height: var(--tag-video-height);
     min-height: var(--tag-video-height);
+  }
+  /* Keep the shared Discover overlays above the home indicator and give the
+     options button its own lane above the seek control. */
+  .app-shell .tag-video-slot .feed-card-details,
+  .app-shell .tag-video-slot .video-seek-control {
+    bottom: env(safe-area-inset-bottom);
+  }
+  .app-shell .tag-video-slot .feed-card-actions {
+    bottom: calc(env(safe-area-inset-bottom) + 2rem);
   }
 }
 /* The native shell already reserves the top safe area. The shared feed sizes

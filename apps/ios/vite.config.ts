@@ -30,6 +30,8 @@ export default defineConfig(({ mode }) => {
       'process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_PUBLISHABLE_KEY),
       'process.env.NEXT_PUBLIC_SITE_URL': JSON.stringify(env.VITE_CREATORNET_API_ORIGIN),
       'process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_ENABLED': JSON.stringify('false'),
+      'process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED': JSON.stringify(env.VITE_VIDEO_INSIGHTS_UI_ENABLED === 'true' ? 'true' : 'false'),
+      'process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_COLLECTION_ENABLED': JSON.stringify(env.VITE_VIDEO_INSIGHTS_COLLECTION_ENABLED === 'true' ? 'true' : 'false'),
       'process.env.NEXT_PUBLIC_POSTHOG_KEY': JSON.stringify(''),
       'process.env.NEXT_PUBLIC_POSTHOG_HOST': JSON.stringify(''),
     },

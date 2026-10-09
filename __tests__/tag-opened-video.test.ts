@@ -12,7 +12,10 @@ jest.mock("@/components/VideoCard", () => ({ __esModule: true, default: (props: 
   "data-verified": props.creatorVerified,
   "data-feed-style": props.mainFeedMobileLayout,
   "data-full-mobile-height": props.fillMobileViewport,
-}) }));
+}, createElement("button", {
+  type: "button",
+  onClick: () => (props.onNotInterested as (postId: string) => void)(props.postId as string),
+}, "Not interested")) }));
 
 import TagFeedPage from "@/app/tag/[hashtag]/page";
 
@@ -44,6 +47,9 @@ test("opened hashtag video shows the feed title instead of repeating its raw has
     expect(opened.getAttribute("data-feed-style")).toBe("true");
     expect(opened.getAttribute("data-full-mobile-height")).toBe("true");
     expect(opened.closest('[data-index="0"]')?.classList.contains("h-[100dvh]")).toBe(true);
+    await act(async () => opened.querySelector<HTMLButtonElement>("button")!.click());
+    expect(host.querySelector('[data-opened-video="post-1"]')).toBeNull();
+    expect(host.querySelector('button[aria-label="Open post: demo"]')).toBeNull();
   } finally {
     await act(async () => root.unmount());
     host.remove();
