@@ -12,6 +12,11 @@ body { margin: 0; }
 .app-action { display: flex; align-items: center; justify-content: center; padding: 10px 16px; border-radius: 12px; border: 1px solid #444; background: #151515; color: white; margin: 12px 0; }
 .app-action-primary { background: #4A35C7; border-color: #4A35C7; }
 .app-page input { width: 100%; background: #141414; border: 1px solid #555; border-radius: 10px; padding: 10px; font-size: 1rem; }
+/* Fixed tag controls sit outside the shell's padded flow. Keep them below the
+   iPhone status area in both the grid and the full-screen opened video. */
+.app-shell .tag-feed-back { top: calc(env(safe-area-inset-top) + 1rem); }
+.app-shell .tag-modal-back { top: calc(env(safe-area-inset-top) + 1.25rem); }
+.app-shell .tag-feed-back button, .app-shell .tag-modal-back button { min-width: 44px; min-height: 44px; }
 /* The native shell already reserves the top safe area. The shared feed sizes
    itself for the whole Safari viewport, so subtract that space here and keep
    its snap slots, cards, media and seek control above the fixed tab bar. */
