@@ -21,7 +21,7 @@ function check(v:unknown):asserts v {if(!v) throw new Error("Installment retry e
 const seconds=(v:unknown)=>typeof v==="string"?Date.parse(v)/1000:NaN;
 /** Reuse the existing prospective review contract; no default, debt or schedule
  * mutation is implied by returning a separately selectable future-card option. */
-export function parseExactFutureCardQuote(r:Record<string,unknown>,auth:RenewalAuthorization,version:unknown):
+export function parseExactFutureCardQuote(r:Record<string,unknown>,auth:Pick<RenewalAuthorization,"totalCents"|"paymentCount"|"feeSchedule"|"paymentNumber"|"periodEnd"|"cancelAt">,version:unknown):
   Pick<BuyerPaymentQuote,"remainingPayments"|"futureCardAccepted"> {
   if(r.future_card_option!==true) return {};
   check(version===PAY_NOW_CONSENT_VERSION && auth.paymentNumber<auth.paymentCount && Array.isArray(r.future_card_periods));

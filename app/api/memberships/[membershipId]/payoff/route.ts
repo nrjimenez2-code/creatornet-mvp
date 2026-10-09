@@ -16,7 +16,12 @@ export async function GET(req: NextRequest, ctx: RouteContext) {
   try {
     const { membershipId } = await ctx.params; assertMembershipId(membershipId);
     if (new URL(req.url).search) throw Error();
-    return Response.json(await createMembershipRuntime().quotePayoff(membershipId, user.id), { headers });
+    const quote = await createMembershipRuntime().quotePayoff(membershipId, user.id);
+    if (process.env.CREATOR_MONTHLY_MANUAL_BUYER_READY === "true") {
+      return Response.json({ ...quote, checkoutEnabled: false,
+        manualPayoffAvailable: ["quoted", "accepted"].includes(quote.status) }, { headers });
+    }
+    return Response.json(quote, { headers });
   } catch { return Response.json({ error: "Your payoff needs current payment or balance review. Contact support@creatornet.net." }, { status: 409, headers }); }
 }
 export async function POST(req: NextRequest, ctx: RouteContext) {
@@ -32,6 +37,8 @@ export async function POST(req: NextRequest, ctx: RouteContext) {
     const keys = Object.keys(body).sort().join(",");
     const service = createMembershipRuntime();
     if (body.action === "checkout") {
+      if (process.env.CREATOR_MONTHLY_MANUAL_BUYER_READY === "true")
+        return Response.json({ error: "New hosted payoff checkout is paused; recover the original payoff." }, { status: 409, headers });
       if (!membershipPayoffCheckoutReady()) return Response.json({ error: "New payoff checkout is paused." }, { status: 503, headers });
       if (keys !== "action,consent") throw Error();
       const c = body.consent;

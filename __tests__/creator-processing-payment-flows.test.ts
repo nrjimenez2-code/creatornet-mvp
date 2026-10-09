@@ -258,6 +258,17 @@ function productCheckoutRequest(category?: string) {
   }) as any;
 }
 
+async function waitForCheckoutCreate(count:number,pending:Promise<Response>){
+  let early:Response|undefined;
+  void pending.then(response=>{early=response;});
+  for(let attempt=0;attempt<100;attempt++){
+    if(checkoutCreate.mock.calls.length>=count)return;
+    if(early)throw Error(`Checkout returned before provider call ${count}: ${early.status} ${await early.clone().text()}`);
+    await new Promise<void>(resolve=>setImmediate(resolve));
+  }
+  throw Error(`Checkout never admitted provider call ${count}`);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   jest.resetModules();
@@ -304,6 +315,34 @@ beforeEach(() => {
 });
 
 describe("new checkout application fees", () => {
+  it.each([null, { accepted: true, version: "old-or-current", fingerprint: "a".repeat(64) }])(
+    "cannot bypass active manual mentorship payment through legacy checkout (%j)", async purchase_consent => {
+      const previous=process.env.CREATOR_MENTORSHIP_MANUAL_CHECKOUT_UI_READY;
+      process.env.CREATOR_MENTORSHIP_MANUAL_CHECKOUT_UI_READY="true";
+      try {
+        db=checkoutDb();
+        const {POST}=await import("@/app/api/checkout/route");
+        const response=await POST(new Request("https://www.creatornet.net/api/checkout",{
+          method:"POST",headers:{"content-type":"application/json"},
+          body:JSON.stringify({type:"product",product_id:"product_1",purchase_consent}),
+        }) as any);
+        expect(response.status).toBe(purchase_consent ? 409 : 200);
+        const body=await response.json(),url=new URL(body.url);
+        expect(url.origin).toBe("https://www.creatornet.net");
+        expect(url.pathname).toBe("/purchase/review");
+        expect(url.searchParams.get("product_id")).toBe("product_row_1");
+        expect(url.searchParams.get("post_id")).toBe("post_1");
+        expect(checkoutCreate).not.toHaveBeenCalled();
+        expect(checkoutRetrieve).not.toHaveBeenCalled();
+        expect(checkoutExpire).not.toHaveBeenCalled();
+        expect(db.ops.every(op=>op.kind==="select")).toBe(true);
+        expect(db.opsFor("product_purchase_consents_v1")).toHaveLength(0);
+      } finally {
+        if(previous===undefined)delete process.env.CREATOR_MENTORSHIP_MANUAL_CHECKOUT_UI_READY;
+        else process.env.CREATOR_MENTORSHIP_MANUAL_CHECKOUT_UI_READY=previous;
+      }
+    });
+
   it("uses the server price and sends 12% plus configured processing to Stripe", async () => {
     db = checkoutDb();
     const { POST } = await import("@/app/api/checkout/route");
@@ -465,9 +504,9 @@ describe("new checkout application fees", () => {
     const { POST } = await import("@/app/api/checkout/route");
 
     const firstPromise = POST(productCheckoutRequest());
-    while (checkoutCreate.mock.calls.length < 1) await Promise.resolve();
+    await waitForCheckoutCreate(1,firstPromise);
     const secondPromise = POST(productCheckoutRequest());
-    while (checkoutCreate.mock.calls.length < 2) await Promise.resolve();
+    await waitForCheckoutCreate(2,secondPromise);
     releaseFirst(session);
     const responses = await Promise.all([firstPromise, secondPromise]);
     const bodies = await Promise.all(responses.map((response) => response.json()));
@@ -503,6 +542,7 @@ describe("new checkout application fees", () => {
       mode: "payment",
       status: "expired",
       payment_status: "unpaid",
+      payment_intent: null,
       amount_total: 10_000,
       currency: "usd",
       metadata: checkoutCreate.mock.calls[0][0].metadata,
@@ -524,6 +564,7 @@ describe("new checkout application fees", () => {
       id: "cs_loser",
       url: "https://checkout.stripe.test/loser",
       payment_intent: null,
+      mode:"payment",status:"open",payment_status:"unpaid",livemode:false,amount_total:10000,currency:"usd",customer:null,
     };
     const winningSession = {
       id: "cs_winner",
@@ -537,12 +578,16 @@ describe("new checkout application fees", () => {
         () => new Promise<typeof losingSession>((resolve) => { releaseFirst = resolve; })
       )
       .mockResolvedValueOnce(winningSession);
+    checkoutRetrieve.mockImplementation(async(id:string)=>id===losingSession.id?{...losingSession}:winningSession);
+    checkoutExpire.mockImplementation(async()=>{losingSession.status="expired";return {...losingSession};});
     const { POST } = await import("@/app/api/checkout/route");
 
     const losingPromise = POST(productCheckoutRequest("first"));
-    while (checkoutCreate.mock.calls.length < 1) await Promise.resolve();
-    const winningPromise = POST(productCheckoutRequest("second"));
-    while (checkoutCreate.mock.calls.length < 2) await Promise.resolve();
+    await waitForCheckoutCreate(1,losingPromise);
+    // Both requests must preserve the same accepted terms. Changed categories
+    // correctly refuse a second create while the original reply is uncertain.
+    const winningPromise = POST(productCheckoutRequest("first"));
+    await waitForCheckoutCreate(2,winningPromise);
     const winningResponse = await winningPromise;
     releaseFirst(losingSession);
     const losingResponse = await losingPromise;
@@ -551,7 +596,20 @@ describe("new checkout application fees", () => {
     expect(winningResponse.status).toBe(200);
     expect(winningBody.session_id).toBe(winningSession.id);
     expect(losingResponse.status).toBe(500);
-    expect(checkoutExpire).toHaveBeenCalledWith(losingSession.id);
+    expect(checkoutExpire).toHaveBeenCalledWith(losingSession.id,{},
+      {idempotencyKey:`${checkoutCreate.mock.calls[0][1].idempotencyKey}:expire`,maxNetworkRetries:0});
+  });
+  it("changed terms cannot replace an original whose provider reply is still pending",async()=>{
+    db=statefulCheckoutDb();const original={id:"cs_uncertain_original",url:"https://checkout.stripe.test/original",payment_intent:null};
+    let release!: (value:typeof original)=>void;
+    checkoutCreate.mockReset().mockImplementationOnce(()=>new Promise<typeof original>(resolve=>{release=resolve;}));
+    const {POST}=await import("@/app/api/checkout/route");
+    const pending=POST(productCheckoutRequest("original"));await waitForCheckoutCreate(1,pending);
+    try{
+      const changed=await POST(productCheckoutRequest("changed"));expect(changed.status).toBe(500);
+      expect(checkoutCreate).toHaveBeenCalledTimes(1);
+    }finally{release(original);}
+    expect((await pending).status).toBe(200);
   });
 });
 
@@ -2294,5 +2352,138 @@ describe("fixed-duration one-time capture integration", () => {
       p_consent_id: "consent_1", p_payment_intent_id: "pi_Timed", p_captured_at: capturedAt });
     expect(db.ops.findIndex(op => op.table === "credit_purchase_earnings")).toBeLessThan(db.ops.indexOf(binding[0]));
     expect(db.ops.findIndex(op => op.table === "payment_fee_ledger" && op.kind === "insert")).toBeLessThan(db.ops.indexOf(binding[0]));
+  });
+});
+
+describe("full manual webhook routing",()=>{
+  it.each(["observed","captured","uncertain"] as const)("full lifecycle %s completes or releases the canonical claim without generic writes",async outcome=>{
+    const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+    const beforeSchema=process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY,beforeWebhook=process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;
+    process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY="true";process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY="true";
+    const payment=await import("@/lib/fullServerPaymentLifecycle");
+    const reconcile=jest.spyOn(payment,"reconcileFullServerPaymentLifecycle");
+    if(outcome==="uncertain")reconcile.mockRejectedValue(Error("original lifecycle unresolved"));
+    else if(outcome==="captured")reconcile.mockResolvedValue({status:"original_capture_accounted",paymentStatus:"succeeded",releaseAllowed:false});
+    else reconcile.mockResolvedValue({status:"original_lifecycle_observed",paymentStatus:"processing",releaseAllowed:false});
+    try{
+      db=createMockClient(op=>op.table==="server_payment_intent_operations_v1"?{data:{attempt_id:id(1),payment_intent_id:"pi_manual",bound_at:"2026-09-23T00:00:00Z"},error:null}:
+        op.table==="server_payment_protocols_v1"?{data:{attempt_id:id(1),buyer_id:id(2),kind:"full",protocol:"creatornet-us-manual-confirmation-v1",context:{mode:"test"},source:{attempt_key:id(3)}},error:null}:undefined);
+      stripeEvent={id:"evt_manual_lifecycle",type:"payment_intent.processing",created:1700000000,
+        data:{object:{object:"payment_intent",id:"pi_manual",livemode:false,metadata:{}}}};
+      const {POST}=await import("@/app/api/stripe/webhook/route");const events=await import("@/lib/stripeEvents");
+      expect((await POST(webhookRequest())).status).toBe(outcome==="uncertain"?500:200);expect(reconcile).toHaveBeenCalledTimes(1);
+      if(outcome==="uncertain"){
+        expect(events.releaseStripeEvent).toHaveBeenCalled();expect(events.completeStripeEvent).not.toHaveBeenCalled();
+      }else{
+        expect(events.completeStripeEvent).toHaveBeenCalled();expect(events.releaseStripeEvent).not.toHaveBeenCalled();
+      }
+      expect(db.opsFor("orders")).toHaveLength(0);expect(db.opsFor("purchases")).toHaveLength(0);expect(db.opsFor("payment_fee_ledger")).toHaveLength(0);
+    }finally{
+      reconcile.mockRestore();
+      if(beforeSchema===undefined)delete process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY;else process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY=beforeSchema;
+      if(beforeWebhook===undefined)delete process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;else process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY=beforeWebhook;
+    }
+  });
+  it.each(["dispute_observed","reconciliation_required"] as const)("full dispute %s completes or releases the existing claim",async status=>{
+    const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+    const beforeSchema=process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY,beforeWebhook=process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;
+    process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY="true";process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY="true";
+    const payment=await import("@/lib/fullServerPaymentReadback");
+    const reconcile=jest.spyOn(payment,"reconcileFullServerPaymentDispute").mockResolvedValue({status,attemptId:id(1),paymentIntentId:"pi_manual"});
+    try{
+      db=createMockClient(op=>op.table==="server_payment_intent_operations_v1"?{data:{attempt_id:id(1),payment_intent_id:"pi_manual",bound_at:"2026-09-23T00:00:00Z"},error:null}:
+        op.table==="server_payment_protocols_v1"?{data:{attempt_id:id(1),buyer_id:id(2),kind:"full",protocol:"creatornet-us-manual-confirmation-v1",context:{mode:"test"},source:{attempt_key:id(3)}},error:null}:undefined);
+      stripeEvent={id:"evt_manual_dispute",type:"charge.dispute.updated",created:1700000000,
+        data:{object:{object:"dispute",id:"du_manual",charge:"ch_manual",payment_intent:"pi_manual",livemode:false}}};
+      const {POST}=await import("@/app/api/stripe/webhook/route");const events=await import("@/lib/stripeEvents");
+      expect((await POST(webhookRequest())).status).toBe(status==="dispute_observed"?200:500);
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      if(status==="dispute_observed"){
+        expect(events.completeStripeEvent).toHaveBeenCalled();expect(events.releaseStripeEvent).not.toHaveBeenCalled();
+      }else{
+        expect(events.releaseStripeEvent).toHaveBeenCalled();expect(events.completeStripeEvent).not.toHaveBeenCalled();
+      }
+      expect(disputeRetrieve).not.toHaveBeenCalled();expect(db.opsFor("record_payment_dispute_state")).toHaveLength(0);
+      expect(db.opsFor("orders")).toHaveLength(0);expect(db.opsFor("purchases")).toHaveLength(0);expect(db.opsFor("payment_fee_ledger")).toHaveLength(0);
+    }finally{
+      reconcile.mockRestore();
+      if(beforeSchema===undefined)delete process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY;else process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY=beforeSchema;
+      if(beforeWebhook===undefined)delete process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;else process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY=beforeWebhook;
+    }
+  });
+  it.each(["original_refund_applied","refund_recorded_accounting_review"] as const)("full refund %s uses the existing event claim correctly",async status=>{
+    const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+    const beforeSchema=process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY,beforeWebhook=process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;
+    process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY="true";process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY="true";
+    const payment=await import("@/lib/fullServerPaymentReadback");
+    const reconcile=jest.spyOn(payment,"reconcileFullServerPaymentRefund").mockResolvedValue({status,attemptId:id(1),
+      paymentIntentId:"pi_manual",amountCents:3333,refundedCents:1000});
+    try{
+      db=createMockClient(op=>op.table==="server_payment_intent_operations_v1"?{data:{attempt_id:id(1),payment_intent_id:"pi_manual",bound_at:"2026-09-23T00:00:00Z"},error:null}:
+        op.table==="server_payment_protocols_v1"?{data:{attempt_id:id(1),buyer_id:id(2),kind:"full",protocol:"creatornet-us-manual-confirmation-v1",context:{mode:"test"},source:{attempt_key:id(3)}},error:null}:
+        op.table==="refund_operations"?{data:[],error:null}:undefined);
+      stripeEvent={id:"evt_manual_refund",type:"charge.refunded",data:{object:{object:"charge",id:"ch_manual",payment_intent:"pi_manual",livemode:false}}};
+      const {POST}=await import("@/app/api/stripe/webhook/route");const events=await import("@/lib/stripeEvents");
+      expect((await POST(webhookRequest())).status).toBe(status==="original_refund_applied"?200:500);
+      expect(reconcile).toHaveBeenCalledTimes(1);
+      if(status==="original_refund_applied"){
+        expect(events.completeStripeEvent).toHaveBeenCalled();expect(events.releaseStripeEvent).not.toHaveBeenCalled();
+      }else{
+        expect(events.releaseStripeEvent).toHaveBeenCalled();expect(events.completeStripeEvent).not.toHaveBeenCalled();
+      }
+      expect(db.opsFor("orders")).toHaveLength(0);expect(db.opsFor("purchases")).toHaveLength(0);expect(db.opsFor("payment_fee_ledger")).toHaveLength(0);
+      expect(db.opsFor("record_payment_refund_state")).toHaveLength(0);
+    }finally{
+      reconcile.mockRestore();
+      if(beforeSchema===undefined)delete process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY;else process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY=beforeSchema;
+      if(beforeWebhook===undefined)delete process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;else process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY=beforeWebhook;
+    }
+  });
+  it.each(["refund.created","refund.updated","refund.failed"])("owned unmarked %s releases the claim until financial handling is available",async type=>{
+    const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+    const beforeSchema=process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY;
+    process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY="true";
+    try{
+      db=createMockClient(op=>op.table==="server_payment_intent_operations_v1"?{data:{attempt_id:id(1),payment_intent_id:"pi_manual",bound_at:"2026-09-23T00:00:00Z"},error:null}:
+        op.table==="server_payment_protocols_v1"?{data:{attempt_id:id(1),buyer_id:id(2),kind:"full",protocol:"creatornet-us-manual-confirmation-v1",context:{mode:"test"},source:{attempt_key:id(3)}},error:null}:undefined);
+      stripeEvent={id:"evt_manual_refund",type,data:{object:{object:"refund",id:"re_manual",charge:"ch_manual",payment_intent:"pi_manual",metadata:{}}}};
+      const {POST}=await import("@/app/api/stripe/webhook/route");const events=await import("@/lib/stripeEvents");
+      expect((await POST(webhookRequest())).status).toBe(500);
+      expect(db.opsFor("server_payment_intent_operations_v1")[0]?.filters).toEqual({payment_intent_id:"pi_manual"});
+      expect(events.releaseStripeEvent).toHaveBeenCalled();expect(events.completeStripeEvent).not.toHaveBeenCalled();
+      expect(db.opsFor("orders")).toHaveLength(0);expect(db.opsFor("purchases")).toHaveLength(0);expect(db.opsFor("payment_fee_ledger")).toHaveLength(0);
+    }finally{
+      if(beforeSchema===undefined)delete process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY;else process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY=beforeSchema;
+    }
+  });
+  it("manual-marked event with processing disabled releases the claim without generic money writes",async()=>{
+    db=createMockClient(()=>undefined);
+    stripeEvent={id:"evt_manual_disabled",type:"payment_intent.succeeded",data:{object:{object:"payment_intent",id:"pi_manual",
+      livemode:false,metadata:{server_payment_protocol:"creatornet-us-manual-confirmation-v1",creator_id:"creator_1",order_id:"order_1"}}}};
+    const {POST}=await import("@/app/api/stripe/webhook/route");const events=await import("@/lib/stripeEvents");
+    expect((await POST(webhookRequest())).status).toBe(500);
+    expect(events.releaseStripeEvent).toHaveBeenCalled();expect(events.completeStripeEvent).not.toHaveBeenCalled();
+    expect(db.opsFor("orders")).toHaveLength(0);expect(db.opsFor("purchases")).toHaveLength(0);expect(db.opsFor("payment_fee_ledger")).toHaveLength(0);
+  });
+  it("a handled manual event completes the existing claim and never reaches the generic PI handler",async()=>{
+    const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+    const beforeSchema=process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY,beforeWebhook=process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;
+    process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY="true";process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY="true";
+    const payment=await import("@/lib/fullServerPaymentReadback");
+    const accounting=jest.spyOn(payment,"accountFullServerPayment").mockResolvedValue({status:"original_capture_accounted",attemptId:id(1),
+      purchaseId:id(4),ledgerId:id(5),purchaseStatus:"paid",accounted:true});
+    try{
+      db=createMockClient(op=>op.table==="server_payment_intent_operations_v1"?{data:{attempt_id:id(1),payment_intent_id:"pi_manual",bound_at:"2026-09-23T00:00:00Z"},error:null}:
+        op.table==="server_payment_protocols_v1"?{data:{attempt_id:id(1),buyer_id:id(2),kind:"full",protocol:"creatornet-us-manual-confirmation-v1",context:{mode:"test"},source:{attempt_key:id(3)}},error:null}:undefined);
+      stripeEvent={id:"evt_manual_owned",type:"payment_intent.succeeded",data:{object:{object:"payment_intent",id:"pi_manual",livemode:false,metadata:{}}}};
+      const {POST}=await import("@/app/api/stripe/webhook/route");const events=await import("@/lib/stripeEvents");
+      expect((await POST(webhookRequest())).status).toBe(200);expect(accounting).toHaveBeenCalledTimes(1);
+      expect(events.completeStripeEvent).toHaveBeenCalled();expect(events.releaseStripeEvent).not.toHaveBeenCalled();
+      expect(db.opsFor("orders")).toHaveLength(0);expect(db.opsFor("purchases")).toHaveLength(0);expect(db.opsFor("payment_fee_ledger")).toHaveLength(0);
+    }finally{
+      accounting.mockRestore();
+      if(beforeSchema===undefined)delete process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY;else process.env.CREATOR_SERVER_PAYMENT_INTENT_SCHEMA_READY=beforeSchema;
+      if(beforeWebhook===undefined)delete process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY;else process.env.CREATOR_FULL_SERVER_PAYMENT_WEBHOOK_READY=beforeWebhook;
+    }
   });
 });

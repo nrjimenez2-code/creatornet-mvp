@@ -3,7 +3,7 @@ import type Stripe from "stripe";
 import { isDeepStrictEqual } from "node:util";
 import { isSupportedStripeSnapshotVersion } from "./stripeSnapshotVersion";
 import { assertMembershipId } from "./membershipAgreement";
-import { buildMembershipCheckout, buildMembershipSubscription, membershipMetadata, membershipCheck as check, membershipStripeId as sid, type MembershipRecord } from "./membershipCheckout";
+import { assertMembershipCustomer, buildMembershipCheckout, buildMembershipSubscription, membershipMetadata, membershipCheck as check, membershipStripeId as sid, type MembershipRecord } from "./membershipCheckout";
 import { membershipCheckoutRecoveryReady, type BootstrapOperation, type CheckoutRecoveryResult } from "./membershipCheckoutRecovery";
 import type { MembershipBillingDependencies } from "./membershipBillingRuntime";
 type Kind = "expire_checkout" | "cancel_subscription" | "hold_invoice" | "void_invoice";
@@ -110,7 +110,8 @@ export function createMembershipInitialAbandonment(d: MembershipBillingDependenc
       charges: charges.map(c => ({ id: c.id, paid: c.paid, amountCapturedCents: c.amount_captured })), invoices: invoiceProofs,
       subscriptions: subscriptions.map(s => ({ id: s.id, status: s.status })), checkouts: sessions.map(s => ({ id: s.id, status: s.status, paymentStatus: s.payment_status })) };
   }
-  async function abandonFirstCheckout(id: string, buyerId: string, confirmed: boolean): Promise<CheckoutRecoveryResult> {
+  async function abandonFirstCheckout(id: string, buyerId: string, confirmed: boolean,
+    manualBeforeIntent = false): Promise<CheckoutRecoveryResult> {
     check(membershipInitialAbandonmentReady(env), "Initial checkout close-out is not enabled");
     check(confirmed === true, "Explicit initial checkout close-out intent required");
     let a = await load(id, buyerId);
@@ -138,8 +139,30 @@ export function createMembershipInitialAbandonment(d: MembershipBillingDependenc
       for (const op of ops) check(op.agreement_id === a.id && op.scope_key === "initial");
       const payable = ops.some(op => ["subscription", "hold", "checkout", "activate", "collect"].includes(op.kind));
       if (!payable) {
+        let customerProof: Record<string, unknown> = {};
+        if (manualBeforeIntent && ops.length > 0) {
+          const customerOp = ops.find(op => op.kind === "customer");
+          check(customerOp?.status === "complete" && ops.every(op => ["customer", "product"].includes(op.kind)),
+            "Original monthly bootstrap needs reconciliation");
+          const customer = sid(customerOp.provider_id, "cus");
+          assertMembershipCustomer(await checked(stripe.customers.retrieve(customer)), a, true);
+          const intents = await checked(stripe.paymentIntents.list({ customer, limit: 100 }));
+          const charges = await checked(stripe.charges.list({ customer, limit: 100 }));
+          const invoices = await checked(stripe.invoices.list({ customer, limit: 100 }));
+          const subscriptions = await checked(stripe.subscriptions.list({ customer, status: "all", limit: 100 }));
+          const checkouts = await checked(stripe.checkout.sessions.list({ customer, limit: 100 }));
+          const pendingItems = await checked(stripe.invoiceItems.list({ customer, pending: true, limit: 100 }));
+          const reads = [intents, charges, invoices, subscriptions, checkouts, pendingItems];
+          check(list(intents).length === 0 && list(charges).length === 0 && list(invoices).length === 0 &&
+            list(subscriptions).length === 0 && list(checkouts).length === 0 && list(pendingItems).length === 0,
+          "Original monthly customer has financial activity");
+          customerProof = { customerOnly: true, customerId: customer, listsComplete: true,
+            pendingInvoiceItemCount: 0, paymentIntents: [], charges: [], invoices: [], subscriptions: [], checkouts: [],
+            readRequestIds: reads.map(read => read.lastResponse.requestId) };
+        }
         const done = await admin.rpc("complete_monthly_initial_abandonment_v1", { p_id: a.id, p_buyer_id: a.buyer_id, p_context: context,
-          p_proof: { version: "monthly-initial-abandonment-proof-v1", paymentContext: context, membershipId: a.id, neverPayable: true } });
+          p_proof: { version: "monthly-initial-abandonment-proof-v1", paymentContext: context, membershipId: a.id,
+            neverPayable: true, ...customerProof } });
         check(!done.error && typeof done.data === "boolean"); return result("abandoned");
       }
       const customer = sid(a.stripe_customer_id || ops.find(op => op.kind === "customer" && op.status === "complete")?.provider_id, "cus");

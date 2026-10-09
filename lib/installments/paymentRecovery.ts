@@ -4,7 +4,7 @@ import type {SupabaseClient} from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import {assertAgreementId,operationHash} from "./agreementStore";
 import {assertExactInstallmentEnvironment} from "./checkoutPreparation";
-import {assertRecoveryHeldInvoiceUsingContract,HELD_INSTALLMENT_VERSION,type HeldInvoicePreparationContract} from "./heldInvoice";
+import {assertRecoveryHeldInvoiceUsingContract,HELD_INSTALLMENT_VERSION,type HeldInvoicePreparationContract,type BuyerHeldInvoiceAuthorization} from "./heldInvoice";
 import type {RenewalAuthorization} from "./invoiceStore";
 import {reconcileExactRenewalReceiptSandbox} from "./renewal";
 import {reconcileExactRetryReceiptSandbox} from "./paymentRetry";
@@ -120,12 +120,12 @@ type RecoveryReader={
 };
 /** Shared original unpaid classifier. No write-capable provider is required.
  * Caller must persist the original admission's recovery hold before these reads. */
-export async function inspectUnpaidExactRecovery(stripe:RecoveryReader,invoice:Stripe.Invoice,a:RenewalAuthorization,
-  snapshot:RecoveryRead,authorizedCard:string,
+export async function inspectUnpaidExactRecovery(stripe:RecoveryReader,invoice:Stripe.Invoice,a:RenewalAuthorization|BuyerHeldInvoiceAuthorization,
+  snapshot:Pick<RecoveryRead,"paymentIntentId"|"dispatchStartedAt">,authorizedCard:string,
   contract:Pick<HeldInvoicePreparationContract,"expectedLiveMode"|"collectionVersion"|"metadata">,
   clock:()=>number=()=>Math.floor(Date.now()/1000)):Promise<{outcome:RecoveryOutcome;evidence:RecoveryEvidence}> {
   const read=async<T,>(fn:()=>Promise<T>):Promise<T>=>{try{return await fn();}catch{throw new Error("Exact recovery Stripe evidence unavailable");}};
-  const expected=assertRecoveryHeldInvoiceUsingContract(invoice,a,contract);
+  const expected=assertRecoveryHeldInvoiceUsingContract<RenewalAuthorization|BuyerHeldInvoiceAuthorization>(invoice,a,contract);
   const links=await read(()=>stripe.invoicePayments.list({invoice:a.invoiceId,limit:100}));
   requireThat(!links.has_more&&links.data.length===1,"ambiguous invoice payments");
   const link=links.data[0];

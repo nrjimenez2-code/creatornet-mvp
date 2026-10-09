@@ -83,7 +83,7 @@ function harness(mutate: Mutation = b => b, objects = new Map<string, Body>()) {
             payment_settings: { payment_method_types: ["card"], save_default_payment_method: "off" },
             trial_settings: { end_behavior: { missing_payment_method: "create_invoice" } },
             items: { has_more: false, data: [{ quantity: 1, tax_rates: [], discounts: [], price: {
-              id: "price_LocalHeld", active: true, livemode: live, currency: "usd", product: "prod_LocalHeld", unit_amount: 66633,
+              id: "price_LocalHeld", active: false, livemode: live, currency: "usd", product: "prod_LocalHeld", unit_amount: 66633,
               billing_scheme: "per_unit", recurring: { interval: "month", interval_count: 1, usage_type: "licensed" } } }] } };
           objects.set("/v1/subscriptions/sub_LocalHeld", body as Body);
         } else if (url.pathname === "/v1/subscriptions/sub_LocalHeld") {

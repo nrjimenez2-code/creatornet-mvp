@@ -26,3 +26,18 @@ test("step 8: private recovery error is not leaked", async () => {
   mockRun.mockRejectedValueOnce(Error("Private Stripe details")); const result = await GET(request());
   expect(result.status).toBe(503); expect(await result.text()).not.toContain("Private Stripe");
 });
+test.each([
+  { selected: 2, stopped: 1, failed: 1, needsReview: 0 },
+  { selected: 2, stopped: 1, failed: 0, needsReview: 1 },
+])("unresolved provider stops produce a non-success response: %j", async result => {
+  mockRun.mockResolvedValueOnce(result);
+  const response = await GET(request());
+  expect(response.status).toBe(503);
+  expect(response.headers.get("cache-control")).toBe("private, no-store");
+  expect(await response.json()).toEqual(result);
+  expect(mockRun).toHaveBeenCalledTimes(1);
+});
+test("fully reconciled provider stops remain successful", async () => {
+  mockRun.mockResolvedValueOnce({ selected: 2, stopped: 2, failed: 0, needsReview: 0 });
+  expect((await GET(request())).status).toBe(200);
+});

@@ -67,6 +67,15 @@ function harness(paid = false) {
     badQuote: () => { quoteBad = true; }, refunded: () => { refunded = true; f.charge.amount_refunded = f.charge.amount; } };
 }
 const prepare = (h: ReturnType<typeof harness>) => h.runtime.acceptAndPreparePayoff(h.f.a.id, h.f.a.buyer_id, h.consent);
+
+test("separate payoff consent can be reserved without admitting hosted Checkout", async () => {
+  const h = harness(); h.unsent();
+  const saved = await h.runtime.acceptPayoff(h.f.a.id, h.f.a.buyer_id, h.consent);
+  expect(saved).toMatchObject({ agreement: { id: h.f.a.id }, payoff: { id: h.f.p.id, status: "accepted" } });
+  expect(h.rpc).toHaveBeenCalledWith("reserve_monthly_mentorship_payoff_v1", expect.anything());
+  expect(h.rpc).not.toHaveBeenCalledWith("claim_monthly_mentorship_payoff_checkout_v1", expect.anything());
+  expect(h.stripe.checkout.sessions.create).not.toHaveBeenCalled();
+});
 const confirm = (h: ReturnType<typeof harness>) => h.runtime.confirmPayoff(h.f.a.id, h.f.a.buyer_id, h.f.p.id);
 test("steps 2/4: separately accepted payoff creates one admitted checkout and binds it before returning", async () => {
   const h = harness(); h.fresh(); const result = await prepare(h); expect(result.url).toBe(h.f.session.url);

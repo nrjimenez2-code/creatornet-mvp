@@ -16,6 +16,7 @@ beforeEach(() => { jest.clearAllMocks(); ledger.mockResolvedValue("17000000-0000
 afterEach(() => { jest.useRealTimers(); });
 function harness(anchor?: number, covered = 1) {
   const f = membershipRenewalFixture(anchor, covered), operations = new Map<string, Operation>(), receipts = new Map<number, unknown>([[1, f.proof]]);
+  f.paymentMethod.billing_details = {name:'Synthetic Buyer',email:null,phone:null,tax_id:null,address:{country:'US',line1:'123 Test Street',line2:null,city:'Phoenix',state:'AZ',postal_code:'85001'}};
   const env: Record<string, string> = { ...membershipTestEnv, CREATOR_MONTHLY_MENTORSHIPS_COLLECTION_SCHEMA_READY: "true", CREATOR_MONTHLY_MENTORSHIPS_RENEWALS_READY: "true" };
   let stopped = false, stopDuringConfigure = false, emptyInvoices = false, activationReady = true;
   const response = <T,>(value: T): Stripe.Response<T> => ({ ...value, lastResponse: { apiVersion: context.apiVersion, requestId: "req_fixture", headers: {}, statusCode: 200 } });
@@ -204,6 +205,15 @@ test("step 1: fresh first capture activates the exact held schedule without coll
     { idempotencyKey: `creatornet-membership:${operationId}`, maxNetworkRetries: 0 });
   expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
 });
+test("a recorded manual first payment activates the same held schedule without Checkout", async () => {
+  const h = harness(); h.unactivated();
+  h.f.a.stripe_checkout_session_id = null; h.f.proof.checkoutSessionId = null;
+  Object.assign(h.f.proof, { manualPayment: { attemptId: "40000000-0000-4000-8000-000000000011",
+    confirmationOperationId: "40000000-0000-4000-8000-000000000012" } });
+  expect(await h.runtime.activate(h.f.a.id, h.f.a.buyer_id)).toMatchObject({ status: "activated_held" });
+  expect(h.stripe.subscriptions.update).toHaveBeenCalledTimes(1);
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
+});
 test("step 8: completed activation is retrieved rather than sent again", async () => {
   const h = harness(); h.unactivated(); await h.runtime.activate(h.f.a.id, h.f.a.buyer_id); await h.runtime.activate(h.f.a.id, h.f.a.buyer_id);
   expect(h.stripe.subscriptions.update).toHaveBeenCalledTimes(1);
@@ -220,6 +230,16 @@ test("steps 1/7/8: actual journal wrapper binds, configures, finalizes and pays 
   expect(ledger).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ invoiceId: "in_fixture", purchaseId: h.f.a.purchase_id,
     breakdown: h.f.a.terms.recurringMonthFees, paymentIntentId: "pi_renewal" }), true);
   expect(h.receipts.get(2)).toMatchObject({ invoiceId: "in_fixture", providerPeriodStart: h.f.period.providerStart });
+});
+test("the next renewal uses a manual first card and once-only invoice accounting", async () => {
+  const h = harness();
+  h.f.a.stripe_checkout_session_id = null; h.f.proof.checkoutSessionId = null;
+  Object.assign(h.f.proof, { manualPayment: { attemptId: "40000000-0000-4000-8000-000000000011",
+    confirmationOperationId: "40000000-0000-4000-8000-000000000012" } });
+  expect(await h.runtime.collectNext(h.f.a.id, h.f.a.buyer_id)).toMatchObject({ status: "recorded", month: 2 });
+  expect(h.stripe.invoices.pay).toHaveBeenCalledTimes(1);
+  expect(h.receipts.get(2)).toMatchObject({ checkoutSessionId: null, paymentMethodId: h.f.proof.paymentMethodId });
+  expect(ledger).toHaveBeenCalledTimes(1);
 });
 test("step 1: early March-28 invoice cannot be charged before the agreed March-31 renewal", async () => {
   jest.useFakeTimers().setSystemTime(new Date("2026-03-30T12:00:00Z")); const h = harness(Date.UTC(2026, 0, 31, 12) / 1000, 2);
@@ -293,4 +313,24 @@ test("step 8: out-of-window unknown unpaid operation cannot send a fresh charge"
     request: { method: "POST", path: "/v1/invoices/in_fixture/pay", params: { payment_method: "pm_fixture", off_session: true, forgive: false, paid_out_of_band: false } },
     dispatched_at: new Date(Date.now() - 21 * 3600000).toISOString(), status: "dispatched" });
   await expect(h.runtime.collectNext(h.f.a.id, h.f.a.buyer_id)).rejects.toThrow("reconciliation"); expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
+});
+
+test.each(['CA',null,undefined])('US launch: billing country %s blocks a new monthly debit',async country=>{
+  const h=harness();h.f.paymentMethod.billing_details.address!.country=country as string;
+  await expect(h.runtime.collectNext(h.f.a.id,h.f.a.buyer_id)).rejects.toThrow('US billing');
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled();expect(h.operations.size).toBe(0);expect(ledger).not.toHaveBeenCalled();
+});
+test('US launch: billing address drift during invoice preparation blocks dispatch',async()=>{
+  const h=harness(),update=h.stripe.invoices.update.getMockImplementation()!;
+  h.stripe.invoices.update.mockImplementationOnce(async(...args)=>{
+    const result=await update(...args);h.f.paymentMethod.billing_details.address!.country='CA';return result;
+  });
+  await expect(h.runtime.collectNext(h.f.a.id,h.f.a.buyer_id)).rejects.toThrow('US billing');
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled();expect(h.receipts.has(2)).toBe(false);
+});
+test('US launch: an already captured original remains reconcilable after its billing country changes',async()=>{
+  const h=harness();await h.runtime.collectNext(h.f.a.id,h.f.a.buyer_id);
+  h.receipts.delete(2);h.f.a.covered_months=1;ledger.mockClear();h.f.paymentMethod.billing_details.address!.country='CA';
+  expect(await h.runtime.reconcileInvoice(h.f.a.id,h.f.a.buyer_id,h.f.invoice.id)).toMatchObject({status:'recorded'});
+  expect(ledger).toHaveBeenCalledTimes(1);expect(h.stripe.invoices.pay).toHaveBeenCalledTimes(1);
 });

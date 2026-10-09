@@ -5,6 +5,7 @@ import { membershipCheck as check, membershipStripeId as sid } from "./membershi
 import type { MembershipBillingDependencies } from "./membershipBillingRuntime";
 import { membershipRenewalRecoveryReady, type MembershipRenewalRecoveryResult } from "./membershipRenewalRecovery";
 import { monthlyRetrySchemaReady, readMonthlyRetry, type MonthlyRetryRow } from "./membershipCards";
+import { assertMembershipUsBilling } from "./membershipBillingEligibility";
 import { MONTHLY_RETRY_CONSENT_VERSION, MONTHLY_FUTURE_CARD_CONSENT_VERSION } from "./membershipRetryConsent";
 type Callbacks = { readRenewalRecovery(id: string, buyer: string, invoice: string): Promise<MembershipRenewalRecoveryResult>;
   verifyRenewalCardSetup(id: string, buyer: string, setup: string): Promise<{ status: string }> };
@@ -55,15 +56,19 @@ export function createMembershipRetry(d: MembershipBillingDependencies, callback
     const { row } = await action("review", id, buyer, randomUUID(), setup);
     return view(row);
   }
+  async function eligibleCard(r: MonthlyRetryRow) {
+    await observeContext();
+    const card = await checked(stripe.paymentMethods.retrieve(r.snapshot.replacementPaymentMethodId));
+    check(card.object === "payment_method" && card.id === r.snapshot.replacementPaymentMethodId && card.type === "card" &&
+      card.livemode === (context.mode === "live") && sid(card.customer, "cus") === r.snapshot.customerId, "Monthly retry card ownership differs");
+    assertMembershipUsBilling(card);
+  }
   async function fresh(r: MonthlyRetryRow) {
     const a = await load(r.agreement_id, r.buyer_id);
     check(a.revision === r.snapshot.revision && a.covered_months + 1 === r.month_number &&
       !a.financial_hold_at && !a.debit_revoked_at && !a.renewal_stopped_at && r.expires_at > Math.floor(Date.now() / 1000),
     "Monthly retry was stopped, changed or expired");
-    await observeContext();
-    const card = await checked(stripe.paymentMethods.retrieve(r.snapshot.replacementPaymentMethodId));
-    check(card.object === "payment_method" && card.id === r.snapshot.replacementPaymentMethodId && card.type === "card" &&
-      card.livemode === (context.mode === "live") && sid(card.customer, "cus") === r.snapshot.customerId, "Monthly retry card ownership differs");
+    await eligibleCard(r);
     const renewal = await callbacks.readRenewalRecovery(a.id, a.buyer_id, r.invoice_id);
     check(renewal.outcome === "payment_method_required" && renewal.month === r.month_number &&
       renewal.amountCents === r.quote.amountCents && renewal.periodStart === r.quote.periodStart && renewal.periodEnd === r.quote.periodEnd,
@@ -86,6 +91,9 @@ export function createMembershipRetry(d: MembershipBillingDependencies, callback
     if (consumed.dispatch) {
       check(consumed.row.dispatch_consumed_at && consumed.row.confirmed_at, "Monthly retry lacks durable dispatch");
       try {
+        // A changed country after durable consumption still cannot authorize
+        // a debit. Preserve consumption and reconcile; never reset its key.
+        await eligibleCard(consumed.row);
         await checked(stripe.invoices.pay(consumed.row.invoice_id, consumed.row.request,
           { idempotencyKey: "creatornet-monthly-retry:" + consumed.row.id, maxNetworkRetries: 0 }));
       } catch {
