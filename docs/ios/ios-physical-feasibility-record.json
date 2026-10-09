@@ -1,28 +1,29 @@
 {
   "schemaVersion": 1,
-  "recordedAtUtc": "2026-10-09T04:16:27Z",
+  "recordedAtUtc": "2026-10-09T18:21:06Z",
   "candidate": {
-    "sourceCommit": "f87262c87231797e8aad23b0b0cdf4396f0a7bc5",
+    "sourceCommit": "51097c7d7aae242c1ca5c36be18406eed597e84e",
     "bundleId": "com.creatornet.webapp",
     "version": "1.0",
     "build": "1",
     "configuration": "CreatorNet Staging public values",
-    "webAssetContentsSha256": "af36a63066dc1c12350b104ea9ce63a3e369023648ccff1aa03e4d0e8997d9ce",
+    "webAssetContentsSha256": "c88288b363e94190f7dde2d036a160fc992bc19303242234cf57046889ee61ea",
     "signingTeam": "87Z6A36W7G",
     "signing": "Xcode automatic development signing",
     "installed": true
   },
   "backend": {
     "vercelProject": "prj_lfRTdoQU0BrsSnJajvLTcSCvjrAA",
-    "deployment": "https://creatornet-enwm0v3yx-nrjimenez2-codes-projects.vercel.app (GitHub Preview deployment 6952734616; Vercel project deployment link 7uhjRLNUxTepsd1KWvYUJ1WSR2Ms)",
-    "deploymentCommit": "f87262c87231797e8aad23b0b0cdf4396f0a7bc5",
+    "deployment": "https://creatornet-cxfkin1t2-nrjimenez2-codes-projects.vercel.app (dpl_6Jtvex2DqjaYUybUZkp3fpMWFB73)",
+    "deploymentCommit": "51097c7d7aae242c1ca5c36be18406eed597e84e",
     "playbackGateDeployment": "https://creatornet-2m0fesk5s-nrjimenez2-codes-projects.vercel.app at d6fb838e465d0cba0b5163306931984734909b1a",
     "googleGateDeployment": "https://creatornet-1y51dz53o-nrjimenez2-codes-projects.vercel.app at 5b3de6984e6caa8a2f7ade29f7036691dbdf0143",
     "fixDeployment": "dpl_9jWehBTUk7VgPmkPf6rB7RBPUboX at f639b7edf3de081395418067b7baac557db64709; the fifth gate used a later documentation-only commit with the same runtime code",
     "initialDeployment": "dpl_31Kb7ULdQtmBwN6n4ffUT7fThqK1 at installed app source commit 1d046a64fe5c00bb935cc1d128ecebe2609dd037; the later hosted fix did not change the installed app binary",
     "alias": "creatornet-mvp-git-feat-ios-ap-1673c6-nrjimenez2-codes-projects.vercel.app",
-    "deploymentProtection": "enabled; seventh exact iOS alias exception opened for the owner-approved new-build layout retest, then removed immediately afterward; Vercel exception table again listed only the older Discover alias",
-    "supabaseProject": "nwqfofezfzljhxolkycz"
+    "deploymentProtection": "enabled; eighth exact iOS alias exception opened for the owner-approved Library/Watch gate, then removed; Vercel showed a success toast and the exception table again listed only the older Discover alias",
+    "supabaseProject": "nwqfofezfzljhxolkycz",
+    "layoutRetestDeployment": "https://creatornet-enwm0v3yx-nrjimenez2-codes-projects.vercel.app (GitHub Preview deployment 6952734616; Vercel project deployment link 7uhjRLNUxTepsd1KWvYUJ1WSR2Ms)"
   },
   "device": {
     "name": "Noah",
@@ -30,11 +31,11 @@
     "modelCode": "iPhone18,2",
     "ios": "26.6 (23G71)",
     "udidSuffix": "C01C",
-    "connection": "wired USB, paired, Developer Mode enabled"
+    "connection": "wired USB, paired, Developer Mode enabled for eighth gate"
   },
   "installation": {
     "result": "PASS",
-    "evidence": "The initial Xcode development-signed Debug build installed and launched on Noah. After the safe-area CSS fix at f87262c, a real-public-value packaged client build and Capacitor sync passed; the shared 50 web assets matched the signed App.app byte-for-byte, with SHA-256 af36a63066dc1c12350b104ea9ce63a3e369023648ccff1aa03e4d0e8997d9ce over sorted file contents joined by newlines. Xcode Debug device build exited 0 under team 87Z6A36W7G; devicectl installed and launched the updated app on Noah. Bundle/version/build stayed com.creatornet.webapp 1.0 (1). No App Store Connect, TestFlight, or tester distribution occurred."
+    "evidence": "The initial Xcode development-signed Debug build installed and launched on Noah. After the safe-area CSS fix at f87262c, a real-public-value packaged client build and Capacitor sync passed; the shared 50 web assets matched the signed App.app byte-for-byte, with SHA-256 af36a63066dc1c12350b104ea9ce63a3e369023648ccff1aa03e4d0e8997d9ce over sorted file contents joined by newlines. Xcode Debug device build exited 0 under team 87Z6A36W7G; devicectl installed and launched the updated app on Noah. Bundle/version/build stayed com.creatornet.webapp 1.0 (1). No App Store Connect, TestFlight, or tester distribution occurred. At 51097c7, the 52 packaged web assets matched the synced Xcode project and development-signed App.app byte-for-byte, with SHA-256 c88288b363e94190f7dde2d036a160fc992bc19303242234cf57046889ee61ea over sorted file contents joined by newlines. Xcode Debug device build exited 0, codesign --verify --deep --strict exited 0, and devicectl installed and launched com.creatornet.webapp 1.0 (1) on Noah over wired USB. An initial wireless install failed while the local-network tunnel was disconnected; wired retry passed. No upload or distribution occurred."
   },
   "hostedChecks": {
     "aasa": "PASS: unauthenticated HTTPS 200, application/json, no redirect; reviewed app ID and callback path only",
@@ -44,7 +45,8 @@
     "authenticatedApi": "Owner reported successful email-code return to the signed-in native app; direct authenticated API response was not captured",
     "appleCdn": "PASS: at 2026-10-09T02:37:12Z Apple's association CDN returned HTTP 200 application/json for the exact iOS alias, with only 87Z6A36W7G.com.creatornet.webapp and /app/auth/callback",
     "authProviders": "Initially both Apple and Google failed while disabled. After Staging-only setup, the dashboard showed both ENABLED. Apple sign-in reached Return to CreatorNet, then Open CreatorNet returned to the app signed in and persisted across a cold launch. Google's first return failed profile validation: Vercel logged GET /api/mobile/profile/me as 503 twice, and Supabase logged downstream GET /rest/v1/likes as 400 with a 39,078-character query. After the bounded-batch fix at f639b7e, an existing Google session's profile loaded on retry. In a fifth short public window, the owner fully closed and relaunched the app and reported the Google-signed-in profile persisted. The owner then signed out, completed a fresh Google account prompt, saw Return to CreatorNet, tapped Open CreatorNet, landed on Discover, and opened My Profile; after a brief loading state the signed-in profile appeared. Automatic universal-link opening was not observed.",
-    "postGateProtection": "PASS: after each Apple/Google and playback gate, including the seventh new-build retest, Vercel's exception table listed only the older Discover alias. After an earlier gate, unauthenticated AASA GET returned HTTP 302 to Vercel SSO; the latest removal was verified in the dashboard table."
+    "postGateProtection": "PASS: after the eighth exact-alias Library/Watch gate, Vercel showed protection restored and the exception table again listed only the older Discover alias. The exact iOS alias is protected.",
+    "libraryWatchGate": "PASS for denial boundaries during the eighth exact-alias window: unauthenticated GET /api/mobile/library and /api/mobile/watch/00000000-0000-0000-0000-000000000000 with Origin capacitor://localhost each returned 401; Library with a wrong Origin returned 403. These do not establish authenticated entitlement, playback or progress."
   },
   "captures": [
     "/private/tmp/creatornet-iphone-launch-2026-10-08-2.png",
@@ -81,7 +83,10 @@
       "status": "PARTIAL",
       "observation": "An earlier email session remained signed in after a devicectl process relaunch by the owner's tentative report. After the later Apple OAuth return, the owner fully closed CreatorNet from the app switcher, relaunched it, opened Profile, and definitively reported the profile still signed in. In the fifth gate, the owner repeated a full close and relaunch with a Google session and again reported the signed-in profile. The owner signed out and saw the sign-in choices before a fresh Google flow. These support cold-launch persistence for Apple and Google and basic logout coherence; token refresh, storage failure and post-logout authorization remain untested."
     },
-    { "id": "api-boundaries", "status": "NOT_RUN" },
+    {
+      "id": "api-boundaries",
+      "status": "NOT_RUN"
+    },
     {
       "id": "feed-profile",
       "status": "PARTIAL",
@@ -106,6 +111,11 @@
       "id": "interface",
       "status": "PARTIAL",
       "observation": "The owner reported that Join CreatorNet opened the native sign-in page with Continue with email, Continue with Apple, and Continue with Google. Creator profile back navigation returned to the feed. In the sixth gate, the owner reported the seek bar and three-dot action near/under the bottom tab bar at the resting feed position; scrolling exposed them but cut off the card top. The iPhone safe-area CSS correction at f87262c was development signed and installed. In the seventh gate, the owner reported the card top, seek bar and three-dot action all fit without scrolling, seek worked without layout movement, and the three-dot menu opened and cancelled normally. Text scaling, VoiceOver and other screen/failure states remain untested."
+    },
+    {
+      "id": "library-watch",
+      "status": "PARTIAL",
+      "observation": "On the 51097c7 development-signed build on Noah during the eighth exact-alias window, the owner confirmed Profile showed a signed-in Staging account. Library displayed the empty state with Your Library, Videos and offers you buy will show up here, and Explore the Feed; tapping Explore the Feed returned to Discover. No existing eligible purchase appeared for this account and the owner did not know another entitled Staging account. Positive buyer/creator Watch, progress, download, revoked/foreign access, accessibility and interruption remain untested. No new purchase was made."
     }
   ]
 }

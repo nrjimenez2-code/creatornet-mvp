@@ -726,11 +726,12 @@
         "Verify narrow screen, text scaling, accessibility, back/return navigation and interruption."
       ],
       "acceptanceEvidence": {
-        "status": "none",
-        "revision": null,
-        "build": null,
-        "backend": null,
-        "device": null
+        "status": "partial",
+        "revision": "51097c7d7aae242c1ca5c36be18406eed597e84e",
+        "build": "com.creatornet.webapp 1.0 (1), development signed",
+        "backend": "dpl_6Jtvex2DqjaYUybUZkp3fpMWFB73 at 51097c7",
+        "device": "Noah, iPhone 17 Pro Max, iOS 26.6",
+        "observation": "Owner-reported signed-in empty Library state and Explore the Feed navigation. Entitled buyer/creator, denial and accessibility cases remain untested."
       }
     },
     {
