@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAtUtc": "2026-10-09T03:57:22Z",
+  "recordedAtUtc": "2026-10-09T04:07:33Z",
   "candidate": {
     "sourceCommit": "1d046a64fe5c00bb935cc1d128ecebe2609dd037",
     "bundleId": "com.creatornet.webapp",
@@ -14,12 +14,13 @@
   },
   "backend": {
     "vercelProject": "prj_lfRTdoQU0BrsSnJajvLTcSCvjrAA",
-    "deployment": "https://creatornet-1y51dz53o-nrjimenez2-codes-projects.vercel.app (GitHub Preview deployment 6952530840; Vercel project deployment link FudQMa59W6BPRZSEiUy8VjvVA3Eq)",
-    "deploymentCommit": "5b3de6984e6caa8a2f7ade29f7036691dbdf0143",
+    "deployment": "https://creatornet-2m0fesk5s-nrjimenez2-codes-projects.vercel.app (GitHub Preview deployment 6952612190; Vercel project deployment link 99LazFwaktZZb6nuvbZyWRY3ASrR)",
+    "deploymentCommit": "d6fb838e465d0cba0b5163306931984734909b1a",
+    "googleGateDeployment": "https://creatornet-1y51dz53o-nrjimenez2-codes-projects.vercel.app at 5b3de6984e6caa8a2f7ade29f7036691dbdf0143",
     "fixDeployment": "dpl_9jWehBTUk7VgPmkPf6rB7RBPUboX at f639b7edf3de081395418067b7baac557db64709; the fifth gate used a later documentation-only commit with the same runtime code",
     "initialDeployment": "dpl_31Kb7ULdQtmBwN6n4ffUT7fThqK1 at installed app source commit 1d046a64fe5c00bb935cc1d128ecebe2609dd037; the later hosted fix did not change the installed app binary",
     "alias": "creatornet-mvp-git-feat-ios-ap-1673c6-nrjimenez2-codes-projects.vercel.app",
-    "deploymentProtection": "enabled; fifth exact iOS alias exception opened for the owner-approved Google cold-launch and fresh sign-in gate, then removed immediately afterward; Vercel exception table again listed only the older Discover alias",
+    "deploymentProtection": "enabled; sixth exact iOS alias exception opened for the owner-approved playback gate, then removed immediately afterward; Vercel exception table again listed only the older Discover alias",
     "supabaseProject": "nwqfofezfzljhxolkycz"
   },
   "device": {
@@ -42,7 +43,7 @@
     "authenticatedApi": "Owner reported successful email-code return to the signed-in native app; direct authenticated API response was not captured",
     "appleCdn": "PASS: at 2026-10-09T02:37:12Z Apple's association CDN returned HTTP 200 application/json for the exact iOS alias, with only 87Z6A36W7G.com.creatornet.webapp and /app/auth/callback",
     "authProviders": "Initially both Apple and Google failed while disabled. After Staging-only setup, the dashboard showed both ENABLED. Apple sign-in reached Return to CreatorNet, then Open CreatorNet returned to the app signed in and persisted across a cold launch. Google's first return failed profile validation: Vercel logged GET /api/mobile/profile/me as 503 twice, and Supabase logged downstream GET /rest/v1/likes as 400 with a 39,078-character query. After the bounded-batch fix at f639b7e, an existing Google session's profile loaded on retry. In a fifth short public window, the owner fully closed and relaunched the app and reported the Google-signed-in profile persisted. The owner then signed out, completed a fresh Google account prompt, saw Return to CreatorNet, tapped Open CreatorNet, landed on Discover, and opened My Profile; after a brief loading state the signed-in profile appeared. Automatic universal-link opening was not observed.",
-    "postGateProtection": "PASS: after each Apple/Google gate, including the fifth fresh Google sign-in gate, Vercel's exception table listed only the older Discover alias. After an earlier gate, unauthenticated AASA GET returned HTTP 302 to Vercel SSO; the latest removal was verified in the dashboard table."
+    "postGateProtection": "PASS: after each Apple/Google and playback gate, including the sixth temporary exception, Vercel's exception table listed only the older Discover alias. After an earlier gate, unauthenticated AASA GET returned HTTP 302 to Vercel SSO; the latest removal was verified in the dashboard table."
   },
   "captures": [
     "/private/tmp/creatornet-iphone-launch-2026-10-08-2.png",
@@ -87,14 +88,22 @@
     {
       "id": "playback-entry-swipes",
       "status": "PARTIAL",
-      "observation": "The owner tapped the center of the synthetic QA Staging card on the physical phone and reported that media plays. Playback entry is observed by owner report; swipe transitions and captured playback diagnostics are pending."
+      "observation": "The owner tapped the center of the synthetic QA Staging card on the physical phone and reported that media plays. In the sixth public gate, the owner swiped up to another card and back down and reported playback on both without a blank or wrong video. Rapid/reverse sequences, feed-tab switches, trace capture and quantitative latency remain untested."
     },
-    { "id": "playback-controls", "status": "NOT_RUN" },
-    { "id": "playback-lifecycle-network", "status": "NOT_RUN" },
+    {
+      "id": "playback-controls",
+      "status": "PARTIAL",
+      "observation": "In the sixth gate, the owner reported that tapping the video paused and resumed it. The test clip had no audible track, so mute/unmute could not be verified. The seek bar was initially obscured under the fixed bottom tab bar; after a slight page scroll exposed it, the owner moved the scrubber between one and two seconds. That scroll cut off the card top, so visible and usable controls at the intended resting position failed. An iPhone-only safe-area height correction was built locally but is not installed or physically verified yet."
+    },
+    {
+      "id": "playback-lifecycle-network",
+      "status": "PARTIAL",
+      "observation": "In the sixth gate, the owner left CreatorNet for the iPhone Home screen for a few seconds, returned, and reported the feed came back without a black or wrong video and playback resumed. Longer background, interruption, Wi-Fi/cellular/constrained network, thermal and memory checks remain untested."
+    },
     {
       "id": "interface",
       "status": "PARTIAL",
-      "observation": "The owner reported that Join CreatorNet opened the native sign-in page with Continue with email, Continue with Apple, and Continue with Google. Creator profile back navigation returned to the feed. Accessibility, screen size, and failure-state checks remain untested."
+      "observation": "The owner reported that Join CreatorNet opened the native sign-in page with Continue with email, Continue with Apple, and Continue with Google. Creator profile back navigation returned to the feed. In the sixth gate, the owner reported the seek bar and three-dot action near/under the bottom tab bar at the resting feed position; scrolling exposed them but cut off the card top. This is a measured iPhone safe-area layout failure. A local CSS correction is built but awaits signed installation and physical visual retest. Accessibility and other screen/failure states remain untested."
     }
   ]
 }
