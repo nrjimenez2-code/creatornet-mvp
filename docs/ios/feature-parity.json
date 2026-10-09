@@ -717,8 +717,8 @@
         "buyer",
         "creator"
       ],
-      "appImplementation": "Required local app screen and platform adaptation pending.",
-      "appState": "pending",
+      "appImplementation": "Native Library list and Watch link use a bearer-authenticated mobile read with the website entitlement reader, owner filtering, progress and creator decoration. Physical buyer/creator and denial acceptance remain pending.",
+      "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
         "Exercise each applicable role on the exact candidate physical iPhone build.",
@@ -1325,8 +1325,8 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Required local app screen and platform adaptation pending.",
-      "appState": "pending",
+      "appImplementation": "Native buyer/creator Watch screen and bounded mobile access, signed private download and progress routes are implemented. Comments and all role, download, device and accessibility acceptance remain pending.",
+      "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
         "Exercise each applicable role on the exact candidate physical iPhone build.",

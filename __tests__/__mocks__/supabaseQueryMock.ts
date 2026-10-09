@@ -13,7 +13,7 @@
 
 export type Op = {
   table: string;
-  kind: "select" | "insert" | "update" | "delete" | "rpc";
+  kind: "select" | "insert" | "update" | "upsert" | "delete" | "rpc";
   /** .eq()/.match() filters, flattened to column -> value. */
   filters: Record<string, unknown>;
   /** .not(col, op, value) calls, in order. */
@@ -30,6 +30,7 @@ export type Op = {
   columns?: string;
   orders?: Array<{ column: string; ascending: boolean }>;
   limit?: number;
+  range?: { from: number; to: number };
   filterOps?: Array<{ column: string; operator: string; value: unknown }>;
 };
 
@@ -119,6 +120,10 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
         op.limit = value;
         return chain;
       },
+      range(from: number, to: number) {
+        op.range = { from, to };
+        return chain;
+      },
       returns() {
         return chain;
       },
@@ -142,6 +147,7 @@ export function createMockClient(respond: Responder = () => undefined): MockClie
       select: (columns?: string) => builder(table, "select").select(columns),
       insert: (payload: unknown) => builder(table, "insert", payload),
       update: (payload: unknown) => builder(table, "update", payload),
+      upsert: (payload: unknown) => builder(table, "upsert", payload),
       delete: () => builder(table, "delete"),
     }),
     rpc: (name: string, args: unknown) => builder(name, "rpc", args),
