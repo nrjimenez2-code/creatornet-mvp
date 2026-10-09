@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "recordedAtUtc": "2026-10-09T03:36:21Z",
+  "recordedAtUtc": "2026-10-09T03:49:40Z",
   "candidate": {
     "sourceCommit": "1d046a64fe5c00bb935cc1d128ecebe2609dd037",
     "bundleId": "com.creatornet.webapp",
@@ -14,10 +14,11 @@
   },
   "backend": {
     "vercelProject": "prj_lfRTdoQU0BrsSnJajvLTcSCvjrAA",
-    "deployment": "dpl_31Kb7ULdQtmBwN6n4ffUT7fThqK1",
-    "deploymentCommit": "1d046a64fe5c00bb935cc1d128ecebe2609dd037",
+    "deployment": "dpl_9jWehBTUk7VgPmkPf6rB7RBPUboX",
+    "deploymentCommit": "f639b7edf3de081395418067b7baac557db64709",
+    "initialDeployment": "dpl_31Kb7ULdQtmBwN6n4ffUT7fThqK1 at installed app source commit 1d046a64fe5c00bb935cc1d128ecebe2609dd037; the later hosted fix did not change the installed app binary",
     "alias": "creatornet-mvp-git-feat-ios-ap-1673c6-nrjimenez2-codes-projects.vercel.app",
-    "deploymentProtection": "enabled; exact iOS alias exception reopened for the owner-approved provider retest and removed after Apple/Google observations; Vercel exception table again listed only the older Discover alias",
+    "deploymentProtection": "enabled; fourth exact iOS alias exception opened for the owner-approved Google profile retry and removed immediately afterward; Vercel exception table again listed only the older Discover alias",
     "supabaseProject": "nwqfofezfzljhxolkycz"
   },
   "device": {
@@ -39,8 +40,8 @@
     "bearerBoundary": "PASS: GET /api/mobile/profile/me without bearer returned 401",
     "authenticatedApi": "Owner reported successful email-code return to the signed-in native app; direct authenticated API response was not captured",
     "appleCdn": "PASS: at 2026-10-09T02:37:12Z Apple's association CDN returned HTTP 200 application/json for the exact iOS alias, with only 87Z6A36W7G.com.creatornet.webapp and /app/auth/callback",
-    "authProviders": "Initially both Apple and Google failed while disabled. After Staging-only setup, the dashboard showed both ENABLED. Apple sign-in reached Return to CreatorNet, then Open CreatorNet returned to the app signed in. Google reached the same handoff page and the app, but the app showed Could not complete this request. Supabase Auth logs show Google login and the admission hook succeeded; the OAuth code exchange returned 200. Vercel logged GET /api/mobile/profile/me as 503 twice, and Supabase logged the downstream GET /rest/v1/likes as 400 with a 39,078-character query. A bounded-batch source fix is local and unverified on device.",
-    "postGateProtection": "PASS: after each Apple/Google gate, Vercel's exception table listed only the older Discover alias. After the earlier gate, unauthenticated AASA GET returned HTTP 302 to Vercel SSO; the latest removal was verified in the dashboard table."
+    "authProviders": "Initially both Apple and Google failed while disabled. After Staging-only setup, the dashboard showed both ENABLED. Apple sign-in reached Return to CreatorNet, then Open CreatorNet returned to the app signed in and persisted across a cold launch. Google reached the same handoff page and app, but profile validation failed: Vercel logged GET /api/mobile/profile/me as 503 twice, and Supabase logged downstream GET /rest/v1/likes as 400 with a 39,078-character query. The bounded-batch fix was deployed at f639b7e; in a fourth short public window the owner tapped Try again and reported the Google-signed-in profile appeared. This verifies the existing session's profile retry, not a fresh full Google OAuth attempt on the new deployment.",
+    "postGateProtection": "PASS: after each Apple/Google gate, including the fourth short Google retry, Vercel's exception table listed only the older Discover alias. After the earlier gate, unauthenticated AASA GET returned HTTP 302 to Vercel SSO; the latest removal was verified in the dashboard table."
   },
   "captures": [
     "/private/tmp/creatornet-iphone-launch-2026-10-08-2.png",
@@ -58,8 +59,8 @@
     },
     {
       "id": "auth-existing-google",
-      "status": "FAIL",
-      "observation": "The initial attempt failed at Staging Supabase while Google provider was disabled. After Staging-only provider setup, the owner completed Google account prompts and saw the Return to CreatorNet page. Tapping Open CreatorNet returned to the app's sign-in choices with a red Could not complete this request error. Staging Auth logs show Google login, successful admission hook, and HTTP 200 OAuth code exchange. Vercel logged two 503 responses for /api/mobile/profile/me, coinciding with Supabase 400 responses for a 39,078-character /rest/v1/likes URL. The Google sign-in was not usable."
+      "status": "PARTIAL",
+      "observation": "The initial attempt failed at Staging Supabase while Google provider was disabled. After Staging-only provider setup, the owner completed Google account prompts and saw the Return to CreatorNet page. Tapping Open CreatorNet returned to the app's sign-in choices with a red Could not complete this request error. Staging Auth logs show Google login, successful admission hook, and HTTP 200 OAuth code exchange. Vercel logged two 503 responses for /api/mobile/profile/me, coinciding with Supabase 400 responses for a 39,078-character /rest/v1/likes URL. After a bounded-batch source fix deployed at f639b7e, the owner tapped Try again on the same installed app and reported the Google-signed-in profile appeared. This verifies recovery of the existing Google session and profile read; a fresh full Google OAuth attempt, cold launch, cancellation, and denial remain unverified."
     },
     {
       "id": "auth-email",
@@ -69,7 +70,7 @@
     {
       "id": "auth-returns",
       "status": "PARTIAL",
-      "observation": "After Apple OAuth, the hosted Return to CreatorNet page appeared and its Open CreatorNet button brought the owner back to the installed app signed in. After Google OAuth, the same handoff button returned to the app, but profile verification failed with a server 503. Automatic universal-link handoff, cancel, and failure returns remain unverified."
+      "observation": "After Apple OAuth, the hosted Return to CreatorNet page appeared and its Open CreatorNet button brought the owner back to the installed app signed in. After Google OAuth, the same handoff button returned to the app but profile verification initially failed with a server 503. A later hosted fix allowed the existing Google session to show its signed-in profile after Try again. Automatic universal-link handoff, cancel, and failure returns remain unverified."
     },
     {
       "id": "keychain-session",
