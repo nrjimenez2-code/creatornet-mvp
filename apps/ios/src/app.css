@@ -23,14 +23,23 @@ body { margin: 0; }
   }
   .app-shell .tag-modal-scroll {
     box-sizing: border-box;
+    padding-block: 0;
+  }
+  /* Each snap position must occupy the entire scrollport. Putting the safe
+     area on the scroll container made a shorter snap slot, so part of the
+     next video appeared below the opened card on the iPhone. */
+  .app-shell .tag-video-slot {
+    box-sizing: border-box;
+    height: 100dvh;
+    min-height: 100dvh;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
-  .app-shell .tag-video-slot,
   .app-shell .tag-video-slot .feed-mobile-card,
   .app-shell .tag-video-slot .feed-mobile-card > [role="group"],
   .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child,
-  .app-shell .tag-video-slot .feed-mobile-card video {
+  .app-shell .tag-video-slot .feed-mobile-card video,
+  .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child > img {
     height: var(--tag-video-height);
     min-height: var(--tag-video-height);
   }
