@@ -46,7 +46,10 @@ export function mobileApi(handler: Handler, methods: readonly string[], required
       headers.delete('cookie');
       let body: Uint8Array | undefined;
       if (!['GET', 'HEAD'].includes(incoming.method)) {
-        if (!incoming.headers.get('content-type')?.startsWith('application/json')) return cors(reply(415, 'Use a JSON request.'), origin);
+        // Owner deletion has no request body. Keep the JSON-only rule for every
+        // request that does carry a body, including DELETE.
+        const bodylessDelete = incoming.method === 'DELETE' && !incoming.body;
+        if (!bodylessDelete && !incoming.headers.get('content-type')?.startsWith('application/json')) return cors(reply(415, 'Use a JSON request.'), origin);
         const reader = incoming.body?.getReader();
         const chunks: Uint8Array[] = []; let size = 0;
         if (reader) for (;;) {

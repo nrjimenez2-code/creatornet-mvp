@@ -59,4 +59,14 @@ describe('iPhone API authentication boundary', () => {
     expect((await mobileApi(handler, ['POST'])(request({ auth: 'Bearer fixture', method: 'POST', body: JSON.stringify({ large: 'x'.repeat(70_000) }) }))).status).toBe(413);
     expect(handler).not.toHaveBeenCalled();
   });
+  it('permits a bodyless owner DELETE while keeping non-JSON mutations out', async () => {
+    const handler = jest.fn(async () => Response.json({ deleted: true }));
+    expect((await mobileApi(handler, ['DELETE'])(request({ auth: 'Bearer fixture', method: 'DELETE' }))).status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    const nonJson = new NextRequest('https://www.creatornet.net/api/mobile/posts/fixture', {
+      method: 'DELETE', headers: { Origin: 'capacitor://localhost', Authorization: 'Bearer fixture', 'Content-Type': 'text/plain' }, body: 'unexpected',
+    });
+    expect((await mobileApi(handler, ['DELETE'])(nonJson)).status).toBe(415);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
 });
