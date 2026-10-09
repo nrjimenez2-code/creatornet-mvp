@@ -321,7 +321,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
       </div>
 
       {isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
+        <div className="tag-video-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
           <div className="tag-modal-back absolute top-5 md:top-4 left-4 z-20 [&>div]:mb-0">
             <BackButton
               hrefOverride={undefined}
@@ -332,7 +332,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
 
           <div
             ref={modalScrollRef}
-            className="h-full overflow-y-auto px-0 lg:px-4 snap-y snap-mandatory scroll-smooth"
+            className="tag-modal-scroll h-full overflow-y-auto px-0 lg:px-4 snap-y snap-mandatory scroll-smooth"
             style={{
               overscrollBehaviorY: "contain",
               touchAction: "pan-x",
@@ -364,7 +364,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
               return (
                 <div
                   key={`modal-${p.id}`}
-                  className="h-[100dvh] w-full flex items-center justify-center text-white snap-start"
+                  className="tag-video-slot h-[100dvh] w-full flex items-center justify-center text-white snap-start"
                   data-index={idx}
                   ref={(el) => {
                     itemRefs.current[idx] = el;

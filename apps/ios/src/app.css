@@ -17,6 +17,28 @@ body { margin: 0; }
 .app-shell .tag-feed-back { top: calc(env(safe-area-inset-top) + 1rem); }
 .app-shell .tag-modal-back { top: calc(env(safe-area-inset-top) + 1.25rem); }
 .app-shell .tag-feed-back button, .app-shell .tag-modal-back button { min-width: 44px; min-height: 44px; }
+@media (max-width: 1023.98px) {
+  .app-shell .tag-video-modal {
+    --tag-video-height: calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+  .app-shell .tag-modal-scroll {
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .app-shell .tag-video-slot,
+  .app-shell .tag-video-slot .feed-mobile-card,
+  .app-shell .tag-video-slot .feed-mobile-card > [role="group"],
+  .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child,
+  .app-shell .tag-video-slot .feed-mobile-card video {
+    height: var(--tag-video-height);
+    min-height: var(--tag-video-height);
+  }
+  .app-shell .tag-video-slot .feed-mobile-card video,
+  .app-shell .tag-video-slot .feed-mobile-card > [role="group"] > div:first-child > img {
+    object-fit: contain;
+  }
+}
 /* The native shell already reserves the top safe area. The shared feed sizes
    itself for the whole Safari viewport, so subtract that space here and keep
    its snap slots, cards, media and seek control above the fixed tab bar. */
