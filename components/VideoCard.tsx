@@ -36,6 +36,7 @@ import { planMobileFallback } from "@/lib/mobileFeedRecovery";
 import { useFeedPlaybackResolution } from "@/lib/useFeedPlaybackResolution";
 import { bindVideoInsights, leaveInsightVideo, insightCollectionClientEnabled } from "@/lib/videoInsightsClient";
 import { insightPlaybackSuspended } from "@/lib/insightPlayback";
+import { videoShareUrl } from "@/lib/videoShareUrl";
 import type { InsightSource } from "@/lib/videoInsights";
 
 type VideoCardProps = {
@@ -1221,7 +1222,7 @@ function VideoCard(props: VideoCardProps) {
   const handleShare = useCallback(async () => {
     // Copy post link to clipboard - redirects to dashboard with postId
     if (postId) {
-      const postUrl = `${window.location.origin}/dashboard?postId=${postId}`;
+      const postUrl = videoShareUrl(postId, window.location.origin, process.env.NEXT_PUBLIC_SITE_URL || window.location.origin);
       try {
         await navigator.clipboard.writeText(postUrl);
         setShareCopied(true);

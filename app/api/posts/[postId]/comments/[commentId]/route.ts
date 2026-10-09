@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { publicMessage } from "@/lib/apiError";
-import { createServerClient } from "@/lib/supabaseServer";
+import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { createClient } from "@supabase/supabase-js";
 import { bumpPostComments } from "@/lib/postCounters";
 
@@ -22,16 +22,14 @@ export async function PATCH(
   }
 
   try {
-    const { commentId } = await params;
+    const { postId, commentId } = await params;
     
-    if (!commentId) {
-      return NextResponse.json({ error: "Missing comment_id" }, { status: 400 });
+    if (!commentId || !postId) {
+      return NextResponse.json({ error: "Missing comment_id or post_id" }, { status: 400 });
     }
 
-    const supabase = createServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -53,11 +51,15 @@ export async function PATCH(
     // Verify the comment belongs to the user
     const { data: existingComment, error: fetchError } = await admin
       .from("comments")
-      .select("id, user_id")
+      .select("id, user_id, post_id")
       .eq("id", commentId)
       .single();
 
     if (fetchError || !existingComment) {
+      return NextResponse.json({ error: "Comment not found" }, { status: 404 });
+    }
+
+    if (String(existingComment.post_id) !== String(postId)) {
       return NextResponse.json({ error: "Comment not found" }, { status: 404 });
     }
 
@@ -124,10 +126,8 @@ export async function DELETE(
       return NextResponse.json({ error: "Missing comment_id or post_id" }, { status: 400 });
     }
 
-    const supabase = createServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -187,4 +187,3 @@ export async function DELETE(
     return NextResponse.json({ error: publicMessage("comments", err, "Failed to delete comment") }, { status: 500 });
   }
 }
-

@@ -446,7 +446,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Website dashboard, FeedList, VideoCard and MobileTabNav with routing/Supabase/API adapters; related mutations/commerce still pending.",
+      "appImplementation": "Website dashboard, FeedList, VideoCard and MobileTabNav with routing/Supabase/API adapters. Like, share, comment, interest and post-metric calls have guarded mobile API candidates; native share links use the configured HTTPS website origin. Commerce and complete role/device acceptance remain pending.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
@@ -1298,7 +1298,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch, interest and post metric writes, owner insights, owner soft-delete, and other-viewer reporting use guarded mobile API endpoints with shared website business rules. Not Interested dismisses the opened post locally.",
+      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch, interest and post metric writes, like, share, comments, owner insights, owner soft-delete, and other-viewer reporting have guarded mobile API candidates with shared website business rules. Not Interested dismisses the opened post locally. Phone verification of the newer mutations remains pending.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
