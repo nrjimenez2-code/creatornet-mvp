@@ -1298,7 +1298,7 @@
         "creator",
         "administrator"
       ],
-      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch uses the native API transport and a guarded public mobile tag endpoint.",
+      "appImplementation": "Shared website tag grid and opened-video screen in the local router; tag fetch uses a guarded public mobile endpoint, and hashtag/legacy playback scoring uses a guarded mobile interest-score endpoint. Owner video insights read an owner-checked aggregate through the mobile API.",
       "appState": "candidate-partial",
       "dependency": "Verified main baseline; adapt this route without removing website permissions or business rules.",
       "acceptanceCases": [
