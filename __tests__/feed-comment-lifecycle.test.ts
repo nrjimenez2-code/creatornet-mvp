@@ -42,6 +42,7 @@ function deferred<T>() {
 }
 const comment = (content: string) => ({ id: content, user_id: "someone", content, created_at: "2026-09-04T12:00:00Z", user: { id: "someone", username: "test", full_name: null, avatar_url: null } });
 const feedRow = (title: string) => ({ post_id: title, creator_id: "creator", title, video_url: "https://example.test/v.mp4", created_at: "2026-09-04T12:00:00Z" });
+const commentDialog = () => document.body.querySelector<HTMLElement>('[role="dialog"][aria-label="Comments"]')!;
 beforeEach(() => {
   userCtx.userId = null;
   userCtx.loading = false;
@@ -65,28 +66,29 @@ test("comments show loading and a late response cannot overwrite another post", 
   const second = deferred<ReturnType<typeof response>>();
   fetchMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
   await act(async () => root.render(createElement(CommentPanel, { postId: "a", isOpen: true, onClose: jest.fn() })));
-  expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-  expect(container.querySelector(".cn-skeleton")).not.toBeNull();
+  expect(commentDialog().parentElement).toBe(document.body);
+  expect(commentDialog().querySelector('[aria-busy="true"]')).not.toBeNull();
+  expect(commentDialog().querySelector(".cn-skeleton")).not.toBeNull();
   const oldSignal = fetchMock.mock.calls[0][1].signal as AbortSignal;
   await act(async () => root.render(createElement(CommentPanel, { postId: "b", isOpen: true, onClose: jest.fn() })));
   expect(oldSignal.aborted).toBe(true);
   await act(async () => second.resolve(response({ success: true, comments: [comment("current post comment")] })));
   await act(async () => first.resolve(response({ success: true, comments: [comment("stale post comment")] })));
-  expect(container.textContent).toContain("current post comment");
-  expect(container.textContent).not.toContain("stale post comment");
+  expect(commentDialog().textContent).toContain("current post comment");
+  expect(commentDialog().textContent).not.toContain("stale post comment");
 });
 
 test("opening a populated comment thread does not focus the keyboard or scroll ancestors, and limits initial rendering", async () => {
   fetchMock.mockResolvedValue(response({ success: true, comments: Array.from({ length: 50 }, (_, i) => comment(`Comment number ${i}`)) }));
   const focus = jest.spyOn(HTMLElement.prototype, "focus");
   await act(async () => root.render(createElement(CommentPanel, { postId: "a", isOpen: true, onClose: jest.fn() })));
-  expect(container.textContent).toContain("Comment number 19");
-  expect(container.textContent).not.toContain("Comment number 20");
+  expect(commentDialog().textContent).toContain("Comment number 19");
+  expect(commentDialog().textContent).not.toContain("Comment number 20");
   expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
   expect(focus).not.toHaveBeenCalled();
-  await act(async () => Array.from(container.querySelectorAll('button')).find(b => b.textContent === "Show more comments")!.click());
-  expect(container.textContent).toContain("Comment number 39");
-  expect(container.textContent).not.toContain("Comment number 40");
+  await act(async () => Array.from(commentDialog().querySelectorAll('button')).find(b => b.textContent === "Show more comments")!.click());
+  expect(commentDialog().textContent).toContain("Comment number 39");
+  expect(commentDialog().textContent).not.toContain("Comment number 40");
 });
 
 test("a comment retry shows loading, then only the successful result", async () => {
@@ -94,14 +96,14 @@ test("a comment retry shows loading, then only the successful result", async () 
   const retry = deferred<ReturnType<typeof response>>();
   fetchMock.mockResolvedValueOnce(response({ success: false, error: "test failure" }, false)).mockReturnValueOnce(retry.promise);
   await act(async () => root.render(createElement(CommentPanel, { postId: "a", isOpen: true, onClose: jest.fn() })));
-  expect(container.textContent).not.toContain("No comments yet");
-  const retryButton = Array.from(container.querySelectorAll("button")).find((b) => b.textContent?.includes("Try again"));
+  expect(commentDialog().textContent).not.toContain("No comments yet");
+  const retryButton = Array.from(commentDialog().querySelectorAll("button")).find((b) => b.textContent?.includes("Try again"));
   expect(retryButton).toBeDefined();
   await act(async () => retryButton!.click());
-  expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
-  expect(container.querySelector(".cn-skeleton")).not.toBeNull();
+  expect(commentDialog().querySelector('[aria-busy="true"]')).not.toBeNull();
+  expect(commentDialog().querySelector(".cn-skeleton")).not.toBeNull();
   await act(async () => retry.resolve(response({ success: true, comments: [] })));
-  expect(container.textContent).toContain("No comments yet");
+  expect(commentDialog().textContent).toContain("No comments yet");
 });
 
 test("closing and reopening comments retains that post's unsent draft", async () => {
@@ -109,14 +111,14 @@ test("closing and reopening comments retains that post's unsent draft", async ()
   fetchMock.mockResolvedValue(response({ success: true, comments: [] }));
   const props = { postId: "a", isOpen: true, onClose: jest.fn() };
   await act(async () => root.render(createElement(CommentPanel, props)));
-  const input = container.querySelector<HTMLInputElement>('input[placeholder="Add a comment..."]')!;
+  const input = commentDialog().querySelector<HTMLInputElement>('input[placeholder="Add a comment..."]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "my unsent draft");
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   await act(async () => root.render(createElement(CommentPanel, { ...props, isOpen: false })));
   await act(async () => root.render(createElement(CommentPanel, props)));
-  expect(container.querySelector<HTMLInputElement>('input[placeholder="Add a comment..."]')?.value).toBe("my unsent draft");
+  expect(commentDialog().querySelector<HTMLInputElement>('input[placeholder="Add a comment..."]')?.value).toBe("my unsent draft");
 });
 
 test("feed tab changes show loading, and stale results never replace the new tab", async () => {

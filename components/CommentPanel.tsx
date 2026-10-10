@@ -2,6 +2,7 @@
 
 import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
@@ -292,10 +293,10 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
     return `/creators/${comment.user_id}`;
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-end">
+  return createPortal(
+    <div className="fixed inset-0 z-[130] flex items-end justify-end" role="dialog" aria-modal="true" aria-label="Comments">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -304,7 +305,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
       
       {/* Panel */}
       <div 
-        className="relative w-[400px] max-w-[90vw] h-full bg-black border-l border-white/10 flex flex-col"
+        className="relative h-full w-full bg-black flex flex-col max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] sm:w-[400px] sm:max-w-[90vw] sm:border-l sm:border-white/10"
         style={{
           animation: "slideInRight 0.3s ease-out",
         }}
@@ -484,6 +485,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
