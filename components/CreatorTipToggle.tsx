@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useState } from "react";
 
 export default function CreatorTipToggle({ postId, initialEnabled, onChange }: {

@@ -38,7 +38,7 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
    if(offset>=2000)return NextResponse.json({items:[],nextOffset:offset,hasMore:false,session:null});
    // A late feed refresh must not restore cookies after a newer sign-out/login.
    // Browser auth and its serialized callback own session-cookie synchronization.
-   const {data,error}=await createServerClient({readOnlyAuthCookies:true}).rpc('get_feed_v3',{p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
+   const {data,error}=await createServerClient({readOnlyAuthCookies:true,request:req}).rpc('get_feed_v3',{p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
    if(error)throw error;
    let items = data ?? [];
    if (process.env.CREATOR_TIPPING_ENABLED === "true" && items.length) {

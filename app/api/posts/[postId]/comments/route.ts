@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
 import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
+import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { createClient } from "@supabase/supabase-js";
 import { bumpPostComments } from "@/lib/postCounters";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
@@ -111,15 +112,14 @@ export async function POST(
       return NextResponse.json({ error: "Missing post_id" }, { status: 400 });
     }
 
-    const supabase = createServerClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
+    const user = await getAuthenticatedUser(req);
+    if (!user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     // A banned account may not create anything. Fails open on a lookup error —
     // see lib/bannedUser.ts.
+    const supabase = createServerClient();
     if (await isUserBanned(supabase, user.id)) {
       return bannedResponse();
     }
@@ -190,4 +190,3 @@ export async function POST(
     return NextResponse.json({ error: publicMessage("comments", err, "Failed to create comment") }, { status: 500 });
   }
 }
-

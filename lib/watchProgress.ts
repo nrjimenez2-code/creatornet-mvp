@@ -1,3 +1,5 @@
+import { apiFetch as fetch } from './apiFetch';
+
 /** Binds the existing progress endpoint to a player; owns no authentication. */
 export function bindWatchProgress(video: HTMLVideoElement, postId: string): () => void {
   let disposed = false;

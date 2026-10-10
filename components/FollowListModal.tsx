@@ -3,6 +3,7 @@
 // backdrop click). Data comes from /api/users/[userId]/follows.
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";

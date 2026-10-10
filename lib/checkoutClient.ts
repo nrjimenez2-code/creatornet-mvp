@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from '@/lib/apiFetch';
 // lib/checkoutClient.ts
 //
 // Browser-side helper that POSTs to /api/checkout with the SAME payloads

@@ -1,6 +1,8 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useState, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { X, Send, MoreVertical, Edit, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabaseClient";
@@ -59,6 +61,40 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen || !dialogRef.current) return;
+    const dialog = dialogRef.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const viewport = window.visualViewport;
+    const fitVisibleViewport = () => {
+      // The keyboard can resize and pan the visual viewport without changing
+      // the layout viewport. Keep both the header and composer in view.
+      // Leave deliberate pinch zoom to the browser's normal fixed layout.
+      if (!viewport || viewport.scale !== 1) {
+        for (const property of ["top", "left", "width", "height"]) dialog.style.removeProperty(property);
+        return;
+      }
+      Object.assign(dialog.style, {
+        top: `${viewport.offsetTop}px`,
+        left: `${viewport.offsetLeft}px`,
+        width: `${viewport.width}px`,
+        height: `${viewport.height}px`,
+      });
+    };
+    fitVisibleViewport();
+    viewport?.addEventListener("resize", fitVisibleViewport);
+    viewport?.addEventListener("scroll", fitVisibleViewport);
+    window.addEventListener("resize", fitVisibleViewport);
+    return () => {
+      viewport?.removeEventListener("resize", fitVisibleViewport);
+      viewport?.removeEventListener("scroll", fitVisibleViewport);
+      window.removeEventListener("resize", fitVisibleViewport);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [isOpen]);
 
   // Fetch current user's profile (identity comes from the auth context)
   useEffect(() => {
@@ -291,10 +327,10 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
     return `/creators/${comment.user_id}`;
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-end">
+  return createPortal(
+    <div ref={dialogRef} className="fixed inset-0 z-[130] flex items-end justify-end overflow-hidden" role="dialog" aria-modal="true" aria-label="Comments">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
@@ -303,17 +339,17 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
       
       {/* Panel */}
       <div 
-        className="relative w-[400px] max-w-[90vw] h-full bg-black border-l border-white/10 flex flex-col"
+        className="relative h-full min-h-0 w-full min-w-0 bg-black flex flex-col overflow-hidden max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] sm:w-[400px] sm:max-w-[90vw] sm:border-l sm:border-white/10"
         style={{
           animation: "slideInRight 0.3s ease-out",
         }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex shrink-0 items-center justify-between px-4 py-3 border-b border-white/10">
           <h2 className="text-lg font-semibold text-white">Comments</h2>
           <button
             onClick={onClose}
-            className="p-2 rounded-full hover:bg-white/10 transition"
+            className="min-h-11 min-w-11 p-2 rounded-full hover:bg-white/10 transition"
             aria-label="Close comments"
           >
             <X className="h-5 w-5 text-white" />
@@ -361,16 +397,16 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
                       <Link
                         href={commentAuthorHref(comment)}
                         onClick={(e) => e.stopPropagation()}
-                        className="text-white font-semibold text-sm hover:underline"
+                        className="min-w-0 break-words text-white font-semibold text-sm hover:underline"
                       >
                         {displayName(comment)}
                       </Link>
-                      <span className="text-white/50 text-xs">
+                      <span className="shrink-0 text-white/50 text-xs">
                         {formatTime(comment.created_at)}
                       </span>
                       {/* Three-dot menu - only show for current user's comments */}
                       {currentUser && comment.user_id === currentUser.id && (
-                        <div className="relative ml-auto">
+                        <div className="relative ml-auto shrink-0">
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
@@ -410,7 +446,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
                           value={editText}
                           onChange={(e) => setEditText(e.target.value)}
                           maxLength={500}
-                          className="w-full bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60"
+                          className="w-full min-w-0 bg-white/10 border border-white/20 rounded-lg px-3 py-2 text-white text-base focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60"
                           autoFocus
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -452,7 +488,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
 
         {/* Input Form */}
         {currentUser && (
-          <form onSubmit={handleSubmit} className="px-4 py-3 border-t border-white/10">
+          <form onSubmit={handleSubmit} className="shrink-0 px-4 py-3 border-t border-white/10">
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-full">
                 <img
@@ -468,13 +504,13 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
                 onChange={(e) => setCommentText(e.target.value)}
                 placeholder="Add a comment..."
                 maxLength={500}
-                className="flex-1 bg-white/10 border border-white/20 rounded-full px-4 py-2 text-white placeholder-white/50 text-sm focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 focus:border-transparent"
+                className="flex-1 min-w-0 bg-white/10 border border-white/20 rounded-full px-4 py-2 text-white placeholder-white/50 text-base focus:outline-none focus:ring-2 focus:ring-[#4A35C7]/60 focus:border-transparent"
                 disabled={submitting}
               />
               <button
                 type="submit"
                 disabled={!commentText.trim() || submitting}
-                className="p-2 rounded-full bg-[#4A35C7] text-white hover:bg-[#3D2BA3] disabled:opacity-50 disabled:cursor-not-allowed transition"
+                className="flex min-h-11 min-w-11 shrink-0 items-center justify-center p-2 rounded-full bg-[#4A35C7] text-white hover:bg-[#3D2BA3] disabled:opacity-50 disabled:cursor-not-allowed transition"
                 aria-label="Post comment"
               >
                 <Send className="h-4 w-4" />
@@ -483,6 +519,7 @@ function CommentPanelContent({ postId, isOpen, onClose, onCommentAdded, initialD
           </form>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

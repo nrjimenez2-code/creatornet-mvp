@@ -5,6 +5,7 @@ const authPage = readFileSync(
   join(__dirname, "..", "app", "auth", "page.tsx"),
   "utf8",
 );
+const authView = readFileSync(join(__dirname, '..', 'components', 'AuthView.tsx'), 'utf8');
 
 describe("passwordless email code flow", () => {
   test("requests an email OTP without introducing passwords", () => {
@@ -20,8 +21,9 @@ describe("passwordless email code flow", () => {
   });
 
   test("exposes mobile-friendly one-time-code controls", () => {
-    expect(authPage).toMatch(/autoComplete="one-time-code"/);
-    expect(authPage).toMatch(/inputMode="numeric"/);
-    expect(authPage).toMatch(/Resend code in/);
+    expect(authPage).toContain('import AuthView from "@/components/AuthView"');
+    expect(authView).toMatch(/autoComplete="one-time-code"/);
+    expect(authView).toMatch(/inputMode="numeric"/);
+    expect(authView).toMatch(/Resend code in/);
   });
 });

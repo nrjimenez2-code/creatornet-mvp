@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useState } from "react";
 
 export default function SearchSuggestions({ query, onPick }: { query: string; onPick: (term: string) => void }) {

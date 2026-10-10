@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { DISCOVER_SESSION_UNAVAILABLE, DiscoverSessionUnavailableError } from "@/lib/discoverFeedError";
 import { DiscoverEventQueue } from "@/lib/discoverEventQueue";
 const sessions = new Map<string, string>();

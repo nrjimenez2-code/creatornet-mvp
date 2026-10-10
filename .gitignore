@@ -80,3 +80,13 @@ supabase/migrations/*
 !supabase/migrations/20260927054350_video_insights.sql
 !supabase/migrations/20260930022954_profile_website.sql
 !supabase/migrations/20260930031043_automatic_post_metadata.sql
+
+# Locally packaged iPhone app
+**/node_modules/
+/apps/ios/dist/
+/apps/ios/ios/App/App/public/
+/apps/ios/ios/App/App/capacitor.config.json
+/apps/ios/ios/App/DerivedData/
+/apps/ios/ios/App/build/
+*.ipa
+*.xcarchive/

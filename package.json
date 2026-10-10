@@ -7,7 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test": "jest --no-coverage"
+    "test": "jest --no-coverage",
+    "ios:dev": "npm run dev --workspace @creatornet/ios",
+    "ios:typecheck": "npm run typecheck --workspace @creatornet/ios",
+    "ios:build": "npm run build --workspace @creatornet/ios",
+    "ios:parity": "node scripts/ios-parity.cjs",
+    "ios:sync": "npm run sync --workspace @creatornet/ios"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
@@ -47,5 +52,9 @@
     "tailwindcss": "^4.1.16",
     "ts-jest": "^29.4.6",
     "typescript": "^5"
-  }
+  },
+  "workspaces": [
+    "apps/ios",
+    "packages/shared"
+  ]
 }

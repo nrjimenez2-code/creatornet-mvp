@@ -10,22 +10,25 @@ const supabase = createBrowserClient();
 
 interface ProfileMobileHeaderProps {
   userId: string;
+  shareUrl?: string;
+  onSignOut?: () => Promise<void>;
+  onSignedOut?: () => void;
 }
 
-export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps) {
+export default function ProfileMobileHeader({ userId, shareUrl, onSignOut, onSignedOut }: ProfileMobileHeaderProps) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
 
   const handleShare = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(window.location.href);
+      await navigator.clipboard.writeText(shareUrl ?? window.location.href);
       setShareCopied(true);
       window.setTimeout(() => setShareCopied(false), 2000);
     } catch (err) {
       console.error("Failed to copy profile link", err);
     }
-  }, []);
+  }, [shareUrl]);
 
   const handleSignOut = useCallback(async () => {
     if (signingOut) return;
@@ -35,15 +38,17 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
     }
     setSigningOut(true);
     try {
-      await signOutThisDevice(supabase);
-      if (typeof window !== "undefined") {
+      if (onSignOut) await onSignOut();
+      else await signOutThisDevice(supabase);
+      if (onSignedOut) onSignedOut();
+      else if (typeof window !== "undefined") {
         window.location.href = "/auth";
       }
     } catch (err) {
       console.error("Failed to sign out:", err);
       setSigningOut(false);
     }
-  }, [signingOut]);
+  }, [signingOut, onSignOut, onSignedOut]);
 
   return (
     <>

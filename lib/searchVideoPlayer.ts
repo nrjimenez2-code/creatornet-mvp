@@ -1,3 +1,4 @@
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { createClient } from "@/lib/supabaseClient";
 import { loadFeedOffers } from "@/lib/feedOffers";
 import type { PostRow } from "@/lib/feedV3";

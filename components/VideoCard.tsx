@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import React, { useEffect, useLayoutEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
@@ -35,11 +36,13 @@ import { planMobileFallback } from "@/lib/mobileFeedRecovery";
 import { useFeedPlaybackResolution } from "@/lib/useFeedPlaybackResolution";
 import { bindVideoInsights, leaveInsightVideo, insightCollectionClientEnabled } from "@/lib/videoInsightsClient";
 import { insightPlaybackSuspended } from "@/lib/insightPlayback";
+import { videoShareUrl } from "@/lib/videoShareUrl";
 import type { InsightSource } from "@/lib/videoInsights";
 
 type VideoCardProps = {
   insightSource?: InsightSource;
   onFeedDeleted?: (postId: string) => void;
+  onNotInterested?: (postId: string) => void;
   onInteractionChange?: (postId: string, patch: FeedInteraction) => void;
   onFirstFrame?: (postId: string) => void;
   commentDraft?: string;
@@ -1219,7 +1222,7 @@ function VideoCard(props: VideoCardProps) {
   const handleShare = useCallback(async () => {
     // Copy post link to clipboard - redirects to dashboard with postId
     if (postId) {
-      const postUrl = `${window.location.origin}/dashboard?postId=${postId}`;
+      const postUrl = videoShareUrl(postId, window.location.origin, process.env.NEXT_PUBLIC_SITE_URL || window.location.origin);
       try {
         await navigator.clipboard.writeText(postUrl);
         setShareCopied(true);
@@ -1718,7 +1721,7 @@ function VideoCard(props: VideoCardProps) {
       </div>
 
       <div
-        className="absolute inset-x-0 bottom-0 z-20"
+        className="feed-card-details absolute inset-x-0 bottom-0 z-20"
         style={{ borderRadius: "0 0 20px 20px", overflow: "hidden" }}
       >
           <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 sm:h-36 bg-gradient-to-t from-black/45 via-black/15 to-transparent" />
@@ -1897,7 +1900,7 @@ function VideoCard(props: VideoCardProps) {
     </div>
 
       <div
-        className={`absolute grid gap-3 right-2 ${mainFeedMobileLayout ? "bottom-3 max-lg:gap-1.5" : "bottom-[72px]"} ${naturalDesktopFrame
+        className={`feed-card-actions absolute grid gap-3 right-2 ${mainFeedMobileLayout ? "bottom-3 max-lg:gap-1.5" : "bottom-[72px]"} ${naturalDesktopFrame
           ? "lg:right-[-60px] lg:bottom-auto lg:top-1/2 lg:-translate-y-1/2"
           : "lg:right-[-70px] lg:bottom-6"}`}
         style={{ 
@@ -2010,17 +2013,18 @@ function VideoCard(props: VideoCardProps) {
             </span>
           )}
         </div>
-        {postId && (!creatorId || props.onDeleted || props.onFeedDeleted || cachedUserId !== creatorId) && (
+        {postId && (!creatorId || props.onDeleted || props.onFeedDeleted || props.onNotInterested || cachedUserId !== creatorId) && (
           <DeleteVideoButton
             postId={postId}
             creatorId={creatorId ?? null}
             getVideo={() => videoRef.current}
             isVideoActive={() => activeRef.current !== false && !!videoRef.current && (!useSharedMobilePlayer || ownsMobileFeedPlayer(sharedVideoOwnerRef.current, videoRef.current, src))}
             onDeleted={deleted}
-            onNotInterested={activeTab === "discover" && hasDiscoverSession(postId) ? () => {
-              sendDiscoverEvent(postId, "not_interested");
-              props.onFeedDeleted?.(postId);
-            } : undefined}
+            onNotInterested={props.onNotInterested ? () => props.onNotInterested?.(postId) :
+              activeTab === "discover" && hasDiscoverSession(postId) ? () => {
+                sendDiscoverEvent(postId, "not_interested");
+                props.onFeedDeleted?.(postId);
+              } : undefined}
           />
         )}
       </div>

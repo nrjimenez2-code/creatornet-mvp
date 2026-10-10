@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "recordedAtUtc": "2026-10-09T18:21:06Z",
+  "candidate": {
+    "sourceCommit": "51097c7d7aae242c1ca5c36be18406eed597e84e",
+    "bundleId": "com.creatornet.webapp",
+    "version": "1.0",
+    "build": "1",
+    "configuration": "CreatorNet Staging public values",
+    "webAssetContentsSha256": "c88288b363e94190f7dde2d036a160fc992bc19303242234cf57046889ee61ea",
+    "signingTeam": "87Z6A36W7G",
+    "signing": "Xcode automatic development signing",
+    "installed": true
+  },
+  "backend": {
+    "vercelProject": "prj_lfRTdoQU0BrsSnJajvLTcSCvjrAA",
+    "deployment": "https://creatornet-cxfkin1t2-nrjimenez2-codes-projects.vercel.app (dpl_6Jtvex2DqjaYUybUZkp3fpMWFB73)",
+    "deploymentCommit": "51097c7d7aae242c1ca5c36be18406eed597e84e",
+    "playbackGateDeployment": "https://creatornet-2m0fesk5s-nrjimenez2-codes-projects.vercel.app at d6fb838e465d0cba0b5163306931984734909b1a",
+    "googleGateDeployment": "https://creatornet-1y51dz53o-nrjimenez2-codes-projects.vercel.app at 5b3de6984e6caa8a2f7ade29f7036691dbdf0143",
+    "fixDeployment": "dpl_9jWehBTUk7VgPmkPf6rB7RBPUboX at f639b7edf3de081395418067b7baac557db64709; the fifth gate used a later documentation-only commit with the same runtime code",
+    "initialDeployment": "dpl_31Kb7ULdQtmBwN6n4ffUT7fThqK1 at installed app source commit 1d046a64fe5c00bb935cc1d128ecebe2609dd037; the later hosted fix did not change the installed app binary",
+    "alias": "creatornet-mvp-git-feat-ios-ap-1673c6-nrjimenez2-codes-projects.vercel.app",
+    "deploymentProtection": "enabled; eighth exact iOS alias exception opened for the owner-approved Library/Watch gate, then removed; Vercel showed a success toast and the exception table again listed only the older Discover alias",
+    "supabaseProject": "nwqfofezfzljhxolkycz",
+    "layoutRetestDeployment": "https://creatornet-enwm0v3yx-nrjimenez2-codes-projects.vercel.app (GitHub Preview deployment 6952734616; Vercel project deployment link 7uhjRLNUxTepsd1KWvYUJ1WSR2Ms)"
+  },
+  "device": {
+    "name": "Noah",
+    "model": "iPhone 17 Pro Max",
+    "modelCode": "iPhone18,2",
+    "ios": "26.6 (23G71)",
+    "udidSuffix": "C01C",
+    "connection": "wired USB, paired, Developer Mode enabled for eighth gate"
+  },
+  "installation": {
+    "result": "PASS",
+    "evidence": "The initial Xcode development-signed Debug build installed and launched on Noah. After the safe-area CSS fix at f87262c, a real-public-value packaged client build and Capacitor sync passed; the shared 50 web assets matched the signed App.app byte-for-byte, with SHA-256 af36a63066dc1c12350b104ea9ce63a3e369023648ccff1aa03e4d0e8997d9ce over sorted file contents joined by newlines. Xcode Debug device build exited 0 under team 87Z6A36W7G; devicectl installed and launched the updated app on Noah. Bundle/version/build stayed com.creatornet.webapp 1.0 (1). No App Store Connect, TestFlight, or tester distribution occurred. At 51097c7, the 52 packaged web assets matched the synced Xcode project and development-signed App.app byte-for-byte, with SHA-256 c88288b363e94190f7dde2d036a160fc992bc19303242234cf57046889ee61ea over sorted file contents joined by newlines. Xcode Debug device build exited 0, codesign --verify --deep --strict exited 0, and devicectl installed and launched com.creatornet.webapp 1.0 (1) on Noah over wired USB. An initial wireless install failed while the local-network tunnel was disconnected; wired retry passed. No upload or distribution occurred."
+  },
+  "hostedChecks": {
+    "aasa": "PASS: unauthenticated HTTPS 200, application/json, no redirect; reviewed app ID and callback path only",
+    "anonymousFeed": "PASS: GET /api/mobile/feed with Origin capacitor://localhost returned 200 JSON",
+    "originBoundary": "PASS: wrong Origin returned 403",
+    "bearerBoundary": "PASS: GET /api/mobile/profile/me without bearer returned 401",
+    "authenticatedApi": "Owner reported successful email-code return to the signed-in native app; direct authenticated API response was not captured",
+    "appleCdn": "PASS: at 2026-10-09T02:37:12Z Apple's association CDN returned HTTP 200 application/json for the exact iOS alias, with only 87Z6A36W7G.com.creatornet.webapp and /app/auth/callback",
+    "authProviders": "Initially both Apple and Google failed while disabled. After Staging-only setup, the dashboard showed both ENABLED. Apple sign-in reached Return to CreatorNet, then Open CreatorNet returned to the app signed in and persisted across a cold launch. Google's first return failed profile validation: Vercel logged GET /api/mobile/profile/me as 503 twice, and Supabase logged downstream GET /rest/v1/likes as 400 with a 39,078-character query. After the bounded-batch fix at f639b7e, an existing Google session's profile loaded on retry. In a fifth short public window, the owner fully closed and relaunched the app and reported the Google-signed-in profile persisted. The owner then signed out, completed a fresh Google account prompt, saw Return to CreatorNet, tapped Open CreatorNet, landed on Discover, and opened My Profile; after a brief loading state the signed-in profile appeared. Automatic universal-link opening was not observed.",
+    "postGateProtection": "PASS: after the eighth exact-alias Library/Watch gate, Vercel showed protection restored and the exception table again listed only the older Discover alias. The exact iOS alias is protected.",
+    "libraryWatchGate": "PASS for denial boundaries during the eighth exact-alias window: unauthenticated GET /api/mobile/library and /api/mobile/watch/00000000-0000-0000-0000-000000000000 with Origin capacitor://localhost each returned 401; Library with a wrong Origin returned 403. These do not establish authenticated entitlement, playback or progress."
+  },
+  "captures": [
+    "/private/tmp/creatornet-iphone-launch-2026-10-08-2.png",
+    "/private/tmp/creatornet-iphone-launch-2026-10-08-4.png",
+    "/private/tmp/creatornet-auth-gate-profile-2026-10-08.png",
+    "/private/tmp/creatornet-auth-cold-launch-2026-10-08.png",
+    "owner-supplied local Apple provider-error screenshot",
+    "owner-supplied local Google provider-error screenshot",
+    "/Users/piperpoole/Desktop/Screenshot 2026-10-08 at 9.15.08 PM.png (owner screenshot of new-build three-dot menu above the synthetic QA card)"
+  ],
+  "scenarioGroups": [
+    {
+      "id": "auth-existing-apple",
+      "status": "PARTIAL",
+      "observation": "The initial attempt failed at Staging Supabase with HTTP 400 while Apple provider was disabled. After owner-approved provider setup, the owner tapped Continue with Apple on the same installed build and reported the browser's Return to CreatorNet page. Tapping Open CreatorNet returned to a signed-in Profile. The owner fully closed and relaunched CreatorNet and reported the profile remained signed in. This is owner-reported happy-path evidence; automatic universal-link return, cancellation, denial, and account variants remain unverified."
+    },
+    {
+      "id": "auth-existing-google",
+      "status": "PARTIAL",
+      "observation": "The initial attempt failed at Staging Supabase while Google provider was disabled. After Staging-only provider setup, the first completed Google OAuth returned to the app's sign-in choices with a red Could not complete this request error. Staging Auth logs showed Google login, successful admission hook, and HTTP 200 OAuth code exchange. Vercel logged two 503 responses for /api/mobile/profile/me, coinciding with Supabase 400 responses for a 39,078-character /rest/v1/likes URL. After the bounded-batch fix at f639b7e, the owner tapped Try again and reported the Google-signed-in profile appeared. In the fifth gate, the owner fully closed and relaunched the app and reported the Google-signed-in profile persisted; then signed out, started a fresh Google flow, saw Return to CreatorNet, tapped Open CreatorNet, landed on Discover, and opened My Profile. It briefly loaded, then showed the signed-in profile. This supports the Google happy path and cold launch by owner report; automatic universal-link opening, cancellation, denial, and account variants remain unverified."
+    },
+    {
+      "id": "auth-email",
+      "status": "PARTIAL",
+      "observation": "The owner completed Continue with email using an existing Staging test account on the iPhone and reported that CreatorNet returned to the app signed in. Email address and code were not shared in chat. Invalid/expired code, resend, sign-out, and cold-launch persistence were not tested."
+    },
+    {
+      "id": "auth-returns",
+      "status": "PARTIAL",
+      "observation": "After Apple OAuth, the hosted Return to CreatorNet page appeared and its Open CreatorNet button brought the owner back to the installed app signed in. Google OAuth's first return initially failed profile verification with a server 503; the later hosted fix allowed the existing Google session to show its signed-in profile after Try again. In the fifth gate, fresh Google OAuth reached the Return to CreatorNet page, and Open CreatorNet brought the owner to Discover; My Profile briefly loaded, then showed the signed-in profile. Automatic universal-link handoff, cancel, and failure returns remain unverified."
+    },
+    {
+      "id": "keychain-session",
+      "status": "PARTIAL",
+      "observation": "An earlier email session remained signed in after a devicectl process relaunch by the owner's tentative report. After the later Apple OAuth return, the owner fully closed CreatorNet from the app switcher, relaunched it, opened Profile, and definitively reported the profile still signed in. In the fifth gate, the owner repeated a full close and relaunch with a Google session and again reported the signed-in profile. The owner signed out and saw the sign-in choices before a fresh Google flow. These support cold-launch persistence for Apple and Google and basic logout coherence; token refresh, storage failure and post-logout authorization remain untested."
+    },
+    {
+      "id": "api-boundaries",
+      "status": "NOT_RUN"
+    },
+    {
+      "id": "feed-profile",
+      "status": "PARTIAL",
+      "observation": "The installed app initially rendered a 'Couldn't load the feed' screen while the Preview alias was protected. After the owner-approved single-alias exception, a clean app process relaunch rendered the synthetic QA Staging feed on the physical phone. The owner tapped the QA creator avatar, saw the creator profile, and returned to the feed. During the later approved auth gate, the owner opened the signed-in Staging QA buyer profile, and a device screenshot showed its profile identity and three synthetic posts. Authenticated Following and denial cases remain untested. The exact network response behind the initial error was not captured."
+    },
+    {
+      "id": "playback-entry-swipes",
+      "status": "PARTIAL",
+      "observation": "The owner tapped the center of the synthetic QA Staging card on the physical phone and reported that media plays. In the sixth public gate, the owner swiped up to another card and back down and reported playback on both without a blank or wrong video. Rapid/reverse sequences, feed-tab switches, trace capture and quantitative latency remain untested."
+    },
+    {
+      "id": "playback-controls",
+      "status": "PARTIAL",
+      "observation": "In the sixth gate, the owner reported that tapping the video paused and resumed it. The test clip had no audible track, so mute/unmute could not be verified. The seek bar was initially obscured under the fixed bottom tab bar; a slight page scroll exposed it but cut off the card top. After the iPhone-only safe-area height correction was built, signed and installed at f87262c, the owner reported the top, seek bar and three-dot action all fit at the resting position without scrolling. The owner dragged the seek bar and reported playback jumped to the new position while the layout stayed put. A screenshot showed the three-dot menu open; the owner tapped Cancel and returned to the card. Audio-control and longer-run seek behavior remain unverified."
+    },
+    {
+      "id": "playback-lifecycle-network",
+      "status": "PARTIAL",
+      "observation": "In the sixth gate, the owner left CreatorNet for the iPhone Home screen for a few seconds, returned, and reported the feed came back without a black or wrong video and playback resumed. Longer background, interruption, Wi-Fi/cellular/constrained network, thermal and memory checks remain untested."
+    },
+    {
+      "id": "interface",
+      "status": "PARTIAL",
+      "observation": "The owner reported that Join CreatorNet opened the native sign-in page with Continue with email, Continue with Apple, and Continue with Google. Creator profile back navigation returned to the feed. In the sixth gate, the owner reported the seek bar and three-dot action near/under the bottom tab bar at the resting feed position; scrolling exposed them but cut off the card top. The iPhone safe-area CSS correction at f87262c was development signed and installed. In the seventh gate, the owner reported the card top, seek bar and three-dot action all fit without scrolling, seek worked without layout movement, and the three-dot menu opened and cancelled normally. Text scaling, VoiceOver and other screen/failure states remain untested."
+    },
+    {
+      "id": "library-watch",
+      "status": "PARTIAL",
+      "observation": "On the 51097c7 development-signed build on Noah during the eighth exact-alias window, the owner confirmed Profile showed a signed-in Staging account. Library displayed the empty state with Your Library, Videos and offers you buy will show up here, and Explore the Feed; tapping Explore the Feed returned to Discover. No existing eligible purchase appeared for this account and the owner did not know another entitled Staging account. Positive buyer/creator Watch, progress, download, revoked/foreign access, accessibility and interruption remain untested. No new purchase was made."
+    }
+  ]
+}

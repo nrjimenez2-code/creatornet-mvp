@@ -2,13 +2,17 @@ import { NextRequest } from "next/server";
 import { createMockClient } from "./__mocks__/supabaseQueryMock";
 const mockUser=jest.fn(),mockRpc=jest.fn(),mockEligible=jest.fn(),mockMedia=jest.fn();
 let mockPost:any,mockSession:any;
+let mockMobileUser={id:"viewer"};
 const mockDb=createMockClient(op=>({data:op.table==="posts"?mockPost:op.table==="purchases"?[{id:"purchase",buyer_id:"viewer",status:"paid",access_granted:true}]:mockSession,error:null}));
 jest.mock("@/lib/supabaseAdmin",()=>({supabaseAdmin:{from:(table:string)=>mockDb.from(table),rpc:(...args:unknown[])=>mockRpc(...args)}}));
 jest.mock("@/lib/supabaseConnectAuth",()=>({getAuthenticatedUser:()=>mockUser()}));
 jest.mock("@/lib/libraryAccess",()=>({isLibraryPurchaseEligible:(...args:unknown[])=>mockEligible(...args)}));
+jest.mock("@/lib/mobileApi",()=>({mobileApi:(handler:(request:NextRequest,user:typeof mockMobileUser)=>Promise<Response>)=>
+  (request:NextRequest)=>handler(request,mockMobileUser)}));
 import { POST as start } from "@/app/api/video-insights/sessions/route";
 import { POST as event } from "@/app/api/video-insights/events/route";
 import { GET as read } from "@/app/api/posts/[postId]/insights/route";
+import { GET as mobileRead } from "@/app/api/mobile/posts/[postId]/insights/route";
 import { _resetRateLimits } from "@/lib/rateLimit";
 import { hashInsightSecret } from "@/lib/videoInsightsServer";
 const postId="11111111-1111-4111-8111-111111111111",sessionId="33333333-3333-4333-8333-333333333333",secret="a".repeat(64);
@@ -16,9 +20,11 @@ const descriptor={key:"videos/test.mp4",contentVersion:`sha256:${"d".repeat(64)}
 const body=()=>({postId,sessionId,secret,source:"discover",surface:"feed",startedAt:Date.now()});
 const request=(path:string,input:unknown,headers?:Record<string,string>)=>new NextRequest(`https://creatornet.net/api/video-insights/${path}`,{method:"POST",headers,body:JSON.stringify(input)});
 const get=()=>read(new NextRequest(`https://creatornet.net/api/posts/${postId}/insights`),{params:Promise.resolve({postId})});
+const getMobile=()=>mobileRead(new NextRequest(`https://creatornet.net/api/mobile/posts/${postId}/insights`),{params:Promise.resolve({postId})});
 beforeEach(()=>{
   process.env.VIDEO_INSIGHTS_COLLECTION_ENABLED="true";process.env.VIDEO_INSIGHTS_UI_ENABLED="true";process.env.NEXT_PUBLIC_VIDEO_INSIGHTS_UI_ENABLED="true";
   _resetRateLimits();mockDb.ops.length=0;mockUser.mockReset().mockResolvedValue({id:"viewer"});mockEligible.mockReset().mockResolvedValue(true);
+  mockMobileUser={id:"viewer"};
   mockPost={id:postId,creator_id:"owner",title:"Video",video_url:descriptor.originalUrl,poster_url:null,removed_at:null,hidden_at:null};
   mockSession={post_id:postId,media_version:`${descriptor.contentVersion}:10`,surface:"feed",started_at:new Date().toISOString()};
   mockMedia.mockReset().mockResolvedValue({ok:true,json:async()=>descriptor});global.fetch=mockMedia;
@@ -75,4 +81,14 @@ test("owner response uses private no-store, current media and never returns raw 
   const response=await get();const result=await response.json();expect(response.headers.get("cache-control")).toContain("no-store");
   expect(result).toMatchObject({sampleCount:2,averageWatchTime:4.5,averagePercentageWatched:45,completionRate:50,threeSecondRetention:50});
   expect(result).not.toHaveProperty("sessions");expect(result).not.toHaveProperty("actor_hash");expect(mockDb.opsFor("video_insight_sessions_v1")).toHaveLength(0);
+});
+test("mobile owner insights use the same private aggregate and reject another user",async()=>{
+  expect((await getMobile()).status).toBe(404);expect(mockRpc).not.toHaveBeenCalled();
+  mockMobileUser={id:"owner"};
+  mockRpc.mockResolvedValue({data:{sessions:2,watch_seconds:9,unique_seconds:9,completions:1,opening:1,buckets:Array(10).fill(1),sources:{discover:2},collection_started_at:"2026-09-27",updated_at:"2026-09-27"},error:null});
+  const response=await getMobile();const result=await response.json();
+  expect(response.status).toBe(200);expect(response.headers.get("cache-control")).toContain("no-store");
+  expect(result).toMatchObject({postId,sampleCount:2,averageWatchTime:4.5});
+  expect(result).not.toHaveProperty("sessions");expect(result).not.toHaveProperty("actor_hash");
+  expect(mockRpc).toHaveBeenCalledWith("read_video_insights_v1",expect.objectContaining({p_post:postId,p_owner:"owner"}));
 });

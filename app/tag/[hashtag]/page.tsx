@@ -7,7 +7,9 @@ import VideoViewCount from "@/components/VideoViewCount";
 import BackButton from "@/components/BackButton";
 import VideoCard from "@/components/VideoCard";
 import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
+import { apiFetch as fetch } from "@/lib/apiFetch";
 import { normalizeCategory } from "@/lib/posthog";
+import { hasDiscoverSession, sendDiscoverEvent } from "@/lib/discoverClient";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import { LoadingLabel, Skeleton, TagGridSkeleton } from "@/components/loading/Skeletons";
 
@@ -182,6 +184,14 @@ function TagFeed({ hashtag }: { hashtag: string }) {
     }
   };
 
+  const removeVisiblePost = (postId: string) => {
+    const removedIndex = items.findIndex((item) => item.id === postId);
+    if (removedIndex < 0) return;
+    setItems((current) => current.filter((item) => item.id !== postId));
+    setActiveIndex((current) => Math.max(0, Math.min(current - (removedIndex < current ? 1 : 0), items.length - 2)));
+    if (items.length <= 1) setIsOpen(false);
+  };
+
   const scrollModalToIndex = useCallback((index: number) => {
     const safeIndex = Math.max(0, Math.min(items.length - 1, index));
     const node = itemRefs.current[safeIndex];
@@ -248,7 +258,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="max-w-6xl mx-auto px-4 py-4 md:py-6 space-y-4 relative">
-        <div className="fixed top-4 md:top-6 left-2 sm:left-3 md:left-4 z-20">
+        <div className="tag-feed-back fixed top-4 md:top-6 left-2 sm:left-3 md:left-4 z-20">
           <BackButton hrefOverride="/dashboard" />
         </div>
 
@@ -320,8 +330,8 @@ function TagFeed({ hashtag }: { hashtag: string }) {
       </div>
 
       {isOpen && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
-          <div className="absolute top-5 md:top-4 left-4 z-20 [&>div]:mb-0">
+        <div className="tag-video-modal fixed inset-0 z-50 bg-black/80 backdrop-blur-sm">
+          <div className="tag-modal-back absolute top-5 md:top-4 left-4 z-20 [&>div]:mb-0">
             <BackButton
               hrefOverride={undefined}
               className="inline-flex h-10 w-10 items-center justify-center text-white mix-blend-difference transition-transform hover:-translate-x-1 focus:outline-none"
@@ -331,7 +341,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
 
           <div
             ref={modalScrollRef}
-            className="h-full overflow-y-auto px-0 lg:px-4 snap-y snap-mandatory scroll-smooth"
+            className="tag-modal-scroll h-full overflow-y-auto px-0 lg:px-4 snap-y snap-mandatory scroll-smooth"
             style={{
               overscrollBehaviorY: "contain",
               touchAction: "pan-x",
@@ -363,7 +373,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
               return (
                 <div
                   key={`modal-${p.id}`}
-                  className="h-[100dvh] w-full flex items-center justify-center text-white snap-start"
+                  className="tag-video-slot h-[100dvh] w-full flex items-center justify-center text-white snap-start"
                   data-index={idx}
                   ref={(el) => {
                     itemRefs.current[idx] = el;
@@ -371,6 +381,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                 >
                   <div className="w-full">
                     <VideoCard
+                      insightSource="direct"
                       src={p.video_url || undefined}
                       poster={p.poster_url || undefined}
                       desktopFeedMediaKey={frame.mediaKey}
@@ -402,6 +413,11 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                       allowBooking={allowBooking}
                       bookingRedirectUrl={allowBooking ? p.booking_url! : null}
                       tipsEnabled={p.tips_available === true}
+                      onFeedDeleted={removeVisiblePost}
+                      onNotInterested={(postId) => {
+                        if (hasDiscoverSession(postId)) sendDiscoverEvent(postId, "not_interested");
+                        removeVisiblePost(postId);
+                      }}
                     />
                   </div>
                 </div>

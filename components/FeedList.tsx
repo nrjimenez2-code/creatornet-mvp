@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import { fetchDiscoverPage, rememberDiscoverSession } from "@/lib/discoverClient";

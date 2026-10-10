@@ -1,0 +1,76 @@
+name: iPhone native compile
+
+# Compile the packaged prototype on macOS. This never signs, launches, archives,
+# exports or distributes an app and has no hosted configuration or credentials.
+on:
+  pull_request:
+    paths:
+      - 'apps/ios/**'
+      - 'packages/shared/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'scripts/ios-parity.cjs'
+      - '.github/workflows/ios-native.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-native-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unsigned-ios-build:
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      VITE_CREATORNET_API_ORIGIN: https://example.invalid
+      VITE_SUPABASE_URL: https://example.invalid
+      VITE_SUPABASE_PUBLISHABLE_KEY: ci-not-a-real-key
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 22
+      - name: Record tested source and tools
+        run: |
+          set -euo pipefail
+          mkdir -p .test-cache/ios-native-ci
+          git rev-parse HEAD > .test-cache/ios-native-ci/tested-commit.txt
+          node --version > .test-cache/ios-native-ci/node-version.txt
+          xcodebuild -version | tee .test-cache/ios-native-ci/xcode-version.txt
+          xcodebuild -showsdks > .test-cache/ios-native-ci/sdks.txt
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Typecheck and validate native source integrity
+        run: |
+          npm run ios:typecheck
+          npm run ios:parity
+      - name: Build and sync locally packaged interface
+        run: |
+          npm run ios:build
+          npm run ios:sync
+          git diff --exit-code -- apps/ios/ios apps/ios/native
+      - name: Compile unsigned iPhone prototype
+        run: |
+          set -euo pipefail
+          xcodebuild -project apps/ios/ios/App/App.xcodeproj \
+            -scheme App -configuration Debug -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath .test-cache/ios-native-derived-data \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM= \
+            build | tee .test-cache/ios-native-ci/xcodebuild.log
+      - name: Retain source metadata and compiler logs only
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: ios-native-compile-${{ github.sha }}
+          path: |
+            .test-cache/ios-native-ci/*.txt
+            .test-cache/ios-native-ci/xcodebuild.log
+          if-no-files-found: warn
+          retention-days: 14

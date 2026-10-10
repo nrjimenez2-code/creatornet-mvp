@@ -6,10 +6,13 @@ const mockSendEmail = jest.fn();
 const mockPostLookup = jest.fn();
 const mockInsert = jest.fn();
 const mockNotificationUpdate = jest.fn();
+let mockMobileUser: { id: string } | null = { id: "reporter" };
 
 jest.mock("@/lib/supabaseConnectAuth", () => ({ getAuthenticatedUser: (...args: unknown[]) => mockUser(...args) }));
 jest.mock("@/lib/rateLimit", () => ({ allowRequest: (...args: unknown[]) => mockAllow(...args), clientKey: () => "127.0.0.1", tooManyRequests: () => Response.json({ error: "Too many requests" }, { status: 429 }) }));
 jest.mock("@/lib/admin/reportEmail", () => ({ sendReportEmail: (...args: unknown[]) => mockSendEmail(...args) }));
+jest.mock("@/lib/mobileApi", () => ({ mobileApi: (handler: (req: NextRequest, user: typeof mockMobileUser) => Promise<Response>) =>
+  (req: NextRequest) => handler(req, mockMobileUser) }));
 jest.mock("@/lib/supabaseAdmin", () => ({
   supabaseAdmin: {
     from: (table: string) => table === "posts" ? {
@@ -22,6 +25,7 @@ jest.mock("@/lib/supabaseAdmin", () => ({
 }));
 
 import { POST } from "@/app/api/post-reports/route";
+import { POST as mobilePOST } from "@/app/api/mobile/post-reports/route";
 
 const postId = "11111111-1111-4111-8111-111111111111";
 const reportId = "22222222-2222-4222-8222-222222222222";
@@ -31,6 +35,7 @@ function request(body: unknown) {
 
 beforeEach(() => {
   mockUser.mockReset().mockResolvedValue({ id: "reporter" });
+  mockMobileUser = { id: "reporter" };
   mockAllow.mockReset().mockReturnValue(true);
   mockSendEmail.mockReset().mockResolvedValue(true);
   mockPostLookup.mockReset().mockResolvedValue({ data: { id: postId, creator_id: "owner", user_id: null, title: "Video" }, error: null });
@@ -76,4 +81,13 @@ test("per-user rate limit rejects excessive submissions", async () => {
   mockAllow.mockReturnValue(false);
   expect((await POST(request({ postId, reason: "spam" }))).status).toBe(429);
   expect(mockInsert).not.toHaveBeenCalled();
+});
+
+test("mobile report uses its verified actor and denies reporting that actor's own video", async () => {
+  mockMobileUser = { id: "owner" };
+  expect((await mobilePOST(request({ postId, reason: "spam", reporter_id: "reporter" }))).status).toBe(400);
+  expect(mockInsert).not.toHaveBeenCalled();
+  mockMobileUser = { id: "reporter" };
+  expect((await mobilePOST(request({ postId, reason: "spam", reporter_id: "owner" }))).status).toBe(201);
+  expect(mockInsert).toHaveBeenCalledTimes(1);
 });

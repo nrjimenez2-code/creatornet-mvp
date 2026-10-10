@@ -9,6 +9,7 @@ export type EmailCodeDependencies = {
   clientIp: string;
   sendCode: (email: string, code: string) => Promise<void>;
   createSession: (email: string, agent: string) => Promise<Response>;
+  trustedOrigin?: string;
 };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 function reply(status: number, body: Record<string, unknown>, retry = 0) {
@@ -19,7 +20,8 @@ function reply(status: number, body: Record<string, unknown>, retry = 0) {
 }
 
 export async function handleEmailCode(req: Request, deps: EmailCodeDependencies) {
-  if (req.headers.get("origin") !== new URL(req.url).origin) return reply(403, { error: "Please sign in on CreatorNet." });
+  const origin = req.headers.get("origin");
+  if (origin !== new URL(req.url).origin && (!deps.trustedOrigin || origin !== deps.trustedOrigin)) return reply(403, { error: "Please sign in on CreatorNet." });
   let input: { email?: unknown; action?: unknown; code?: unknown };
   try {
     const reader = req.body?.getReader();

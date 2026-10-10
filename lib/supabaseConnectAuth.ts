@@ -18,13 +18,16 @@ function admin() {
  */
 export async function getAuthenticatedUser(req?: NextRequest): Promise<User | null> {
   if (req) {
-    const bearer = req.headers.get("authorization")?.match(/Bearer\s+(.+)/i)?.[1];
-    if (bearer) {
+    const authorization = req.headers.get("authorization");
+    if (authorization !== null) {
+      const bearer = authorization.match(/^Bearer ([A-Za-z0-9._~-]{1,8192})$/)?.[1];
+      if (!bearer) return null;
       const {
         data: { user },
         error,
       } = await admin().auth.getUser(bearer);
       if (!error && user) return user;
+      return null;
     }
   }
 

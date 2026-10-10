@@ -1,5 +1,6 @@
 "use client";
 
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useRef, useState } from "react";
 import { loadStripe } from "@stripe/stripe-js/pure";
 import type { StripeExpressCheckoutElementConfirmEvent } from "@stripe/stripe-js";

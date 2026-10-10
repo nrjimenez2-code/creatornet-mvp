@@ -1,4 +1,5 @@
 "use client";
+import { apiFetch as fetch } from '@/lib/apiFetch';
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { Line, LineChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, ReferenceLine } from "recharts";

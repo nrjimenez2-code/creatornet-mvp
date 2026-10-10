@@ -3,12 +3,17 @@ import { createMockClient, type MockClient } from "./__mocks__/supabaseQueryMock
 import { _resetRateLimits } from "@/lib/rateLimit";
 let db: MockClient;
 let mockUser: { id: string } | null;
+let mockMobileUser: { id: string } | null;
 jest.mock("@/lib/supabaseConnectAuth", () => ({ getAuthenticatedUser: async () => mockUser }));
 jest.mock("@/lib/supabaseAdmin", () => ({ get supabaseAdmin() { return db; } }));
+jest.mock("@/lib/mobileApi", () => ({ mobileApi: (handler: (req: NextRequest, user: typeof mockMobileUser) => Promise<Response>) =>
+  (req: NextRequest) => handler(req, mockMobileUser) }));
 import { DELETE } from "@/app/api/posts/[postId]/route";
+import { DELETE as mobileDELETE } from "@/app/api/mobile/posts/[postId]/route";
 const id = "11111111-1111-4111-8111-111111111111";
 const call = (postId = id) => DELETE(new NextRequest(`https://creatornet.net/api/posts/${postId}`, { method: "DELETE" }), { params: Promise.resolve({ postId }) });
-beforeEach(() => { _resetRateLimits(); mockUser = { id: "owner" }; db = createMockClient(); });
+const callMobile = (postId = id) => mobileDELETE(new NextRequest(`https://creatornet.net/api/mobile/posts/${postId}`, { method: "DELETE" }), { params: Promise.resolve({ postId }) });
+beforeEach(() => { _resetRateLimits(); mockUser = { id: "owner" }; mockMobileUser = { id: "owner" }; db = createMockClient(); });
 test("signed out requests cannot write", async () => {
   mockUser = null; expect((await call()).status).toBe(401); expect(db.ops).toHaveLength(0);
 });
@@ -42,4 +47,16 @@ test("database failure does not claim success", async () => {
   db = createMockClient(() => ({ data: null, error: { message: "private details" } }));
   const response = await call(); expect(response.status).toBe(500);
   expect(JSON.stringify(await response.json())).not.toContain("private details");
+});
+test("mobile delete binds the write to the verified owner, never a supplied actor", async () => {
+  db = createMockClient(op => op.kind === "update" && op.filters.creator_id === "owner"
+    ? { data: { id }, error: null } : undefined);
+  expect((await callMobile()).status).toBe(200);
+  expect(db.ops).toHaveLength(1);
+  expect(db.ops[0].filters).toMatchObject({ id, creator_id: "owner" });
+
+  db = createMockClient();
+  mockMobileUser = { id: "other-creator" };
+  expect((await callMobile()).status).toBe(404);
+  expect(db.ops.every(op => op.filters.creator_id === "other-creator")).toBe(true);
 });
