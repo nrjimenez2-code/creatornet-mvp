@@ -1,6 +1,56 @@
 # Prepared player Preview experiment
 
-Status: paused preload published in draft PR #248 at 20bb6b8, with passive
+Current checkpoint: f653350 is published in draft PR #248. Four unrecorded
+phone traces and one recorded trace retain fully buffered paused preparation,
+zero preparation plays and immediate selected-main play. A stable live-readout
+advantage was not demonstrated; the recorded opening speech is complete.
+Startup still catches. These five transitions do not establish physical p95,
+continuous acoustic sync, normal-feed readiness or LIVE acceptance.
+
+The new `retire=after-startup` comparison below is a local Preview hypothesis
+pending its own checks, exact-head CI/Preview and phone result. Existing defaults
+and the normal feed remain unchanged. Earlier publication-status paragraphs
+below describe their historical checkpoints; the newest handoff governs scope.
+
+## Departing-source retirement comparison
+
+Use `/playback-formats?format=mp4&transfer=prepared-preload-audio&retire=after-startup&feedDebug=1&feedReadout=0`
+only on the exact verified Preview build. Omit `retire` for the same-build
+immediate-retirement baseline. The route rejects other retirement values,
+formats and transfer modes, and remains unavailable outside Preview.
+
+Hypothesis: unloading the departing source immediately before selected-main
+play may contribute native startup work. The current code removes its source,
+calls `load()` and detaches it before play. The
+[HTML media load algorithm](https://html.spec.whatwg.org/multipage/media.html#media-element-load-algorithm)
+resets the element's resource processing; it does not establish cross-element
+contention or identify the installed Safari cause. This experiment moves those
+three cleanup operations past fresh advancing startup qualification. It adds
+no delay to selected play and does not play, seek or reload the prepared source.
+
+The departing owner is still revoked, paused, muted and untraced before the
+successor can play. It stays parked with its source for at most 3000ms. The
+retained source occupies the existing second-element budget: requested neighbor
+preparation is queued without creating a third video. Qualified startup clears
+the old source before admitting the latest neighbor. Pause, background,
+rejection, stop, release, Retry and another shared-player claim also clear it.
+An independent deadline bounds retention even when no play request occurs.
+Existing play permission, source/snapshot/target/frame freshness/advancement,
+opening audio, return boundary and startup watchdog checks remain required.
+
+Exports distinguish `labRetiredSourceCleanup:after-startup` from `immediate`.
+Selection/transfer record whether the old source is pending;
+`prepared-source-retired` records the cleanup reason. Existing native-play,
+submission, callback and handoff timing samples stay in use. Successful tests
+prove ordering, ownership and resource bounds in mocked media only. A new
+same-build phone comparison must show eligible paused preparation, unchanged
+opening target, complete sound and the intended retirement ordering before
+assessing startup. Callback changes alone do not prove physical display/audio
+improvement, a native cause or the original full acceptance matrix.
+
+## Historical paused-preload checkpoint
+
+Status at the earlier checkpoint: paused preload published in draft PR #248 at 20bb6b8, with passive
 startup pipeline diagnostics published at c03e525; earlier
 prepared/audio/in-place controls were published at 1550d6f.
 Two digital captures omit about 354ms of non-silent opening source audio. An

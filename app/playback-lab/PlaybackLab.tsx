@@ -22,9 +22,11 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false, liveReadout = true }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean; liveReadout?: boolean }) {
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false, liveReadout = true, deferPreparedRetirement = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean; liveReadout?: boolean; deferPreparedRetirement?: boolean }) {
+  const deferredRetirement = deferPreparedRetirement && controllerMode === "prepared-preload-audio" && sourceFormat === "mp4";
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
-    : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
+    : deferredRetirement ? new RateController("prepared-preload-audio", { deferPreparedRetirement: true })
+      : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
   const isHls = sourceFormat === undefined || sourceFormat === "hls";
   const directTransfer = directMainTransfer && controllerMode === "steady" && sourceFormat === "mp4";
   const preparedAudio = controllerMode === "prepared-audio" || controllerMode === "prepared-inplace-audio" || controllerMode === "prepared-preload-audio";
@@ -114,8 +116,9 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
     setFeedRunContext({ feed: sourceFormat ? "preview-playback-format-lab" : "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
       labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: preparedPlayer ? controllerMode : directTransfer ? "direct" : "parked",
       labDiagnosticReadout: debug ? liveReadout ? "live" : "capture-only" : "off",
+      labRetiredSourceCleanup: deferredRetirement ? "after-startup" : "immediate",
       surface: sourceFormat ? `Preview / playback format lab / ${sourceFormat} / ${controllerMode}` : `Preview / direct HLS controller lab / ${controllerMode}` });
-  }, [buildCommit, controllerMode, debug, directTransfer, liveReadout, preparedPlayer, sourceFormat]);
+  }, [buildCommit, controllerMode, debug, deferredRetirement, directTransfer, liveReadout, preparedPlayer, sourceFormat]);
 
   useLayoutEffect(() => { unmounting.current = false; return () => { unmounting.current = true; }; }, []);
 
@@ -271,6 +274,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
         {preparedAudio && <p>Paused preparation sound control; audio continuity is under test</p>}
         {controllerMode === "prepared-inplace-audio" && <p>Prepared player stays in place during selection; audio continuity is under test</p>}
         {controllerMode === "prepared-preload-audio" && <p>Paused preload comparison; opening sound and frame readiness are under test</p>}
+        {deferredRetirement && <p>Startup comparison: release the previous clip after playback starts</p>}
         <p role="status">{nativePlayback === false ? `This browser does not report native ${isHls ? "HLS" : "MP4"} support.` : status}</p>
         <div className="flex flex-wrap gap-2">
           <button disabled={nativePlayback !== true || !!activePresentation?.error} className="rounded border px-3 py-2 disabled:opacity-40" onClick={play}>Play</button>

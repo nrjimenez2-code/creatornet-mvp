@@ -2,7 +2,7 @@
 // Ownership/guard tests only. Mocked media cannot establish WebKit sound grants,
 // picture/audio continuity, native decoder release or physical performance.
 import { MobileFeedController } from "@/lib/mobileFeedController.prototype";
-import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, ownsMobileFeedPlayer, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, finishPreparedMobileFeedRetirement, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, ownsMobileFeedPlayer, preparedMobileFeedRetirementPending, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
 import * as diagnostics from "@/lib/mobileFeedDiagnostics";
 
 let controller: MobileFeedController;
@@ -116,6 +116,135 @@ test("promotion revokes the old token, records one departure and keeps the prepa
   expect(events("presentation-handoff").at(-1)?.detail).toEqual(expect.objectContaining({ reason: "prepared-player", muted: false, outputMeasured: false }));
   controller.dispose();
   expect(promoted.video.getAttribute("src")).toBe(src("b")); expect(promoted.video.paused).toBe(true);
+});
+
+describe("Preview retirement after startup", () => {
+  let retirementCase = 0;
+  async function selected() {
+    controller.dispose(); controller = new MobileFeedController("prepared-preload-audio", { deferPreparedRetirement: true });
+    const firstId = `retire-first-${++retirementCase}`, nextId = `retire-next-${retirementCase}`;
+    const first = await cold(firstId); first.video.muted = false; await play(first);
+    first.video.currentTime = 0.2;
+    const prepared = prepare(nextId);
+    const position = prepared.video.currentTime;
+    const loads = jest.mocked(HTMLMediaElement.prototype.load).mock.contexts.filter(video => video === prepared.video).length;
+    const next = activate(nextId, { soundIntent: true });
+    expect(next.video).toBe(prepared.video); expect(next.video.currentTime).toBe(position);
+    expect(jest.mocked(HTMLMediaElement.prototype.load).mock.contexts.filter(video => video === prepared.video)).toHaveLength(loads);
+    expect(first.video.paused).toBe(true); expect(first.video.muted).toBe(true);
+    expect(first.video.getAttribute("src")).toBe(src(firstId));
+    expect(ownsMobileFeedPlayer(first.token, first.video)).toBe(false);
+    expect(ownsMobileFeedPlayer(next.token, next.video)).toBe(true);
+    expect(preparedMobileFeedRetirementPending(next.token)).toBe(true);
+    expect(events("preparation-ready").at(-1)?.detail.playRequestCount).toBe(0);
+    expect(events("prepared-player-selection").at(-1)?.detail).toEqual(expect.objectContaining({
+      result: "promoted", retiredSourceCleanup: "after-startup", retiredSourcePending: true, target: 0,
+    }));
+    expect(events("resource-count").at(-1)?.detail.videoElements).toBe(2);
+    return { first, next, nextId };
+  }
+
+  test("retains the paused muted source until accepted fresh advancing frames, then admits only the latest neighbor", async () => {
+    const { first, next, nextId } = await selected();
+    const oldLoad = jest.spyOn(first.video, "load"), oldLoads = oldLoad.mock.contexts.filter(video => video === first.video).length;
+    const obsoleteHost = document.createElement("div"), latestHost = document.createElement("div");
+    document.body.append(obsoleteHost, latestHost);
+    controller.prepare({ postId: "queued-old", src: src("queued-old"), host: obsoleteHost, present: jest.fn() });
+    controller.prepare({ postId: "queued-latest", src: src("queued-latest"), host: latestHost, present: jest.fn() });
+    expect(document.querySelectorAll("video")).toHaveLength(2);
+    await play(next);
+    deliver(next.video, 1 / 30, 2, 150); deliver(next.video, 2 / 30, 3, 150);
+    expect(first.video.hasAttribute("src")).toBe(true); expect(next.ready).not.toHaveBeenCalled();
+    deliver(next.video, 3 / 30, 4);
+    expect(first.video.hasAttribute("src")).toBe(true);
+    deliver(next.video, 4 / 30, 5);
+    expect(next.ready).toHaveBeenCalledTimes(1);
+    expect(first.video.hasAttribute("src")).toBe(false); expect(first.video.isConnected).toBe(false);
+    expect(oldLoad.mock.contexts.filter(video => video === first.video)).toHaveLength(oldLoads + 1);
+    expect(preparedMobileFeedRetirementPending(next.token)).toBe(false);
+    expect(obsoleteHost.querySelector("video")).toBeNull();
+    const neighbor = latestHost.querySelector("video")!;
+    expect(neighbor.getAttribute("src")).toBe(src("queued-latest")); expect(neighbor.paused).toBe(true);
+    expect(document.querySelectorAll("video[src]")).toHaveLength(2);
+    expect(events("prepared-source-retired").at(-1)?.detail).toEqual(expect.objectContaining({
+      reason: "fresh-advancing-frame", retiredPaused: true, retiredMuted: true, outputMeasured: false,
+    }));
+    finishPreparedMobileFeedRetirement(first.token, "obsolete");
+    jest.advanceTimersByTime(3_000);
+    expect(next.video.getAttribute("src")).toBe(src(nextId));
+    expect(events("prepared-source-retired")).toHaveLength(1);
+    expect([...document.querySelectorAll("video")].filter(video => !video.paused && !video.muted)).toEqual([next.video]);
+  });
+
+  test.each(["pause", "hidden", "rejection", "release", "retry", "takeover", "deadline"] as const)("%s clears only the departing source without extending the startup watchdog", async reason => {
+    const { first, next, nextId } = await selected();
+    const host = document.createElement("div"); document.body.appendChild(host);
+    controller.prepare({ postId: "cancel-queued", src: src("cancel-queued"), host, present: jest.fn() });
+    controller.cancelPreparation("cancel-queued");
+    if (reason === "deadline") {
+      // The independent source-retention bound also applies before any play.
+      jest.advanceTimersByTime(2_999); expect(first.video.hasAttribute("src")).toBe(true);
+      jest.advanceTimersByTime(1); expect(next.failed).not.toHaveBeenCalled();
+      await play(next); jest.advanceTimersByTime(1);
+      expect(next.failed).toHaveBeenCalledTimes(1);
+    } else if (reason === "rejection") {
+      await play(next, Promise.reject(new DOMException("gesture required", "NotAllowedError")));
+    } else if (reason === "takeover") {
+      const successorToken = Symbol("ordinary-takeover");
+      claimMobileFeedPlayer(host, successorToken, src("ordinary-takeover"), "ordinary-takeover");
+      finishPreparedMobileFeedRetirement(next.token, "obsolete");
+      expect(next.video.getAttribute("src")).toBe(src("ordinary-takeover"));
+      releaseMobileFeedPlayer(successorToken);
+    } else {
+      await play(next);
+      if (reason === "pause") next.video.pause();
+      if (reason === "hidden") { Object.defineProperty(document, "hidden", { value: true }); controller.suspend(); }
+      if (reason === "release") controller.release(next.token);
+      if (reason === "retry") {
+        const retry = activate(nextId, { reload: true });
+        expect(retry.video).toBe(next.video);
+        expect(events("prepared-player-selection").at(-1)?.detail.result).toBe("cold-fallback");
+      }
+    }
+    expect(first.video.hasAttribute("src")).toBe(false); expect(first.video.isConnected).toBe(false);
+    expect(first.video.paused).toBe(true); expect(first.video.muted).toBe(true);
+    expect(preparedMobileFeedRetirementPending(next.token)).toBe(false);
+    expect(host.querySelector("video[data-mobile-preparation]")).toBeNull();
+    if (reason !== "takeover") expect(next.video.getAttribute("src")).toBe(src(nextId));
+    expect(events("prepared-source-retired")).toHaveLength(1);
+  });
+
+  test.each([4_999, 5_000, 5_001])("return at %i ms retains the same resume/restart boundary", async delay => {
+    controller.dispose(); controller = new MobileFeedController("prepared-preload-audio", { deferPreparedRetirement: true });
+    const first = await cold(`deferred-return-${delay}`); first.video.currentTime = 12;
+    const other = await cold(`deferred-other-${delay}`), prepared = prepare(`deferred-return-${delay}`);
+    jest.setSystemTime(100_000 + delay);
+    const returned = activate(`deferred-return-${delay}`);
+    expect(returned.video).toBe(delay < 5_000 ? prepared.video : other.video);
+    expect(events("resume-decision").at(-1)?.detail.position).toBe(delay < 5_000 ? 12 : 0);
+    expect(preparedMobileFeedRetirementPending(returned.token)).toBe(delay < 5_000);
+  });
+
+  test("repeated promotions keep two elements during startup and clear every retired source exactly once", async () => {
+    controller.dispose(); controller = new MobileFeedController("prepared-preload-audio", { deferPreparedRetirement: true });
+    let active = await cold("retirement-cycle-0");
+    const retired: HTMLVideoElement[] = [];
+    for (let index = 1; index <= 30; index++) {
+      const prepared = prepare(`retirement-cycle-${index}`); retired.push(active.video);
+      const previous = active;
+      active = activate(`retirement-cycle-${index}`);
+      expect(active.video).toBe(prepared.video); expect(previous.video.hasAttribute("src")).toBe(true);
+      expect(document.querySelectorAll("video")).toHaveLength(2);
+      finishPreparedMobileFeedRetirement(previous.token, "obsolete-owner");
+      expect(previous.video.hasAttribute("src")).toBe(true);
+      await play(active); deliver(active.video, 1 / 30); deliver(active.video, 2 / 30);
+      expect(retired.every(video => !video.hasAttribute("src") && !video.isConnected && video.paused && video.muted)).toBe(true);
+      expect(document.querySelectorAll("video")).toHaveLength(1);
+    }
+    expect(events("prepared-source-retired")).toHaveLength(30);
+    controller.dispose(); jest.advanceTimersByTime(5_000);
+    expect(active.video.hasAttribute("src")).toBe(false);
+  });
 });
 
 test("retirement timing preserves native calls, source and ownership", async () => {

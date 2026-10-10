@@ -46,6 +46,32 @@ test.each([undefined, "production", "development", "Preview", ""])("format page 
   await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format: "original" }) })).rejects.toThrow("NOT_FOUND");
 });
 
+test("deferred retirement is an exact Preview paused-preload MP4 opt-in with unchanged sources and readout", async () => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "retirement-build" };
+  const params = { format: "mp4", transfer: "prepared-preload-audio", retire: "after-startup", feedReadout: "0" };
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve(params) });
+  expect(result.key).toBe("formats:mp4:prepared-preload-audio:retire-after-startup");
+  expect(result.props).toEqual(expect.objectContaining({ controllerMode: "prepared-preload-audio", deferPreparedRetirement: true,
+    liveReadout: false, buildCommit: "retirement-build" }));
+  expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
+  const baseline = await PlaybackFormatsPage({ searchParams: Promise.resolve({ ...params, retire: undefined }) });
+  expect(baseline.props.deferPreparedRetirement).toBe(false);
+  process.env = { ...originalEnvironment, VERCEL_ENV: "production" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve(params) })).rejects.toThrow("NOT_FOUND");
+});
+
+test.each([
+  { format: "mp4", transfer: "prepared-preload-audio", retire: "immediate" },
+  { format: "mp4", transfer: "prepared-preload-audio", retire: ["after-startup"] },
+  { format: "mp4", transfer: "prepared-audio", retire: "after-startup" },
+  { format: "mp4", transfer: "parked", retire: "after-startup" },
+  { format: "hls", transfer: "prepared-preload-audio", retire: "after-startup" },
+  { format: "original", transfer: "prepared-preload-audio", retire: "after-startup" },
+])("rejects deferred-retirement selection outside its fixed control: %j", async params => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve(params) })).rejects.toThrow("NOT_FOUND");
+});
+
 test.each(["", "MP4", "single", "https://example.test/a.mp4", ["original", "hls"]].map(format => ({ format })))("rejects unsupported format $format", async ({ format }) => {
   process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
   await expect(PlaybackFormatsPage({ searchParams: Promise.resolve({ format }) })).rejects.toThrow("NOT_FOUND");

@@ -1,5 +1,5 @@
 // PREVIEW LAB ONLY: bounded bridge-rate convergence; never imported by the normal feed.
-import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
+import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, finishPreparedMobileFeedRetirement, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, preparedMobileFeedRetirementPending, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
 import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
 
 type Presentation = (ready: boolean) => void;
@@ -50,13 +50,14 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 /** Preview only. Ordinary modes retain the shared sound element; prepared mode
  * explicitly tests promoting a qualified paused neighbor into sole ownership. */
 export class MobileFeedController {
-  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "reactive") {}
+  constructor(private readonly rateMode: "reactive" | "prearmed" | "steady" | "guarded" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "reactive", private readonly options?: { deferPreparedRetirement?: boolean }) {}
   private get pausedPreparation() { return this.rateMode === "prepared-preload-audio"; }
   private get preparedAudio() { return this.rateMode === "prepared-audio" || this.rateMode === "prepared-inplace-audio" || this.pausedPreparation; }
   private get preparedPlayer() { return this.rateMode === "prepared" || this.preparedAudio; }
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
+  private deferredPreparation: Preparation | null = null;
   private preparedActiveReady = false;
   private acceptedPreparationSound = false;
   private sequence = 0;
@@ -76,6 +77,9 @@ export class MobileFeedController {
       (!active || (active.playing && !active.video.paused && !active.video.seeking && active.video.readyState >= 2 && remaining > 0 && playableBuffer(active.video) >= Math.min(BUFFER_TARGET, remaining)));
   }
   private resumePreparation() {
+    if (this.deferredPreparation && this.active && !preparedMobileFeedRetirementPending(this.active.token)) {
+      const input = this.deferredPreparation; this.deferredPreparation = null; this.prepare(input);
+    }
     this.refreshPreparationSound();
     const slot = this.active?.partial ?? this.preparing;
     if (this.decodeAllowed()) slot?.decode(); else slot?.pause("main-priority");
@@ -137,6 +141,12 @@ export class MobileFeedController {
   prepare(input: Preparation) {
     this.watchExpiry();
     if (document.hidden || this.active?.postId === input.postId) return;
+    if (this.active && preparedMobileFeedRetirementPending(this.active.token)) {
+      // Retaining the departing source uses the existing second-element budget.
+      // Remember the latest requested neighbor without creating a third element.
+      this.deferredPreparation = input;
+      return;
+    }
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, this.preparedPlayer);
     if (this.preparing?.postId === input.postId && this.preparing.src === input.src && sameMobileResume(this.preparing.snapshot, snapshot)) return;
     if (this.preparing) this.clear(this.preparing);
@@ -309,6 +319,7 @@ export class MobileFeedController {
     slot.decode();
   }
   cancelPreparation(postId?: string) {
+    if (this.deferredPreparation && (!postId || this.deferredPreparation.postId === postId)) this.deferredPreparation = null;
     if (this.preparing && (!postId || this.preparing.postId === postId)) this.clear(this.preparing);
   }
 
@@ -321,6 +332,7 @@ export class MobileFeedController {
     const target = input.position ?? snapshot.position;
     const prepared = this.preparing;
     const retainAttachment = this.rateMode === "prepared-inplace-audio" || this.pausedPreparation;
+    const deferRetirement = this.pausedPreparation && this.options?.deferPreparedRetirement === true;
     const preparedAudioEnabled = this.preparedAudio && this.acceptedPreparationSound &&
       prepared?.audioEnabled === true && input.soundIntent === true && input.playingIntent !== false;
     // A changed sound/pause intent revokes this control before selection. An
@@ -335,7 +347,7 @@ export class MobileFeedController {
       prepared.generation = ++this.sequence; prepared.stop(); prepared.stop = () => {};
       prepared.decode = () => {}; prepared.onReady = undefined;
       promoted = adoptPreparedMobileFeedPlayer(retainAttachment ? input.previewHost : input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
-        retainAttachment ? { expectedMuted: !preparedAudioEnabled, retainAttachment: true } : preparedAudioEnabled ? { expectedMuted: false } : undefined);
+        retainAttachment ? { expectedMuted: !preparedAudioEnabled, retainAttachment: true, ...(deferRetirement ? { deferRetirement: true } : {}) } : preparedAudioEnabled ? { expectedMuted: false } : undefined);
       if (promoted) {
         this.preparing = null; this.slots = this.slots.filter(slot => slot !== prepared);
         prepared.present(false); prepared.phase = "cancelled";
@@ -401,6 +413,7 @@ export class MobileFeedController {
       ...(this.preparedAudio ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
       ...(retainAttachment ? { preparedAttachmentRetained: !!promoted } : {}),
       ...(this.pausedPreparation ? { preparationPlayback: "paused-load" } : {}),
+      ...(deferRetirement ? { retiredSourceCleanup: "after-startup", retiredSourcePending: preparedMobileFeedRetirementPending(input.token) } : {}),
       ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
     const armWatchdog = () => {
       if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;
@@ -451,6 +464,7 @@ export class MobileFeedController {
           recordFeedEvent("presentation-handoff", { warmEligible: !!promoted, reason: promoted ? "prepared-player" : "main-only",
             independentBridge: false, activationMs: now - activatedAt, muted: video.muted, outputMeasured: false,
             ...(activationRequestedAt === null ? {} : { requestToHandoffMs: now - activationRequestedAt }) }, video);
+          finishPreparedMobileFeedRetirement(input.token, "fresh-advancing-frame");
           this.resumePreparation();
         }
         previous = fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src ? metadata.mediaTime : null;
@@ -468,6 +482,7 @@ export class MobileFeedController {
     };
     const pauseState = (resetDeadline = true) => {
       playEpoch++; accepted = false; active.playing = false; previous = previousCount = null;
+      finishPreparedMobileFeedRetirement(input.token, document.hidden ? "hidden" : "pause");
       this.acceptedPreparationSound = false; this.refreshPreparationSound();
       clearTimeout(watchdog); watchdog = undefined;
       if (resetDeadline) watchdogDeadline = null;
@@ -504,6 +519,7 @@ export class MobileFeedController {
       }, () => {
         if (!current() || requestEpoch !== playEpoch) return;
         recordFeedEvent("prepared-player-play-rejected", { requestId, muted: requestedMuted, warmEligible: !!promoted, outputMeasured: false }, video);
+        finishPreparedMobileFeedRetirement(input.token, "play-rejected");
         video.pause(); this.cancelPreparation();
       });
     };
@@ -512,6 +528,8 @@ export class MobileFeedController {
     video.addEventListener("progress", progress); video.addEventListener("stalled", progress);
     active.stop = () => {
       alive = false; this.preparedActiveReady = false; epoch++; playEpoch++; clearTimeout(watchdog);
+      this.deferredPreparation = null;
+      finishPreparedMobileFeedRetirement(input.token, "stop");
       if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "stop"; }
       if (frame !== undefined) video.cancelVideoFrameCallback?.(frame);
       video.removeEventListener("seeking", seeking); video.removeEventListener("pause", pause); video.removeEventListener("play", play);
@@ -520,7 +538,7 @@ export class MobileFeedController {
     };
     const pending = mobileFeedPlaybackReady(input.token);
     if (pending) void pending.then(() => { if (current()) observe(); }); else observe();
-    recordFeedEvent("resource-count", { videoElements: this.slots.length + 1, preparationDecoders: this.preparing ? 1 : 0, mode: "prepared" }, video);
+    recordFeedEvent("resource-count", { videoElements: this.slots.length + 1 + (preparedMobileFeedRetirementPending(input.token) ? 1 : 0), preparationDecoders: this.preparing ? 1 : 0, mode: "prepared" }, video);
     return video;
   }
 

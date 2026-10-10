@@ -18,6 +18,26 @@ let currentContentVersion = "";
 let managedResume = true;
 let parkedSnapshot: ResumeSnapshot | null = null;
 let pendingParking: { video: HTMLVideoElement; postId: string | null } | null = null;
+// Explicit Preview comparison only: at most one paused, muted departing source
+// can remain while its sole successor starts. No preparation is admitted then.
+let pendingRetirement: { token: symbol; video: HTMLVideoElement; successor: HTMLVideoElement; postId: string | null; timer: ReturnType<typeof setTimeout> } | null = null;
+
+export function preparedMobileFeedRetirementPending(token: symbol): boolean {
+  return pendingRetirement?.token === token;
+}
+
+export function finishPreparedMobileFeedRetirement(token: symbol, reason: string): void {
+  const pending = pendingRetirement;
+  if (!pending || pending.token !== token) return;
+  pendingRetirement = null;
+  clearTimeout(pending.timer);
+  // Clear the ticket first. Queued callbacks and repeated lifecycle cleanup can
+  // never clear the successor or act on a later retirement.
+  pending.video.removeAttribute("src"); pending.video.load(); pending.video.remove();
+  recordFeedEvent("prepared-source-retired", { reason, retiredPostId: pending.postId,
+    retiredSourceRemoved: !pending.video.hasAttribute("src"), retiredPaused: pending.video.paused,
+    retiredMuted: pending.video.muted, outputMeasured: false }, pending.successor);
+}
 
 const RESUME_WINDOW_MS = 5_000;
 const MAX_RECENT_POSITIONS = 2;
@@ -182,6 +202,7 @@ function getParkingPlace(): HTMLDivElement {
 }
 
 export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: string, postId = src, options?: { position?: number; snapshot?: ResumeSnapshot; contentVersion?: string; managedResume?: boolean; warmEligible?: boolean; reload?: boolean; boundedSeekRecovery?: boolean }): HTMLVideoElement {
+  if (pendingRetirement) finishPreparedMobileFeedRetirement(pendingRetirement.token, "new-claim");
   const transfer = pendingParking;
   pendingParking = null;
   if (!player) {
@@ -231,7 +252,7 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
  * paused-audio Preview control supplies expectedMuted:false after sound checks.
  * A fulfilled play promise on this new element still does not prove audible output.
  */
-export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number, options?: { expectedMuted: boolean; retainAttachment?: boolean }): HTMLVideoElement | null {
+export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number, options?: { expectedMuted: boolean; retainAttachment?: boolean; deferRetirement?: boolean }): HTMLVideoElement | null {
   const latest = mobileFeedResumeSnapshot(snapshot.postId, snapshot.contentVersion, true);
   const remaining = video.duration - snapshot.position;
   if (owner !== null || video === player || document.hidden || !sameMobileResume(snapshot, latest) ||
@@ -243,6 +264,7 @@ export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, 
       !Number.isFinite(video.currentTime) || Math.abs(video.currentTime - frameTime) > 0.1 ||
       playableBuffer(video, snapshot.position) + 0.001 < Math.min(1, remaining)) return null;
 
+  if (pendingRetirement) finishPreparedMobileFeedRetirement(pendingRetirement.token, "new-adoption");
   // Clear the obsolete source only after all rejection paths. The released
   // element may have a deferred parking ticket; it must never reclaim this owner.
   const retired = player;
@@ -258,9 +280,14 @@ export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, 
     retired.pause(); mark("retiredPauseReturnedMs");
     retired.muted = true; mark("retiredMuteAppliedMs");
     endFeedVideoTrace(retired); mark("retiredTraceEndedMs");
-    retired.removeAttribute("src"); mark("retiredSourceRemovedMs");
-    retired.load(); mark("retiredLoadReturnedMs");
-    retired.remove(); mark("retiredDetachedMs");
+    if (options?.deferRetirement) {
+      pendingRetirement = { token, video: retired, successor: video, postId: currentPostId,
+        timer: setTimeout(() => finishPreparedMobileFeedRetirement(token, "deadline"), 3_000) };
+    } else {
+      retired.removeAttribute("src"); mark("retiredSourceRemovedMs");
+      retired.load(); mark("retiredLoadReturnedMs");
+      retired.remove(); mark("retiredDetachedMs");
+    }
   }
   player = video; owner = token; seekOutcome = null;
   currentPostId = snapshot.postId; currentContentVersion = snapshot.contentVersion;
@@ -272,6 +299,7 @@ export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, 
   mark("promotedAttachedMs");
   beginFeedVideoTrace(video, snapshot.postId, src, true);
   recordFeedEvent("main-transfer", { mode: "prepared", retiredSourceRemoved: !retired?.hasAttribute("src"), position: video.currentTime,
+    ...(options?.deferRetirement ? { retiredSourceCleanup: "after-startup", retiredSourcePending: !!pendingRetirement } : {}),
     ...(options?.retainAttachment ? { preparedAttachmentRetained: true } : {}),
     ...(timing ?? {}) }, video);
   recordFeedEvent("resume-decision", { postId: snapshot.postId, contentVersion: snapshot.contentVersion, position: snapshot.position,
@@ -281,6 +309,7 @@ export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, 
 
 export function releaseMobileFeedPlayer(token: symbol, departure = true, options?: { deferParking?: boolean }): void {
   if (!player || owner !== token) return;
+  finishPreparedMobileFeedRetirement(token, "release");
   player.pause();
   if (departure) rememberPosition();
   else parkedSnapshot = Object.freeze({ postId: currentPostId!, contentVersion: currentContentVersion, position: retainedPosition(), expiresAt: null });
@@ -308,4 +337,5 @@ export function releaseMobileFeedPlayer(token: symbol, departure = true, options
  * owns the position snapshot and release when the route changes. */
 export function pauseMobileFeedPlayer(): void {
   player?.pause();
+  if (pendingRetirement) finishPreparedMobileFeedRetirement(pendingRetirement.token, "global-pause");
 }

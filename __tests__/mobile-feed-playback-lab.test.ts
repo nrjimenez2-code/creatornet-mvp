@@ -96,9 +96,20 @@ afterEach(async () => {
   jest.restoreAllMocks();
 });
 
-async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false, liveReadout = true) {
-  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer, liveReadout })));
+async function render(controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "current", sourceFormat?: PlaybackFormat, directMainTransfer = false, liveReadout = true, deferPreparedRetirement = false) {
+  await act(async () => root.render(createElement(PlaybackLab, { fixtures: sourceFormat ? formatFixtures[sourceFormat] : fixtures, buildCommit: "fixture-build", controllerMode, sourceFormat, directMainTransfer, liveReadout, deferPreparedRetirement })));
 }
+
+test("the deferred-retirement comparison labels its exact cohort and keeps immediate selected-main play", async () => {
+  mockTraceEnabled = true;
+  await render("prepared-preload-audio", "mp4", false, false, true);
+  expect(RateController).toHaveBeenCalledWith("prepared-preload-audio", { deferPreparedRetirement: true });
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ labRetiredSourceCleanup: "after-startup",
+    labDiagnosticReadout: "capture-only", labController: "prepared-preload-audio", buildCommit: "fixture-build" }));
+  expect(container.textContent).toContain("release the previous clip after playback starts");
+  await click("Play"); expect(play).toHaveBeenCalledTimes(1);
+  expect(mockController.observeMainPlay).toHaveBeenCalledWith(latestActivation().token, expect.objectContaining({ request: play.mock.results[0].value }));
+});
 
 test("in-place sound comparison identifies its separate controller, transfer, build and fixed MP4 fixture cohort", async () => {
   await render("prepared-inplace-audio", "mp4");
