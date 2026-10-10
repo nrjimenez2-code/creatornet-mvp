@@ -3,6 +3,7 @@ import { recordBookingSetup } from "@/lib/discoverBookings";
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
+import { originalMonthlyWebhookMode } from "@/lib/originalMonthlyWebhookVerification";
 import { handoffExactInstallmentWebhook } from "@/lib/installments/routeHandoff";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
@@ -1400,6 +1401,11 @@ async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
 // ---------- route ----------
 export async function POST(req: NextRequest) {
   console.log("[webhook] 🔔 WEBHOOK REQUEST RECEIVED - Starting webhook handler");
+  const deliveryMode = originalMonthlyWebhookMode();
+  if (deliveryMode === "invalid" || (deliveryMode === "verify-only" &&
+      new URL(req.url).origin !== `https://${process.env.VERCEL_URL}`)) {
+    return jerr("verification-profile", "Signed observation profile requires review", 503);
+  }
   
   if (!STRIPE_SECRET_KEY) {
     console.error("[webhook] ❌ Missing STRIPE_SECRET_KEY");
@@ -1459,6 +1465,20 @@ export async function POST(req: NextRequest) {
     if (!event.account || account.id !== event.account) return jerr("provider-context", "Connected account identity differs", 400);
   } else if (event.account != null || event.type === "account.updated") {
     return jerr("provider-context", "Event requires the connected-account destination", 400);
+  }
+
+  if (deliveryMode === "verify-only") {
+    if (!/^evt_[A-Za-z0-9_]{1,128}$/.test(event.id) || typeof event.type !== "string" ||
+        event.type.length > 100 || !/^[a-z_]+(?:\.[a-z_]+)+$/.test(event.type))
+      return jerr("verification-event", "Signed observation event requires review", 400);
+    const receipt = { version: "original-monthly-signed-observation-v1", deploymentId: process.env.VERCEL_DEPLOYMENT_ID,
+      eventId: event.id, eventType: event.type, source, livemode: event.livemode,
+      apiVersion: typeof event.api_version === "string" && /^20\d{2}-\d{2}-\d{2}(?:\.[A-Za-z0-9_-]+)?$/.test(event.api_version)
+        ? event.api_version : null, processing: "verification-only", databaseClaimed: false };
+    // Intentionally before the shared stripe:event claim, including duplicate
+    // refund repair. No object payload, signature, URL/query or secret is logged.
+    console.info("[webhook] signed-verification-only", receipt);
+    return NextResponse.json({ ok: true, ...receipt }, { headers: { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" } });
   }
 
   console.log("[webhook] 🎯 Processing event type:", event.type, "Event ID:", event.id);

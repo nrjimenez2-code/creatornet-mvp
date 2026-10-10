@@ -38,7 +38,10 @@ function validateBindings(value) {
 
 // Produces a separate deployment configuration. The existing manual sandbox
 // configuration and accepted database/provider contexts are never changed.
-function prepareConfiguration(base, bindings) {
+function prepareConfiguration(base, bindings, options = {}) {
+  requireCheck(options && typeof options === 'object' && !Array.isArray(options) &&
+    Object.keys(options).every(name => name === 'webhookVerificationOnly') &&
+    (options.webhookVerificationOnly === undefined || typeof options.webhookVerificationOnly === 'boolean'));
   const selected = validateBindings(bindings);
   requireCheck(base && typeof base.env === 'object' && !Array.isArray(base.env));
   const env = { ...base.env };
@@ -57,7 +60,13 @@ function prepareConfiguration(base, bindings) {
     NEXT_PUBLIC_SITE_URL: CONTEXT.siteOrigin,
     NEXT_PUBLIC_SUPABASE_URL: `https://${CONTEXT.supabaseProjectRef}.supabase.co`,
   });
+  // Observation is explicit for this new package; never inherit it from a
+  // manual or earlier build environment. Default completion semantics remain.
+  delete env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY;
+  if (options.webhookVerificationOnly === true) env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY = 'true';
   const buildEnv = { ...base.build?.env, ...env };
+  delete buildEnv.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY;
+  if (options.webhookVerificationOnly === true) buildEnv.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY = 'true';
   for (const name of Object.keys(buildEnv))
     if (readinessPattern.test(name)) buildEnv[name] = allowed.has(name) ? 'true' : 'false';
   return { ...base, env, build: { ...base.build, env: buildEnv }, crons: [], git: { deploymentEnabled: false },
@@ -65,6 +74,8 @@ function prepareConfiguration(base, bindings) {
 }
 
 function validateConfiguration(env, gateNames) {
+  requireCheck(env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY === undefined ||
+    env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY === 'true');
   requireCheck(env.VERCEL_ENV === 'preview' && env.VERCEL_TARGET_ENV === 'preview' &&
     env.VERCEL_PROJECT_ID === PROJECT && env.CREATOR_ORIGINAL_MONTHLY_COMPLETION_PROFILE === PROFILE);
   requireCheck(env.CREATOR_MANUAL_PAYMENT_ADMISSION_PAUSED === 'true' &&
@@ -112,6 +123,7 @@ async function checkIdentity(env, gateNames, fetcher = fetch) {
     isDeepStrictEqual(rows.map(({ id, fingerprint }) => ({ id, fingerprint })), bindings));
   return { version: PROFILE, observedAt: new Date().toISOString(), context: { ...CONTEXT },
     enabledGates: [...enabledGates], configuredNewAdmissionClosed: true,
+    configuredWebhookVerificationOnly: env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY === 'true',
     originalAgreementPinCount: bindings.length, originalAgreementContextsVerified: true,
     serverCredentialAccountAndModeVerified: true, publishableKeyAccountBindingVerified: false,
     schemaCompatibilityVerified: false, signedDeliveryVerified: false,

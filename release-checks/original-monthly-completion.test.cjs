@@ -178,3 +178,42 @@ test('CLI configuration failure emits a fixed diagnostic without network or secr
   assert.equal(result.status, 1); assert.equal(result.stdout, '');
   assert.equal(result.stderr.trim(), 'Original monthly completion identity requires review; build stopped.');
 });
+
+test('signed observation is explicitly selected and aligned in runtime and build without mutating its base', async () => {
+  const original = JSON.stringify(base);
+  const selected = prepareConfiguration(base, bindings, { webhookVerificationOnly: true });
+  assert.equal(JSON.stringify(base), original);
+  assert.equal(selected.env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY, 'true');
+  assert.equal(selected.build.env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY, 'true');
+  for (const env of [selected.env, selected.build.env]) {
+    const request = transport();
+    const proof = await checkIdentity(environment(env), names, request.fetcher);
+    assert.equal(proof.configuredWebhookVerificationOnly, true);
+    assert.equal(proof.signedDeliveryVerified, false);
+    assert.equal(request.calls.length, 3);
+  }
+});
+
+test('ordinary completion preparation removes inherited observation flags from both environments', async () => {
+  const inherited = { ...base, env: { ...base.env, CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY: 'true' },
+    build: { ...base.build, env: { ...base.build.env, CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY: 'true' } } };
+  const original = JSON.stringify(inherited);
+  for (const options of [{}, { webhookVerificationOnly: false }]) {
+    const selected = prepareConfiguration(inherited, bindings, options);
+    assert.equal(selected.env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY, undefined);
+    assert.equal(selected.build.env.CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY, undefined);
+  }
+  assert.equal(JSON.stringify(inherited), original);
+  const request = transport();
+  assert.equal((await checkIdentity(environment(), names, request.fetcher)).configuredWebhookVerificationOnly, false);
+});
+
+test('invalid observation selection fails before provider reads', async () => {
+  for (const value of ['', 'false', 'TRUE', 'unexpected']) {
+    const request = transport();
+    await assert.rejects(checkIdentity(environment({ CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY: value }), names, request.fetcher));
+    assert.equal(request.calls.length, 0);
+  }
+  for (const options of [null, [], { unknown: true }, { webhookVerificationOnly: 'true' }])
+    assert.throws(() => prepareConfiguration(base, bindings, options));
+});

@@ -41,3 +41,31 @@ configuration, original account/mode and two stored context bindings. It does
 not establish publishable-key account binding, installed schema, genuine signed
 delivery, hosted closure, provider/runtime drain, payment authority or LIVE
 acceptance. A configured readiness gate does not establish its hosted proof.
+
+## Optional signed-delivery observation
+
+For an independently approved delivery check, prepare a new configuration with
+`prepareConfiguration(base, bindings, { webhookVerificationOnly: true })`. This
+sets `CREATOR_ORIGINAL_MONTHLY_WEBHOOK_VERIFY_ONLY=true` in both runtime and
+build environments. Default preparation omits the flag and retains the original
+completion behavior; inherited observation flags are removed unless selected.
+The identity proof reports `configuredWebhookVerificationOnly`, which is a
+configuration observation rather than genuine signed-delivery acceptance.
+
+With this flag, both webhook URLs require the closed original Preview profile,
+project, Staging URL and generated deployment host. Existing independent
+platform/Connect signature, mode and source checks still apply. Accepted events
+return a bounded verification receipt before the shared event claim, duplicate
+refund repair, reconciliation, fulfillment or connected-account refresh. No
+financial object, signature, secret or request URL/query is retained in that
+receipt. Delivery can produce ordinary platform logs and sampled telemetry.
+Malformed configuration fails closed. Production cannot use observation mode.
+
+Observation mode does not authorize provider destination creation, protection
+bypasses, credential entry, delivery/resend, financial operations or deployment.
+It does not establish payment/accounting/access acceptance, event drain or full
+schema compatibility. Genuine delivery still needs exact provider-side evidence
+matched to the deployed receipt. Keep existing destinations and historical
+financial operations intact. Normal completion and financial acceptance require
+a separately reviewed package without this flag and their own execution scopes;
+never silently fall through from observation to payment processing.
