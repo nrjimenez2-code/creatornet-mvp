@@ -147,6 +147,7 @@ export class MobileFeedController {
       this.deferredPreparation = input;
       return;
     }
+    this.deferredPreparation = null;
     const snapshot = mobileFeedResumeSnapshot(input.postId, input.contentVersion ?? input.src, this.preparedPlayer);
     if (this.preparing?.postId === input.postId && this.preparing.src === input.src && sameMobileResume(this.preparing.snapshot, snapshot)) return;
     if (this.preparing) this.clear(this.preparing);

@@ -214,6 +214,21 @@ describe("Preview retirement after startup", () => {
     expect(events("prepared-source-retired")).toHaveLength(1);
   });
 
+  test("a newer neighbor request after startup pause supersedes the queued neighbor", async () => {
+    const { next } = await selected();
+    const oldHost = document.createElement("div"), latestHost = document.createElement("div");
+    document.body.append(oldHost, latestHost);
+    controller.prepare({ postId: "paused-queue-old", src: src("paused-queue-old"), host: oldHost, present: jest.fn() });
+    await play(next); next.video.pause();
+    controller.prepare({ postId: "paused-queue-latest", src: src("paused-queue-latest"), host: latestHost, present: jest.fn() });
+    const latest = latestHost.querySelector("video")!; media(latest);
+    await play(next);
+    expect(latestHost.querySelector("video")).toBe(latest); expect(oldHost.querySelector("video")).toBeNull();
+    deliver(next.video, 1 / 30); deliver(next.video, 2 / 30);
+    expect(latest.getAttribute("src")).toBe(src("paused-queue-latest"));
+    expect(document.querySelectorAll("video[src]")).toHaveLength(2);
+  });
+
   test.each([4_999, 5_000, 5_001])("return at %i ms retains the same resume/restart boundary", async delay => {
     controller.dispose(); controller = new MobileFeedController("prepared-preload-audio", { deferPreparedRetirement: true });
     const first = await cold(`deferred-return-${delay}`); first.video.currentTime = 12;
