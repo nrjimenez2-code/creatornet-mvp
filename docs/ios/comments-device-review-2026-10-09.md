@@ -23,15 +23,40 @@ Xcode 27.0 built the existing App scheme in Debug for generic iOS with automatic
 
 The untracked Xcode `swiftpm/Package.resolved` was inspected. It pins Capacitor `8.5.2` and ion-ios-filesystem `2.0.0`, matching the resolved native graph. It remains a generated local file and was excluded from the source patch.
 
-## Physical gate pending
+## b019385 phone gate: installed, layout failed
 
-CoreDevice confirmed Noah is paired and connected, running iOS 26.6 on iPhone 17 Pro Max. This new Debug app has not yet been installed or physically accepted. The signed-in Vercel settings page showed Require Log In enabled and only the older Discover alias in the public exception table; no new exception was opened.
+The owner approved installation and a public window of up to five minutes for only the exact iOS branch alias. CoreDevice installed `b01938525c56ef9847064eb3f5186faaf29fb083` on Noah (iPhone 17 Pro Max, iOS 26.6) and initially launched it successfully. The later relaunch after opening the exception failed because the phone was locked; the owner unlocked/opened the app manually. During the window, an unauthenticated mobile feed request from `capacitor://localhost` returned HTTP 200 with 20 items.
 
-After the matching Preview is READY and the owner approves the next scoped phone window, install/launch this candidate and check:
+The exact iOS alias exception was opened at approximately 2026-10-10 03:01:07 UTC. After the owner reported the failure, it was removed; the Vercel table again listed only the older Discover exception. An unauthenticated mobile-feed request returned HTTP 302 at 03:05:17 UTC, confirming protection was restored within the approved five minutes. Production and the older exception were not changed.
 
-1. Comments covers the whole phone and video rail, with header below the status area and input above the home indicator; typing keeps the input usable.
-2. Post one synthetic test comment, then delete that same comment through its options; close/reopen the thread to verify it stays deleted.
-3. Toggle Like and verify the icon/count, including after reopening the same post.
-4. Share/copy the same post and verify an HTTPS website link rather than `capacitor://localhost`.
+The owner supplied a 30.035-second recording at `/Users/piperpoole/Library/Messages/Attachments/fc/12/909AC0E9-B36B-4F3E-A68C-F4F007C1F2F6/ScreenRecording_10-09-2026 20-02-24_1.mov`. Frame inspection establishes:
 
-Restore the exact iOS Preview protection immediately after the gate and record only measured results. No full parity item, signed Release, submission readiness, purchase, Production change, App Store upload, or distribution is established here.
+- Comments initially covers the phone and reserves the status/home areas.
+- At about 4 seconds, focusing the composer enlarges/pans the entire view. The avatar and Send button are clipped and the header/rows move above the visible area while the keyboard is open.
+- At about 8 seconds, the new synthetic `comment` appears with a `now` timestamp. Posting worked in this recording, but comment deletion/persistence was not demonstrated.
+- After keyboard dismissal, Comments remains enlarged and horizontally clipped. Closing it leaves the underlying video enlarged too.
+- Like icon/count changes are visible; persistence after reopening the same post is not established.
+- The owner supplied the copied link `https://creatornet-mvp-git-feat-ios-ap-1673c6-nrjimenez2-codes-projects.vercel.app/dashboard?postId=bfd44bba-2f17-470e-a3c5-8c149d42c238`, confirming HTTPS copy format for this post. Opening/playback of that link is not established.
+
+No full parity item is accepted from this gate.
+
+## Keyboard layout follow-up candidate
+
+The shared composer and edit field previously used `text-sm` (14px). The zoom seen immediately on composer focus is consistent with iPhone focus zoom at that size. Both fields now use 16px `text-base`, and the composer can shrink within its flex row. Header/form controls do not shrink, and long author names can wrap without displacing their options.
+
+While Comments is open, its body-level dialog follows the visual viewport's width, height and offsets on resize/scroll, keeping its header, scrollable rows and composer in the visible keyboard area. The underlying body is scroll-locked and its prior inline overflow is restored on close/unmount. Deliberate pinch zoom keeps the browser's normal fixed layout; zoom is not disabled. This uses the visual/layout viewport distinction documented in the [CSSOM View specification](https://www.w3.org/TR/cssom-view-1/#visual-viewport). It requires physical WebKit retesting and does not itself establish visual acceptance.
+
+Local checks passed after this follow-up:
+
+- Focused Comments lifecycle/mobile suites: 2 suites / 12 tests, including keyboard resize/pan/dismissal, listener cleanup, preservation of the parent scroll lock, and deliberate zoom behavior.
+- Root TypeScript (`--noEmit --incremental false`) and native TypeScript checks.
+- Staging Vite build and Capacitor sync with the same reviewed public configuration above.
+- Xcode Debug development-signing build and independent `codesign --verify --deep --strict`.
+
+All 54 dist assets match the synced native project and new signed app byte-for-byte. Manifest SHA-256 is `149341753d06818ca935ad5c2e40f8c0f876196b626fc3be38e22b8a966f491a`, using the algorithm described above. The package contains the visual-viewport handler, 16px input rule, minimum-width rule and safe-area rules. Reviewed public API/Supabase values are present; no fake CI origin, source maps, secret-shaped key value or private-key material was found. The literal `sb_secret_` validation prefix in library/config guards is not a packaged secret value.
+
+New local signed Debug app: `/private/tmp/creatornet-ios-comments-keyboard-devicebuild/Build/Products/Debug-iphoneos/App.app`. Build log: `/private/tmp/creatornet-ios-comments-keyboard-xcodebuild.log`. Asset verification: `/private/tmp/creatornet-comments-keyboard-package-verification.json`. It has not yet been installed or physically accepted. The generated SwiftPM file remains excluded from the source commit.
+
+After matching CI and Preview are ready, the next owner-approved phone window must retest focus/type/post, keyboard dismissal and Comments close/reopen without zoom or clipping; delete only the same synthetic test comment and verify its absence after reopening. Like persistence and opening the HTTPS Share link remain pending. Restore the exact iOS Preview protection immediately afterward.
+
+The parity matrix still records 49 website pages, 60 required items and 0 accepted. Signed Release, role-specific parity, submission readiness, purchase flows, App Store upload and distribution remain unestablished. Stop before App Store Connect upload, TestFlight, tester distribution, review submission or public release.

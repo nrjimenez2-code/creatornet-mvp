@@ -121,6 +121,70 @@ test("closing and reopening comments retains that post's unsent draft", async ()
   expect(commentDialog().querySelector<HTMLInputElement>('input[placeholder="Add a comment..."]')?.value).toBe("my unsent draft");
 });
 
+test("comments fit the visible viewport through keyboard resize, pan, and dismissal", async () => {
+  const viewport = Object.assign(new EventTarget(), { width: 430, height: 932, offsetTop: 0, offsetLeft: 0, scale: 1 });
+  const originalViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  const removeListener = jest.spyOn(viewport, "removeEventListener");
+  document.body.style.overflow = "clip";
+  fetchMock.mockResolvedValue(response({ success: true, comments: [] }));
+  const props = { postId: "a", isOpen: true, onClose: jest.fn() };
+  try {
+    await act(async () => root.render(createElement(CommentPanel, props)));
+    const dialog = commentDialog();
+    expect(dialog.style.height).toBe("932px");
+    expect(dialog.style.width).toBe("430px");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    // Keyboard opens, then WebKit pans its visible area to the input.
+    viewport.height = 500;
+    await act(async () => viewport.dispatchEvent(new Event("resize")));
+    expect(dialog.style.height).toBe("500px");
+    viewport.offsetTop = 210;
+    await act(async () => viewport.dispatchEvent(new Event("scroll")));
+    expect(dialog.style.top).toBe("210px");
+
+    viewport.height = 932;
+    viewport.offsetTop = 0;
+    await act(async () => viewport.dispatchEvent(new Event("resize")));
+    expect(dialog.style.height).toBe("932px");
+    expect(dialog.style.top).toBe("0px");
+    await act(async () => root.render(createElement(CommentPanel, { ...props, isOpen: false })));
+    expect(document.body.style.overflow).toBe("clip");
+    expect(removeListener).toHaveBeenCalledWith("resize", expect.any(Function));
+    expect(removeListener).toHaveBeenCalledWith("scroll", expect.any(Function));
+    viewport.height = 400;
+    viewport.dispatchEvent(new Event("resize"));
+    expect(dialog.style.height).toBe("932px");
+  } finally {
+    if (originalViewport) Object.defineProperty(window, "visualViewport", originalViewport);
+    else Reflect.deleteProperty(window, "visualViewport");
+    document.body.style.overflow = "";
+  }
+});
+
+test("comments preserve deliberate pinch zoom and an existing parent scroll lock", async () => {
+  const viewport = Object.assign(new EventTarget(), { width: 430, height: 932, offsetTop: 0, offsetLeft: 0, scale: 1 });
+  const originalViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  document.body.style.overflow = "hidden";
+  fetchMock.mockResolvedValue(response({ success: true, comments: [] }));
+  try {
+    await act(async () => root.render(createElement(CommentPanel, { postId: "a", isOpen: true, onClose: jest.fn() })));
+    viewport.scale = 2;
+    viewport.width = 215;
+    await act(async () => viewport.dispatchEvent(new Event("resize")));
+    expect(commentDialog().style.width).toBe("");
+    expect(commentDialog().style.height).toBe("");
+    await act(async () => root.render(null));
+    expect(document.body.style.overflow).toBe("hidden");
+  } finally {
+    if (originalViewport) Object.defineProperty(window, "visualViewport", originalViewport);
+    else Reflect.deleteProperty(window, "visualViewport");
+    document.body.style.overflow = "";
+  }
+});
+
 test("feed tab changes show loading, and stale results never replace the new tab", async () => {
   userCtx.userId = "viewer";
   const first = deferred<{ data: unknown; error: null }>();
