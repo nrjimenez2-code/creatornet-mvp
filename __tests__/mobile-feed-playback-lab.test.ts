@@ -127,6 +127,28 @@ test("paused preload identifies its distinct preparation control and exact proce
   expect(container.textContent).toContain("Paused preload comparison");
 });
 
+test("original Noah startup control labels the source, retains paused preparation and immediately plays only the selected owner", async () => {
+  mockTraceEnabled = true;
+  const mixed = [formatFixtures.mp4[0], formatFixtures.original[1]];
+  await act(async () => root.render(createElement(PlaybackLab, { fixtures: mixed, buildCommit: "startup-source-build",
+    controllerMode: "prepared-preload-audio", sourceFormat: "mp4", liveReadout: false, originalNoahStartup: true })));
+  expect(RateController).toHaveBeenCalledWith("prepared-preload-audio");
+  expect(setFeedRunContext).toHaveBeenLastCalledWith(expect.objectContaining({ labFixtureSet: "carlos-processed-noah-original-v1",
+    labStartupSource: "noah-original", labRetiredSourceCleanup: "immediate", labDiagnosticReadout: "capture-only" }));
+  expect(container.textContent).toContain("Original Noah startup comparison; Carlos remains processed MP4");
+  expect(container.querySelectorAll("section")[1].textContent).toContain("Noah · original MP4");
+  await click("Play");
+  expect(latestActivation().src).toBe(formatFixtures.mp4[0].src);
+  expect(play).toHaveBeenCalledTimes(1);
+  expect(mockController.prepare).toHaveBeenLastCalledWith(expect.objectContaining({ src: formatFixtures.original[1].src,
+    postId: formatFixtures.original[1].id, contentVersion: formatFixtures.original[1].contentVersion }));
+  await swipeTo(1);
+  expect(latestActivation()).toEqual(expect.objectContaining({ src: formatFixtures.original[1].src, postId: formatFixtures.original[1].id,
+    contentVersion: formatFixtures.original[1].contentVersion }));
+  expect(play).toHaveBeenCalledTimes(2);
+  expect(mockController.observeMainPlay).toHaveBeenLastCalledWith(latestActivation().token, expect.objectContaining({ request: play.mock.results[1].value }));
+});
+
 test.each([
   { trace: true, readout: true, mode: "live" },
   { trace: true, readout: false, mode: "capture-only" },

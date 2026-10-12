@@ -301,3 +301,53 @@ moving picture and actual sound, initial grant and no repeated sound prompt, str
 returns, controls, profile/background, source/rendition qualification, resources,
 matching TikTok conditions and the required sample/performance thresholds. This
 two-fixture Preview experiment alone cannot satisfy normal-feed or Production gates.
+
+## Original Noah startup source control
+
+The completed `22e538d` A1/B1/B2/A2 cleanup comparison found no demonstrated
+startup benefit from delayed source retirement. Keep immediate cleanup as the
+engineering baseline and do not repeat that comparison.
+
+The existing, exact-byte media audit and saved decode logs expose a new source
+question. Processed Noah begins I/B/B/B/P and reports x264 `bframes=3`; original
+Noah begins I/P/P/P/P, with no B-frames in its complete saved frame log. Both
+start at media time zero. The original is 752x1176, 30 fps, 48 kHz AAC-LC and
+20,875,511 bytes; processed is 720x1124, 30 fps, 48 kHz AAC-LC and 11,071,255
+bytes. The original has one-second keyframe gaps and its moov atom at the end;
+processed has fast-start layout and gaps up to 8.333334 seconds. The saved
+timeline comparison finds matching video PTS and closely aligned audio, without
+awarding runtime cross-rendition resume proof.
+
+[Apple's low-latency encoding explanation](https://developer.apple.com/videos/play/wwdc2021/10158/)
+discusses removing frame reordering in real-time encoding. It supports examining
+this difference, not attributing this fully buffered Safari startup to B-frames
+or predicting a latency saving. Resolution, bitrate, GOP, audio encoding and
+container layout also differ. Encoder lookahead is completed before VOD playback;
+do not count its configured frames as a playback delay.
+
+On a newly verified exact-head Preview, append `noahSource=original` to
+`/playback-formats?format=mp4&transfer=prepared-preload-audio&feedDebug=1&feedReadout=0`.
+Only Noah uses its already existing audited original MP4; Carlos stays processed.
+Omitting the parameter keeps both processed sources. The server rejects other
+source values, modes, formats and combined retirement controls. Production remains
+unavailable. No new media, imports, downloads, transcodes or provider changes are
+part of this control.
+
+The page labels Noah's actual format and the separate source comparison. Export
+context identifies `labStartupSource=noah-original` and
+`labFixtureSet=carlos-processed-noah-original-v1`. Original Noah retains its
+separate original-rendition post ID/content version, so a processed resume target
+cannot transfer into it. Paused preparation, zero preparation plays, retained
+attachment/source, immediate sole-owner play, sound permission, freshness,
+advancement, resource ceiling, return expiry and terminal Retry remain required.
+
+The next physical check is a new source comparison on the same build and matched
+conditions, with screen recording off for the initial trace/perception assessment.
+Start each attempt in a fresh Safari tab, Play Carlos, grant sound, allow Noah to
+qualify through paused preparation, then physically swipe once to Noah. Preserve
+the original export before Retry/reset and report the brief catch, complete
+opening words, continuity, sync and sharpness separately. Compare processed and
+original Noah on that same build; reverse the order if a first pair suggests a
+benefit. Retain misses, rejections and uncertainty. A source difference would
+support further source assessment, not isolate a decoder cause or authorize a
+normal-feed default, encoding rollout or LIVE release.

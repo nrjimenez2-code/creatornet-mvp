@@ -25,6 +25,37 @@ const sources = {
   ],
 };
 
+test("original Noah startup control pins only Noah's audited source and isolates rendition history", async () => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview", VERCEL_GIT_COMMIT_SHA: "startup-source-build" };
+  const params = { format: "mp4", transfer: "prepared-preload-audio", noahSource: "original", feedReadout: "0" };
+  const result = await PlaybackFormatsPage({ searchParams: Promise.resolve(params) });
+  expect(result.key).toBe("formats:mp4:prepared-preload-audio:noah-original");
+  expect(result.props).toEqual(expect.objectContaining({ originalNoahStartup: true, controllerMode: "prepared-preload-audio",
+    deferPreparedRetirement: false, directMainTransfer: false, liveReadout: false, buildCommit: "startup-source-build" }));
+  expect(result.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual([sources.mp4[0], sources.original[1]]);
+  expect(result.props.fixtures.map((fixture: { id: string }) => fixture.id)).toEqual(["preview-format-carlos-mp4", "preview-format-noah-original"]);
+  expect(result.props.fixtures.map((fixture: { contentVersion: string }) => fixture.contentVersion)).toEqual([`${versions[0]}:mp4`, `${versions[1]}:original`]);
+  const baseline = await PlaybackFormatsPage({ searchParams: Promise.resolve({ ...params, noahSource: undefined }) });
+  expect(baseline.props.originalNoahStartup).toBe(false);
+  expect(baseline.props.fixtures.map((fixture: { src: string }) => fixture.src)).toEqual(sources.mp4);
+  process.env = { ...originalEnvironment, VERCEL_ENV: "production" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve(params) })).rejects.toThrow("NOT_FOUND");
+});
+
+test.each([
+  { format: "mp4", transfer: "prepared-preload-audio", noahSource: "processed" },
+  { format: "mp4", transfer: "prepared-preload-audio", noahSource: ["original"] },
+  { format: "mp4", transfer: "prepared-preload-audio", noahSource: "https://example.test/a.mp4" },
+  { format: "mp4", transfer: "prepared-preload-audio", noahSource: "original", retire: "after-startup" },
+  { format: "mp4", transfer: "prepared-audio", noahSource: "original" },
+  { format: "mp4", transfer: "parked", noahSource: "original" },
+  { format: "original", transfer: "prepared-preload-audio", noahSource: "original" },
+  { format: "hls", transfer: "parked", noahSource: "original" },
+])("rejects startup source selection outside its one-source control: %j", async params => {
+  process.env = { ...originalEnvironment, VERCEL_ENV: "preview" };
+  await expect(PlaybackFormatsPage({ searchParams: Promise.resolve(params) })).rejects.toThrow("NOT_FOUND");
+});
+
 test.each([
   { format: "mp4", transfer: "prepared-preload-audio", feedReadout: "0", live: false },
   { format: "mp4", transfer: "prepared-preload-audio", feedReadout: undefined, live: true },

@@ -22,8 +22,9 @@ const subscribeVisibility = (notify: () => void) => {
   return () => document.removeEventListener("visibilitychange", notify);
 };
 
-export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false, liveReadout = true, deferPreparedRetirement = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean; liveReadout?: boolean; deferPreparedRetirement?: boolean }) {
-  const deferredRetirement = deferPreparedRetirement && controllerMode === "prepared-preload-audio" && sourceFormat === "mp4";
+export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sourceFormat, directMainTransfer = false, liveReadout = true, deferPreparedRetirement = false, originalNoahStartup: requestedOriginalNoah = false }: { fixtures: PlaybackFixture[]; buildCommit: string; controllerMode: "current" | "rate" | "prearmed" | "steady" | "guarded" | "single" | "serial" | "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio"; sourceFormat?: PlaybackFormat; directMainTransfer?: boolean; liveReadout?: boolean; deferPreparedRetirement?: boolean; originalNoahStartup?: boolean }) {
+  const originalNoahStartup = requestedOriginalNoah && controllerMode === "prepared-preload-audio" && sourceFormat === "mp4";
+  const deferredRetirement = !originalNoahStartup && deferPreparedRetirement && controllerMode === "prepared-preload-audio" && sourceFormat === "mp4";
   const [controller] = useState(() => controllerMode === "current" ? new CurrentController()
     : deferredRetirement ? new RateController("prepared-preload-audio", { deferPreparedRetirement: true })
       : new RateController(controllerMode === "rate" ? "reactive" : controllerMode === "single" ? "steady" : controllerMode));
@@ -114,11 +115,12 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
 
   useEffect(() => {
     setFeedRunContext({ feed: sourceFormat ? "preview-playback-format-lab" : "preview-hls-controller-lab", mode: "candidate", buildCommit, labBuildCommit: buildCommit,
-      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: preparedPlayer ? controllerMode : directTransfer ? "direct" : "parked",
+      labController: controllerMode, labFormat: sourceFormat ?? "hls", labFixtureSet: originalNoahStartup ? "carlos-processed-noah-original-v1" : sourceFormat ? "carlos-noah-v1" : "legacy-hls", labMainTransfer: preparedPlayer ? controllerMode : directTransfer ? "direct" : "parked",
+      labStartupSource: originalNoahStartup ? "noah-original" : "default",
       labDiagnosticReadout: debug ? liveReadout ? "live" : "capture-only" : "off",
       labRetiredSourceCleanup: deferredRetirement ? "after-startup" : "immediate",
       surface: sourceFormat ? `Preview / playback format lab / ${sourceFormat} / ${controllerMode}` : `Preview / direct HLS controller lab / ${controllerMode}` });
-  }, [buildCommit, controllerMode, debug, deferredRetirement, directTransfer, liveReadout, preparedPlayer, sourceFormat]);
+  }, [buildCommit, controllerMode, debug, deferredRetirement, directTransfer, liveReadout, originalNoahStartup, preparedPlayer, sourceFormat]);
 
   useLayoutEffect(() => { unmounting.current = false; return () => { unmounting.current = true; }; }, []);
 
@@ -260,7 +262,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
                 <p>{shown.error}</p>
                 <button className="rounded border px-4 py-2" onClick={() => { intentRef.current = true; setPlayingIntent(true); setRetry(previous => ({ postId: fixture.id, version: previous.version + 1 })); }}>Retry video</button>
               </div>}
-              <p className="pointer-events-none absolute bottom-36 left-4 z-30">{fixture.label} · {sourceLabel}</p>
+              <p className="pointer-events-none absolute bottom-36 left-4 z-30">{fixture.label} · {originalNoahStartup && index === 1 ? "original MP4" : sourceLabel}</p>
             </div>
           </section>;
         })}
@@ -274,6 +276,7 @@ export default function PlaybackLab({ fixtures, buildCommit, controllerMode, sou
         {preparedAudio && <p>Paused preparation sound control; audio continuity is under test</p>}
         {controllerMode === "prepared-inplace-audio" && <p>Prepared player stays in place during selection; audio continuity is under test</p>}
         {controllerMode === "prepared-preload-audio" && <p>Paused preload comparison; opening sound and frame readiness are under test</p>}
+        {originalNoahStartup && <p>Original Noah startup comparison; Carlos remains processed MP4</p>}
         {deferredRetirement && <p>Startup comparison: release the previous clip after playback starts</p>}
         <p role="status">{nativePlayback === false ? `This browser does not report native ${isHls ? "HLS" : "MP4"} support.` : status}</p>
         <div className="flex flex-wrap gap-2">
