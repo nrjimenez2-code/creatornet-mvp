@@ -5,8 +5,9 @@
  *
  * This module owns the element and two short-lived playback positions. Feed
  * cards own their presentation, listeners and muted previews. Desktop never calls it.
- * The closed Preview format lab alone can adopt a prepared element explicitly;
- * normal feed claims preserve the shared element and its grant.
+ * The lab and the separately selected normal-feed candidate can adopt a
+ * prepared element. Conventional feed claims preserve the shared element;
+ * adoption still requires physical sound-grant acceptance on each surface.
  */
 import { beginFeedVideoTrace, endFeedVideoTrace, feedTraceEnabled, playableBuffer, recordFeedEvent } from "./mobileFeedDiagnostics";
 
@@ -96,7 +97,7 @@ export function onMobileResumeExpiry(listener: (snapshot: ResumeSnapshot) => voi
 /** Non-consuming reads and retries cannot extend the departure deadline. */
 export function mobileFeedResumeSnapshot(postId: string, contentVersion: string, strictDeadline = false): ResumeSnapshot {
   expirePositions();
-  // Preview promotion also enforces the exact boundary on a departure saved by
+  // Prepared promotion also enforces the exact boundary on a departure saved by
   // conventional playback. Preserve conventional callers' existing deadline.
   const departing = recentPositions.get(postId);
   if (strictDeadline && departing && departing.expiresAt !== null && Date.now() >= departing.expiresAt) {
@@ -245,11 +246,11 @@ export function claimMobileFeedPlayer(host: HTMLElement, token: symbol, src: str
   return player;
 }
 
-/** Preview experiment only. The caller must revoke the departing owner and
+/** Opt-in prepared-player candidate. The caller must revoke the departing owner and
  * detach preparation observers first. Recheck the live snapshot and media before
  * replacing the shared element; adoption never reloads or seeks the selected video.
  * The original mode requires muted preparation. Only the separately selected
- * paused-audio Preview control supplies expectedMuted:false after sound checks.
+ * paused-audio control supplies expectedMuted:false after sound checks.
  * A fulfilled play promise on this new element still does not prove audible output.
  */
 export function adoptPreparedMobileFeedPlayer(host: HTMLElement, token: symbol, video: HTMLVideoElement, src: string, snapshot: ResumeSnapshot, frameTime: number, options?: { expectedMuted: boolean; retainAttachment?: boolean; deferRetirement?: boolean }): HTMLVideoElement | null {

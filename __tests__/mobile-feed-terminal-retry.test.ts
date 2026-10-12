@@ -12,10 +12,11 @@ jest.mock("@/components/CommentPanel", () => ({ __esModule: true, default: () =>
 
 import VideoCard from "@/components/VideoCard";
 import { mobileFeedController } from "@/lib/mobileFeedController";
+import { normalFeedController } from "@/lib/mobileFeedCandidate";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-describe("candidate terminal Retry", () => {
+describe.each([true, "prepared-preload-audio"] as const)("candidate %s terminal Retry", handoff => {
   let caseIndex = 0;
   let container: HTMLDivElement;
   let root: Root;
@@ -52,6 +53,7 @@ describe("candidate terminal Retry", () => {
   afterEach(async () => {
     await act(async () => root.unmount());
     mobileFeedController.dispose();
+    normalFeedController("prepared-preload-audio").dispose();
     container.remove();
     window.matchMedia = savedMatchMedia;
     HTMLVideoElement.prototype.requestVideoFrameCallback = savedRequest;
@@ -63,10 +65,10 @@ describe("candidate terminal Retry", () => {
     await act(async () => root.render(createElement(VideoCard, {
       src: `https://cdn.example.com/terminal-${caseIndex}.m3u8`, postId: `terminal-${caseIndex}`,
       creator: "Luis", caption: "Watchdog case", isActive: true,
-      sharedMobileFeedPlayer: true, mobileHandoff: true, soundEnabled: true,
+      sharedMobileFeedPlayer: true, mobileHandoff: handoff, soundEnabled: true,
       ...extra,
     })));
-    return container.querySelector("video")!;
+    return container.querySelector("video") ?? play.mock.contexts.at(-1) as HTMLVideoElement;
   }
   async function changeVisibility(state: DocumentVisibilityState) {
     await act(async () => { visibility.mockReturnValue(state); document.dispatchEvent(new Event("visibilitychange")); });
@@ -89,7 +91,7 @@ describe("candidate terminal Retry", () => {
     expect(container.textContent).toContain("Retry video");
   });
 
-  test("a queued canplay retry cannot restart the watchdog-failed activation", async () => {
+  test("a queued canplay retry cannot restart a terminal activation", async () => {
     play.mockRejectedValue(new Error("not ready"));
     const video = await failWatchdog();
     const requests = play.mock.calls.length;
@@ -100,7 +102,10 @@ describe("candidate terminal Retry", () => {
 
   test("a late autoplay rejection cannot start muted playback after watchdog Retry", async () => {
     let reject!: (reason: DOMException) => void;
-    play.mockImplementationOnce(() => new Promise<void>((_resolve, fail) => { reject = fail; }));
+    play.mockImplementationOnce(function (this: HTMLMediaElement) {
+      paused.set(this, false); this.dispatchEvent(new Event("play"));
+      return new Promise<void>((_resolve, fail) => { reject = fail; });
+    });
     await failWatchdog();
     const requests = play.mock.calls.length;
     await act(async () => reject(new DOMException("gesture required", "NotAllowedError")));
@@ -141,7 +146,7 @@ describe("candidate terminal Retry", () => {
     expect(play).toHaveBeenCalledTimes(requests + 2);
   });
 
-  test.each([true, false])("healthy playback and manual pause survive visibility changes (candidate=%s)", async candidate => {
+  test.each([true, false, "prepared-preload-audio"] as const)("healthy playback and manual pause survive visibility changes (candidate=%s)", async candidate => {
     const video = await render({ mobileHandoff: candidate });
     expect(play).toHaveBeenCalledTimes(1);
     const requests = play.mock.calls.length;

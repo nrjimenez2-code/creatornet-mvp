@@ -4,7 +4,13 @@ Status: candidate, not accepted for release. The reference device is the owner's
 
 ## Builds and controls
 
-The diagnostics-only checkpoint is `aa9b2d0`. The candidate uses `?feedDebug=1&feedBridge=1`; `feedBridge=0` selects conventional playback. Candidate mode is retained during in-app navigation for this page session. Opening a fresh page without the parameter defaults to conventional playback. Desktop ignores the candidate switch.
+The local prepared-player candidate uses `?feedTransfer=prepared-preload-audio&feedDebug=1&feedReadout=0`. It is unpublished and requires new exact-revision CI, Preview and normal-feed phone acceptance before any release. `feedTransfer=0` selects conventional playback. The prior bridge comparison remains available with `feedBridge=1`; it is a separate candidate and its cohorts must not be pooled with prepared-player transitions. A fresh page without either selector defaults to conventional playback. Desktop ignores both candidate selectors. An explicit transfer selector takes precedence over the legacy bridge selector.
+
+The prepared-player path shares the lab's paused preparation and ownership implementation. It loads at most one neighbor after qualified main motion, never plays preparation, and adopts only the same connected element/source/content version/snapshot/target with a valid target frame and sufficient actual buffer. The old source is removed before selected main play; deferred retirement and rate controls remain lab-only. Each main play attempt must resolve and fresh advancing submissions (at most 100 ms old) must qualify before startup success. Policy-denied sound uses the feed's muted fallback and explicit sound gesture; unresolved or rejected playback is not evidence of a transferable sound grant. Terminal playback/media/seek failures stay behind explicit Retry. No physical latency improvement is established by this integration.
+
+Controller and readout selections persist during in-app navigation for that page session. `feedReadout=0` keeps local capture/export controls while disabling live media polling; `feedReadout=1` restores the readout. Record this choice in comparisons. The diagnostics-only historical checkpoint is `aa9b2d0`; it is not the revision of the new candidate.
+
+Prepared-feed resume identity also includes the selected delivery URL. A shared asset version alone does not prove matching timestamps between HLS, processed MP4 and original media. Changing the selected URL invalidates the saved position; nonzero error fallback still requires the existing verified timeline-mapping gate. Keep delivery choices explicit when testing profile return.
 
 Use an immutable preview for each build and record its exact commit. Do not call the current candidate with its switch off an untouched production baseline: shared lifecycle instrumentation can evolve during implementation. Use the separate diagnostics-only baseline branch for the before measurement.
 
@@ -77,4 +83,4 @@ The report separates browser, feed, network, build and conditions; reports missi
 
 The candidate is off by default and has no deployment/provider/schema/ranking/media-asset change. Completing this test plan and reviewing the exact diff must precede scoped Production approval. Any later release must identify the deployed commit and verify both surfaces against it.
 
-To stop the experiment, open a fresh page with `feedBridge=0`. To roll back deployed code after an approved release, redeploy the last approved commit using the existing release workflow and verify the deployment commit. Do not roll back unrelated newer application work blindly. Preserve traces and recordings before switching builds.
+To stop the prepared-player experiment, open a fresh page with `feedTransfer=0`; use `feedBridge=0` for the legacy bridge. Publishing and deployment remain on hold until separately authorized. To roll back deployed code after an approved release, redeploy the last approved commit using the existing release workflow and verify the deployment commit. Do not roll back unrelated newer application work blindly. Preserve traces and recordings before switching builds.
