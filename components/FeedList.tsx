@@ -170,13 +170,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId }: Fe
     const pending = pendingScrollRestoreRef.current;
     const root = feedScrollRef.current;
     if (loading || !pending || !root) return;
+    let target = pending.scrollTop ?? 0;
     if (pending.postId) {
       const section = sectionRefs.current.get(pending.postId);
       if (!section) return;
-      root.scrollTop += section.getBoundingClientRect().top - root.getBoundingClientRect().top;
-    } else {
-      root.scrollTop = pending.scrollTop ?? 0;
+      target = root.scrollTop + section.getBoundingClientRect().top - root.getBoundingClientRect().top;
     }
+    // scrollTop assignment obeys this container's smooth CSS and can activate
+    // intervening cards. Restoration must reach its target before paint.
+    root.scrollTo({ top: target, behavior: "instant" });
     feedScrollTopRef.current = root.scrollTop;
     pendingScrollRestoreRef.current = null;
   }, [loading, items]);
