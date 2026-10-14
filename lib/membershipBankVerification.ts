@@ -5,6 +5,7 @@ import { membershipCheck as check, membershipStripeId as sid, type MembershipRec
 import { assertMembershipActivated, assertMembershipInvoice, membershipRenewalPeriod, readMembershipFirstProof } from "./membershipRenewal";
 import { monthlyInvoiceCard, monthlyRetrySchemaReady } from "./membershipCards";
 import { membershipRenewalRecoveryReady, type MembershipRenewalRecoveryResult } from "./membershipRenewalRecovery";
+import { assertMembershipUsBilling } from "./membershipBillingEligibility";
 import type { MembershipBillingDependencies } from "./membershipBillingRuntime";
 type BankContext = { version: "monthly-bank-context-v1"; membershipId: string; buyerId: string; operationId: string;
   invoiceId: string; paymentIntentId: string; paymentMethodId: string; originalPaymentMethodId: string; customerId: string; subscriptionId: string;
@@ -28,8 +29,9 @@ function read(value: unknown, a: MembershipRecord, invoice: string): BankContext
   sid(b.paymentIntentId, "pi"); sid(b.paymentMethodId, "pm"); sid(b.originalPaymentMethodId, "pm");
   return b;
 }
-/** Read-only server release of one ephemeral capability for the ORIGINAL PI.
+/** Server release of one ephemeral capability for the ORIGINAL unpaid PI.
  * No invoice.pay/PI.confirm, card/default changes, stored secret or payment grant.
+ * The client can complete this automatic PI, so release requires US eligibility.
  * Stop-after-release remains a distributed boundary. Separate hosted acceptance
  * is mandatory before either BANK_* write-capability flag is enabled. */
 export function createMembershipBankVerification(d: MembershipBillingDependencies, recovery: Recovery) {
@@ -54,9 +56,6 @@ export function createMembershipBankVerification(d: MembershipBillingDependencie
     check(!first.error && first.data && !op.error && op.data?.id === b.operationId && op.data.scope_key === String(b.month));
     const original = readMembershipFirstProof(a, first.data.provider_proof), proof = monthlyInvoiceCard(d, original, op.data.request, invoiceId);
     check(proof.paymentMethodId === b.originalPaymentMethodId);
-    const card = await checked(stripe.paymentMethods.retrieve(b.paymentMethodId));
-    check(card.object === "payment_method" && card.id === b.paymentMethodId && card.type === "card" && card.livemode === live &&
-      sid(card.customer, "cus") === b.customerId, "Monthly bank card ownership differs");
     const product = await productId(a), sub = await checked(stripe.subscriptions.retrieve(b.subscriptionId));
     assertMembershipActivated(sub, a, product, original);
     const invoice = await checked(stripe.invoices.retrieve(invoiceId));
@@ -85,6 +84,12 @@ export function createMembershipBankVerification(d: MembershipBillingDependencie
         charge.amount_captured === 0 && charge.amount_refunded === 0 && charge.balance_transaction == null,
       "Monthly bank challenge has unresolved charge evidence");
     }
+    // Authenticate only the admitted card, with fresh eligibility after payment
+    // inspection. Automatic confirmation can complete the debit in Stripe.js.
+    const card = await checked(stripe.paymentMethods.retrieve(b.paymentMethodId));
+    check(card.object === "payment_method" && card.id === b.paymentMethodId && card.type === "card" && card.livemode === live &&
+      sid(card.customer, "cus") === b.customerId, "Monthly bank card ownership differs");
+    assertMembershipUsBilling(card);
     // Fresh owner, stop, money, review and original-admission checks after all
     // provider reads, immediately before returning the ephemeral capability.
     const final = await bound(id, buyer, invoiceId);

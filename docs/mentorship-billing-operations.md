@@ -217,10 +217,10 @@ The owner explicitly directed retaining existing policies on September 20.
 Do not revise minimum terms, cancellation/payoff consent, refund eligibility,
 12% platform fees or processing-fee responsibility as part of scheduling work.
 
-Live Stripe Tax settings were active, with an Arizona head-office location, but
-the platform's complete tax registration list was empty. Current mentorship
+At the earlier tax review, live Stripe Tax settings were active, with an Arizona
+head-office location, but the platform's tax registration list was empty. Current mentorship
 contracts explicitly assume no tax. The owner selected US buyers only for launch;
-enforcement still needs implementation and provider acceptance. Existing
+local US billing-address guards are implemented, with provider and hosted acceptance still required. Existing
 registrations outside Stripe, liable entity and product classification remain
 to be resolved.
 Do not treat an empty registration list as tax exemption or silently activate
@@ -285,7 +285,24 @@ Migration `20260921173504_server_payment_protocol.sql` adds immutable, service-o
 
 These components have no public caller yet. Durable intent creation/binding and confirmation now have database functions and internal adapters, with installment source composition as described below. Full-payment source and receipt composition, manual terminal-stop/release and Payment Element UI remain to be integrated before publication. Same-intent failed-card replacement is implemented internally as described below. The create request omits `payment_method_types`, disables dynamic method discovery for the existing supported card contract, and requires the retrieved intent to prove card-only/manual settings. Pinned-version real provider acceptance is still required; local fixtures do not prove Stripe compatibility. The available Stripe connector operation search currently exposes only GET operations for PaymentIntents, so no provider create/confirm test was performed.
 
-The server restriction uses billing-country eligibility; it is not independent proof of buyer residency. Existing hosted/uncertain requests and all readiness gates remain unchanged. Later invoice bank-authentication paths also require review before US-only readiness can be claimed.
+The server restriction uses billing-country eligibility; it is not independent proof of buyer residency. Existing hosted/uncertain requests and all readiness gates remain unchanged. Later invoice bank-authentication needs hosted acceptance before US-only readiness can be claimed; the local monthly capability guard is described below.
+
+### Monthly unpaid bank-capability eligibility, October 13
+
+An automatic-confirmation PaymentIntent can complete after client authentication
+without another server confirmation ([Stripe confirmation reference](https://docs.stripe.com/api/payment_intents/confirm)).
+`readRenewalBankChallenge` therefore checks the admitted card's complete US
+billing address before releasing its client secret. It retrieves that exact
+original or buyer-admitted replacement card after invoice/payment/charge
+inspection, verifies ownership and mode, then applies `assertMembershipUsBilling`
+before the final SQL authority/Stop check. This reorders the existing card read
+without adding a provider request.
+
+An ineligible unpaid challenge keeps its original invoice, intent, operation and
+retry identities. Payment-status recovery and accounting for already captured
+money remain available. This check cannot revoke an already released secret or
+eliminate a change after release. The existing bank readiness and Stop-coordination
+gates still require actual hosted acceptance; local tests do not establish it.
 
 Migration `20260921175109_server_payment_intent_operations.sql` adds service-only original intent operations and stops. Narrow functions validate the saved full consent/order/fees or the installment's accepted terms/customer/bound held subscription, then freeze the exact unconfirmed manual request, key and first dispatch time. A short lease serializes retries. An unknown operation older than 23 hours or beyond its acceptance window requires reconciliation; no replacement key is issued. A stop prevents further admission, but allows binding and reading the original provider reply. It never proves cancellation or permits selection release. Binding refuses prior payment activity and mismatched provider identity/economics. Existing fee calculations remain the source of truth, with database agreement tested against their generated requests.
 
