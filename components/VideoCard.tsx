@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { getImageProps } from "next/image";
 import { useRouter } from "next/navigation";
-import { Gift, Heart, Volume2, VolumeX, Plus } from "lucide-react";
+import { Heart, Volume2, VolumeX, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabaseClient";
 import { placeBuyDropdown, type DropdownPlacement } from "@/lib/buyDropdownPlacement";
 import BuyButton from "./BuyButton";
@@ -1542,7 +1542,8 @@ function VideoCard(props: VideoCardProps) {
     [creatorProfileHref, postId, router]
   );
 
-  const hasPurchaseControls = !!(showCTA || allowBooking || onBuy || onBook || (productId && priceCents));
+  const videoButton = productId || onBuy || Number(priceCents || 0) > 0 ? "buy" : allowBooking || onBook ? "book" : canTip ? "tip" : showCTA ? "buy" : null;
+  const hasPurchaseControls = videoButton !== null;
   const waitingForVisibleFrame = mobileFeedPlayer ? !frameReady && !previewFrameReady : !frameReady;
   const showPosterCover = !!src && !!displayPoster && !(mobileFeedPlayer && posterUnavailable) && waitingForVisibleFrame && !mediaError;
   const showFallbackCover = !!src && mobileFeedPlayer && (!displayPoster || posterUnavailable) && waitingForVisibleFrame && !mediaError;
@@ -1793,12 +1794,14 @@ function VideoCard(props: VideoCardProps) {
             <div className={`mt-2 relative ${monthlyTerms ? "" : "-translate-y-[0.67in] lg:-translate-y-[0.67in]"} ${mainFeedMobileLayout ? "max-lg:order-1 max-lg:mt-0 max-lg:translate-y-0" : ""}`} ref={wrapperRef}>
               <BuyButton
                 ref={buyButtonRef}
-                onClick={() => setMenuOpen((prev) => !prev)}
+                onClick={() => { if (videoButton === "tip") openTip(); else if (videoButton === "book") void handleBook(); else setMenuOpen((prev) => !prev); }}
+                label={videoButton === "tip" ? "Tip" : videoButton === "book" ? "Book" : "Buy"}
+                menu={videoButton === "buy"}
                 expanded={menuOpen}
                 menuId={buyMenuId}
                 monthly={!!monthlyTerms}
                 priceCents={
-                  !purchaseOptionsReady ? null : priceCents && priceCents > 0
+                  videoButton !== "buy" || !purchaseOptionsReady ? null : priceCents && priceCents > 0
                     ? priceCents
                     : fetchedPriceCents && fetchedPriceCents > 0
                       ? fetchedPriceCents
@@ -1817,7 +1820,7 @@ function VideoCard(props: VideoCardProps) {
                 </p>
               )}
 
-              {menuOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
+              {videoButton === "buy" && menuOpen && dropdownPosition && typeof document !== "undefined" && createPortal(
                 <div
                   data-buy-dropdown
                   role="menu"
@@ -1849,22 +1852,6 @@ function VideoCard(props: VideoCardProps) {
                   >
                     {!purchaseOptionsReady ? "Purchase unavailable" : monthlyTerms ? "Buy monthly mentorship" : productType === "call" ? "Pay for call" : "Pay in full"} {purchaseOptionsReady && ((priceCents && priceCents > 0) || (fetchedPriceCents && fetchedPriceCents > 0)) ? `$${(((priceCents && priceCents > 0 ? priceCents : fetchedPriceCents) || 0) / 100).toFixed(2)}${monthlyTerms ? "/month" : ""}` : ""}
                   </button>
-                  {(productType === "course" || productType === "mentorship" || allowBooking) && (
-                    <>
-                      <div className="h-px bg-black/10" />
-                      <button
-                        role="menuitem"
-                        disabled={checkoutState === "starting"}
-                        onClick={() => {
-                          setMenuOpen(false);
-                          handleBook();
-                        }}
-                        className="w-full text-left px-3 py-2 text-xs sm:text-sm font-semibold text-black hover:bg-black/5 focus:bg-black/10 focus:outline-none transition disabled:opacity-60"
-                      >
-                        Book
-                      </button>
-                    </>
-                  )}
                   <div className="h-px bg-black/10" />
                   {/* Plain anchor, not a menuitem: Stripe requires the refund/
                       delivery terms to be reachable from the purchase flow. */}
@@ -1950,13 +1937,6 @@ function VideoCard(props: VideoCardProps) {
           </span>
         </div>
 
-        {canTip && <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
-          <button type="button" onClick={openTip} aria-label={`Tip ${displayCreator}`}
-            className="h-[48px] w-[48px] rounded-full border border-white/10 bg-[#1A1F22] text-white flex items-center justify-center hover:opacity-90 transition focus:outline-none focus:ring-2 focus:ring-white/60 max-lg:h-auto max-lg:w-auto max-lg:rounded-none max-lg:border-0 max-lg:bg-transparent">
-            <Gift className="h-6 w-6" />
-          </button>
-          <span className={`text-[12px] font-semibold leading-none text-white ${mainFeedMobileLayout ? "max-lg:-mt-1 max-lg:text-[13px]" : ""}`}>Tip</span>
-        </div>}
 
         <div className={`flex flex-col items-center ${mainFeedMobileLayout ? "max-lg:gap-0" : "gap-1"}`}>
           <button

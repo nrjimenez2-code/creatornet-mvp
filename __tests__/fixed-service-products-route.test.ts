@@ -42,6 +42,11 @@ const noProductWrites = () => {
   expect(mockQuery.insert).not.toHaveBeenCalled();
   expect(mockAdminRpc).not.toHaveBeenCalled();
 };
+test("premium readiness off blocks legacy product creation before provider writes", async () => {
+  process.env.CREATOR_PREMIUM_DELIVERY_SCHEMA_READY = "true";
+  process.env.CREATOR_PREMIUM_DELIVERY_READY = "false";
+  expect((await POST(request())).status).toBe(409); noProductWrites();
+});
 beforeEach(() => {
   jest.clearAllMocks();
   for (const flag of flags) delete process.env[flag];

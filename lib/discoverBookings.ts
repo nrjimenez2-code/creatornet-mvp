@@ -5,14 +5,15 @@ import { discoverEnabled, recordDiscoverEvent } from "@/lib/discoverServer";
 import { googleBookingConnectionFromUrl } from "@/lib/googleBookingUrl";
 import { getSiteUrl } from "@/lib/siteUrl";
 import { schedulingOrigin } from "@/lib/schedulingConfig";
+import { completedFreeBooking } from "@/lib/freeBookingReceipt";
 export async function recordBookingSetup(
   session: Stripe.Checkout.Session,
 ): Promise<string | null> {
   if (!discoverEnabled() && process.env.GOOGLE_CALENDAR_ENABLED !== "true") return null;
   if (
-    session.mode !== "setup" ||
-    session.status !== "complete" ||
-    session.metadata?.kind !== "booking"
+    (session.mode !== "setup" && !completedFreeBooking(session)) ||
+    session.status !== "complete" || !session.metadata ||
+    !["booking", "free_booking_v1"].includes(session.metadata?.kind ?? "")
   )
     return null;
   const userId = session.metadata.buyer_user_id ?? session.metadata.buyer_id;

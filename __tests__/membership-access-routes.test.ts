@@ -5,7 +5,7 @@ const mockSign = jest.fn(), mockEntitlement = jest.fn();
 const mockDb = createMockClient(op => {
   if (op.table === "posts") return { data: { id: "post", creator_id: "creator", premium_path: "creator/file.pdf" }, error: null };
   if (op.table === "purchases") return { data: op.filters.buyer_id === "buyer" &&
-    (op.filters.access_granted !== true || mockLegacyAllowed) ? { id: "purchase" } : null, error: null };
+    (op.filters.access_granted !== true || mockLegacyAllowed) ? { id: "purchase", buyer_id: "buyer", status: "paid", access_granted: mockLegacyAllowed } : null, error: null };
   return { data: null, error: null };
 });
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mockDb.from, rpc: mockEntitlement,

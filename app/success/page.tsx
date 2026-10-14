@@ -4,6 +4,8 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useUser } from "@/lib/useUser";
 import { SuccessSkeleton } from "@/components/loading/Skeletons";
+import PurchasedProductDelivery from "@/components/PurchasedProductDelivery";
+import Link from "next/link";
 
 type FulfillmentProduct = {
   id: string | null;
@@ -22,7 +24,9 @@ type ConfirmSuccess = {
   booking_redirect_url?: string | null;
   post_id?: string | null;
   creator_id?: string | null;
+  booking_attribution_only?: boolean;
   product?: FulfillmentProduct | null;
+  delivery_url?: string;
 };
 
 type ConfirmResp = ConfirmSuccess | { error: string; retryable?: boolean };
@@ -52,6 +56,7 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
   const [fulfillment, setFulfillment] = useState<FulfillmentProduct | null>(null);
   const [fulfillmentMessage, setFulfillmentMessage] = useState<string | null>(null);
   const [confirmedSessionId, setConfirmedSessionId] = useState<string | null>(null);
+  const [deliveredPurchaseId, setDeliveredPurchaseId] = useState<string | null>(null);
   const hasSeededRef = useRef(false);
   const hasRunRef = useRef(false);
 
@@ -101,6 +106,8 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
 
     hasRunRef.current = true;
     let cancelled = false;
+    const controller = new AbortController();
+    let calendarTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Set state before starting async flow
     setBookingState("processing");
@@ -129,6 +136,7 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
           headers: { "Content-Type": "application/json" },
           credentials: "include",
           body: JSON.stringify({ session_id: actualSessionId }),
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15_000)]),
         });
 
         const data = (await res.json().catch(() => ({}))) as any;
@@ -139,6 +147,8 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
         }
         const resp = data as ConfirmResp;
 
+        if (cancelled) return;
+
         if (!("kind" in resp) || resp.kind !== "booking") {
           setStatus("error");
           setMessage("Invalid booking session.");
@@ -147,6 +157,17 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
 
         const redirect = resp.booking_redirect_url || null;
         const respPostId = resp.post_id ?? null;
+
+        if (resp.booking_attribution_only) {
+          setBookingUrl(redirect);
+          setBookingState("ready");
+          setStatus("ok");
+          setMessage("No card or payment required. Choose a calendar time to schedule your free call.");
+          if (redirect) calendarTimer = setTimeout(() => {
+            if (!cancelled) window.location.assign(redirect);
+          }, 1500);
+          return;
+        }
 
         // Step 2: Seed booking BEFORE redirecting - CRITICAL: Must complete before redirect
         if (!respPostId) {
@@ -241,6 +262,8 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
 
     return () => {
       cancelled = true;
+      controller.abort();
+      clearTimeout(calendarTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authLoading, hasToken]); // Primitives only: object identity of `session` must never cancel an in-flight flow. hasRunRef guards repeats; URL params read directly inside
@@ -289,6 +312,10 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
             }
           } else if (resp.status === "paid") {
             setConfirmedSessionId(sessionId);
+            if (resp.delivery_url && resp.purchase_id) {
+              setDeliveredPurchaseId(resp.purchase_id); setStatus("ok"); setMessage("Your purchased content is ready.");
+              return;
+            }
             if (resp.kind === "paid_call" && resp.booking_redirect_url) {
               setBookingUrl(resp.booking_redirect_url);
               setBookingState("ready");
@@ -409,6 +436,10 @@ function SuccessPage({ sessionId, kindParam }: { sessionId: string; kindParam: s
         </h1>
         <p className="text-sm text-gray-600" role="status" aria-live="polite">{message}</p>
 
+        {deliveredPurchaseId && status === "ok" && <div className="mt-6 rounded-xl bg-black p-4 text-left text-white">
+          <PurchasedProductDelivery purchaseId={deliveredPurchaseId} />
+          <Link href="/library" className="mt-4 block text-sm underline">Open Library</Link>
+        </div>}
         {showFulfillment && fulfillment && (
           <div className="mt-6 space-y-4">
             {fulfillment.title ? (

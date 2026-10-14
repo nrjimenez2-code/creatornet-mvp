@@ -23,8 +23,8 @@ export async function loadFeedOffers(posts: PostRow[]): Promise<PostRow[]> {
   return posts.map(post => {
     const blocked = { ...post, monthlyTerms: null, purchaseOptionsReady: false };
     const offer = offers[post.id];
-    if (!offer || offer.creatorId !== post.creator_id ||
-        (post.product_id && post.product_id !== offer.linkedProductId && post.product_id !== offer.productId)) return blocked;
+    if (!post.product_id || !offer || offer.creatorId !== post.creator_id ||
+        (post.product_id !== offer.linkedProductId && post.product_id !== offer.productId)) return blocked;
     try {
       const monthlyTerms = readMonthlyMentorshipTerms(offer.monthlyTerms, offer.productType);
       return { ...post, product_id: offer.productId, product_type: offer.productType,

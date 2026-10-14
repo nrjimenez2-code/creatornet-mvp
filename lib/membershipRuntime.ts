@@ -1,4 +1,5 @@
 import "server-only";
+import { premiumSchemaReady, premiumPostingReady } from "./premiumReadiness";
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDeepStrictEqual } from "node:util";
@@ -154,6 +155,12 @@ export function createMembershipRuntime(env: Record<string, string | undefined> 
     async prepare(id: string, buyerId: string) {
       check(membershipCheckoutReady(env), "Monthly checkout is not enabled");
       const a = await load(id, buyerId); await observeContext();
+      if (premiumSchemaReady(env) && a.covered_months === 0) {
+        const product = await admin.from("products").select("delivery_revision,active,is_active").eq("id", a.product_id).maybeSingle();
+        check(!product.error && product.data, "Monthly offer is unavailable");
+        if (product.data.delivery_revision) check(premiumPostingReady(env) && product.data.active !== false &&
+          product.data.is_active !== false, "New product checkout is temporarily unavailable");
+      }
       const success = `${context.siteOrigin}/memberships/complete?membership_id=${a.id}`;
       if (a.covered_months > 0) return { membershipId: id, url: success };
       check(!a.billing_review_at && !a.financial_hold_at && !a.debit_revoked_at && !a.renewal_stopped_at, "Membership payment needs support review");

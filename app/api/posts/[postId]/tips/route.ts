@@ -10,6 +10,9 @@ import { expireOpenTipSessions } from "@/lib/tipCheckout";
 export const runtime = "nodejs";
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ postId: string }> }) {
+  if (process.env.CREATOR_PREMIUM_DELIVERY_SCHEMA_READY === "true") {
+    return NextResponse.json({ error: "Choose the video button only when publishing.", code: "POST_ACTION_IMMUTABLE" }, { status: 409 });
+  }
   if (!tippingEnabled()) return NextResponse.json({ error: "Tipping is not available yet." }, { status: 404 });
   if (!isSameOriginRequest(req)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   const user = await getAuthenticatedUser(req);

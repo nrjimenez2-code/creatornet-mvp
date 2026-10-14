@@ -63,9 +63,16 @@ test.each(["productId", "postId"] as const)("missing %s cannot start monthly rev
   await render({ [key]: null }); const button = await menu("Buy monthly");
   await act(async () => button.click()); expect(router.push).not.toHaveBeenCalled();
 });
-test("free Book keeps its existing payload on the same monthly post even when Buy is blocked", async () => {
-  await render({ purchaseOptionsReady: false }); const button = await menu("Book");
-  await act(async () => button.click());
+test("combined Buy and Book exposes Buy only when purchase availability is blocked", async () => {
+  await render({ purchaseOptionsReady: false }); const button = await menu("Purchase unavailable");
+  expect(button.disabled).toBe(true);
+  expect(Array.from(document.querySelectorAll('[role="menuitem"]')).some(item=>item.textContent?.includes("Book"))).toBe(false);
+  expect((global.fetch as jest.Mock).mock.calls.some(([url])=>url==="/api/checkout")).toBe(false);
+});
+test("Book-only retains the verified booking payload with the shared button", async () => {
+  await render({ productId:null,productType:null,monthlyTerms:null,priceCents:null,showCTA:false,purchaseOptionsReady:false });
+  const button=Array.from(container.querySelectorAll<HTMLButtonElement>("button")).find(item=>item.textContent?.includes("Book"))!;
+  expect(button).toBeDefined();await act(async()=>button.click());
   const call = (global.fetch as jest.Mock).mock.calls.find(([url]) => url === "/api/checkout")!;
   expect(JSON.parse(call[1].body)).toEqual({ type: "booking", post_id: base.postId, creator_id: "creator", bookingRedirectUrl: base.bookingRedirectUrl });
   expect(router.push).not.toHaveBeenCalled();

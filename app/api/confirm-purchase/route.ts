@@ -1,4 +1,6 @@
 import { recordBookingSetup, attributedBookingUrl } from "@/lib/discoverBookings";
+import { completeFreeBooking } from "@/lib/freeBookingCheckout";
+import { premiumSchemaReady } from "@/lib/premiumReadiness";
 // app/api/confirm-purchase/route.ts
 import { publicMessage } from "@/lib/apiError";
 import { paidCallsReady, readPaidCallAccess } from "@/lib/paidCalls";
@@ -330,13 +332,19 @@ export async function POST(req: Request) {
     if (!sessionBuyer || sessionBuyer !== user.id) {
       return NextResponse.json({ error: "This purchase belongs to another account." }, { status: 403 });
     }
+    if (session.metadata?.kind === "free_booking_v1") {
+      return NextResponse.json({ ok: true, session_id, ...await completeFreeBooking(supabase, session, user.id) },
+        { headers: { "Cache-Control": "private, no-store" } });
+    }
     // Exact installment #1 uses Checkout mode=payment, not mode=subscription.
     // Its versioned, persisted binding must be checked before the old full-price
     // upsert. This handoff only reads receipt-driven state; it never credits.
     const exact = await confirmExactInstallmentSandbox({ admin: supabase, session, buyerId: user.id, env: process.env });
     if (exact) {
-      const product = exact.httpStatus === 200 ? await loadFulfillmentProduct(exact.body.product_id) : undefined;
-      return NextResponse.json({ ...exact.body, ...(product !== undefined ? { product } : {}) }, { status: exact.httpStatus });
+      const product = exact.httpStatus === 200 && !premiumSchemaReady() ? await loadFulfillmentProduct(exact.body.product_id) : undefined;
+      return NextResponse.json({ ...exact.body, ...(product !== undefined ? { product } : {}),
+        ...(exact.httpStatus===200 && premiumSchemaReady() && exact.body.purchase_id ? {delivery_url:`/api/purchases/${exact.body.purchase_id}/delivery`}: {})
+      }, { status: exact.httpStatus, headers: {"Cache-Control":"private, no-store"} });
     }
     console.log("[confirm-purchase] ✅ Session retrieved:", {
       session_id,
@@ -349,7 +357,7 @@ export async function POST(req: Request) {
       session.mode === "setup" ||
       session.metadata?.kind === "booking"
     ) {
-      if (process.env.DISCOVER_V4_ENABLED === "true" && session.status !== "complete") {
+      if (session.status !== "complete") {
         return NextResponse.json({ok:false,error:"Booking setup is not complete"},{status:409});
       }
       const redirectUrl =
@@ -467,8 +475,9 @@ export async function POST(req: Request) {
         post_id: purchase.post_id,
         product_id: purchase.product_id,
         creator_id: purchase.creator_id,
-        product: await loadFulfillmentProduct(purchase.product_id),
-      });
+        product: premiumSchemaReady() ? null : await loadFulfillmentProduct(purchase.product_id),
+        ...(premiumSchemaReady() ? {delivery_url:`/api/purchases/${purchase.id}/delivery`}: {}),
+      }, {headers:{"Cache-Control":"private, no-store"}});
     }
 
     if (session.mode !== "payment" || session.status !== "complete" || session.payment_status !== "paid") {
@@ -491,10 +500,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true, status: "paid", kind: "paid_call", purchase_id: meta.purchase_id,
         booking_redirect_url: `/api/calls/${meta.purchase_id}/schedule` }, { headers: { "Cache-Control": "private, no-store" } });
     }
-    const product = await loadFulfillmentProduct(meta.product_id);
+    const product = premiumSchemaReady() ? null : await loadFulfillmentProduct(meta.product_id);
 
     // return NextResponse.json({ ok: true, session_id, ...meta }, { status: 200 });
-    return NextResponse.json({ ok: true, session_id, ...meta, product }, { status: 200 });
+    return NextResponse.json({ ok: true, session_id, ...meta, product,
+      ...(premiumSchemaReady() && meta.purchase_id ? { delivery_url: `/api/purchases/${meta.purchase_id}/delivery` } : {}) },
+      { status: 200, headers: { "Cache-Control": "private, no-store" } });
   } catch (e: any) {
     return NextResponse.json({ error: publicMessage("confirm-purchase", e, "Failed to confirm purchase") }, { status: 500 });
   }
