@@ -13,7 +13,7 @@ export const metadata: Metadata = {
     "What creators agree to on CreatorNet — Stripe onboarding, the 12% platform fee, delivery, and content rules.",
 };
 
-const LAST_UPDATED = "September 3, 2026";
+const LAST_UPDATED = "September 24, 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -46,6 +46,12 @@ export default function CreatorPolicyPage() {
           complete Stripe&apos;s onboarding, including its identity verification. You cannot set a
           price or attach a product until Stripe has enabled both charges and payouts on your
           account.
+        </p>
+        <p>
+          You may enable voluntary tips only on a completely free video with no product,
+          premium file, booking, price, or other paid call to action. Tips do not unlock content.
+          Completed tips remain in Earnings if tips are later disabled, and refund or dispute
+          reversals may reduce the associated creator earnings.
         </p>
         <p>
           <strong>CreatorNet charges a 12% platform fee.</strong> Standard payment-processing fees

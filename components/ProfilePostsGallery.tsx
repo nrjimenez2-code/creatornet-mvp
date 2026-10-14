@@ -9,6 +9,7 @@ import { feedMediaUrl, feedPosterUrl } from "@/lib/feedMedia";
 import { normalizeCategory } from "@/lib/posthog";
 import { useOpenedVideoFrames } from "@/lib/useOpenedVideoFrames";
 import type { MonthlyMentorshipTerms } from "@/lib/membershipTerms";
+import CreatorTipToggle from "@/components/CreatorTipToggle";
 import VideoViewCount from "@/components/VideoViewCount";
 import type { VideoPreviewCounts } from "@/lib/postViewCounts";
 
@@ -31,9 +32,12 @@ type Post = VideoPreviewCounts & {
   price_cents?: number | null;
   allow_booking?: boolean | null;
   booking_url?: string | null;
+  tips_enabled?: boolean;
 };
 
 type Props = {
+  tippingAvailable?: boolean;
+  viewerIsOwner?: boolean;
   posts: Post[];
   creatorId: string | null;
   creatorName: string;
@@ -47,6 +51,8 @@ type Props = {
 };
 
 export default function ProfilePostsGallery({
+  tippingAvailable = false,
+  viewerIsOwner = false,
   posts: initialPosts,
   creatorId,
   creatorName,
@@ -56,6 +62,7 @@ export default function ProfilePostsGallery({
   likedPostIds,
 }: Props) {
   const router = useRouter();
+  const [tipStates, setTipStates] = useState<Record<string, boolean>>({});
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
   const posts = useMemo(() => initialPosts.filter((post) => !deletedIds.has(post.id)), [initialPosts, deletedIds]);
   const likedIds = useMemo(() => new Set(likedPostIds ?? []), [likedPostIds]);
@@ -287,6 +294,7 @@ export default function ProfilePostsGallery({
                     priceCents={post.price_cents ?? null}
                     allowBooking={!!post.allow_booking}
                     bookingRedirectUrl={post.allow_booking ? (post.booking_url ?? null) : null}
+                    tipsEnabled={tippingAvailable && (tipStates[post.id] ?? post.tips_enabled === true)}
                   />
                   ) : (
                     <div
@@ -294,6 +302,10 @@ export default function ProfilePostsGallery({
                       className="relative w-full mx-auto max-w-full lg:w-[420px] lg:max-w-[420px] max-lg:h-[100dvh] lg:h-[100dvh] lg:min-h-[100dvh] bg-black"
                     />
                   )}
+                  {tippingAvailable && viewerIsOwner && isMounted && index === activeIndex && <div className="fixed right-4 top-4 z-[60]">
+                    <CreatorTipToggle postId={post.id} initialEnabled={tipStates[post.id] ?? post.tips_enabled === true}
+                      onChange={(enabled) => setTipStates((current) => ({ ...current, [post.id]: enabled }))} />
+                  </div>}
                 </div>
 
               </div>

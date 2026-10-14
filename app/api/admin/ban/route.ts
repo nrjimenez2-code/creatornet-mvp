@@ -4,6 +4,7 @@ import {
   runModerationAction,
   type ProfileModerationRow,
 } from "@/lib/admin/moderation";
+import { expireOpenTipSessions } from "@/lib/tipCheckout";
 
 export const runtime = "nodejs";
 
@@ -18,5 +19,6 @@ export async function POST(req: NextRequest) {
       flag_reason: reason,
     }),
     deriveStatus: deriveUserStatus,
+    afterUpdate: (admin, creatorId) => expireOpenTipSessions(admin, { creatorId }),
   });
 }

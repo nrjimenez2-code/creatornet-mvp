@@ -10,7 +10,7 @@ describe("creator Stripe setup access", () => {
   test("reuses the existing setup control on the authenticated earnings page", () => {
     expect(earningsPage).toContain('import StripeConnectBanner from "@/components/StripeConnectBanner"');
     expect(earningsPage.match(/<StripeConnectBanner\s+appearance="earnings"\s*\/>/g)).toHaveLength(1);
-    expect(earningsPage).toContain('if (!view) redirect("/auth")');
+    expect(earningsPage).toContain('if (period && !needsUrlRepair && !view) redirect("/auth")');
     expect(earningsPage).not.toContain("/api/stripe/connect/onboard");
   });
 

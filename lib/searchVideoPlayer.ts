@@ -23,7 +23,10 @@ export async function loadSearchVideos(results: SearchPost[]): Promise<PostRow[]
   // An unknown like state must not render an actionable empty heart.
   if (likes.error) throw new Error("Could not load videos.");
   const liked = new Set((likes.data ?? []).map(row => row.post_id));
-  const rows = new Map((payload.items as PostRow[]).map(row => [row.id, row]));
+  const rows = new Map((payload.items as Array<PostRow & { tips_available?: boolean }>).map(row => [
+    row.id,
+    { ...row, tips_enabled: row.tips_available === true },
+  ]));
   const ordered: PostRow[] = results.flatMap(result => {
     const post = rows.get(result.id);
     if (!post || post.creator_id !== result.creator_id) return [];

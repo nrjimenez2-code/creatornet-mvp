@@ -17,8 +17,12 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { onlyVisiblePosts } from "@/lib/visiblePosts";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
+import profileNameStyles from "../../../components/profile-name.module.css";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
+import ProfileBio from "@/components/ProfileBio";
+import { resolveBioMentions } from "@/lib/profileMentionsServer";
+import { profileWebsiteColumn, type ProfileHeader } from "@/lib/profileWebsiteReady";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -106,16 +110,18 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
 
   let profileRes = await admin
     .from("profiles")
-    .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
+    .select(`id, username, full_name, tagline, avatar_url, bio${profileWebsiteColumn()}, ${SELL_READY_COLUMNS}`)
     .eq("id", creatorId)
+    .returns<ProfileHeader[]>()
     .maybeSingle();
 
   // Allow /creators/<username> in addition to /creators/<id>.
   if (!profileRes.data) {
     const usernameRes = await admin
       .from("profiles")
-      .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
+      .select(`id, username, full_name, tagline, avatar_url, bio${profileWebsiteColumn()}, ${SELL_READY_COLUMNS}`)
       .eq("username", creatorId)
+      .returns<ProfileHeader[]>()
       .maybeSingle();
     if (usernameRes.data) {
       profileRes = usernameRes as typeof profileRes;
@@ -170,7 +176,7 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     onlyVisiblePosts(
       admin
         .from("posts")
-        .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url")
+        .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, tips_enabled")
     )
       .eq("creator_id", resolvedCreatorId)
       .order("created_at", { ascending: false }),
@@ -247,7 +253,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
     profile.full_name || profile.username || profile.id.slice(0, 8);
   const username = profile.username || "creator";
   const tagline = profile.tagline || null;
-  const bio = profile.bio || "No bio yet.";
+  const bio = profile.bio || null;
+  const mentions = await resolveBioMentions(bio ?? "");
   const avatarUrl = profile.avatar_url || null;
 
   const isFollowing = !!followStatusRes?.data;
@@ -294,13 +301,15 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
             />
           </div>
 
-          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold inline-flex items-center gap-2">
-            {displayName}
-            <VerifiedCreatorBadge verified={isVerifiedSeller} />
+          <h1
+            className={`mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold ${profileNameStyles.heading}${isVerifiedSeller ? ` ${profileNameStyles.verified}` : ""}`}
+          >
+            <span className={profileNameStyles.name}>{displayName}</span>
+            <VerifiedCreatorBadge verified={isVerifiedSeller} className={profileNameStyles.badge} />
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
           {tagline ? <p className="mt-2 text-sm text-white/60">{tagline}</p> : null}
-          <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
+          <ProfileBio bio={bio} emptyMessage="No bio yet." websiteUrl={profile.website_url} {...mentions} />
 
           {/* Stats row - followers / following open the paginated list */}
           <FollowStats
@@ -321,6 +330,8 @@ export default async function CreatorPublicProfilePage({ params }: Props) {
         <ProfileContent
           postsError={Boolean(postsRes.error)} offersError={Boolean(postsRes.error || productsRes.error)}
           gallery={{
+            tippingAvailable: process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller,
+            viewerIsOwner: viewer?.id === resolvedCreatorId,
             posts: mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, resolvedCreatorId),
             creatorId: resolvedCreatorId, creatorName: displayName, creatorUsername: profile.username ?? null,
             creatorAvatarUrl: avatarUrl, creatorVerified: isVerifiedSeller, likedPostIds,

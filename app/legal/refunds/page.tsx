@@ -15,7 +15,7 @@ export const metadata: Metadata = {
     "When a CreatorNet purchase can be refunded, how to ask, and how long it takes.",
 };
 
-const LAST_UPDATED = "September 2, 2026";
+const LAST_UPDATED = "September 24, 2026";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -100,6 +100,14 @@ export default function RefundPolicyPage() {
             Delivery &amp; Cancellation Policy
           </Link>
           .
+        </p>
+      </Section>
+
+      <Section title="Tips">
+        <p>
+          Tips are voluntary payments that do not unlock content. Contact support to request a
+          full or partial tip refund. Approved refunds return to the original payment method;
+          disputes and refunds reverse the associated creator earnings as applicable.
         </p>
       </Section>
     </main>

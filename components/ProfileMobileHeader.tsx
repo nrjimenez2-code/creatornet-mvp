@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import { signOutThisDevice } from "@/lib/browserSession";
 import { createBrowserClient } from "@/lib/supabaseBrowser";
+import NotificationInbox from "@/components/NotificationInbox";
 
 const supabase = createBrowserClient();
 
@@ -54,6 +55,7 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
           >
             Review
           </Link>
+          <NotificationInbox />
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
@@ -175,4 +177,3 @@ export default function ProfileMobileHeader({ userId }: ProfileMobileHeaderProps
     </>
   );
 }
-

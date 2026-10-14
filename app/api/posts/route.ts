@@ -1,5 +1,6 @@
 import { normalizeTopics } from "@/lib/interestTopics";
-import { normalizeHashtags } from "@/lib/hashtags";
+import { extractHashtags, normalizeHashtags } from "@/lib/hashtags";
+import { AUTOMATIC_POST_CLASSIFICATION_VERSION, automaticPostMetadata } from "@/lib/automaticPostMetadata";
 import { normalizeInterests } from "@/lib/interestCategories";
 import { NextResponse } from "next/server";
 import { isUserBanned, bannedResponse } from "@/lib/bannedUser";
@@ -47,6 +48,7 @@ async function enforceUploadSize(url: string | null, folder: UploadFolder): Prom
 import { createSupabaseServer } from "@/lib/supabaseServer";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
+import { getStripe } from "@/lib/stripeClient";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 /**
@@ -78,6 +80,14 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json().catch(() => ({}));
+    const automatic = body?.classification_version !== undefined;
+    if (automatic && body.classification_version !== AUTOMATIC_POST_CLASSIFICATION_VERSION) {
+      return NextResponse.json({ success: false, error: "Unsupported classification version." }, { status: 400 });
+    }
+    if (automatic && ((body.title != null && typeof body.title !== "string") ||
+        (body.content != null && typeof body.content !== "string") || (body.content?.length ?? 0) > 300)) {
+      return NextResponse.json({ success: false, error: "Caption must be at most 300 characters." }, { status: 400 });
+    }
     const title = (body?.title ?? "")?.trim() || null;
     const content = (body?.content ?? "")?.trim() || null;
     const video_url = (body?.video_url ?? "")?.trim() || null;
@@ -90,13 +100,15 @@ export async function POST(req: Request) {
       );
     }
     const premium_path = premiumRaw ? String(premiumRaw).trim() : null;
-    const interests = normalizeInterests(body?.interests);
+    let interests = normalizeInterests(body?.interests);
+    let topics = normalizeTopics(body?.topics);
     const product_id: string | null =
       body?.product_id != null && String(body.product_id).trim()
         ? String(body.product_id).trim()
         : null;
     const price_cents = typeof body?.price_cents === "number" ? body.price_cents : null;
     const allow_booking = Boolean(body?.allow_booking);
+    const tips_enabled = body?.tips_enabled === true;
     const bookingRaw = (body?.booking_url ?? "")?.trim() || null;
     if (bookingRaw && !isSafeBookingTarget(bookingRaw)) {
       return NextResponse.json(
@@ -105,7 +117,7 @@ export async function POST(req: Request) {
       );
     }
     const booking_url = bookingRaw;
-    const hashtags = Array.isArray(body?.hashtags) ? normalizeHashtags(body.hashtags) : null;
+    const hashtags = automatic ? extractHashtags(content) : Array.isArray(body?.hashtags) ? normalizeHashtags(body.hashtags) : null;
 
     if (!video_url) {
       return NextResponse.json({ success: false, error: "video_url is required" }, { status: 400 });
@@ -126,18 +138,19 @@ export async function POST(req: Request) {
 
     // products table uses "id" as PK (product_id is null); FK may reference products.id — resolve to products.id for insert
     let resolvedProductId: string | null = null;
+    let verifiedOffer: { title?: string | null; description?: string | null } | null = null;
     if (product_id && typeof product_id === "string" && product_id.trim()) {
       const trimmed = product_id.trim();
       const byProductId = await supabaseAdmin
         .from("products")
-        .select("product_id, id, creator_id")
+        .select(automatic ? "product_id, id, creator_id, title, description, active" : "product_id, id, creator_id")
         .eq("product_id", trimmed)
         .maybeSingle();
       const byId =
         !byProductId.data || (byProductId.data as { creator_id?: string }).creator_id !== user.id
           ? await supabaseAdmin
               .from("products")
-              .select("product_id, id, creator_id")
+              .select(automatic ? "product_id, id, creator_id, title, description, active" : "product_id, id, creator_id")
               .eq("id", trimmed)
               .maybeSingle()
           : { data: null as unknown as typeof byProductId.data };
@@ -145,9 +158,10 @@ export async function POST(req: Request) {
         ? byProductId.data
         : byId.data && (byId.data as { creator_id?: string }).creator_id === user.id
           ? byId.data
-          : null) as { product_id?: string | null; id?: string } | null;
+          : null) as { product_id?: string | null; id?: string; title?: string | null; description?: string | null; active?: boolean } | null;
       if (row) {
         resolvedProductId = row.product_id ?? row.id ?? trimmed;
+        if (row.active !== false) verifiedOffer = { title: row.title, description: row.description };
       }
     }
 
@@ -155,8 +169,36 @@ export async function POST(req: Request) {
     const finalProductId =
       resolvedProductId && uuidRegex.test(resolvedProductId) ? resolvedProductId : null;
 
+    let profileContext: { bio?: string | null; tagline?: string | null } = {};
+    if (automatic) {
+      const profile = await supabaseAdmin.from("profiles").select("bio,tagline").eq("id", user.id).maybeSingle();
+      if (profile.error) throw new Error("post_classification_context_unavailable");
+      profileContext = profile.data ?? {};
+      const metadata = automaticPostMetadata({ title, content, ...profileContext,
+        offers: finalProductId && verifiedOffer ? [verifiedOffer] : [] });
+      interests = metadata.interests;
+      topics = metadata.topics;
+    }
+
     const selling =
       !!finalProductId || (typeof price_cents === "number" && price_cents > 0);
+    if (tips_enabled && (
+      product_id || selling || premium_path || price_cents !== null && price_cents !== 0 ||
+      allow_booking || booking_url || body?.offering_id || body?.fulfillment_url ||
+      body?.display_price || body?.booking_url_override ||
+      body?.cta_type && body.cta_type !== "none"
+    )) {
+      return NextResponse.json(
+        { success: false, error: "Tips can only be enabled on a completely free video.", code: "TIP_ONLY_REQUIRED" },
+        { status: 400 }
+      );
+    }
+    if (tips_enabled && process.env.CREATOR_TIPPING_ENABLED !== "true") {
+      return NextResponse.json(
+        { success: false, error: "Tipping is not available yet.", code: "TIPPING_UNAVAILABLE" },
+        { status: 409 }
+      );
+    }
     if (selling && !(await isCreatorSellReady(user.id))) {
       return NextResponse.json(
         {
@@ -167,6 +209,22 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
+    if (tips_enabled) {
+      if (!(await isCreatorSellReady(user.id))) {
+        return NextResponse.json({ error: "Connect Stripe before enabling tips.", code: "STRIPE_CONNECT_REQUIRED" }, { status: 403 });
+      }
+      const profile = await supabaseAdmin.from("profiles")
+        .select("stripe_account_id,banned_at").eq("id", user.id).maybeSingle();
+      const accountId = profile.data?.stripe_account_id;
+      if (profile.error || profile.data?.banned_at || typeof accountId !== "string" ||
+          !/^acct_[A-Za-z0-9]+$/.test(accountId)) {
+        return NextResponse.json({ error: "Your Stripe account cannot receive tips right now.", code: "CONNECT_UNAVAILABLE" }, { status: 409 });
+      }
+      const account = await getStripe().accounts.retrieve(accountId);
+      if (!account.charges_enabled || !account.payouts_enabled) {
+        return NextResponse.json({ error: "Your Stripe account cannot receive tips right now.", code: "CONNECT_UNAVAILABLE" }, { status: 409 });
+      }
+    }
 
     const postRow = {
       creator_id: user.id,
@@ -176,11 +234,13 @@ export async function POST(req: Request) {
       poster_url,
       premium_path,
       interests,
-      topics: normalizeTopics(body?.topics),
+      topics,
+      ...(automatic ? { classification_version: AUTOMATIC_POST_CLASSIFICATION_VERSION } : {}),
       product_id: finalProductId,
       price_cents,
       allow_booking,
       booking_url,
+      tips_enabled,
       hashtags,
     };
 
@@ -218,7 +278,10 @@ export async function POST(req: Request) {
       productDropped = true;
       const retryResult = await supabaseAdmin
         .from("posts")
-        .insert([{ ...postRow, product_id: null }])
+        .insert([{ ...postRow, product_id: null, ...(automatic ? (() => {
+          const metadata = automaticPostMetadata({ title, content, ...profileContext });
+          return { interests: metadata.interests, topics: metadata.topics };
+        })() : {}) }])
         .select("id, product_id")
         .maybeSingle();
       insErr = retryResult.error;
@@ -245,7 +308,7 @@ export async function POST(req: Request) {
           "Post created but product could not be attached. In Supabase, ensure the foreign key posts.product_id references the products table (and the products table has a product_id column with the same values).",
       }),
     });
-  } catch (e: any) {
+  } catch (e: unknown) {
     return NextResponse.json({ success: false, error: publicMessage("posts", e, "Server error") }, { status: 500 });
   }
 }

@@ -8,6 +8,7 @@ import PostHogProvider from "@/components/PostHogProvider";
 import CookieNotice from "@/components/CookieNotice";
 import SoundPreferenceSync from "@/components/SoundPreferenceSync";
 import MobileTabNav from "@/components/MobileTabNav";
+import DesktopNavigationShell from "@/components/DesktopNavigationShell";
 import { getSiteUrl } from "@/lib/siteUrl";
 
 export const metadata: Metadata = {
@@ -59,7 +60,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               <SupabaseAuthSync />
             </Suspense>
 
-            {children}
+            <Suspense fallback={children}>
+              <DesktopNavigationShell>{children}</DesktopNavigationShell>
+            </Suspense>
             <Suspense fallback={null}>
               <MobileTabNav />
             </Suspense>

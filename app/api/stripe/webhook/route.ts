@@ -44,6 +44,8 @@ import {
   reconcileKnownPaymentDispute,
   recordPaymentDisputeState,
 } from "@/lib/paymentDisputes";
+import { updateTipFromCheckoutEvent, updateTipFromPaymentIntentEvent } from "@/lib/tipEvents";
+import { reconcileTipDisputeRecovery } from "@/lib/tipDisputes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1514,6 +1516,7 @@ export async function POST(req: NextRequest) {
     switch (event.type) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
+        if (await updateTipFromCheckoutEvent(admin, session, event.type)) break;
         
         console.log("[webhook] ✅ SAVE BUTTON CLICKED - checkout.session.completed", {
           session_id: session.id,
@@ -1657,6 +1660,7 @@ export async function POST(req: NextRequest) {
 
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;
+        if (await updateTipFromCheckoutEvent(admin, session, event.type)) break;
         const orderId = (session.metadata?.order_id as string) || null;
         const expiredAt = new Date().toISOString();
         if (orderId) {
@@ -1704,6 +1708,15 @@ export async function POST(req: NextRequest) {
         break;
       }
 
+      case "checkout.session.async_payment_succeeded":
+      case "checkout.session.async_payment_failed": {
+        const session = event.data.object as Stripe.Checkout.Session;
+        if (!(await updateTipFromCheckoutEvent(admin, session, event.type))) {
+          console.warn("[webhook] unrecognized asynchronous Checkout Session", session.id);
+        }
+        break;
+      }
+
       case "invoice.created": {
         await handleInvoiceCreated(event.data.object);
         break;
@@ -1716,12 +1729,14 @@ export async function POST(req: NextRequest) {
 
       case "payment_intent.succeeded": {
         const pi = event.data.object as Stripe.PaymentIntent;
+        if (await updateTipFromPaymentIntentEvent(admin, pi, true)) break;
         await reconcilePaymentIntentSucceeded(pi);
         break;
       }
 
       case "payment_intent.payment_failed": {
         const pi = event.data.object as Stripe.PaymentIntent;
+        if (await updateTipFromPaymentIntentEvent(admin, pi, false)) break;
         await reconcilePaymentIntentFailed(pi);
         break;
       }
@@ -1761,8 +1776,12 @@ export async function POST(req: NextRequest) {
           // canonical row rather than regressing the ledger with this delivery.
           await reconcileKnownPaymentDispute(admin, paymentIntentId);
         }
-        // This is deliberately audit-only. No creator earnings, access, or plan
-        // status changes until CreatorNet approves a dispute-responsibility policy.
+        // Existing commerce remains audit-only. Video tips additionally recover
+        // their destination transfer, with a compensating transfer if Stripe
+        // later closes the dispute in the tipper's favor.
+        await reconcileTipDisputeRecovery({
+          admin, stripe: getStripe(), dispute, paymentIntentId, chargeId, eventCreated: event.created,
+        });
         break;
       }
 

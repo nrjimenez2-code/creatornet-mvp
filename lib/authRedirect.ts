@@ -1,3 +1,5 @@
+import { authNextPath } from "@/lib/browserSession";
+
 const AUTH_PATH = "/auth";
 
 /**
@@ -8,6 +10,7 @@ const AUTH_PATH = "/auth";
 export function buildAuthRedirectUrl(
   configuredSiteUrl: string | undefined,
   currentOrigin: string,
+  search = "",
 ): string {
   const baseUrl = configuredSiteUrl?.trim() || currentOrigin.trim();
   const parsed = new URL(baseUrl);
@@ -16,5 +19,8 @@ export function buildAuthRedirectUrl(
     throw new Error("The authentication site URL must use HTTP or HTTPS.");
   }
 
-  return new URL(AUTH_PATH, `${parsed.origin}/`).toString();
+  const redirect = new URL(AUTH_PATH, `${parsed.origin}/`);
+  const next = authNextPath(search);
+  if (next) redirect.searchParams.set("next", next);
+  return redirect.toString();
 }

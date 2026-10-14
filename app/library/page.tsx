@@ -358,7 +358,7 @@ export default function LibraryPage() {
     return (
       <main className="relative px-6 pt-6 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] text-center lg:pb-6">
         <div className="max-w-6xl mx-auto">
-          <div className={`absolute top-4 left-4 z-10 translate-x-[0.0001in] ${isSignedOut ? "" : "hidden lg:block"}`}>
+          <div className={`absolute top-4 left-4 z-10 translate-x-[0.0001in] ${isSignedOut ? "lg:hidden" : "hidden"}`}>
             <BackButton hrefOverride="/dashboard" />
           </div>
           {isSignedOut ? (
@@ -411,9 +411,6 @@ export default function LibraryPage() {
     return (
       <main className="relative px-6 pt-6 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] text-center text-gray-500 lg:pb-6">
         <div className="max-w-6xl mx-auto">
-          <div className="absolute top-4 left-4 z-10 hidden lg:block">
-            <BackButton hrefOverride="/dashboard" />
-          </div>
           {/* The empty state used to be a lone button with no words — nothing
               said this page was the library or that it was empty on purpose. */}
           <h1 className="mt-2 lg:mt-12 text-lg font-semibold text-white">Your library is empty</h1>
@@ -445,10 +442,6 @@ export default function LibraryPage() {
           <h1 className="text-xl font-semibold text-left">Your Library</h1>
         </div>
 
-        {/* Desktop: Absolute positioned back button (original) */}
-        <div className="hidden lg:block absolute top-4 left-4 z-10">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
         <div className="hidden lg:flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Your Library</h1>
         </div>

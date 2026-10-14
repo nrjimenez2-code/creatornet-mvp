@@ -24,6 +24,7 @@ type ApiTagPost = import("@/lib/postViewCounts").VideoPreviewCounts & {
   price_cents?: number | null;
   allow_booking?: boolean | null;
   booking_url?: string | null;
+  tips_available?: boolean;
   product_type?: string | null;
   likes_count?: number | null;
   comments_count?: number | null;
@@ -400,6 +401,7 @@ function TagFeed({ hashtag }: { hashtag: string }) {
                       purchaseCount={p.purchase_count ?? null}
                       allowBooking={allowBooking}
                       bookingRedirectUrl={allowBooking ? p.booking_url! : null}
+                      tipsEnabled={p.tips_available === true}
                     />
                   </div>
                 </div>

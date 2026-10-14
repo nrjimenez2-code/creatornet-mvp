@@ -275,6 +275,7 @@ export default function AuthPage() {
       const redirectUrl = buildAuthRedirectUrl(
         process.env.NEXT_PUBLIC_SITE_URL,
         window.location.origin,
+        window.location.search,
       );
 
       const { error } = await supabase.auth.signInWithOAuth({

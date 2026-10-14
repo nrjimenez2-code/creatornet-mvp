@@ -1,0 +1,27 @@
+.heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.verified {
+  /* Balance the badge column so the name stays centered beneath the avatar. */
+  grid-template-columns: 18px minmax(0, 1fr) 18px;
+  column-gap: 8px;
+}
+
+.name {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.verified .name {
+  grid-column: 2;
+}
+
+.badge {
+  grid-column: 3;
+  transform: translateY(2px);
+}

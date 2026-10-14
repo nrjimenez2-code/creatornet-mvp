@@ -1,19 +1,22 @@
 // app/profile/page.tsx
 import { redirect } from "next/navigation";
-import Link from "next/link";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import { createServerClient } from "@/lib/supabaseServer";
-import BackButton from "@/components/BackButton";
-import ProfileShareButton from "@/components/ProfileShareButton";
+import ProfileDesktopMenu from "@/components/ProfileDesktopMenu";
 import ProfileContent from "@/components/ProfileContent";
 import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
 import ProfileMobileHeader from "@/components/ProfileMobileHeader";
+import NotificationInbox from "@/components/NotificationInbox";
 import FollowStats from "@/components/FollowStats";
 import { SELL_READY_COLUMNS, isSellReadyProfile } from "@/lib/sellReady";
 import VerifiedCreatorBadge from "@/components/VerifiedCreatorBadge";
+import profileNameStyles from "../../components/profile-name.module.css";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { buildOffers, mapProfileGalleryPosts } from "@/lib/offers";
 import { fixedServiceSchemaReady } from "@/lib/fixedServiceOffers";
+import ProfileBio from "@/components/ProfileBio";
+import { resolveBioMentions } from "@/lib/profileMentionsServer";
+import { profileWebsiteColumn, type ProfileHeader } from "@/lib/profileWebsiteReady";
 
 export const revalidate = 0;
 export const dynamic = "force-dynamic";
@@ -31,12 +34,13 @@ export default async function ProfilePage() {
   const [{ data: profile }, postsRes, followersRes, followingRes, productsRes] = await Promise.all([
     supabase
       .from("profiles")
-      .select(`id, username, full_name, tagline, avatar_url, bio, ${SELL_READY_COLUMNS}`)
+      .select(`id, username, full_name, tagline, avatar_url, bio${profileWebsiteColumn()}, ${SELL_READY_COLUMNS}`)
       .eq("id", user.id)
+      .returns<ProfileHeader[]>()
       .maybeSingle(),
     supabase
       .from("posts")
-      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, hidden_at, removed_at")
+      .select("id, creator_id, title, content, poster_url, video_url, interests, hashtags, likes_count, comments_count, shares_count, product_id, price_cents, allow_booking, booking_url, hidden_at, removed_at, tips_enabled")
       .eq("creator_id", user.id)
       .is("removed_at", null)
       .order("created_at", { ascending: false }),
@@ -90,7 +94,8 @@ export default async function ProfilePage() {
   const username = profile?.username || user.email?.split("@")[0] || "user";
   const displayName = profile?.full_name || user.user_metadata?.full_name || username;
   const tagline = profile?.tagline || null;
-  const bio = profile?.bio || "Tell people about yourself.";
+  const bio = profile?.bio || null;
+  const mentions = await resolveBioMentions(bio ?? "");
   const avatarUrl = profile?.avatar_url || null;
   // authenticated can SELECT both Stripe columns on its own row (RLS); browsers cannot write them.
   const isVerifiedSeller = isSellReadyProfile(profile);
@@ -98,31 +103,14 @@ export default async function ProfilePage() {
   return (
     <section className="px-4 pb-[calc(var(--mobile-tab-bar-height)+1.5rem)] pt-4 md:pt-10 lg:pb-16 text-white relative">
       <div className="max-w-6xl mx-auto">
-        {/* Keep the profile menu available until the dashboard sidebar appears. */}
+        {/* Keep profile actions available on mobile. */}
         <div className="lg:hidden mb-6">
           <ProfileMobileHeader userId={user.id} />
         </div>
 
-        {/* Desktop: Absolute positioned (original) */}
-        <div className="hidden lg:block absolute top-4 left-4 z-10">
-          <BackButton hrefOverride="/dashboard" />
-        </div>
-        <div className="hidden lg:flex absolute top-4 right-16 sm:right-32 z-10 items-center gap-2">
-          <Link
-            href={`/creators/${user.id}/reviews`}
-            className="inline-flex items-center justify-center rounded-md border border-white/20 px-3 py-1 text-xs sm:text-sm font-semibold leading-none text-white hover:bg-white/10 transition"
-          >
-            Review
-          </Link>
-          <ProfileShareButton />
-        </div>
-        <div className="hidden lg:block absolute top-4 right-4 z-10">
-          <Link
-            href="/profile/edit"
-            className="rounded-md bg-[#4A35C7] px-3 sm:px-4 py-1 text-xs sm:text-sm font-semibold text-white hover:brightness-95 transition border border-[#4A35C7] flex items-center justify-center"
-          >
-            Edit profile
-          </Link>
+        <div className="hidden lg:flex absolute top-4 right-4 z-10 items-center gap-2">
+          <NotificationInbox />
+          <ProfileDesktopMenu userId={user.id} />
         </div>
 
         <div className="flex flex-col items-center text-center mt-0 md:mt-8">
@@ -135,12 +123,14 @@ export default async function ProfilePage() {
             />
           </div>
 
-          <h1 className="mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold inline-flex items-center gap-2">
-            {displayName}
-            <VerifiedCreatorBadge verified={isVerifiedSeller} />
+          <h1
+            className={`mt-4 sm:mt-6 text-2xl sm:text-3xl font-semibold ${profileNameStyles.heading}${isVerifiedSeller ? ` ${profileNameStyles.verified}` : ""}`}
+          >
+            <span className={profileNameStyles.name}>{displayName}</span>
+            <VerifiedCreatorBadge verified={isVerifiedSeller} className={profileNameStyles.badge} />
           </h1>
           <p className="text-white/70 text-sm sm:text-base">@{username}</p>
-          <p className="mt-2 text-sm text-white/60 max-w-md">{bio}</p>
+          <ProfileBio bio={bio} emptyMessage="Tell people about yourself." websiteUrl={profile?.website_url} {...mentions} />
 
           {/* Stats row - followers / following open the paginated list */}
           <FollowStats
@@ -155,6 +145,8 @@ export default async function ProfilePage() {
         <ProfileContent
           postsError={Boolean(postsRes.error)} offersError={Boolean(postsRes.error || productsRes.error)}
           gallery={{
+            tippingAvailable: process.env.CREATOR_TIPPING_ENABLED === "true" && isVerifiedSeller,
+            viewerIsOwner: true,
             posts: mapProfileGalleryPosts(posts, productsRes.error ? null : productsRes.data, user.id),
             creatorId: user.id, creatorName: displayName, creatorUsername: profile?.username ?? null,
             creatorAvatarUrl: avatarUrl, creatorVerified: isVerifiedSeller, likedPostIds,

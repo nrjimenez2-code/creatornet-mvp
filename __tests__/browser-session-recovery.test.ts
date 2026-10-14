@@ -53,10 +53,40 @@ test("sign-out cookie clearing cannot be overtaken by an older sign-in", async (
   await Promise.all([first, second]);
   expect(JSON.parse(request.mock.calls[1][1].body).event).toBe("SIGNED_OUT");
 });
-test("only known local Profile destinations are accepted", () => {
+test("known local Profile destinations remain accepted", () => {
   expect(authNextPath("?next=/profile")).toBe("/profile");
   expect(authNextPath("?next=/profile/edit")).toBe("/profile/edit");
   for (const target of ["//evil.test", "https://evil.test", "/\\evil.test", "/unknown"]) expect(authNextPath("?next="+encodeURIComponent(target))).toBeNull();
+});
+
+const tipPostId = "5842d226-e9c6-4399-8531-90e076a3be1c";
+const tipReturn = `/dashboard?postId=${tipPostId}&tip=1`;
+test("sign-in preserves the exact eligible-video tip return intent", () => {
+  expect(authNextPath("?next=" + encodeURIComponent(tipReturn))).toBe(tipReturn);
+  expect(authNextPath("?next=" + encodeURIComponent(`/dashboard?tip=1&postId=${tipPostId}`))).toBe(tipReturn);
+  expect(authNextPath("?next=" + encodeURIComponent(`/dashboard?postId=${tipPostId.toUpperCase()}&tip=1`))).toBe(tipReturn);
+});
+
+test.each([
+  "/dashboard",
+  `/dashboard?postId=${tipPostId}`,
+  `/dashboard?postId=${tipPostId}&tip=0`,
+  "/dashboard?postId=not-a-post&tip=1",
+  `/dashboard?postId=${tipPostId}&tip=1&next=https://evil.test`,
+  `/dashboard?postId=${tipPostId}&tip=1&tip=1`,
+  `/dashboard?postId=${tipPostId}&postId=${tipPostId}&tip=1`,
+  `/dashboard?postId=${tipPostId}&tip=1#fragment`,
+  `//evil.test/dashboard?postId=${tipPostId}&tip=1`,
+  `/\\evil.test/dashboard?postId=${tipPostId}&tip=1`,
+  `https://evil.test/dashboard?postId=${tipPostId}&tip=1`,
+  `/dashboard/../auth?postId=${tipPostId}&tip=1`,
+])("unsafe or incomplete tip return is rejected: %s", (target) => {
+  expect(authNextPath("?next=" + encodeURIComponent(target))).toBeNull();
+});
+
+test("ambiguous multiple next destinations cannot override a tip return", () => {
+  expect(authNextPath(`?next=${encodeURIComponent(tipReturn)}&next=/profile`)).toBeNull();
+  expect(authNextPath(`?next=/profile&next=${encodeURIComponent(tipReturn)}`)).toBeNull();
 });
 
 test("sign-out during user verification cancels navigation without restoring cookies", async () => {

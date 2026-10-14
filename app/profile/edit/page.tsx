@@ -9,6 +9,9 @@ import styles from "./profile-editor.module.css";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
 import AvatarCropDialog from "@/components/AvatarCropDialog";
 import { EditorSkeleton } from "@/components/loading/Skeletons";
+import BioMentionEditor from "@/components/BioMentionEditor";
+import { validateWebsite } from "@/lib/profileBio";
+import { profileWebsiteReady, profileWebsiteColumn, type EditableProfile } from "@/lib/profileWebsiteReady";
 
 export default function EditProfilePage() {
   const router = useRouter();
@@ -20,6 +23,9 @@ export default function EditProfilePage() {
   const [tagline, setTagline] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [bio, setBio] = useState("");
+  const [website, setWebsite] = useState("");
+  const [websiteError, setWebsiteError] = useState<string | null>(null);
+  const websiteInput = useRef<HTMLInputElement>(null);
   const [avatarUploading, setAvatarUploading] = useState(false);
   const [selectedAvatarUrl, setSelectedAvatarUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -44,8 +50,9 @@ export default function EditProfilePage() {
     (async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("username, tagline, avatar_url, bio")
+        .select(`username, tagline, avatar_url, bio${profileWebsiteColumn()}`)
         .eq("id", userId)
+        .returns<EditableProfile[]>()
         .maybeSingle();
 
       if (error) {
@@ -61,6 +68,7 @@ export default function EditProfilePage() {
       setTagline(data?.tagline ?? "");
       setAvatarUrl(data?.avatar_url ?? "");
       setBio(data?.bio ?? "");
+      setWebsite(data?.website_url ?? "");
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, userId]);
@@ -68,6 +76,9 @@ export default function EditProfilePage() {
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (disabled) return;
+    const validatedWebsite = validateWebsite(profileWebsiteReady() ? website : "");
+    setWebsiteError(validatedWebsite.error);
+    if (validatedWebsite.error) { websiteInput.current?.focus(); return; }
     setSaving(true);
     setErr(null);
     setMsg(null);
@@ -94,17 +105,19 @@ export default function EditProfilePage() {
       // A plain UPDATE touches only columns `authenticated` can write. The row
       // always exists here: the page is only reachable for a signed-in user,
       // and onboarding creates the row.
-      const { error } = await supabase
+      const { error, count } = await supabase
         .from("profiles")
         .update({
           username: trimmedUsername,
           tagline: tagline.trim() === "" ? null : tagline.trim(),
           avatar_url: avatarUrl || null,
-          bio: bio.trim() === "" ? null : bio.trim(),
-        })
+          bio: bio.trim() === "" ? null : bio,
+          ...(profileWebsiteReady() ? { website_url: validatedWebsite.url } : {}),
+        }, { count: "exact" })
         .eq("id", userId);
 
       if (error) throw error;
+      if (count !== 1) throw new Error("Your profile could not be saved. Refresh the page and try again.");
 
       setMsg("Profile updated.");
       // Navigate back and force the RSC to refetch fresh data
@@ -222,9 +235,17 @@ export default function EditProfilePage() {
             </div>
             <div className={styles.field}>
               <label htmlFor="profile-bio">Bio</label>
-              <textarea id="profile-bio" name="bio" value={bio} onChange={(e) => setBio(e.target.value)} rows={4} maxLength={600} aria-describedby="bio-count" />
+              <BioMentionEditor value={bio} onChange={setBio} disabled={disabled} />
               <p id="bio-count" className={styles.count}>{bio.length} / 600</p>
             </div>
+            {profileWebsiteReady() ? <div className={styles.field}>
+              <label htmlFor="profile-website">Website</label>
+              <input ref={websiteInput} id="profile-website" name="website" type="text" inputMode="url" autoComplete="url"
+                value={website} maxLength={2048} aria-invalid={!!websiteError} aria-describedby={websiteError ? "website-help website-error" : "website-help"}
+                onChange={event => { setWebsite(event.target.value); if (websiteError) setWebsiteError(validateWebsite(event.target.value).error); }} />
+              <p id="website-help" className={styles.hint}>Optional · Add your website or a link.</p>
+              {websiteError ? <p id="website-error" role="alert" className={styles.error}>{websiteError}</p> : null}
+            </div> : null}
           </fieldset>
           {!profileLoaded && !loadFailed ? <p role="status" className={styles.hint}>Loading your profile…</p> : null}
           {err ? <p role="alert" className={styles.error}>{err}</p> : null}

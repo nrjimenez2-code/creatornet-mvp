@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 jest.mock("next/navigation", () => ({ useRouter: () => ({push:jest.fn(),refresh:jest.fn()}) }));
 jest.mock("@/lib/useUser", () => ({ useUser: () => ({userId:null,loading:false}) }));
 jest.mock("@/lib/posthog", () => ({ normalizeCategory: (value:unknown) => value }));
-jest.mock("@/components/VideoCard", () => ({ __esModule:true,default:({postId}:{postId:string}) => createElement("div",{"data-playing-post":postId}) }));
+jest.mock("@/components/VideoCard", () => ({ __esModule:true,default:({postId,tipsEnabled}:{postId:string;tipsEnabled?:boolean}) => createElement("div",{"data-playing-post":postId,"data-tips-enabled":String(tipsEnabled === true)}) }));
 import ProfileContent from "@/components/ProfileContent";
 import { buildOffers } from "@/lib/offers";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
@@ -65,4 +65,37 @@ test("offers stay inline with prices and readiness gates, while tab/preview inte
   await act(async()=>tiles[2].click());
   expect(host.querySelector('[data-playing-post="p2"]')).not.toBeNull();
   expect(global.fetch).not.toHaveBeenCalled();
+});
+
+test.each([
+  [true, true, true],
+  [true, false, true],
+  [false, true, false],
+])("profile tabs preserve tipping availability=%s and owner=%s", async (tippingAvailable, viewerIsOwner, expectedTips) => {
+  await act(async () => root.render(createElement(ProfileContent, {
+    gallery: {
+      posts: posts(1).map(post => ({...post, tips_enabled: true})),
+      creatorId: "creator", creatorName: "Creator", tippingAvailable, viewerIsOwner,
+    },
+    offers: {creatorId: "creator", creatorName: "Creator", offers: [], sellReady: false, rating: null},
+  })));
+  expect(host.querySelector('#profile-views-p0')?.textContent).toBe("0 views");
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Open post"]')!.click());
+  expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe(String(expectedTips));
+  const toggle = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === "Disable tips");
+  expect(Boolean(toggle)).toBe(tippingAvailable && viewerIsOwner);
+  expect(global.fetch).not.toHaveBeenCalled();
+  if (toggle) {
+    (global.fetch as jest.Mock).mockResolvedValue({ok: true, json: async () => ({enabled: false})});
+    await act(async () => toggle.click());
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    expect(global.fetch).toHaveBeenCalledWith("/api/posts/p0/tips", expect.objectContaining({method: "PATCH", body: JSON.stringify({enabled: false})}));
+    expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe("false");
+    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true})));
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click());
+    await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[0].click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Open post"]')!.click());
+    expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe("false");
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  }
 });
