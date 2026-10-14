@@ -7,6 +7,7 @@ import { membershipMonthBoundary } from "./membershipAgreement";
 import { membershipCheck as check, membershipStripeId as sid, membershipMetadata, assertMembershipHeld, type MembershipRecord } from "./membershipCheckout";
 import { runMembershipOperation } from "./membershipOperation";
 import { monthlyCardForService, monthlyInvoiceCard, monthlyCaptureAuthority } from "./membershipCards";
+import { assertMembershipUsBilling } from "./membershipBillingEligibility";
 import { assertMembershipActivated, assertMembershipInvoice, inspectMembershipRenewalCapture, membershipActivationParams,
   membershipInvoiceConfiguration, membershipInvoicePayParams, membershipRenewalPeriod, readMembershipFirstProof, type MembershipFirstProof } from "./membershipRenewal";
 import { recordPaymentFeeLedger } from "./paymentFeeLedger";
@@ -44,6 +45,7 @@ export function createMembershipBillingRuntime(d: MembershipBillingDependencies)
       (customer.invoice_settings.default_payment_method == null || customer.invoice_settings.default_payment_method === original.paymentMethodId) &&
       isDeepStrictEqual(customer.metadata, membershipMetadata(a, "customer")) && pm.object === "payment_method" && pm.id === proof.paymentMethodId &&
       pm.type === "card" && pm.customer === a.stripe_customer_id && pm.livemode === (context.mode === "live"));
+    assertMembershipUsBilling(pm);
   }
   async function activate(id: string, buyerId: string) {
     newCollectionReady(); const a = await load(id, buyerId); await observeContext();
@@ -215,6 +217,9 @@ export function createMembershipBillingRuntime(d: MembershipBillingDependencies)
           check(!held.error); throw Error("Monthly payment needs explicit recovery, not another automatic attempt");
         }
         await observeContext(); assertMembershipActivated(await checked(stripe.subscriptions.retrieve(a.stripe_subscription_id!)), a, product, original);
+        // Invoice preparation may take several provider calls. Re-read the
+        // admitted card before the final durable claim; do not trust old UI data.
+        await card(a, proof, original);
         // Recheck the exact same durable claim immediately before the debit.
         // A stop/revision change during invoice preparation prevents payment.
         const still = await admin.rpc("claim_monthly_mentorship_operation_v1", { p_agreement_id: a.id, p_actor_id: a.creator_id,

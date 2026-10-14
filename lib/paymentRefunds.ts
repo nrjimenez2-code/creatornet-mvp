@@ -175,8 +175,9 @@ export async function reconcileKnownPaymentRefund(
  */
 export async function confirmAdminRefundWebhookDelivery(
   admin: SupabaseClient,
-  stripe: Stripe,
+  stripe: Pick<Stripe,"refunds">,
   state: PaymentRefundState,
+  requestOptions?: Stripe.RequestOptions,
 ): Promise<void> {
   const { data, error: lookupError } = await admin
     .from("refund_operations")
@@ -197,11 +198,14 @@ export async function confirmAdminRefundWebhookDelivery(
   let cursor: string | undefined;
   const seenCursors = new Set<string>();
   do {
-    const page: Stripe.ApiList<Stripe.Refund> = await stripe.refunds.list({
+    const params: Stripe.RefundListParams = {
       charge: state.chargeId,
       limit: 100,
       ...(cursor ? { starting_after: cursor } : {}),
-    });
+    };
+    const page: Stripe.ApiList<Stripe.Refund> = requestOptions
+      ? await stripe.refunds.list(params,requestOptions)
+      : await stripe.refunds.list(params);
     refunds.push(...page.data);
     if (!page.has_more) break;
     cursor = page.data.at(-1)?.id;

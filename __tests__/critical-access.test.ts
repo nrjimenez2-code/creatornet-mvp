@@ -112,7 +112,10 @@ describe("source tripwires", () => {
     expect(block).toMatch(/resolvePostForProduct\(/);
     expect(block).toMatch(/INVALID_POST/);
     // the pending-purchase writer takes the resolved post id, not the body
-    expect(checkout).toMatch(/post_id: postId,\s*\n\s*creator_id: creatorId,/);
+    expect(checkout).toMatch(/writeProductCheckoutPending\(\s*\{[\s\S]*?creatorId,\s*postId,/);
+    const pendingWriter = read("lib/productCheckoutPending.ts");
+    expect(pendingWriter).not.toMatch(/body\.(?:post_id|creator_id)/);
+    expect(pendingWriter).toMatch(/post_id: postId,\s*\n\s*creator_id: creatorId,/);
   });
 
   test("fix 3: posts route validates premium_path and watch route re-checks it", () => {

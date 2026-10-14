@@ -114,7 +114,7 @@ export function createMembershipPaymentEventRuntime(d: MembershipBillingDependen
     if (c.disputed) {
       const list = await checked(stripe.disputes.list({ charge: c.id, payment_intent: pi.id, limit: 100 }));
       check(list.has_more === false && list.data.length === 1, "Monthly dispute needs unambiguous provider state");
-      const dispute = await checked(stripe.disputes.retrieve(sid(list.data[0].id, "dp")));
+      const dispute = await checked(stripe.disputes.retrieve(sid(list.data[0].id, "du")));
       check(dispute.object === "dispute" && dispute.id === list.data[0].id && sid(dispute.charge, "ch") === c.id && sid(dispute.payment_intent, "pi") === pi.id &&
         dispute.livemode === (context.mode === "live") && dispute.currency === "usd" &&
         Number.isSafeInteger(dispute.amount) && dispute.amount > 0 && dispute.amount <= c.amount, "Monthly dispute owner differs");

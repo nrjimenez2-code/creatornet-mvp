@@ -42,8 +42,10 @@ const noProductWrites = () => {
   expect(mockQuery.insert).not.toHaveBeenCalled();
   expect(mockAdminRpc).not.toHaveBeenCalled();
 };
+const optionFlags = ["CREATOR_MENTORSHIP_INSTALLMENT_OPTIONS_SCHEMA_READY", "CREATOR_MENTORSHIP_INSTALLMENT_OFFERS_READY", "CREATOR_MENTORSHIP_INSTALLMENT_CHECKOUT_READY"];
 beforeEach(() => {
   jest.clearAllMocks();
+  for (const flag of optionFlags) delete process.env[flag];
   for (const flag of flags) delete process.env[flag];
   process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY = "true";
   process.env.CREATOR_MONTHLY_MENTORSHIPS_READY = "true";
@@ -146,4 +148,21 @@ test("GET avoids the new column before schema readiness", async () => {
 test("GET advertises creation only after every purchase-path gate is ready", async () => {
   enable();
   expect((await (await GET()).json()).capabilities.fixedServiceDuration).toBe(true);
+});
+test.each(optionFlags)("creator choices are held before writes without %s", async missing => {
+  enable(); for (const flag of optionFlags) process.env[flag] = "true"; delete process.env[missing];
+  expect((await POST(request({ installment_options: [2, 3] }))).status).toBe(409);
+  noProductWrites();
+});
+test("creator-approved choices preserve full total and independent service duration", async () => {
+  enable(); for (const flag of optionFlags) process.env[flag] = "true";
+  const response = await POST(request({ installment_options: [2, 3, 6], creator_id: "forged-creator" }));
+  expect(response.status).toBe(200);
+  expect(mockQuery.insert).toHaveBeenCalledWith([expect.objectContaining({ creator_id: creatorId,
+    installment_options: [2, 3, 6], amount_cents: 1000000, fixed_service_months: 10, plan_months: 1 })]);
+});
+test("malformed choices cannot create provider products", async () => {
+  enable(); for (const flag of optionFlags) process.env[flag] = "true";
+  expect((await POST(request({ installment_options: [3, 2] }))).status).toBe(400);
+  noProductWrites();
 });

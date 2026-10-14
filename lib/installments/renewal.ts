@@ -4,7 +4,7 @@ import type Stripe from "stripe";
 import { calculateInstallmentPlan } from "../installmentPlan";
 import type { ExactAgreement, ExactAgreementStore } from "./agreementStore";
 import { assertExactInstallmentSandbox,assertExactInstallmentEnvironment } from "./checkoutPreparation";
-import { assertPaidHeldInvoiceUsingContract, HELD_INSTALLMENT_VERSION, prepareHeldInstallmentInvoice, type HeldInvoicePreparationContract } from "./heldInvoice";
+import { assertPaidHeldInvoiceUsingContract, HELD_INSTALLMENT_VERSION, prepareHeldInstallmentInvoice, type HeldInvoicePreparationContract, type BuyerHeldInvoiceAuthorization } from "./heldInvoice";
 import type { ExactInvoiceStore, RenewalAuthorization } from "./invoiceStore";
 import type { ExactReceiptCreditStore } from "./receiptCredit";
 import { hasExpectedFutureEnd } from "./scheduledEnd";
@@ -51,7 +51,7 @@ export type RenewalReceiptContract = Pick<HeldInvoicePreparationContract,"expect
   Readonly<{ now:()=>number; minimumChargeCreatedAt?:number }>;
 
 /** Shared captured-payment inspector only: no dispatch, credit or provider writes. */
-export async function inspectPaidRenewal(stripe:ReceiptStripe,a:RenewalAuthorization,expectedPI:string,contract:RenewalReceiptContract) {
+export async function inspectPaidRenewal(stripe:ReceiptStripe,a:RenewalAuthorization | (BuyerHeldInvoiceAuthorization & {paymentMethodId:string}),expectedPI:string,contract:RenewalReceiptContract) {
   const invoice=await stripe.invoices.retrieve(a.invoiceId);
   if(invoice.status!=="paid") return null;
   const payment=assertPaidHeldInvoiceUsingContract(invoice,a,contract);
@@ -152,7 +152,7 @@ async function verifyBeforeDispatch(args:Input,a:RenewalAuthorization,allowPastD
 export async function verifyRenewalProviderHistory(stripe: {
   paymentMethods:{retrieve(id:string):Promise<Stripe.PaymentMethod>}; customers:{retrieve(id:string):Promise<Stripe.Customer|Stripe.DeletedCustomer>};
   paymentIntents:{retrieve(id:string):Promise<Stripe.PaymentIntent>}; charges:{retrieve(id:string):Promise<Stripe.Charge>};
-},a:RenewalAuthorization,prior:ReadonlyArray<{paymentNumber:number;paymentIntentId:string}>,
+},a:Pick<RenewalAuthorization,"paymentMethodId"|"defaultPaymentMethodId"|"customerId"|"paymentNumber"|"destinationId">,prior:ReadonlyArray<{paymentNumber:number;paymentIntentId:string}>,
 payments:ReturnType<typeof calculateInstallmentPlan>["payments"],expectedLiveMode:boolean) {
   const originalDefault=a.defaultPaymentMethodId || a.paymentMethodId;
   const pm=await stripe.paymentMethods.retrieve(a.paymentMethodId);

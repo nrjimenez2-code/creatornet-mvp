@@ -3,6 +3,7 @@ import { recordBookingSetup } from "@/lib/discoverBookings";
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripeClient";
+import { originalMonthlyWebhookMode } from "@/lib/originalMonthlyWebhookVerification";
 import { handoffExactInstallmentWebhook } from "@/lib/installments/routeHandoff";
 import { createClient } from "@supabase/supabase-js";
 import { trackServerEvent } from "@/lib/posthogServer";
@@ -1400,6 +1401,11 @@ async function reconcilePaymentIntentFailed(pi: Stripe.PaymentIntent) {
 // ---------- route ----------
 export async function POST(req: NextRequest) {
   console.log("[webhook] 🔔 WEBHOOK REQUEST RECEIVED - Starting webhook handler");
+  const deliveryMode = originalMonthlyWebhookMode();
+  if (deliveryMode === "invalid" || (deliveryMode === "verify-only" &&
+      new URL(req.url).origin !== `https://${process.env.VERCEL_URL}`)) {
+    return jerr("verification-profile", "Signed observation profile requires review", 503);
+  }
   
   if (!STRIPE_SECRET_KEY) {
     console.error("[webhook] ❌ Missing STRIPE_SECRET_KEY");
@@ -1461,6 +1467,20 @@ export async function POST(req: NextRequest) {
     return jerr("provider-context", "Event requires the connected-account destination", 400);
   }
 
+  if (deliveryMode === "verify-only") {
+    if (!/^evt_[A-Za-z0-9_]{1,128}$/.test(event.id) || typeof event.type !== "string" ||
+        event.type.length > 100 || !/^[a-z_]+(?:\.[a-z_]+)+$/.test(event.type))
+      return jerr("verification-event", "Signed observation event requires review", 400);
+    const receipt = { version: "original-monthly-signed-observation-v1", deploymentId: process.env.VERCEL_DEPLOYMENT_ID,
+      eventId: event.id, eventType: event.type, source, livemode: event.livemode,
+      apiVersion: typeof event.api_version === "string" && /^20\d{2}-\d{2}-\d{2}(?:\.[A-Za-z0-9_-]+)?$/.test(event.api_version)
+        ? event.api_version : null, processing: "verification-only", databaseClaimed: false };
+    // Intentionally before the shared stripe:event claim, including duplicate
+    // refund repair. No object payload, signature, URL/query or secret is logged.
+    console.info("[webhook] signed-verification-only", receipt);
+    return NextResponse.json({ ok: true, ...receipt }, { headers: { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex" } });
+  }
+
   console.log("[webhook] 🎯 Processing event type:", event.type, "Event ID:", event.id);
 
   // Idempotency. Must be after signature verification (never record an event we
@@ -1504,6 +1524,37 @@ export async function POST(req: NextRequest) {
   try {
     // Signature and durable event claim are already verified above. Exact
     // Checkout/invoices must never also enter legacy one-time accounting.
+    const { handoffBuyerMentorshipRefundWebhook, handoffBuyerMentorshipDisputeWebhook } = await import("@/lib/mentorshipInstallmentWebhook");
+    if (await handoffBuyerMentorshipDisputeWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    if (await handoffBuyerMentorshipRefundWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { handoffBuyerMentorshipLaterWebhook } = await import("@/lib/mentorshipInstallmentLaterWebhook");
+    if (await handoffBuyerMentorshipLaterWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { handoffBuyerMentorshipManualLifecycle } = await import("@/lib/mentorshipInstallmentManualLifecycle");
+    if (await handoffBuyerMentorshipManualLifecycle({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { handoffBuyerMentorshipFirstWebhook } = await import("@/lib/mentorshipInstallmentFirstWebhook");
+    if (await handoffBuyerMentorshipFirstWebhook({ event, admin, env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
+    const { rejectUnimplementedBuyerInstallmentEvent } = await import("@/lib/mentorshipInstallmentWebhook");
+    await rejectUnimplementedBuyerInstallmentEvent({ event, admin, stripe: getStripe(), env: process.env });
+    const { handoffFullServerPaymentWebhook } = await import("@/lib/fullServerPaymentWebhook");
+    if (await handoffFullServerPaymentWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
     const { handoffMonthlyMentorshipWebhook } = await import("@/lib/membershipWebhook");
     if (await handoffMonthlyMentorshipWebhook({ event, admin, env: process.env })) {
       await completeStripeEvent(claimKey, claim.claimToken);

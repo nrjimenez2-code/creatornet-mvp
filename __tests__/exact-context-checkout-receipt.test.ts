@@ -339,7 +339,7 @@ async function seedHeld(firstFee = fee) {
       automatic_tax: { enabled: false }, discounts: [], default_tax_rates: [], pending_update: null, schedule: null, test_clock: null,
       pause_collection: { behavior: "keep_as_draft", resumes_at: null },
       created: Math.floor(Date.now() / 1000), items: { has_more: false, data: [{ id: "si_LocalCheckout", subscription: providerId,
-        quantity: 1, tax_rates: [], discounts: [], price: { id: "price_LocalCheckout", active: true, livemode: live,
+        quantity: 1, tax_rates: [], discounts: [], price: { id: "price_LocalCheckout", active: false, livemode: live,
         currency: "usd", product: "prod_LocalCheckout", unit_amount: 66633, billing_scheme: "per_unit",
         recurring: { interval: "month", interval_count: 1, usage_type: "licensed" } } }] } });
   }

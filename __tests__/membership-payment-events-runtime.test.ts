@@ -53,7 +53,7 @@ function harness(kind: Kind = "first", paid = true) {
         selection === "provider_proof" ? { provider_proof: r.proof } : receiptVisible ? receipt : null })) };
     return q;
   });
-  const dispute = { id: "dp_payment", object: "dispute", charge: charge.id, payment_intent: pi.id, amount: pi.amount,
+  const dispute = { id: "du_payment", object: "dispute", charge: charge.id, payment_intent: pi.id, amount: pi.amount,
     currency: "usd", livemode: false, status: "won" } as Stripe.Dispute;
   const stripe = {
     paymentIntents: { retrieve: jest.fn(async () => response(pi)) },
@@ -159,12 +159,22 @@ test("step 7: observed refund is sent through the existing refund engine after e
     chargeAmountCents: h.charge.amount, refundedAmountCents: h.charge.amount });
   expect(mockApplyRefund).toHaveBeenCalledWith(expect.anything(), { synthetic: true });
 });
-test("step 7: current dispute state is recorded and reapplied before the capture callback", async () => {
-  const h = harness(); h.charge.disputed = true; await h.run();
-  expect(mockDispute).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ disputeId: h.dispute.id,
-    paymentIntentId: h.pi.id, chargeId: h.charge.id, eventCreated: h.event.created, status: "won" }));
-  expect(mockApplyDispute.mock.invocationCallOrder[0]).toBeLessThan(h.callbacks.confirmFirst.mock.invocationCallOrder[0]);
-  expect(mockReconcileDispute).toHaveBeenCalledWith(expect.anything(), h.pi.id);
+test.each(["first", "renewal", "payoff"] as Kind[])(
+  "step 7: current %s dispute uses the original du_ identity before the capture callback", async kind => {
+    const h = harness(kind); h.charge.disputed = true; await h.run();
+    expect(h.stripe.disputes.retrieve).toHaveBeenCalledWith(h.dispute.id);
+    expect(mockDispute).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ disputeId: h.dispute.id,
+      paymentIntentId: h.pi.id, chargeId: h.charge.id, eventCreated: h.event.created, status: "won" }));
+    const callback = kind === "first" ? h.callbacks.confirmFirst : kind === "renewal" ? h.callbacks.reconcileInvoice : h.callbacks.confirmPayoff;
+    expect(mockApplyDispute.mock.invocationCallOrder[0]).toBeLessThan(callback.mock.invocationCallOrder[0]);
+    expect(mockReconcileDispute).toHaveBeenCalledWith(expect.anything(), h.pi.id);
+  });
+test.each(["dp_payment", "ch_payment"])("step 7: an invalid dispute prefix %s cannot reach provider retrieval or accounting", async id => {
+  const h = harness(); h.charge.disputed = true; h.dispute.id = id;
+  await expect(h.run()).rejects.toThrow("Invalid monthly provider identity");
+  expect(h.stripe.disputes.retrieve).not.toHaveBeenCalled(); expect(mockDispute).not.toHaveBeenCalled();
+  expect(mockApplyDispute).not.toHaveBeenCalled(); expect(h.callbacks.confirmFirst).not.toHaveBeenCalled();
+  expect(h.callbacks.reconcileInvoice).not.toHaveBeenCalled(); expect(h.callbacks.confirmPayoff).not.toHaveBeenCalled();
 });
 test("step 8: newer canonical dispute state is reapplied rather than overwritten", async () => {
   const h = harness(); h.charge.disputed = true; mockDispute.mockResolvedValueOnce(false); await h.run();

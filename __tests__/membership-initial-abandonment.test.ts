@@ -46,6 +46,7 @@ function harness() {
     return q;
   });
   const stripe = {
+    customers: { retrieve: jest.fn(async () => response(f.customer)) },
     checkout: { sessions: {
       retrieve: jest.fn(async () => response(f.session)), list: jest.fn(async () => response({ data: [f.session], has_more: false })),
       expire: jest.fn(async () => { f.session.status = "expired"; f.session.url = null; return response(f.session); }), create: jest.fn(),
@@ -66,6 +67,7 @@ function harness() {
     env, context, load, observeContext, checked: async <T,>(v: Promise<Stripe.Response<T>>) => v, productId: async () => f.product.id }, { reconcileFirstCheckout });
   return { f, env, invoice, state, closures, rpc, stripe, runtime, reconcileFirstCheckout, load, response, observeContext,
     run: () => runtime.abandonFirstCheckout(f.a.id, f.a.buyer_id, true), setOps: (rows: typeof ops) => { ops = rows; },
+    runManualBeforeIntent: () => runtime.abandonFirstCheckout(f.a.id, f.a.buyer_id, true, true),
     failSave: (value: boolean) => { saveFailure = value; }, failRequest: () => { requestFailure = true; } };
 }
 function noMoneyCreation(h: ReturnType<typeof harness>) {
@@ -114,6 +116,27 @@ test("step 8: database-proven never-payable attempts need no provider mutations"
   expect((await h.run()).status).toBe("abandoned");
   expect(h.rpc).toHaveBeenCalledWith("complete_monthly_initial_abandonment_v1", expect.objectContaining({ p_proof: expect.objectContaining({ neverPayable: true }) }));
   expect(h.stripe.checkout.sessions.expire).not.toHaveBeenCalled(); expect(h.stripe.subscriptions.cancel).not.toHaveBeenCalled(); noMoneyCreation(h);
+});
+test("pre-journal customer-only bootstrap needs six empty financial lists", async () => {
+  const h=harness(); h.setOps(h.f.ops.slice(0,2)); h.state.invoices=[];
+  h.stripe.subscriptions.list.mockImplementation(async()=>h.response({data:[],has_more:false}));
+  h.stripe.checkout.sessions.list.mockImplementation(async()=>h.response({data:[],has_more:false}));
+  expect((await h.runManualBeforeIntent()).status).toBe("abandoned");
+  expect(h.rpc).toHaveBeenCalledWith("complete_monthly_initial_abandonment_v1",expect.objectContaining({
+    p_proof:expect.objectContaining({neverPayable:true,customerOnly:true,customerId:h.f.ids.customer,
+      listsComplete:true,readRequestIds:Array(6).fill("req_initial"),paymentIntents:[],charges:[],
+      invoices:[],subscriptions:[],checkouts:[]})}));
+  expect(h.stripe.customers.retrieve).toHaveBeenCalledWith(h.f.ids.customer);
+  noMoneyCreation(h);
+});
+test("pre-journal customer-only bootstrap stays held when a provider list has activity", async () => {
+  const h=harness(); h.setOps(h.f.ops.slice(0,2)); h.state.invoices=[];
+  h.stripe.subscriptions.list.mockImplementation(async()=>h.response({data:[],has_more:false}));
+  h.stripe.checkout.sessions.list.mockImplementation(async()=>h.response({data:[],has_more:false}));
+  h.state.intents.push({id:"pi_unknown"} as Stripe.PaymentIntent);
+  expect((await h.runManualBeforeIntent()).status).toBe("abandon_pending");
+  expect(h.rpc.mock.calls.some(([name])=>name==="complete_monthly_initial_abandonment_v1")).toBe(false);
+  noMoneyCreation(h);
 });
 test.each(["recorded", "captured", "racing_save"])("step 8: %s payment goes through existing receipt recovery instead of abandonment", async state => {
   const h = harness();

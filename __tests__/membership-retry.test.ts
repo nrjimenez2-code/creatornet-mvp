@@ -11,6 +11,7 @@ import { membershipTestEnv } from "../test-support/membership-fixtures";
 const copy = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 function harness() {
   const { f, r, card } = monthlyCardSetupFixture(), context = f.a.terms.paymentContext, now = Math.floor(Date.now() / 1000);
+  card.billing_details = {name:'Synthetic Buyer',email:null,phone:null,tax_id:null,address:{country:'US',line1:'123 Test Street',line2:null,city:'Phoenix',state:'AZ',postal_code:'85001'}};
   Object.assign(f.invoice, membershipInvoiceConfiguration(f.a, f.proof, 2), { status: "open", attempt_count: 1 });
   f.invoice.lines.data[0].period = { start: f.period.start, end: f.period.end }; f.paymentIntent.next_action = null;
   const id = "30000000-0000-4000-8000-000000000001";
@@ -87,6 +88,20 @@ test("steps 1/4/5: review is immutable context, not a debit or future-card accep
   const h = harness(), result = await h.api.reviewRenewalRetry(h.f.a.id, h.f.a.buyer_id, h.r.id);
   expect(result.quote.amountCents).toBe(10000); expect(result.quote.periodStart).toBe(h.f.period.start);
   expect(result.confirmed).toBe(false); expect(result.useFutureCard).toBeNull(); expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
+});
+
+test.each(['CA',null,undefined])('US launch: replacement billing country %s blocks retry before consumption',async country=>{
+  const h=harness();h.card.billing_details.address!.country=country as string;
+  await expect(h.pay()).rejects.toThrow('US billing');
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled();expect(h.q.dispatch_consumed_at).toBeNull();
+});
+test('US launch: country drift at consumption does not dispatch or reset the consumed original',async()=>{
+  const h=harness(),rpc=h.rpc.getMockImplementation()!;
+  h.rpc.mockImplementation(async(name,p)=>{
+    const result=await rpc(name,p);if(name==='monthly_retry_v1'&&p.p_action==='consume')h.card.billing_details.address!.country='CA';return result;
+  });
+  await h.pay();expect(h.stripe.invoices.pay).not.toHaveBeenCalled();expect(h.q.dispatch_consumed_at).not.toBeNull();
+  const original=h.q.dispatch_consumed_at;await h.pay();expect(h.q.dispatch_consumed_at).toBe(original);expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
 });
 test.each([false, true])("steps 1/4/8: one explicitly accepted retry, future-card choice %s, uses the original invoice", async future => {
   const h = harness(), result = await h.pay(future);

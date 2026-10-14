@@ -1,0 +1,15 @@
+import {NextRequest} from "next/server";
+const mockAdmin=jest.fn(),mockReady=jest.fn(),mockAck=jest.fn();
+jest.mock("@/lib/admin/server",()=>({requireAdmin:()=>mockAdmin(),adminAuthErrorResponse:()=>new Response("unauthorized",{status:401})}));
+jest.mock("@/lib/fullRefundReviewAcknowledgement",()=>({...jest.requireActual("@/lib/fullRefundReviewAcknowledgement"),fullRefundReviewAcknowledgementReady:()=>mockReady(),acknowledgeFullRefundReview:(...args:unknown[])=>mockAck(...args)}));
+import {POST} from "../app/api/admin/full-refund-review/route";
+const origin="https://example.invalid",input={requestId:"10000000-0000-4000-8000-000000000002",eventId:"evt_original",revision:3,confirmHoldRetained:true};
+const req=(body:unknown=input,from=origin,url=origin)=>new NextRequest(`${url}/api/admin/full-refund-review`,{method:"POST",headers:{origin:from,"content-type":"application/json"},body:JSON.stringify(body)});
+const prior=process.env.NEXT_PUBLIC_SITE_URL;
+beforeEach(()=>{jest.clearAllMocks();process.env.NEXT_PUBLIC_SITE_URL=origin;mockAdmin.mockResolvedValue({admin:{},user:{id:"actor"}});mockReady.mockReturnValue(true);mockAck.mockResolvedValue({status:"review_recorded_hold_retained",current:true});});
+afterAll(()=>{if(prior===undefined)delete process.env.NEXT_PUBLIC_SITE_URL;else process.env.NEXT_PUBLIC_SITE_URL=prior;});
+test("origin and route origin both fail before auth",async()=>{expect((await POST(req(input,"https://foreign.invalid"))).status).toBe(403);expect((await POST(req(input,origin,"https://foreign.invalid"))).status).toBe(403);expect(mockAdmin).not.toHaveBeenCalled();});
+test("unauthorized and disabled requests never write",async()=>{mockAdmin.mockRejectedValueOnce(Error());expect((await POST(req())).status).toBe(401);mockReady.mockReturnValue(false);expect((await POST(req())).status).toBe(404);expect(mockAck).not.toHaveBeenCalled();});
+test("confirmation and body shape required",async()=>{expect((await POST(req({...input,confirmHoldRetained:false}))).status).toBe(400);expect((await POST(req({...input,actorId:"forged"}))).status).toBe(400);expect(mockAck).not.toHaveBeenCalled();});
+test("passes authenticated actor and exact original request; uncertainty does not claim rollback",async()=>{const response=await POST(req());expect(await response.json()).toEqual({status:"review_recorded_hold_retained",current:true});expect(response.headers.get("cache-control")).toBe("private, no-store");expect(mockAck).toHaveBeenCalledWith({},"actor",input);
+  mockAck.mockRejectedValueOnce(Error("private"));const failure=await POST(req());expect(failure.status).toBe(409);expect(await failure.text()).not.toContain("private");});

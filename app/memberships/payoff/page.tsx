@@ -4,7 +4,7 @@ import Link from "next/link";
 import { PaymentDetailSkeleton, PaymentReviewBodySkeleton } from "@/components/loading/Skeletons";
 import { useSearchParams } from "next/navigation";
 import type { MembershipPayoffTerms } from "@/lib/membershipPayoff";
-type Quote = { terms: MembershipPayoffTerms; fingerprint: string; payoffId: string | null; status: string; checkoutEnabled?: boolean };
+type Quote = { terms: MembershipPayoffTerms; fingerprint: string; payoffId: string | null; status: string; checkoutEnabled?: boolean; manualPayoffAvailable?: boolean };
 type Confirmation = { payoffId: string; payoffRecorded: boolean; accessGranted: boolean; paidThrough: number | null; providerStopped: boolean };
 type View = { key: string; quote?: Quote; confirmation?: Confirmation; error?: string; abandoned?: boolean; mayResume?: boolean };
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
@@ -99,7 +99,9 @@ function Payoff() {
             <input type="checkbox" checked={accepted} disabled={busy || q.checkoutEnabled === false} onChange={event => setAccepted(event.target.checked)} className="mt-1" />
             <span>I separately authorize this exact {usd(t.amountCents)} one-time payoff, its displayed service period and refund terms. This is not consent to an extra monthly payment.</span>
           </label>
-          {q.checkoutEnabled === false && <p role="status">New payoff checkout is paused. You can still abandon this pending payoff or contact support.</p>}
+          {q.checkoutEnabled === false && <p role="status">New payoff checkout is paused. You can review the saved payoff or contact support.</p>}
+          {q.manualPayoffAvailable === true && <p><Link href={`/memberships/manual-payoff?membership_id=${membershipId}`}
+            className="underline">Continue your saved card payoff</Link></p>}
           <button disabled={!accepted || busy || q.checkoutEnabled === false} onClick={() => void act("checkout")} className="rounded-lg bg-white px-5 py-3 font-semibold text-black disabled:opacity-40">
             {busy ? "Processing..." : "Confirm payoff and open payment"}</button>
           {q.payoffId && <p><Link href={`/memberships/payoff?membership_id=${membershipId}&payoff_id=${q.payoffId}&confirm=1`} className="underline">Check existing payoff payment</Link></p>}

@@ -90,7 +90,7 @@ export function inspectContextActivationSubscription(s: Stripe.Subscription, r: 
   const item = s.items.data[0], price = item.price;
   contextStripeId(item.id, "si");
   check(item.subscription === s.id && item.quantity === 1 && !item.tax_rates?.length && !item.discounts?.length && item.billing_thresholds == null &&
-    price.active === true && price.livemode === live && price.product === deps.productId && price.currency === "usd" &&
+    typeof price.active === "boolean" && price.livemode === live && price.product === deps.productId && price.currency === "usd" &&
     price.unit_amount === calculateInstallmentPlan(t.totalCents, t.paymentCount, t.renewalFeeSchedule, t.firstPaymentFeeSchedule).regularAmountCents &&
     price.recurring?.interval === "month" && price.recurring.interval_count === 1 && price.recurring.usage_type === "licensed" &&
     price.billing_scheme === "per_unit" && price.transform_quantity == null);
@@ -98,9 +98,14 @@ export function inspectContextActivationSubscription(s: Stripe.Subscription, r: 
 }
 
 export function assertContextBootstrapInvoices(list: Stripe.ApiList<Stripe.Invoice>, r: ExactContextReservation, deps: ContextActivationDependencies) {
+  assertHeldBootstrapInvoices(list, {mode:r.context.mode,subscriptionId:deps.subscriptionId,customerId:deps.customerId});
+}
+
+/** Independent provider invoice preflight shared by both owned protocols. */
+export function assertHeldBootstrapInvoices(list: Stripe.ApiList<Stripe.Invoice>, scope:{mode:"test"|"live";subscriptionId:string;customerId:string}) {
   check(list.object === "list" && list.has_more === false && Array.isArray(list.data));
-  for (const inv of list.data) check(inv.object === "invoice" && inv.livemode === (r.context.mode === "live") &&
-    inv.parent?.subscription_details?.subscription === deps.subscriptionId && inv.customer === deps.customerId && inv.currency === "usd" &&
+  for (const inv of list.data) check(inv.object === "invoice" && inv.livemode === (scope.mode === "live") &&
+    inv.parent?.subscription_details?.subscription === scope.subscriptionId && inv.customer === scope.customerId && inv.currency === "usd" &&
     inv.total === 0 && inv.subtotal === 0 && inv.amount_due === 0 && inv.amount_paid === 0 && inv.amount_overpaid === 0 && inv.starting_balance === 0 &&
     !inv.pre_payment_credit_notes_amount && !inv.post_payment_credit_notes_amount && !inv.discounts?.length && !inv.total_discount_amounts?.length);
 }

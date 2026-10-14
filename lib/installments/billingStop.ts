@@ -8,8 +8,9 @@ import { assertExactInstallmentEnvironment } from "./checkoutPreparation";
 
 export type BillingStopIdentity = Readonly<{ agreementId:string; requestId:string; actorId:string; token:string }>;
 type Identity = BillingStopIdentity;
-type Proof = Readonly<{ subscriptionId:string; sessionId:string; canceledAt:number;
-  checkoutStatus:"complete"|"expired"; firstPaymentIntentId:string|null }>;
+type Proof = Readonly<{ subscriptionId:string; canceledAt:number } & (
+  { sessionId:string; checkoutStatus:"complete"|"expired"; firstPaymentIntentId:string|null } |
+  { sessionId:null; checkoutStatus:"not_created"; firstPaymentIntentId:null })>;
 export interface ExactBillingStopStore {
   claim(identity:Identity):Promise<"ready"|"busy"|"complete"|"reconciliation_required">;
   assertClaim(identity:Identity):Promise<void>;
@@ -116,6 +117,9 @@ export async function stopExactBillingUsingContract(args:{
     terms:Pick<ExactAgreementTerms,"totalCents"|"paymentCount"|"firstPaymentFeeSchedule"|"renewalFeeSchedule"|"destinationId">&{version:string}}>;
   stopStore:ExactBillingStopStore;stripe:Parameters<typeof stopExactInstallmentBillingSandbox>[0]["stripe"];
   expectedLiveMode:boolean;matchesMetadata:(kind:"customer"|"subscription"|"checkout",metadata:Stripe.Metadata|null)=>boolean;
+  // Internal store proof, never a caller's assertion that a missing ID means
+  // no Checkout exists. Admission stays blocked by the durable stop hold.
+  checkoutNotAdmitted?:{assertCurrent:()=>Promise<void>;trialEndsAt:number};
   now?:()=>number;
 }):Promise<{status:"collection_stopped"|"busy"|"reconciliation_required"}> {
   const {identity,agreement:a}=args; identityParams(identity);
@@ -123,7 +127,9 @@ export async function stopExactBillingUsingContract(args:{
   const result=await args.stopStore.claim(identity);
   if(result==="complete") return {status:"collection_stopped"};
   if(result!=="ready") return {status:result};
-  requireThat(a.customerId&&a.subscriptionId&&a.sessionId,"Stripe binding missing");
+  const absent=args.checkoutNotAdmitted;
+  requireThat(a.customerId&&a.subscriptionId&&(absent?a.sessionId===null:!!a.sessionId),"Stripe binding missing");
+  if(absent)await absent.assertCurrent();
   const now=args.now??(()=>Math.floor(Date.now()/1000));
   const first=calculateInstallmentPlan(a.terms.totalCents,a.terms.paymentCount,
     a.terms.renewalFeeSchedule,a.terms.firstPaymentFeeSchedule).payments[0];
@@ -138,12 +144,18 @@ export async function stopExactBillingUsingContract(args:{
     requireThat(s.id===a.subscriptionId&&s.livemode===args.expectedLiveMode&&id(s.customer)===a.customerId&&args.matchesMetadata("subscription",s.metadata)&&
       id(s.transfer_data?.destination)===a.terms.destinationId&&s.application_fee_percent==null&&s.schedule==null,
     "subscription identity differs");
-    if(s.status!=="canceled") requireThat(s.pause_collection?.behavior==="keep_as_draft"&&
-      s.pause_collection.resumes_at==null&&s.collection_method==="charge_automatically","subscription no longer held");
+    if(s.status!=="canceled") {
+      const held=s.pause_collection?.behavior==="keep_as_draft"&&s.pause_collection.resumes_at==null;
+      const unstarted=absent&&s.pause_collection===null&&s.status==="trialing"&&s.trial_end===absent.trialEndsAt&&
+        Number.isSafeInteger(s.trial_end)&&s.trial_end!>now()+60&&s.default_payment_method===null&&s.default_source===null;
+      requireThat((held||unstarted)&&s.collection_method==="charge_automatically","subscription no longer held");
+    }
   };
   const checkCustomer=async()=>{
     const c=await read(()=>stripe.customers.retrieve(a.customerId!));
     requireThat(!c.deleted&&c.id===a.customerId&&c.livemode===args.expectedLiveMode&&args.matchesMetadata("customer",c.metadata),"isolated customer differs");
+    if(absent)requireThat(c.default_source===null&&c.invoice_settings?.default_payment_method===null&&c.balance===0&&
+      c.test_clock===null,"partial customer has unexpected billing state");
     // Cancellation affects invoice collection. Refuse a shared customer rather
     // than altering another subscription or standalone invoice's behavior.
     const subs=await read(()=>stripe.subscriptions.list({customer:a.customerId!,status:"all",limit:100}));
@@ -191,6 +203,7 @@ export async function stopExactBillingUsingContract(args:{
     }
   };
   const terminalSession=async():Promise<Proof["checkoutStatus"]|null>=>{
+    if(absent){await absent.assertCurrent();return "not_created";}
     const s=await read(()=>stripe.checkout.sessions.retrieve(a.sessionId!));checkSession(s);
     const piId=id(s.payment_intent);
     if(s.status==="complete"&&s.payment_status==="paid"&&piId) {
@@ -215,19 +228,22 @@ export async function stopExactBillingUsingContract(args:{
   await checkCustomer();
   let sub=await read(()=>stripe.subscriptions.retrieve(a.subscriptionId!));checkSub(sub);
   await checkInvoices();
-  const session=await read(()=>stripe.checkout.sessions.retrieve(a.sessionId!));checkSession(session);
-  if(session.status==="open") {
+  if(!absent){
+    const session=await read(()=>stripe.checkout.sessions.retrieve(a.sessionId!));checkSession(session);
+    if(session.status==="open") {
     requireThat(session.payment_status==="unpaid","open Checkout payment state changed");
     await stopStore.assertClaim(identity);
     try {await stripe.checkout.sessions.expire(session.id,{},
       {idempotencyKey:`${a.terms.version}:${a.id}:expire-approved-stop-v1`,maxNetworkRetries:0});}
     catch {/* Re-read terminal state after a race or lost response. Never log provider errors. */}
+    }
   }
   if(!await terminalSession()) return {status:"reconciliation_required"};
   await checkCustomer();await checkInvoices();
   sub=await read(()=>stripe.subscriptions.retrieve(a.subscriptionId!));checkSub(sub);
   if(sub.status!=="canceled") {
     await stopStore.assertClaim(identity);
+    if(absent)await absent.assertCurrent();
     try {await stripe.subscriptions.cancel(sub.id,{invoice_now:false,prorate:false},{maxNetworkRetries:0});}
     catch {/* DELETE has terminal-state recovery; no payment retry is authorized. */}
   }
@@ -237,6 +253,12 @@ export async function stopExactBillingUsingContract(args:{
   await checkCustomer();await checkInvoices();
   const terminal=await terminalSession();
   if(!terminal) return {status:"reconciliation_required"};
+  if(terminal==="not_created") {
+    await stopStore.assertClaim(identity);
+    await stopStore.complete(identity,{subscriptionId:sub.id,sessionId:null,canceledAt:sub.canceled_at,
+      checkoutStatus:"not_created",firstPaymentIntentId:null});
+    return {status:"collection_stopped"};
+  }
   const final=await read(()=>stripe.checkout.sessions.retrieve(a.sessionId!));checkSession(final);
   requireThat(final.status===terminal,"terminal Checkout changed");
   await stopStore.complete(identity,{subscriptionId:sub.id,sessionId:final.id,canceledAt:sub.canceled_at,
