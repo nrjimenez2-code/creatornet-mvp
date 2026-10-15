@@ -9,11 +9,13 @@ import Page from "@/app/scheduling/book/[connection]/page";
 let root:Root,container:HTMLDivElement;const fetchMock=jest.fn(),originalFetch=global.fetch;
 const slot={start:'2026-10-01T10:00:00Z',end:'2026-10-01T10:30:00Z'};
 beforeEach(()=>{
+  // Keep the fixed booking fixture in the future regardless of the calendar date.
+  jest.spyOn(Date,'now').mockReturnValue(Date.parse('2026-09-30T00:00:00Z'));
   userId='buyer';query=new URLSearchParams('cn_attribution=intent');window.history.replaceState(null,'','/scheduling/book/connection');
   fetchMock.mockReset().mockImplementation(async(url:string,init?:RequestInit)=>({ok:true,json:async()=>url.includes('/reservations/')?{reservation:{id:'reservation',status:'confirmed',revision:0,...slot}}:init?.method==='POST'?{reservation:{id:'reservation',status:'creating',revision:0,...slot}}:{title:'Consultation',timeZone:'UTC',durationMinutes:30,slots:[slot],reservation:null}}));
   global.fetch=fetchMock;container=document.createElement('div');document.body.appendChild(container);root=createRoot(container);
 });
-afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
+afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;jest.restoreAllMocks();});
 const click=async(text:string)=>{await act(async()=>{const button=Array.from(container.querySelectorAll('button')).find(value=>value.textContent===text);if(!button)throw new Error('Missing '+text);button.click();});};
 test("buyer explicitly selects a time and sees pending until Google confirmation",async()=>{
   await act(async()=>root.render(createElement(Page)));
@@ -31,6 +33,13 @@ test("a saved reservation link reads owner-scoped status without repeating setup
   query=new URLSearchParams('reservation_id=reservation');await act(async()=>root.render(createElement(Page)));
   expect(fetchMock).toHaveBeenCalledWith('/api/scheduling/google/reservations/reservation',expect.anything());expect(container.textContent).toContain('Booking confirmed');
   expect(fetchMock.mock.calls.some(([url])=>url.includes('/book/'))).toBe(false);
+});
+
+test.each(['2026-10-01T10:00:00Z','2026-10-05T19:00:00Z'])("a confirmed booking cannot be rescheduled at or after its start (%s)",async(now)=>{
+  jest.mocked(Date.now).mockReturnValue(Date.parse(now));
+  query=new URLSearchParams('reservation_id=reservation');await act(async()=>root.render(createElement(Page)));
+  expect(container.textContent).toContain('Booking confirmed');
+  expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(false);
 });
 
 
