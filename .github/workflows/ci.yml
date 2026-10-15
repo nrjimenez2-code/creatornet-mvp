@@ -9,7 +9,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, codex/mobile-feed-before-readout-20261014]
 
 # Cancel an in-progress run if the branch gets pushed again.
 concurrency:

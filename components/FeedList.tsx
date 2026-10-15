@@ -49,6 +49,12 @@ function subscribeViewportSize(notify: () => void) {
 }
 const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
 const debugSnapshot = () => feedTraceEnabled();
+let readoutForThisPageSession = true;
+const readoutSnapshot = () => {
+  const value = new URLSearchParams(window.location.search).get("feedReadout");
+  if (value !== null) readoutForThisPageSession = value !== "0";
+  return readoutForThisPageSession;
+};
 let handoffForThisPageSession = false;
 const handoffSnapshot = () => {
   const value = new URLSearchParams(window.location.search).get("feedBridge");
@@ -97,9 +103,11 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const showDiagnostics = useSyncExternalStore(subscribeDebug, debugSnapshot, () => false);
+  const liveReadout = useSyncExternalStore(subscribeDebug, readoutSnapshot, () => true);
   const handoffRequested = useSyncExternalStore(subscribeDebug, handoffSnapshot, () => false);
   const mobileHandoff = handoffRequested && !desktop;
-  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: mobileHandoff ? "candidate" : "baseline" }); }, [desktop, activeTab, mobileHandoff]);
+  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: mobileHandoff ? "candidate" : "baseline",
+    feedDiagnosticReadout: showDiagnostics ? liveReadout ? "live" : "capture-only" : "off" }); }, [desktop, activeTab, mobileHandoff, showDiagnostics, liveReadout]);
   useLayoutEffect(() => {
     if (!mobileHandoff) return;
     const hide = () => { if (document.hidden) mobileFeedController.suspend(); };
@@ -847,7 +855,7 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
 
   return (
     <div className="relative h-full min-h-0 feed-mobile-viewport">
-      {showDiagnostics && !desktop && <MobileFeedDiagnostics activePostId={activePostId} getVideo={getFeedVideo} />}
+      {showDiagnostics && !desktop && <MobileFeedDiagnostics activePostId={activePostId} getVideo={getFeedVideo} liveReadout={liveReadout} />}
       {hasNewPosts && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
         {moreError === "refresh" ? <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }}>Refresh feed to continue</button>
