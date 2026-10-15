@@ -9,6 +9,7 @@ import { useUser } from "@/lib/useUser";
 import SchedulingConnections from "@/components/SchedulingConnections";
 import ProductDeliveryEditor from "@/components/ProductDeliveryEditor";
 import ExistingProductDelivery from "@/components/ExistingProductDelivery";
+import { LoadingLabel, Skeleton } from "@/components/loading/Skeletons";
 import { readProductDelivery, type ProductDelivery } from "@/lib/productDelivery";
 import { extractHashtags } from "@/lib/hashtags";
 import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
@@ -86,7 +87,9 @@ async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships
     credentials: "include",
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error || "Failed to load products");
+  if (!res.ok || data?.success === false || !Array.isArray(data?.items)) {
+    throw new Error("Failed to load post settings");
+  }
   const raw = (data?.items ?? []) as (Product & { product_id?: string })[];
   return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true, premiumDelivery: data?.capabilities?.premiumDelivery === true, premiumDeliveryReady: data?.capabilities?.premiumDeliveryReady === true };
 }
@@ -364,7 +367,10 @@ export default function PostComposer({ onPosted }: Props) {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState<string>("");
   const [productsLoadedFor, setProductsLoadedFor] = useState<string | null>(null);
-  const loadingProducts = !!userId && productsLoadedFor !== userId;
+  const [productsLoadFailedFor, setProductsLoadFailedFor] = useState<string | null>(null);
+  const [productsLoadAttempt, setProductsLoadAttempt] = useState(0);
+  const loadingProducts = !userId || productsLoadedFor !== userId;
+  const productsLoadFailed = !!userId && productsLoadFailedFor === userId;
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
   const [tippingAvailable, setTippingAvailable] = useState(false);
@@ -379,15 +385,13 @@ export default function PostComposer({ onPosted }: Props) {
     (async () => {
       try {
         const result = await fetchMyProducts();
-        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); }
-      } catch (e) {
-        if (!cancelled) console.debug("products GET:", (e as { message?: string })?.message);
-      } finally {
-        if (!cancelled) setProductsLoadedFor(userId);
+        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); setProductsLoadFailedFor(null); setProductsLoadedFor(userId); }
+      } catch {
+        if (!cancelled) setProductsLoadFailedFor(userId);
       }
     })();
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, productsLoadAttempt]);
 
   useEffect(() => {
     if (!userId) return;
@@ -612,6 +616,32 @@ export default function PostComposer({ onPosted }: Props) {
   /* ------------------------------------------------------------------ */
   /* UI                                                                 */
   /* ------------------------------------------------------------------ */
+
+  if (productsLoadFailed) {
+    return <div role="alert" className="rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-white">
+      <p className="font-semibold">Couldn’t load post settings.</p>
+      <p className="mt-1 text-sm text-white/70">Try again to open the composer.</p>
+      <button type="button" className="mt-4 rounded-lg bg-[#4A35C7] px-4 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A78BFA]"
+        onClick={() => { setProductsLoadFailedFor(null); setProductsLoadedFor(null); setProductsLoadAttempt(attempt => attempt + 1); }}>
+        Retry
+      </button>
+    </div>;
+  }
+
+  if (loadingProducts) {
+    return <div aria-busy="true" className="py-2 text-white">
+      <LoadingLabel>Loading post settings…</LoadingLabel>
+      <div aria-hidden="true" className="space-y-4">
+        <Skeleton className="block h-4 w-28" />
+        <Skeleton className="block h-11 w-full rounded-xl" />
+        <Skeleton className="block h-4 w-40" />
+        <Skeleton className="block h-28 w-full rounded-xl" />
+        <Skeleton className="block h-4 w-24" />
+        <div className="flex gap-2">{[0, 1, 2].map(index => <Skeleton key={index} className="block h-10 w-20 rounded-lg" />)}</div>
+        <Skeleton className="block h-16 w-full rounded-xl" />
+      </div>
+    </div>;
+  }
 
   return (
     <div className="text-white">
