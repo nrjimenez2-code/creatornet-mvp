@@ -134,16 +134,20 @@ test("follow failure restores the original button", async () => {
   expect(errorLog).toHaveBeenCalled();
 });
 
-test("composer disables its product selector until products finish loading", async () => {
+test("composer waits for products before allowing product selection", async () => {
   userCtx.userId = "creator";
   let release!: (value: unknown) => void;
   fetchMock.mockImplementation((url: string) => url === "/api/products"
     ? new Promise((resolve) => { release = resolve; })
     : Promise.resolve(response({ onboarding_complete: true })));
   await act(async () => root.render(createElement(PostComposer)));
+  expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
+  expect(container.querySelector(".cn-skeleton")).not.toBeNull();
+  expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+  expect(container.querySelector("select")).toBeNull();
+  await act(async () => release(response({ success: true, capabilities: { premiumDelivery: false }, items: [{ id: "p1", title: "Test course", type: "course", price_cents: 10000 }] })));
+  expect(container.querySelector('[aria-busy="true"]')).toBeNull();
   await click(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!);
-  expect(container.querySelector("select")?.disabled).toBe(true);
-  await act(async () => release(response({ items: [{ id: "p1", title: "Test course", type: "course", price_cents: 10000 }] })));
   expect(container.querySelector("select")?.disabled).toBe(false);
   expect(container.textContent).toContain("Test course");
 });
