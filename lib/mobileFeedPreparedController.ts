@@ -7,12 +7,14 @@ type Preparation = { postId: string; src: string; contentVersion?: string; host:
 type PreparationPhase = "loading" | "acquiring-frame" | "ready" | "retrying" | "cancelled";
 type Slot = { video: HTMLVideoElement; generation: number; postId: string; src: string; snapshot: ResumeSnapshot; phase: PreparationPhase; target: number; ready: boolean; audioEnabled: boolean; frameTime: number | null; frameCount: number | null; stop: () => void; pause: (reason?: string) => void; decode: () => void; present: Presentation };
 type NativePlayTiming = { requestedAt: number; returnedAt: number; request: Promise<void> | undefined };
-type ActivationInput = { postId: string; src: string; contentVersion?: string; host: HTMLElement; previewHost: HTMLElement; token: symbol; present: Presentation; ready: () => void; failed?: () => void; position?: number; reload?: boolean; playingIntent?: boolean; soundIntent?: boolean };
+type ActivationInput = { postId: string; src: string; contentVersion?: string; host: HTMLElement; previewHost: HTMLElement; token: symbol; present: Presentation; ready: () => void; failed?: (reason?: string) => void; recover?: (reason: string) => void; position?: number; reload?: boolean; playingIntent?: boolean; soundIntent?: boolean };
 type Activation = { token: symbol; postId: string; src: string; video: HTMLVideoElement; playing: boolean; current: () => boolean; playRequested: () => void; pauseRequested?: () => void; observeMainPlay: (timing: NativePlayTiming) => void; stop: () => void };
 const BUFFER_TARGET = 1;
 const PREPARATION_BUDGET_MS = 2_500;
 const STARTUP_FRAME_SAMPLE_LIMIT = 8;
 const NATIVE_PLAY_SAMPLE_LIMIT = 4;
+const PLAYBACK_RECOVERY_MS = 3_000;
+const MOTION_SAMPLE_MS = 250;
 
 function audioSessionSnapshot(): Record<string, string | null> {
   // Observe only. Changing the session type could change sound/route behavior.
@@ -49,12 +51,13 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
 /** Promote a qualified paused neighbor into sole ownership. Physical phone
  * acceptance was owner-waived for release and remains unverified. */
 export class PreparedMobileFeedController {
-  constructor(private readonly preparationMode: "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "prepared-preload-audio", private readonly options?: { deferPreparedRetirement?: boolean }) {}
+  constructor(private readonly preparationMode: "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "prepared-preload-audio", private readonly options?: { deferPreparedRetirement?: boolean; retainAudiblePlayer?: boolean }) {}
   private get pausedPreparation() { return this.preparationMode === "prepared-preload-audio"; }
   private get preparedAudio() { return this.preparationMode === "prepared-audio" || this.preparationMode === "prepared-inplace-audio" || this.pausedPreparation; }
   private slots: Slot[] = [];
   private active: Activation | null = null;
   private preparing: Slot | null = null;
+  private retainedCover: Slot | null = null;
   private deferredPreparation: Preparation | null = null;
   private preparedActiveReady = false;
   private acceptedPreparationSound = false;
@@ -75,6 +78,7 @@ export class PreparedMobileFeedController {
       (!active || (active.playing && !active.video.paused && !active.video.seeking && active.video.readyState >= 2 && remaining > 0 && playableBuffer(active.video) >= Math.min(BUFFER_TARGET, remaining)));
   }
   private resumePreparation() {
+    if (this.retainedCover) return;
     if (this.deferredPreparation && this.active && !preparedMobileFeedRetirementPending(this.active.token)) {
       const input = this.deferredPreparation; this.deferredPreparation = null; this.prepare(input);
     }
@@ -90,7 +94,7 @@ export class PreparedMobileFeedController {
     // This control changes mute only after decoding has stopped. A native play
     // resolution on the current unmuted main permits the experiment; it is not
     // evidence of audible output or a transferable WebKit gesture grant.
-    const enabled = !!active?.current() && this.acceptedPreparationSound && this.preparedActiveReady &&
+    const enabled = !this.options?.retainAudiblePlayer && !!active?.current() && this.acceptedPreparationSound && this.preparedActiveReady &&
       active.playing && !active.video.paused && !active.video.muted && !document.hidden &&
       slot.ready && slot.phase === "ready" && video.paused && !video.seeking && video.playbackRate === 1 &&
       !video.error && video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0 &&
@@ -122,6 +126,7 @@ export class PreparedMobileFeedController {
     slot.video.removeAttribute("src"); slot.video.load(); slot.video.remove();
     slot.postId = slot.src = "";
     if (this.preparing === slot) this.preparing = null;
+    if (this.retainedCover === slot) this.retainedCover = null;
 
   }
   private slot(): Slot {
@@ -139,7 +144,7 @@ export class PreparedMobileFeedController {
   prepare(input: Preparation) {
     this.watchExpiry();
     if (document.hidden || this.active?.postId === input.postId) return;
-    if (this.active && preparedMobileFeedRetirementPending(this.active.token)) {
+    if (this.retainedCover || (this.active && preparedMobileFeedRetirementPending(this.active.token))) {
       // Retaining the departing source uses the existing second-element budget.
       // Remember the latest requested neighbor without creating a third element.
       this.deferredPreparation = input;
@@ -330,6 +335,7 @@ export class PreparedMobileFeedController {
     // unexpected unmuted slot in the original prepared mode remains ineligible.
     if (prepared?.audioEnabled && !preparedAudioEnabled) { prepared.video.muted = true; prepared.audioEnabled = false; }
     let promoted: HTMLVideoElement | null = null;
+    let cover: Slot | null = null;
     if (!input.reload && prepared?.ready && prepared.phase === "ready" && prepared.postId === input.postId && prepared.src === input.src &&
         sameMobileResume(prepared.snapshot, snapshot) && Math.abs(prepared.target - target) < 0.01 && target === snapshot.position &&
         prepared.frameTime !== null && prepared.frameCount !== null && Number.isFinite(prepared.frameCount)) {
@@ -337,8 +343,22 @@ export class PreparedMobileFeedController {
       // clear(), this cancellation never removes or reloads the qualified source.
       prepared.generation = ++this.sequence; prepared.stop(); prepared.stop = () => {};
       prepared.decode = () => {};
-      promoted = adoptPreparedMobileFeedPlayer(retainAttachment ? input.previewHost : input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
-        retainAttachment ? { expectedMuted: !preparedAudioEnabled, retainAttachment: true, ...(deferRetirement ? { deferRetirement: true } : {}) } : preparedAudioEnabled ? { expectedMuted: false } : undefined);
+      if (this.options?.retainAudiblePlayer) {
+        const candidate = prepared.video, remaining = candidate.duration - target;
+        // A prepared frame is only a muted cover. Keep the user's audible element
+        // and its gesture grant; never promote the neighbor into sound ownership.
+        if (!document.hidden && candidate.parentElement === input.previewHost && input.previewHost.isConnected &&
+            candidate.getAttribute("src") === input.src && candidate.currentSrc === candidate.src && candidate.paused && candidate.muted &&
+            !candidate.seeking && !candidate.error && candidate.playbackRate === 1 && candidate.readyState >= 2 &&
+            candidate.videoWidth > 0 && candidate.videoHeight > 0 && Number.isFinite(remaining) && remaining > 0 &&
+            Math.abs(prepared.frameTime - target) <= 0.1 && Number.isFinite(candidate.currentTime) &&
+            Math.abs(candidate.currentTime - prepared.frameTime) <= 0.1 && playableBuffer(candidate, target) + 0.001 >= Math.min(BUFFER_TARGET, remaining)) {
+          cover = prepared; this.preparing = null; this.retainedCover = cover;
+        }
+      } else {
+        promoted = adoptPreparedMobileFeedPlayer(retainAttachment ? input.previewHost : input.host, input.token, prepared.video, input.src, snapshot, prepared.frameTime,
+          retainAttachment ? { expectedMuted: !preparedAudioEnabled, retainAttachment: true, ...(deferRetirement ? { deferRetirement: true } : {}) } : preparedAudioEnabled ? { expectedMuted: false } : undefined);
+      }
       if (promoted) {
         this.preparing = null; this.slots = this.slots.filter(slot => slot !== prepared);
         prepared.present(false); prepared.phase = "cancelled";
@@ -347,7 +367,7 @@ export class PreparedMobileFeedController {
     }
     // An ineligible selected preparation cannot become an independent bridge.
     // Keep a different neighbor only while paused, under the same decoder budget.
-    if (!promoted && prepared) {
+    if (!promoted && !cover && prepared) {
       if (prepared.postId === input.postId) this.clear(prepared);
       else prepared.pause("activation-priority");
     }
@@ -356,11 +376,19 @@ export class PreparedMobileFeedController {
     });
     this.acceptedPreparationSound = false;
     const activatedAt = performance.now();
+    const recoverable = this.options?.retainAudiblePlayer === true;
+    const pending = mobileFeedPlaybackReady(input.token);
+    let awaitingSeek = !!pending;
     let alive = true, complete = false, accepted = false, playAttempted = false;
     let frame: number | undefined, watchdog: ReturnType<typeof setTimeout> | undefined;
-    // Automatic playback keeps the existing activation deadline, including time
-    // spent waiting for a return seek. Intentional pause starts a new attempt.
-    let watchdogDeadline: number | null = input.playingIntent === false ? null : activatedAt + 3_000;
+    let motionTimer: ReturnType<typeof setTimeout> | undefined, sampleTimer: ReturnType<typeof setTimeout> | undefined;
+    let recoveryTimer: ReturnType<typeof setTimeout> | undefined;
+    let intentionalPause = input.playingIntent === false, policyBlocked = false;
+    let recovering = false, recoveryUsed = false;
+    let lastMotionAt = activatedAt, submissionFloor = activatedAt, previousSubmission: number | null = null;
+    // The bounded return seek owns its own deadline. Normal feed startup receives
+    // its full frame budget only after that seek settles; lab timing stays explicit.
+    let watchdogDeadline: number | null = intentionalPause || (recoverable && awaitingSeek) ? null : activatedAt + PLAYBACK_RECOVERY_MS;
     let epoch = 0, playEpoch = 0, playRequests = 0, callbacks = 0;
     let previous: number | null = null, previousCount: number | null = null;
     let intendedPosition = target, targetObserved = false;
@@ -397,35 +425,83 @@ export class PreparedMobileFeedController {
     const active: Activation = { token: input.token, postId: input.postId, src: input.src, video,
       playing: false, current, playRequested: () => {}, observeMainPlay: () => {}, stop: () => {} };
     this.active = active;
-    input.present(!!promoted);
+    const blocked = () => intentionalPause || document.hidden || audioSessionSnapshot().audioSessionState === "interrupted";
+    const fail = (reason: string) => {
+      if (!current()) return;
+      recordFeedEvent("handoff-recovery", { result: "retry", mode: "prepared", reason, recoveryUsed }, video);
+      this.cancelPreparation(); input.present(false); active.stop(); video.pause(); input.failed?.(reason);
+    };
+    const recover = (reason: string) => {
+      if (!current() || blocked() || policyBlocked || awaitingSeek) return;
+      if (recoveryUsed || !input.recover) return fail(reason);
+      recoveryUsed = true; recovering = true; accepted = false;
+      epoch++;
+      if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined;
+      clearTimeout(sampleTimer); sampleTimer = undefined;
+      previous = previousCount = previousSubmission = null; targetObserved = false;
+      intendedPosition = video.currentTime; submissionFloor = performance.now();
+      watchdogDeadline = performance.now() + PLAYBACK_RECOVERY_MS;
+      lastMotionAt = performance.now();
+      clearTimeout(watchdog); watchdog = undefined;
+      this.cancelPreparation();
+      if (this.retainedCover) this.clear(this.retainedCover);
+      input.present(false);
+      recordFeedEvent("handoff-recovery", { result: "attempt", mode: "prepared", reason, attempt: 1 }, video);
+      input.recover(reason);
+      armWatchdog(); observe(); watchMotion();
+    };
+    const queueRecovery = (reason: string) => {
+      if (!recoverable || !current() || blocked() || policyBlocked || recoveryTimer !== undefined) return;
+      recoveryTimer = setTimeout(() => {
+        recoveryTimer = undefined;
+        if (reason === "native-pause" && !video.paused) return;
+        recover(reason);
+      }, 100);
+    };
+    const watchMotion = () => {
+      if (!recoverable || !current() || motionTimer !== undefined || intentionalPause) return;
+      motionTimer = setTimeout(() => {
+        motionTimer = undefined;
+        if (!current()) return;
+        if (blocked() || policyBlocked || awaitingSeek) lastMotionAt = performance.now();
+        else if (complete && !recovering && performance.now() - lastMotionAt >= PLAYBACK_RECOVERY_MS) recover("playback-stall");
+        else if (playAttempted && video.paused && !recovering) queueRecovery("native-pause");
+        else armWatchdog();
+        watchMotion();
+      }, MOTION_SAMPLE_MS);
+    };
+    input.present(!!promoted || !!cover);
     recordFeedEvent("source-version", { contentVersion: snapshot.contentVersion, position: target, expiresAt: snapshot.expiresAt }, video);
-    recordFeedEvent("prepared-player-selection", { result: promoted ? "promoted" : "cold-fallback", target, position: video.currentTime,
-      warmEligible: !!promoted, preparedSourceRetained: !!promoted, outputMeasured: false,
+    recordFeedEvent("prepared-player-selection", { result: cover ? "retained-main-with-cover" : promoted ? "promoted" : "cold-fallback", target, position: video.currentTime,
+      warmEligible: !!promoted || !!cover, preparedSourceRetained: !!promoted || !!cover, outputMeasured: false,
       ...(this.preparedAudio ? { preparationAudio: promoted && preparedAudioEnabled ? "paused-unmuted" : "muted" } : {}),
-      ...(retainAttachment ? { preparedAttachmentRetained: !!promoted } : {}),
+      ...(retainAttachment ? { preparedAttachmentRetained: !!promoted || !!cover } : {}),
       ...(this.pausedPreparation ? { preparationPlayback: "paused-load" } : {}),
       ...(deferRetirement ? { retiredSourceCleanup: "after-startup", retiredSourcePending: preparedMobileFeedRetirementPending(input.token) } : {}),
       ...(activationRequestedAt === null ? {} : { activationRequestedAt, selectionElapsedMs: performance.now() - activationRequestedAt }) }, video);
     const armWatchdog = () => {
-      if (!current() || complete || watchdog !== undefined || document.hidden || video.paused) return;
+      if (!current() || (complete && !recovering) || watchdog !== undefined || document.hidden ||
+          (recoverable ? blocked() || policyBlocked || awaitingSeek : video.paused)) return;
       watchdogDeadline ??= performance.now() + 3_000;
       watchdog = setTimeout(() => {
         watchdog = undefined;
-        if (!current() || complete || document.hidden || video.paused) return;
+        if (!current() || (complete && !recovering) || document.hidden ||
+            (recoverable ? blocked() || policyBlocked || awaitingSeek : video.paused)) return;
         recordFeedEvent("handoff-timeout", { mode: "prepared", targetObserved, playAccepted: accepted, position: video.currentTime,
           readyState: video.readyState, buffer: playableBuffer(video), currentSourceMatches: video.currentSrc === video.src,
           ...frameDiagnostics(true) }, video);
-        input.present(false); video.pause(); active.stop(); input.failed?.();
-        recordFeedEvent("handoff-recovery", { result: "retry", mode: "prepared" }, video);
+        if (recoverable) recover(recovering ? "recovery-timeout" : "startup-timeout");
+        else { input.present(false); video.pause(); active.stop(); input.failed?.("startup-timeout");
+          recordFeedEvent("handoff-recovery", { result: "retry", mode: "prepared", reason: "startup-timeout" }, video); }
       }, Math.max(0, watchdogDeadline - performance.now()));
     };
     const observe = () => {
-      if (!current() || complete || frame !== undefined || !video.requestVideoFrameCallback) return;
+      if (!current() || (complete && !recoverable) || frame !== undefined || sampleTimer !== undefined || !video.requestVideoFrameCallback) return;
       const requestedEpoch = epoch;
       if (collectFrameDiagnostics) { frameRequests++; frameRequestedAt = performance.now(); }
       frame = video.requestVideoFrameCallback((callbackAt, metadata) => {
         if (collectFrameDiagnostics) frameDeliveries++;
-        if (!current() || requestedEpoch !== epoch || complete) {
+        if (!current() || requestedEpoch !== epoch || (complete && !recoverable)) {
           if (collectFrameDiagnostics) {
             frameDiscards++;
             lastFrameDiscardReason = !current() ? "obsolete-owner" : requestedEpoch !== epoch ? "obsolete-epoch" : "complete";
@@ -434,11 +510,15 @@ export class PreparedMobileFeedController {
         }
         frame = undefined; callbacks++;
         frameRequestedAt = null;
-        const now = performance.now(), fresh = now - submittedAt(metadata, now) <= 100;
+        const now = performance.now(), submitted = submittedAt(metadata, now);
+        // A late callback can still carry two genuinely advancing submissions
+        // from this activation. Wall-clock delivery latency alone is not failure.
+        const fresh = recoverable ? submitted >= submissionFloor && (previousSubmission === null || submitted >= previousSubmission)
+          : now - submitted <= 100;
         if (fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src &&
             metadata.mediaTime >= intendedPosition - 0.1 && metadata.mediaTime <= intendedPosition + (now - activatedAt) / 1_000 + 0.25) targetObserved = true;
         const countAdvances = previousCount !== null && Number.isFinite(previousCount) && Number.isFinite(metadata.presentedFrames) && metadata.presentedFrames > previousCount;
-        const valid = accepted && active.playing && !document.hidden && fresh && countAdvances && targetObserved &&
+        const valid = accepted && (recoverable || active.playing) && !document.hidden && fresh && countAdvances && targetObserved &&
           video.playbackRate === 1 && validFeedFrame(video, video.src, metadata.mediaTime, previous);
         if (feedTraceEnabled() && callbacks <= STARTUP_FRAME_SAMPLE_LIMIT) recordFeedEvent("lab-main-startup-frame", {
           callback: callbacks, callbackAt, deliveredAt: now, mediaTime: metadata.mediaTime, presentedFrames: metadata.presentedFrames,
@@ -450,17 +530,27 @@ export class PreparedMobileFeedController {
           currentSourceMatches: video.currentSrc === video.src, playAccepted: accepted, muted: video.muted, ...audioSessionSnapshot(),
         }, video);
         if (valid) {
-          complete = true; this.preparedActiveReady = true; clearTimeout(watchdog); watchdog = undefined;
-          input.ready();
-          recordFeedEvent("presentation-handoff", { warmEligible: !!promoted, reason: promoted ? "prepared-player" : "main-only",
-            independentBridge: false, activationMs: now - activatedAt, muted: video.muted, outputMeasured: false,
-            ...(activationRequestedAt === null ? {} : { requestToHandoffMs: now - activationRequestedAt }) }, video);
-          finishPreparedMobileFeedRetirement(input.token, "fresh-advancing-frame");
-          this.resumePreparation();
+          lastMotionAt = now; active.playing = true;
+          if (!complete || recovering) {
+            complete = true; recovering = false; this.preparedActiveReady = true; clearTimeout(watchdog); watchdog = undefined;
+            if (this.retainedCover) this.clear(this.retainedCover);
+            input.ready();
+            recordFeedEvent("presentation-handoff", { warmEligible: !!promoted || !!cover, reason: cover ? "retained-main" : promoted ? "prepared-player" : "main-only",
+              independentBridge: false, activationMs: now - activatedAt, muted: video.muted, outputMeasured: false,
+              ...(activationRequestedAt === null ? {} : { requestToHandoffMs: now - activationRequestedAt }) }, video);
+            finishPreparedMobileFeedRetirement(input.token, "fresh-advancing-frame");
+            this.resumePreparation();
+          }
         }
         previous = fresh && !video.paused && !video.seeking && video.readyState >= 2 && video.currentSrc === video.src ? metadata.mediaTime : null;
-        previousCount = fresh ? metadata.presentedFrames : null;
-        observe();
+        if (recoverable) {
+          // Invalid/replayed deliveries cannot lower either watermark and make a
+          // later replay appear new. Only a seek/recovery changes their epoch.
+          if (fresh && Number.isFinite(metadata.presentedFrames) && (previousCount === null || metadata.presentedFrames >= previousCount)) previousCount = metadata.presentedFrames;
+          if (fresh) previousSubmission = submitted;
+        } else previousCount = fresh ? metadata.presentedFrames : null;
+        if (recoverable && complete && !recovering) sampleTimer = setTimeout(() => { sampleTimer = undefined; observe(); }, MOTION_SAMPLE_MS);
+        else observe();
       });
       if (collectFrameDiagnostics && frameRequests <= STARTUP_FRAME_SAMPLE_LIMIT) recordFeedEvent("lab-main-frame-request", {
         ...frameDiagnostics(), position: video.currentTime, paused: video.paused, playAccepted: accepted,
@@ -468,6 +558,8 @@ export class PreparedMobileFeedController {
     };
     const seeking = () => {
       epoch++; previous = previousCount = null; intendedPosition = video.currentTime; targetObserved = false;
+      previousSubmission = null; submissionFloor = performance.now(); lastMotionAt = performance.now();
+      clearTimeout(sampleTimer); sampleTimer = undefined;
       if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "seeking"; }
       if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observe();
     };
@@ -476,22 +568,31 @@ export class PreparedMobileFeedController {
       finishPreparedMobileFeedRetirement(input.token, document.hidden ? "hidden" : "pause");
       this.acceptedPreparationSound = false; this.refreshPreparationSound();
       clearTimeout(watchdog); watchdog = undefined;
+      clearTimeout(motionTimer); motionTimer = undefined;
+      clearTimeout(recoveryTimer); recoveryTimer = undefined;
       if (resetDeadline) watchdogDeadline = null;
       this.preparing?.pause("main-paused");
     };
     const pause = () => {
       // A queued pause from the released source cannot extend the deadline while
       // awaiting a seek, or cancel playback that already resumed on this source.
-      if (video.paused) pauseState(playAttempted);
+      if (!video.paused) return;
+      if (recoverable && current() && !blocked() && !policyBlocked && playAttempted) {
+        active.playing = false; this.preparing?.pause("main-paused");
+        queueRecovery("native-pause"); armWatchdog();
+      } else { pauseState(playAttempted); if (recoverable && !intentionalPause) watchMotion(); }
     };
     const play = () => { if (current()) { if (!video.paused) playAttempted = true; armWatchdog(); observe(); } };
     const progress = () => this.resumePreparation();
-    const playing = () => { active.playing = true; progress(); };
+    const playing = () => { active.playing = true; progress(); watchMotion(); armWatchdog(); };
     const waiting = () => { active.playing = false; progress(); };
     active.playRequested = play;
-    active.pauseRequested = () => { if (current()) pauseState(); };
+    active.pauseRequested = () => { if (current()) { intentionalPause = true; pauseState(); } };
     active.observeMainPlay = ({ requestedAt, returnedAt, request }) => {
       if (!current()) return;
+      intentionalPause = false; policyBlocked = false;
+      clearTimeout(recoveryTimer); recoveryTimer = undefined;
+      lastMotionAt = performance.now();
       playAttempted = true;
       const requestEpoch = ++playEpoch, requestId = ++playRequests, requestedMuted = video.muted;
       accepted = false;
@@ -506,11 +607,14 @@ export class PreparedMobileFeedController {
         if (sampled) recordFeedEvent("lab-main-play-settled", { requestId, result: "resolved", muted: requestedMuted,
           elapsedMs: performance.now() - requestedAt, afterReturnMs: performance.now() - returnedAt, outputMeasured: false,
           ...frameDiagnostics() }, video);
-        play(); progress();
-      }, () => {
+        play(); progress(); watchMotion();
+      }, (error: unknown) => {
         if (!current() || requestEpoch !== playEpoch) return;
-        recordFeedEvent("prepared-player-play-rejected", { requestId, muted: requestedMuted, warmEligible: !!promoted, outputMeasured: false }, video);
+        const errorName = error && typeof error === "object" && "name" in error && typeof error.name === "string" ? error.name : "unknown";
+        policyBlocked = errorName === "NotAllowedError";
+        recordFeedEvent("prepared-player-play-rejected", { requestId, errorName, muted: requestedMuted, warmEligible: !!promoted, outputMeasured: false }, video);
         finishPreparedMobileFeedRetirement(input.token, "play-rejected");
+        if (recoverable && errorName === "AbortError") queueRecovery("play-interrupted");
         video.pause(); this.cancelPreparation();
       });
     };
@@ -519,7 +623,9 @@ export class PreparedMobileFeedController {
     video.addEventListener("progress", progress); video.addEventListener("stalled", progress);
     active.stop = () => {
       alive = false; this.preparedActiveReady = false; epoch++; playEpoch++; clearTimeout(watchdog);
+      clearTimeout(motionTimer); clearTimeout(sampleTimer); clearTimeout(recoveryTimer);
       this.deferredPreparation = null;
+      if (this.retainedCover) this.clear(this.retainedCover);
       finishPreparedMobileFeedRetirement(input.token, "stop");
       if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "stop"; }
       if (frame !== undefined) video.cancelVideoFrameCallback?.(frame);
@@ -527,8 +633,12 @@ export class PreparedMobileFeedController {
       video.removeEventListener("playing", playing); video.removeEventListener("waiting", waiting);
       video.removeEventListener("progress", progress); video.removeEventListener("stalled", progress);
     };
-    const pending = mobileFeedPlaybackReady(input.token);
-    if (pending) void pending.then(() => { if (current()) observe(); }); else observe();
+    if (pending) void pending.then(() => {
+      awaitingSeek = false;
+      if (!current()) return;
+      if (recoverable && !intentionalPause) watchdogDeadline = performance.now() + PLAYBACK_RECOVERY_MS;
+      observe(); armWatchdog();
+    }); else observe();
     recordFeedEvent("resource-count", { videoElements: this.slots.length + 1 + (preparedMobileFeedRetirementPending(input.token) ? 1 : 0), preparationDecoders: this.preparing ? 1 : 0, mode: "prepared" }, video);
     return video;
   }
