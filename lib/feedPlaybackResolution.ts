@@ -1,4 +1,5 @@
 import { FEED_MEDIA_ORIGIN, ORIGINAL_FEED_MEDIA_ORIGIN } from "./feedMedia";
+import { recordFeedEvent } from "./mobileFeedDiagnostics";
 
 export type ResolvedFeedPlayback = {
   key: string;
@@ -46,17 +47,32 @@ export function parseResolvedPlayback(value: unknown, key: string): ResolvedFeed
 
 // Only subscribers for the active card and the predicted neighbor enter this
 // map. No settled descriptor cache can hide a new source ETag on a later lookup.
-const pending = new Map<string, { controller: AbortController; users: number; promise: Promise<ResolvedFeedPlayback | null> }>();
+const pending = new Map<string, { controller: AbortController; users: number; settled: boolean; promise: Promise<ResolvedFeedPlayback | null> }>();
+function resolutionErrorName(error: unknown): string {
+  const name = error && typeof error === "object" && "name" in error ? error.name : null;
+  // Never export error messages or arbitrary provider-supplied names.
+  return typeof name === "string" && ["AbortError", "TypeError", "SyntaxError", "NetworkError", "SecurityError", "TimeoutError", "Error"].includes(name) ? name : "unknown";
+}
 export function requestFeedPlayback(source: string): { promise: Promise<ResolvedFeedPlayback | null>; cancel: () => void } {
   const key = publicVideoKey(source);
   if (!key) return { promise: Promise.resolve(null), cancel: () => {} };
   let entry = pending.get(key);
   if (!entry) {
     const controller = new AbortController();
-    const created = { controller, users: 0, promise: Promise.resolve<ResolvedFeedPlayback | null>(null) };
+    const created = { controller, users: 0, settled: false, promise: Promise.resolve<ResolvedFeedPlayback | null>(null) };
     created.promise = fetch(`${FEED_MEDIA_ORIGIN}/auto/playback/${key}`, { credentials: "omit", cache: "no-store", signal: controller.signal })
-      .then(async response => response.ok ? parseResolvedPlayback(await response.json(), key) : null)
-      .catch(() => null).finally(() => { if (pending.get(key) === created) pending.delete(key); });
+      .then(async response => {
+        const status = Number.isInteger(response.status) && response.status >= 100 && response.status <= 599 ? response.status : null;
+        if (!response.ok) { recordFeedEvent("resolution-result", { key, outcome: "http-error", status }); return null; }
+        let value: unknown;
+        try { value = await response.json(); }
+        catch (error) { recordFeedEvent("resolution-result", { key, outcome: controller.signal.aborted ? "aborted" : "invalid-json", status, errorName: resolutionErrorName(error) }); return null; }
+        const descriptor = parseResolvedPlayback(value, key);
+        recordFeedEvent("resolution-result", { key, outcome: descriptor ? "resolved" : "invalid-descriptor", status });
+        return descriptor;
+      })
+      .catch((error: unknown) => { recordFeedEvent("resolution-result", { key, outcome: controller.signal.aborted ? "aborted" : "fetch-error", status: null, errorName: resolutionErrorName(error) }); return null; })
+      .finally(() => { created.settled = true; if (pending.get(key) === created) pending.delete(key); });
     entry = created; pending.set(key, entry);
   }
   entry.users++;
@@ -64,7 +80,10 @@ export function requestFeedPlayback(source: string): { promise: Promise<Resolved
   let cancelled = false;
   return { promise: subscribed.promise, cancel: () => {
     if (cancelled) return; cancelled = true;
-    if (--subscribed.users === 0) { subscribed.controller.abort(); if (pending.get(key) === subscribed) pending.delete(key); }
+    if (--subscribed.users === 0 && !subscribed.settled) {
+      recordFeedEvent("resolution-abort-requested", { key, reason: "no-subscribers" });
+      subscribed.controller.abort(); if (pending.get(key) === subscribed) pending.delete(key);
+    }
   } };
 }
 export function selectResolvedPlayback(descriptor: ResolvedFeedPlayback, delivery: PlaybackDelivery, nativeHls: boolean) {

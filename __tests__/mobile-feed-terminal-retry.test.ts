@@ -77,6 +77,11 @@ describe.each([true, "prepared-preload-audio"] as const)("candidate %s terminal 
     const video = await render();
     expect(play).toHaveBeenCalledTimes(1);
     await act(async () => jest.advanceTimersByTime(3_000));
+    // Normal playback receives one bounded recovery attempt before terminal UI.
+    // The legacy bridge still fails at its original startup deadline.
+    if (handoff === "prepared-preload-audio" && !container.textContent?.includes("Retry video")) {
+      await act(async () => jest.advanceTimersByTime(3_000));
+    }
     expect(container.textContent).toContain("This video couldn’t load.");
     expect(video.paused).toBe(true);
     return video;

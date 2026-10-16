@@ -5,9 +5,8 @@
  *
  * This module owns the element and two short-lived playback positions. Feed
  * cards own their presentation, listeners and muted previews. Desktop never calls it.
- * The lab and the separately selected normal-feed candidate can adopt a
- * prepared element. Conventional feed claims preserve the shared element;
- * adoption still requires physical sound-grant acceptance on each surface.
+ * The lab can adopt a prepared element. Normal feed claims preserve the shared
+ * element and use a prepared neighbor only as a muted visual cover.
  */
 import { beginFeedVideoTrace, endFeedVideoTrace, feedTraceEnabled, playableBuffer, recordFeedEvent } from "./mobileFeedDiagnostics";
 
@@ -46,6 +45,7 @@ export type ResumeSnapshot = Readonly<{ postId: string; contentVersion: string; 
 const recentPositions = new Map<string, ResumeSnapshot>();
 const managedPositions = new WeakSet<ResumeSnapshot>();
 const expiryListeners = new Set<(snapshot: ResumeSnapshot) => void>();
+const pauseIntentListeners = new Set<(video: HTMLVideoElement) => void>();
 let expiryTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingSeek: { token: symbol; promise: Promise<void>; cancel: () => void; recoveryTarget: () => number | null } | null = null;
 let seekOutcome: { token: symbol; failed: boolean; recoveryTarget: number | null } | null = null;
@@ -149,23 +149,31 @@ function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number
     if (owner === token) seekOutcome = { token, failed, recoveryTarget: recover ? target : null };
     settle();
   };
-  const failedSeek = () => finish(true);
+  const fail = (reason: string, error?: unknown) => {
+    if (done) return;
+    const name = error instanceof Error ? error.name : "UnknownError";
+    recordFeedEvent("resume-seek-failed", { reason, target, position: video.currentTime,
+      mediaErrorCode: video.error?.code ?? null,
+      errorName: ["AbortError", "InvalidStateError", "NotSupportedError", "SecurityError", "TypeError", "Error"].includes(name) ? name : "UnknownError" }, video);
+    finish(true);
+  };
+  const failedSeek = () => fail("media-error");
   const correct = () => {
     if (!recover || done || owner !== token || !started || !mismatched || corrected || video.seeking || video.readyState < 2 || video.currentSrc !== video.src) return;
     // A completed seek can report the wrong position while the source loads.
     // Correct it once after current-frame data arrives, within the same timer.
     corrected = true;
     recordFeedEvent("resume-seek-correction", { target, position: video.currentTime }, video);
-    try { video.currentTime = target; } catch { failedSeek(); }
+    try { video.currentTime = target; } catch (error) { fail("corrective-setter-error", error); }
   };
   const seeked = () => {
     if (done || owner !== token || video.seeking || video.currentSrc !== video.src) return;
     if (Math.abs(video.currentTime - target) > 0.05) { mismatched = true; correct(); return; }
     finish();
   };
-  const timer = setTimeout(() => { recordFeedEvent("resume-seek-timeout", { target: time }, video); failedSeek(); }, 2_000);
+  const timer = setTimeout(() => { recordFeedEvent("resume-seek-timeout", { target: time }, video); fail(mismatched ? "position-mismatch-timeout" : "timeout"); }, 2_000);
   const seek = () => {
-    if (owner !== token || done) return failedSeek();
+    if (owner !== token || done) return fail("obsolete-owner");
     if (video.currentSrc !== video.src) return;
     if (recover && started) return;
     try {
@@ -174,9 +182,9 @@ function seekBeforePlayback(video: HTMLVideoElement, token: symbol, time: number
       if (Math.abs(video.currentTime - target) < 0.05) return finish();
       started = true;
       video.currentTime = target;
-    } catch { failedSeek(); }
+    } catch (error) { fail("setter-error", error); }
   };
-  pendingSeek = { token, promise, cancel: failedSeek, recoveryTarget: () => recover ? target : null };
+  pendingSeek = { token, promise, cancel: () => fail("cancelled"), recoveryTarget: () => recover ? target : null };
   video.addEventListener("loadedmetadata", seek);
   video.addEventListener("seeked", seeked);
   video.addEventListener("loadeddata", correct);
@@ -336,7 +344,12 @@ export function releaseMobileFeedPlayer(token: symbol, departure = true, options
 
 /** Stop sound as soon as a top-level mobile tab is selected. Card cleanup still
  * owns the position snapshot and release when the route changes. */
+export function onMobileFeedPauseRequested(listener: (video: HTMLVideoElement) => void): () => void {
+  pauseIntentListeners.add(listener);
+  return () => { pauseIntentListeners.delete(listener); };
+}
 export function pauseMobileFeedPlayer(): void {
+  if (player) pauseIntentListeners.forEach(listener => listener(player!));
   player?.pause();
   if (pendingRetirement) finishPreparedMobileFeedRetirement(pendingRetirement.token, "global-pause");
 }

@@ -64,7 +64,7 @@ async function warm() {
   expect(next.getAttribute("src")).toBe(src("b"));
   await act(async () => next.dispatchEvent(new Event("loadedmetadata")));
   await frame(next, 0, 1);
-  expect(next.paused).toBe(true); expect(next.muted).toBe(false);
+  expect(next.paused).toBe(true); expect(next.muted).toBe(true);
   expect(play.mock.contexts.filter(element => element === next)).toHaveLength(0);
   return { first, next };
 }
@@ -102,23 +102,51 @@ afterEach(async () => {
   window.matchMedia = savedMatchMedia; global.fetch = savedFetch; jest.restoreAllMocks(); jest.useRealTimers();
 });
 
-test("normal cards promote the same connected paused source and revoke the departing source before main play", async () => {
+test("normal cards preserve the audible player and retain a qualified muted cover until main motion", async () => {
   const { first, next } = await warm(), parent = next.parentElement;
   const load = jest.spyOn(next, "load"), seek = jest.spyOn(next, "currentTime", "set");
   const loadsBefore = load.mock.contexts.filter(element => element === next).length;
   play.mockImplementation(function (this: HTMLMediaElement) {
-    if (this === next) { expect(first.hasAttribute("src")).toBe(false); expect(first.paused).toBe(true); }
+    expect(this).toBe(first); expect(next.paused).toBe(true); expect(next.muted).toBe(true);
     paused.set(this, false); this.dispatchEvent(new Event("play")); return Promise.resolve();
   });
   await render("b");
-  expect(video("b")).toBe(next); expect(next.parentElement).toBe(parent);
+  expect(video("b")).toBe(first); expect(next.parentElement).toBe(parent);
   expect(load.mock.contexts.filter(element => element === next)).toHaveLength(loadsBefore); expect(seek).not.toHaveBeenCalled();
-  expect(events("prepared-player-selection").at(-1)?.detail.result).toBe("promoted");
-  await frame(next, 1 / 30, 2, 150); await frame(next, 2 / 30, 3, 150);
+  expect(events("prepared-player-selection").at(-1)?.detail.result).toBe("retained-main-with-cover");
+  await frame(first, 1 / 30, 2, 150); await frame(first, 2 / 30, 3, 150);
   expect(events("presentation-handoff").filter(event => event.postId === id("b"))).toHaveLength(0);
-  await frame(next, 3 / 30, 4); await frame(next, 4 / 30, 5);
+  await frame(first, 3 / 30, 4); await frame(first, 4 / 30, 5);
   expect(events("presentation-handoff").filter(event => event.postId === id("b"))).toHaveLength(1);
   expect(document.querySelectorAll("video[src]").length).toBeLessThanOrEqual(2);
+});
+
+test("a per-element sound grant survives prepared A to B to A without another tap", async () => {
+  const grants = new WeakSet<HTMLMediaElement>(); let gesture = false;
+  play.mockImplementation(function (this: HTMLMediaElement) {
+    if (gesture) grants.add(this);
+    if (!this.muted && !grants.has(this)) return Promise.reject(new DOMException("gesture required", "NotAllowedError"));
+    paused.set(this, false); this.dispatchEvent(new Event("play")); return Promise.resolve();
+  });
+  await render("a"); const first = video("a");
+  expect(card("a").textContent).toContain("Tap for sound");
+  await act(async () => {
+    gesture = true;
+    [...card("a").querySelectorAll("button")].find(button => button.textContent?.includes("Tap for sound"))!.click();
+    gesture = false;
+  });
+  expect(first.muted).toBe(false);
+  await frame(first, 1 / 30, 2); await frame(first, 2 / 30, 3);
+  await render("b");
+  expect(video("b")).toBe(first); expect(first.muted).toBe(false);
+  expect(card("b").textContent).not.toContain("Tap for sound");
+  await frame(first, 1 / 30, 2); await frame(first, 2 / 30, 3);
+  const neighbor = video("a"); media(neighbor);
+  const target = mobileFeedResumeSnapshot(id("a"), `${src("a")}|${src("a")}`, true).position;
+  await act(async () => neighbor.dispatchEvent(new Event("loadedmetadata"))); await frame(neighbor, target, 1);
+  await render("a");
+  expect(video("a")).toBe(first); expect(first.muted).toBe(false);
+  expect(card("a").textContent).not.toContain("Tap for sound");
 });
 
 test("a changed selected source rejects the old neighbor and takes the guarded cold path", async () => {

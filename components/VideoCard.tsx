@@ -29,7 +29,7 @@ import { sendDiscoverEvent, hasDiscoverSession } from "@/lib/discoverClient";
 import type { FeedInteraction } from "@/lib/feedInteraction";
 import VideoSeekBar from "./VideoSeekBar";
 import { claimMobileFeedPlayer, mobileFeedPlaybackReady, mobileFeedSeekFailed, ownsMobileFeedPlayer, recentMobileFeedPosition, releaseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
-import { recordFeedEvent, recordLegacyPreparation, measuredPreparation } from "@/lib/mobileFeedDiagnostics";
+import { recordFeedEvent, recordLegacyPreparation, measuredPreparation, sourceKind } from "@/lib/mobileFeedDiagnostics";
 import { normalFeedController, playNormalFeedVideo, pauseNormalFeedVideo, updateNormalFeedSound, type MobileFeedHandoff } from "@/lib/mobileFeedCandidate";
 import { planMobileFallback } from "@/lib/mobileFeedRecovery";
 import { useFeedPlaybackResolution } from "@/lib/useFeedPlaybackResolution";
@@ -133,6 +133,12 @@ function isAutoplayBlockedError(err: unknown): boolean {
     err !== null &&
     (err as { name?: unknown }).name === "NotAllowedError"
   );
+}
+
+function playbackErrorName(error: unknown): string {
+  const name = error instanceof Error || (typeof error === "object" && error !== null && "name" in error)
+    ? String(error.name) : "UnknownError";
+  return ["AbortError", "NotAllowedError", "NotSupportedError", "InvalidStateError", "SecurityError", "Error"].includes(name) ? name : "UnknownError";
 }
 
 function VideoCard(props: VideoCardProps) {
@@ -244,6 +250,8 @@ function VideoCard(props: VideoCardProps) {
   const adaptiveSrc = failedAdaptiveSource !== originalSrc ? (resolvedAdaptive ? resolution.source : legacyAdaptiveSrc) : undefined;
   const src = failedMediaSource === originalSrc ? originalSrc : failedAdaptiveSource === originalSrc
     ? resolution.descriptor?.processedMp4Url ?? feedMediaUrl(originalSrc) : resolution.source;
+  // A legacy HLS mapping is not proof that this activation selected HLS.
+  const playingAdaptive = !!src && (src === adaptiveSrc || sourceKind(src) === "hls");
   const resolvedContentVersion = resolution.descriptor?.contentVersion ?? ordinarySource ?? src ?? "";
   // A version identifies the asset, not equivalent timestamps in every output.
   // Prepared-feed resumes stay on the same selected source unless recovery has
@@ -252,6 +260,8 @@ function VideoCard(props: VideoCardProps) {
     ? `${resolvedContentVersion}|${src ?? ""}` : resolvedContentVersion;
   const [mediaError, setMediaError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
+  const retryReloadRef = useRef(false);
+  const recoveryPlayRef = useRef<(() => void) | null>(null);
   const [frameReady, setFrameReady] = useState(false);
   const [previewFrameReady, setPreviewFrameReady] = useState(false);
   const [posterFailed, setPosterFailed] = useState(false);
@@ -285,9 +295,13 @@ function VideoCard(props: VideoCardProps) {
     const request = playNormalFeedVideo(controlledMobilePlayer ? mobileFeedController : undefined, token, video);
     void request.catch((error: unknown) => {
       if (props.mobileHandoff !== "prepared-preload-audio" || !controlledMobilePlayer || attempt !== mainPlayAttemptRef.current ||
-          !ownsMobileFeedPlayer(token, video) || !mobileFeedController.canPlay(token) || document.hidden || manuallyPausedRef.current ||
-          (isAutoplayBlockedError(error) && !video.muted)) return;
-      recordFeedEvent("main-play-failed", { policyDenied: isAutoplayBlockedError(error) }, video);
+          !ownsMobileFeedPlayer(token, video) || !mobileFeedController.canPlay(token) || document.hidden || manuallyPausedRef.current) return;
+      const errorName = playbackErrorName(error);
+      recordFeedEvent("main-play-failed", { policyDenied: isAutoplayBlockedError(error), errorName,
+        recoverable: errorName === "AbortError" || (isAutoplayBlockedError(error) && !video.muted) }, video);
+      // The controller owns the single bounded interruption retry. Policy denial
+      // remains caller-owned so muted playback never overwrites saved sound intent.
+      if (errorName === "AbortError" || (isAutoplayBlockedError(error) && !video.muted)) return;
       mobileFeedController.suspend(); mobileFeedController.release(token, false);
       setFrameReady(false); setPreviewFrameReady(false); setMediaError(true);
     });
@@ -342,8 +356,13 @@ function VideoCard(props: VideoCardProps) {
     if (!useSharedMobilePlayer || !src || resolution.waiting || !sharedVideoHostRef.current) return;
     const owner = Symbol("feed-activation");
     sharedVideoOwnerRef.current = owner;
+    const reload = retryReloadRef.current;
+    retryReloadRef.current = false;
     const video = controlledMobilePlayer && preparationHostRef.current
-      ? mobileFeedController.activate({ postId: postId ?? src, src, contentVersion, host: sharedVideoHostRef.current, previewHost: preparationHostRef.current, token: owner, present: setPreviewFrameReady, ready: () => setFrameReady(true), failed: () => { setFrameReady(false); setMediaError(true); }, position: recoveryPositionRef.current, reload: retryVersion > 0,
+      ? mobileFeedController.activate({ postId: postId ?? src, src, contentVersion, host: sharedVideoHostRef.current, previewHost: preparationHostRef.current, token: owner, present: setPreviewFrameReady,
+        ready: () => { setFrameReady(true); setMediaError(false); },
+        failed: (reason?: string) => { recordFeedEvent("main-recovery-failed", { reason: reason ?? "startup-timeout" }); setFrameReady(false); setMediaError(true); },
+        recover: () => recoveryPlayRef.current?.(), position: recoveryPositionRef.current, reload,
         playingIntent: !manuallyPausedRef.current, soundIntent: !mutedRef.current })
       : claimMobileFeedPlayer(sharedVideoHostRef.current, owner, src, postId ?? src, { contentVersion, managedResume: resolution.delivery !== "off", warmEligible: measuredPreparation(previewVideoRef.current, src, recentMobileFeedPosition(postId ?? src, contentVersion)) });
     recoveryPositionRef.current = undefined;
@@ -353,9 +372,9 @@ function VideoCard(props: VideoCardProps) {
     video.muted = mutedRef.current;
     const onError = () => {
       if (!ownsMobileFeedPlayer(owner, video, src)) return;
-      recordFeedEvent("fallback", { code: video.error?.code ?? null, position: video.currentTime, from: adaptiveSrc ? "hls" : "mp4", terminal: src === originalSrc }, video);
+      recordFeedEvent("fallback", { code: video.error?.code ?? null, position: video.currentTime, from: sourceKind(src), terminal: src === originalSrc }, video);
       if (controlledMobilePlayer) {
-        const next = adaptiveSrc ? resolution.descriptor?.processedMp4Url ?? feedMediaUrl(originalSrc) : src !== originalSrc ? originalSrc : undefined;
+        const next = playingAdaptive ? resolution.descriptor?.processedMp4Url ?? feedMediaUrl(originalSrc) : src !== originalSrc ? originalSrc : undefined;
         const recovery = planMobileFallback(src, next, video.currentTime, fallbackAttemptsRef.current, undefined, contentVersion);
         if (recovery.kind === "terminal") {
           recordFeedEvent("fallback-held", { reason: recovery.reason, position: video.currentTime }, video);
@@ -363,7 +382,7 @@ function VideoCard(props: VideoCardProps) {
         }
         recoveryPositionRef.current = recovery.position;
       }
-      if (adaptiveSrc) setFailedAdaptiveSource(originalSrc);
+      if (playingAdaptive) setFailedAdaptiveSource(originalSrc);
       else if (src !== originalSrc) setFailedMediaSource(originalSrc);
       else {
         if (controlledMobilePlayer) { mobileFeedController.suspend(); mobileFeedController.release(owner, false); }
@@ -385,7 +404,7 @@ function VideoCard(props: VideoCardProps) {
       setPreviewFrameReady(false);
     };
   // Preload changes with page visibility; keep ownership through that change.
-  }, [useSharedMobilePlayer, src, postId, adaptiveSrc, originalSrc, reportMediaDimensions, controlledMobilePlayer, mobileFeedController, retryVersion, resolution.waiting, resolution.descriptor, contentVersion]);
+  }, [useSharedMobilePlayer, src, postId, playingAdaptive, originalSrc, reportMediaDimensions, controlledMobilePlayer, mobileFeedController, retryVersion, resolution.waiting, resolution.descriptor, contentVersion]);
   useEffect(() => {
     if (useSharedMobilePlayer && videoRef.current) videoRef.current.poster = displayPoster || "";
   }, [useSharedMobilePlayer, displayPoster]);
@@ -885,13 +904,17 @@ function VideoCard(props: VideoCardProps) {
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     const cleanup = () => {
       cancelled = true;
+      if (recoveryPlayRef.current === recoverPlayback) recoveryPlayRef.current = null;
       if (retry) video.removeEventListener("canplay", retry);
       clearTimeout(retryTimer);
     };
     const tryPlay = (retried = false) => {
       if (cancelled || !pageVisibleRef.current || !visible || manuallyPausedRef.current || insightPlaybackSuspended(video)) return;
       if (controlledMobilePlayer && !mobileFeedController.canPlay(playOwner)) return;
-      if (controlledMobilePlayer && mobileFeedSeekFailed(playOwner)) { mobileFeedController.suspend(); mobileFeedController.release(playOwner, false); setMediaError(true); return; }
+      if (controlledMobilePlayer && mobileFeedSeekFailed(playOwner)) {
+        recordFeedEvent("main-recovery-failed", { reason: "return-seek-failed" }, video);
+        mobileFeedController.suspend(); mobileFeedController.release(playOwner, false); setMediaError(true); return;
+      }
       video.muted = mutedRef.current;
       if (useSharedMobilePlayer) recordFeedEvent("play-request", { muted: video.muted, retried }, video);
       const playPromise = requestPlay(video, playOwner);
@@ -907,6 +930,7 @@ function VideoCard(props: VideoCardProps) {
             return;
           }
           if (retried || isAutoplayBlockedError(err)) return;
+          if (props.mobileHandoff === "prepared-preload-audio" && controlledMobilePlayer && playbackErrorName(err) === "AbortError") return;
           const onCanPlay = () => {
             tryPlay(true);
           };
@@ -917,6 +941,9 @@ function VideoCard(props: VideoCardProps) {
         });
       }
     };
+
+    const recoverPlayback = () => tryPlay(true);
+    recoveryPlayRef.current = recoverPlayback;
 
     if (!pageVisible) {
       video.pause();
@@ -1699,7 +1726,7 @@ function VideoCard(props: VideoCardProps) {
         {showFallbackCover && <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-20 bg-gradient-to-br from-[#232039] via-[#151325] to-[#07070c]" />}
         {src && mediaError && <div role="status" className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/75 text-white">
           <p>This video couldn’t load.</p>
-          <button type="button" className="rounded-full border border-white/40 px-4 py-2" onClick={() => { manuallyPausedRef.current = false; setMediaError(false); setRetryVersion(value => value + 1); }}>Retry video</button>
+          <button type="button" className="rounded-full border border-white/40 px-4 py-2" onClick={() => { manuallyPausedRef.current = false; retryReloadRef.current = true; setMediaError(false); setRetryVersion(value => value + 1); }}>Retry video</button>
           <p className="text-sm">You can also scroll to the next post.</p>
         </div>}
 

@@ -12,11 +12,20 @@ export function useFeedPlaybackResolution(input: { postId: string; original?: st
   const eligible = delivery !== "off" && !!publicVideoKey(original) && visible && (active || neighbor);
   const identity = `${postId}:${original ?? ""}:${delivery}`;
   const [selection, setSelection] = useState<Selection>({ identity: "", descriptor: null, selected: false });
+  const [previousActive, setPreviousActive] = useState(active);
+  if (previousActive !== active) {
+    setPreviousActive(active);
+    // A new inactive preparation refreshes the version before another
+    // activation can consume the preceding activation's selection.
+    if (!active && selection.selected) setSelection({ identity, descriptor: null, selected: false });
+  }
+  if (!active && !eligible && selection.selected) setSelection({ identity, descriptor: null, selected: false });
   const valid = selection.identity === identity;
   useEffect(() => {
-    if (!eligible || !original) { if (!active) setSelection(previous => previous.selected || previous.descriptor ? { identity, descriptor: null, selected: false } : previous); return; }
-    // A resolved neighbor transfers the same version and source into activation.
-    if (active && valid && selection.selected && selection.descriptor) return;
+    if (!eligible || !original) return;
+    // Fallback is a selection too: transfer it without a second lookup that
+    // could replace a source already playing, including after visibility changes.
+    if (active && valid && selection.selected) return;
     let alive = true, pinned = false;
     const request = requestFeedPlayback(original);
     recordFeedEvent("resolution-start", { postId, delivery });
