@@ -4,7 +4,7 @@ import { MEMBERSHIP_PAYMENT_PROOF_VERSION, membershipMonthBoundary } from "@/lib
 import { membershipActivationParams, membershipRenewalPeriod } from "@/lib/membershipRenewal";
 export function membershipRenewalFixture(anchor?: number, coveredMonths = 1) {
   const f = membershipFixture(true), now = new Date();
-  // The default unpaid month must already be due before noon on UTC day one.
+  // The next service month must already be current, including before noon on its first day.
   f.a.anchor_at = anchor ?? Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1) / 1000;
   f.a.covered_months = coveredMonths; f.a.revision = coveredMonths + 1;
   f.a.accepted_at = new Date((f.a.anchor_at - 60) * 1000).toISOString();

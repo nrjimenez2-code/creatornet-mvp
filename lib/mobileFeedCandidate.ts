@@ -4,12 +4,12 @@ import { PreparedMobileFeedController } from "./mobileFeedPreparedController";
 export type MobileFeedHandoff = boolean | "prepared-preload-audio";
 type Controller = typeof mobileFeedController | PreparedMobileFeedController;
 
-// Explicit opt-in only. The normal-feed candidate always uses immediate cleanup.
+// Supported mobile feeds use paused preparation by default, with immediate cleanup.
 const preparedController = new PreparedMobileFeedController("prepared-preload-audio");
-let handoffForThisPageSession: MobileFeedHandoff = false;
+let handoffForThisPageSession: MobileFeedHandoff = "prepared-preload-audio";
 let liveReadoutForThisPageSession = true;
 
-export function resolveMobileFeedHandoff(search: string, previous: MobileFeedHandoff = false): MobileFeedHandoff {
+export function resolveMobileFeedHandoff(search: string, previous: MobileFeedHandoff = "prepared-preload-audio"): MobileFeedHandoff {
   const params = new URLSearchParams(search);
   const bridge = params.get("feedBridge"), transfer = params.get("feedTransfer");
   let selected = bridge === null ? previous : bridge === "1";
@@ -20,6 +20,10 @@ export function resolveMobileFeedHandoff(search: string, previous: MobileFeedHan
 export function mobileFeedHandoffSnapshot(): MobileFeedHandoff {
   if (typeof window === "undefined") return false;
   handoffForThisPageSession = resolveMobileFeedHandoff(window.location.search, handoffForThisPageSession);
+  // Prepared startup requires advancing frame callbacks. Older browsers retain
+  // conventional playback instead of reaching the prepared startup watchdog.
+  if (handoffForThisPageSession === "prepared-preload-audio" &&
+      typeof HTMLVideoElement.prototype.requestVideoFrameCallback !== "function") return false;
   return handoffForThisPageSession;
 }
 

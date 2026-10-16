@@ -1,5 +1,7 @@
 # Prepared player Preview experiment
 
+October 15 release status: the full feed release now selects paused prepared playback by default on supported mobile Discover/Following; explicit opt-out, unsupported-browser fallback and desktop isolation remain available. Remaining manual phone/performance/resource/TikTok acceptance is owner-waived and unverified, not passed. See `mobile-feed-controlled-release.md`. The experiment checkpoints below remain historical; lab-only variants retain their Preview gates.
+
 Current checkpoint: f653350 is published in draft PR #248. Four unrecorded
 phone traces and one recorded trace retain fully buffered paused preparation,
 zero preparation plays and immediate selected-main play. A stable live-readout

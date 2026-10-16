@@ -83,19 +83,12 @@ test.each([
   await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Open post"]')!.click());
   expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe(String(expectedTips));
   const toggle = Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent === "Disable tips");
-  expect(Boolean(toggle)).toBe(tippingAvailable && viewerIsOwner);
+  expect(toggle).toBeUndefined();
   expect(global.fetch).not.toHaveBeenCalled();
-  if (toggle) {
-    (global.fetch as jest.Mock).mockResolvedValue({ok: true, json: async () => ({enabled: false})});
-    await act(async () => toggle.click());
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    expect(global.fetch).toHaveBeenCalledWith("/api/posts/p0/tips", expect.objectContaining({method: "PATCH", body: JSON.stringify({enabled: false})}));
-    expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe("false");
-    await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true})));
-    await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click());
-    await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[0].click());
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Open post"]')!.click());
-    expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe("false");
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-  }
+  await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", {key: "Escape", bubbles: true})));
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[1].click());
+  await act(async () => host.querySelectorAll<HTMLButtonElement>('[role="tab"]')[0].click());
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Open post"]')!.click());
+  expect(host.querySelector('[data-playing-post="p0"]')?.getAttribute("data-tips-enabled")).toBe(String(expectedTips));
+  expect(global.fetch).not.toHaveBeenCalled();
 });

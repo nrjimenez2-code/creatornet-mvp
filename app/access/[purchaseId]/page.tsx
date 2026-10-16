@@ -1,6 +1,8 @@
 // app/access/[purchaseId]/page.tsx
 import type { Metadata } from "next";
 import { createServerClient } from "@/lib/supabaseServer";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isLibraryPurchaseEligible } from "@/lib/libraryAccess";
 import Link from "next/link";
 import CopyLinkButton from "./CopyLinkButton";
 
@@ -46,7 +48,7 @@ export default async function AccessPage({
   const { data: p, error } = await supabase
     .from("purchases")
     .select(
-      "id,buyer_id,creator_id,product_id,post_id,status,access_granted,fulfillment,fulfillment_url,fulfillment_payload,paid_count,target_months"
+      "id,buyer_id,creator_id,product_id,post_id,status,access_granted,payment_intent_id,fulfillment,fulfillment_url,fulfillment_payload,paid_count,target_months"
     )
     .eq("id", purchaseId)
     .single();
@@ -75,9 +77,14 @@ export default async function AccessPage({
     );
   }
 
-  const accessActive =
-    p.access_granted === true &&
-    ["paid", "active", "complete"].includes(p.status || "");
+  // Legacy fulfillment links need the same current dispute and timed-access
+  // checks as Library and the private delivery APIs, even when paid stays true.
+  let accessActive = false;
+  try {
+    accessActive = await isLibraryPurchaseEligible(supabaseAdmin, p, user.id);
+  } catch {
+    // An unavailable or malformed entitlement must never expose fulfillment.
+  }
   if (!accessActive) {
     return (
       <Shell>

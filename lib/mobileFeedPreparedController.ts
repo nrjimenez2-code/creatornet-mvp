@@ -1,4 +1,4 @@
-// Shared prepared-player candidate. Normal feed opts in separately; lab controls remain explicit.
+// Shared prepared player. Supported mobile feeds use it by default; lab controls remain explicit.
 import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, finishPreparedMobileFeedRetirement, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, preparedMobileFeedRetirementPending, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
 import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
 
@@ -46,8 +46,8 @@ function preparationBuffer(video: HTMLVideoElement, target: number) {
   return playableBuffer(video, target);
 }
 
-/** Promote a qualified paused neighbor into sole ownership. This remains an
- * opt-in candidate until normal-feed physical acceptance is complete. */
+/** Promote a qualified paused neighbor into sole ownership. Physical phone
+ * acceptance was owner-waived for release and remains unverified. */
 export class PreparedMobileFeedController {
   constructor(private readonly preparationMode: "prepared" | "prepared-audio" | "prepared-inplace-audio" | "prepared-preload-audio" = "prepared-preload-audio", private readonly options?: { deferPreparedRetirement?: boolean }) {}
   private get pausedPreparation() { return this.preparationMode === "prepared-preload-audio"; }

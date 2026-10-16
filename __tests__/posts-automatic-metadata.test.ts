@@ -10,8 +10,11 @@ jest.mock("@/lib/rateLimit", () => ({ allowRequest: () => true, clientKey: () =>
 jest.mock("@/lib/r2", () => ({ r2KeyFromPublicUrl: () => null }));
 import { POST } from "@/app/api/posts/route";
 const product = "22222222-2222-4222-8222-222222222222";
+const originalEnv = { ...process.env };
 const request = (data: Record<string, unknown>) => POST(new Request("https://creatornet.test/api/posts", { method: "POST", body: JSON.stringify({ video_url: "https://example.test/video.mp4", classification_version: 1, ...data }) }));
 beforeEach(() => {
+  delete process.env.CREATOR_PREMIUM_DELIVERY_SCHEMA_READY;
+  delete process.env.CREATOR_PREMIUM_DELIVERY_READY;
   mockBanned = false; mockDropProduct = false;
   mockAdmin = createMockClient(op => {
     if (op.table === "profiles") return { data: { bio: "Learn guitar", tagline: "", interests: ["investing"] }, error: null };
@@ -20,6 +23,7 @@ beforeEach(() => {
     return { data: null, error: null };
   });
 });
+afterEach(() => { process.env = { ...originalEnv }; });
 const inserted = () => (mockAdmin.opsFor("posts")[0].payload as Record<string, unknown>[])[0];
 test("recomputes hashtags and labels on the server, ignoring client-supplied metadata", async () => {
   expect((await request({ content: "#SMMA #smma", hashtags: ["fabricated"], interests: ["investing"], topics: ["made up"] })).status).toBe(200);
@@ -57,4 +61,9 @@ test("unmarked legacy submissions retain their metadata contract and avoid profi
   expect(inserted()).toMatchObject({ interests: ["business & entrepreneurship"], topics: ["custom topic"], hashtags: ["oldtag"] });
   expect(inserted()).not.toHaveProperty("classification_version");
   expect(mockAdmin.opsFor("profiles")).toHaveLength(0);
+});
+test.each([{}, { product_id: product }, { video_action: "tip", tips_enabled: true }])("readiness off rejects legacy and canonical publishing before any data writes", async body => {
+  process.env.CREATOR_PREMIUM_DELIVERY_SCHEMA_READY = "true";
+  process.env.CREATOR_PREMIUM_DELIVERY_READY = "false";
+  expect((await request(body)).status).toBe(409); expect(mockAdmin.ops).toHaveLength(0);
 });

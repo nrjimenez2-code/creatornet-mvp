@@ -10,6 +10,7 @@ let expired = false;
 let banned = false;
 let ids: string[] = [];
 let hidden = new Set<string>();
+let commerceFixture = false;
 const auth = {
   auth: {
     getUser: async () => ({ data: { user: { id: "viewer" } }, error: null }),
@@ -24,6 +25,8 @@ jest.mock("@/lib/supabaseAdmin", () => ({
 jest.mock("@/lib/supabaseServer", () => ({ createServerClient: () => auth }));
 import { GET } from "@/app/api/feed/route";
 import { POST } from "@/app/api/feed-events/route";
+import { mapFeedV3Rows } from "@/lib/feedV3";
+const paidProduct = { id: "product", product_id: null, creator_id: "creator", type: "digital", amount_cents: 2000, active: true };
 function respond(op: Op): {data: any; error: unknown} {
   if(op.table === 'discover_page_inventory_v1') {
     const args=op.payload as {p_actor:string;p_offset:number;p_limit:number};
@@ -37,7 +40,7 @@ function respond(op: Op): {data: any; error: unknown} {
     return {data:{
       posts:respond({...op,table:'posts',inFilters:[{column:'id',values:selected}]}).data,
       profiles:respond({...op,table:'profiles'}).data,
-      primaryProducts:[],legacyProducts:[],offerings:[],
+      primaryProducts:commerceFixture ? [paidProduct] : [],legacyProducts:[],offerings:[],
     },error:null};
   }
   if (op.table === "discover_sessions_v1")
@@ -60,6 +63,12 @@ function respond(op: Op): {data: any; error: unknown} {
         id,
         creator_id: "creator",
         title: String(id),
+        ...(commerceFixture ? {
+          product_id: id === "paid" ? "product" : null,
+          price_cents: null,
+          allow_booking: id === "book",
+          booking_url: id === "book" ? "https://calendar.invalid/free" : null,
+        } : {}),
         poster_url: "https://example.test/p.jpg",
         hidden_at: hidden.has(String(id)) ? "2026-09-12" : null,
       })),
@@ -76,6 +85,8 @@ function respond(op: Op): {data: any; error: unknown} {
       ],
       error: null,
     };
+  if (op.table === "products" && commerceFixture)
+    return { data: op.inFilters.some(filter => filter.values.includes("product")) ? [paidProduct] : [], error: null };
   return { data: [], error: null };
 }
 beforeEach(() => {
@@ -85,8 +96,28 @@ beforeEach(() => {
   expired = false;
   banned = false;
   hidden = new Set();
+  commerceFixture = false;
   ids = Array.from({ length: 2005 }, (_, i) => "p" + i);
   db = createMockClient(respond);
+});
+
+test.each(["direct", "batch", "combined"])("%s inventory keeps unlinked Book and no-action posts free of another post's product", async path => {
+  commerceFixture = true;
+  ids = ["paid", "book", "none"];
+  process.env.DISCOVER_BATCH_INVENTORY_ENABLED = String(path === "batch");
+  process.env.DISCOVER_PAGE_INVENTORY_ENABLED = String(path === "combined");
+  try {
+    const response = await GET(request("offset=0&limit=3"));
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    const [paid, book, none] = mapFeedV3Rows(body.items);
+    expect(paid).toMatchObject({ product_id: "product", product_type: "digital", price_cents: 2000 });
+    expect(book).toMatchObject({ product_id: null, product_type: null, price_cents: 0, allow_booking: true, booking_url: "https://calendar.invalid/free" });
+    expect(none).toMatchObject({ product_id: null, product_type: null, price_cents: 0, allow_booking: false, booking_url: null });
+  } finally {
+    delete process.env.DISCOVER_BATCH_INVENTORY_ENABLED;
+    delete process.env.DISCOVER_PAGE_INVENTORY_ENABLED;
+  }
 });
 afterAll(() => {
   delete process.env.DISCOVER_PAGE_INVENTORY_ENABLED;

@@ -1,4 +1,5 @@
 import "server-only";
+import { premiumSchemaReady, premiumPostingReady } from "../premiumReadiness";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { assertAgreementId } from "./agreementStore";
 import { createExactContextReservationStore, CONTEXT_RESERVATION_VERSION, type ContextReservationTerms } from "./contextReservation";
@@ -83,6 +84,13 @@ export async function handoffContextCheckoutLink(args: {
     if (r.terms.serviceMonths !== undefined &&
       (env.CREATOR_FIXED_SERVICE_SCHEMA_READY !== "true" || env.CREATOR_FIXED_SERVICE_CONTEXT_READY !== "true")) {
       return { status: 409, body: { error: "This timed-service offer is paused. Its saved terms are preserved.", code: "FIXED_SERVICE_HELD" } };
+    }
+    if (premiumSchemaReady(env)) {
+      const product = await admin.from("products").select("delivery_revision,active,is_active").eq("id", r.terms.productId).maybeSingle();
+      check(!product.error && product.data);
+      if (product.data.delivery_revision && (!premiumPostingReady(env) || product.data.active === false || product.data.is_active === false)) {
+        return { status: 409, body: { error: "New product checkout is temporarily unavailable.", code: "PREMIUM_DELIVERY_HELD" } };
+      }
     }
     await createExactContextBootstrapPlanner(config).planCustomer(r.id, actorId);
     check((await createExactContextCustomerBootstrap(config).createCustomer(r.id, actorId)).status === "customer_bound");

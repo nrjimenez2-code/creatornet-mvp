@@ -846,7 +846,8 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const activeFrameReady = !!activePostId && readyPostId === activePostId;
 
   return (
-    <div className="relative h-full min-h-0 feed-mobile-viewport">
+    <div className="relative h-full min-h-0 feed-mobile-viewport" data-feed-tab={activeTab}
+      data-mobile-feed-transfer={desktop ? "desktop" : mobileHandoff === "prepared-preload-audio" ? mobileHandoff : mobileHandoff ? "bridge" : "conventional"}>
       {showDiagnostics && !desktop && <MobileFeedDiagnostics activePostId={activePostId} getVideo={getFeedVideo} liveReadout={liveReadout} />}
       {hasNewPosts && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">

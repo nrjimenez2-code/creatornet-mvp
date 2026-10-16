@@ -1,4 +1,5 @@
 import { recordBookingSetup } from "@/lib/discoverBookings";
+import { completeFreeBooking } from "@/lib/freeBookingCheckout";
 // app/api/stripe/webhook/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
@@ -1517,6 +1518,10 @@ export async function POST(req: NextRequest) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         if (await updateTipFromCheckoutEvent(admin, session, event.type)) break;
+        if (session.metadata?.kind === "free_booking_v1") {
+          await completeFreeBooking(admin, session);
+          break;
+        }
         
         console.log("[webhook] ✅ SAVE BUTTON CLICKED - checkout.session.completed", {
           session_id: session.id,

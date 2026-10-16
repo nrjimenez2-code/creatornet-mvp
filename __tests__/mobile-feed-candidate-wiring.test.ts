@@ -28,11 +28,14 @@ import { exportFeedTrace } from "@/lib/mobileFeedDiagnostics";
 class NoopObserver { observe() {} unobserve() {} disconnect() {} }
 let root: Root, container: HTMLDivElement;
 let savedObserver: typeof IntersectionObserver, savedFetch: typeof global.fetch;
+let savedFrameCallback: typeof HTMLVideoElement.prototype.requestVideoFrameCallback;
 beforeEach(() => {
   desktop = false; cards.clear();
   mockDiscoverPage.mockReset().mockResolvedValue(page());
   for (const tab of ["discover", "following"] as const) clearMobileFeedSnapshot(tab, "candidate-viewer");
-  window.history.replaceState({}, "", "/?feedTransfer=0"); mobileFeedHandoffSnapshot();
+  savedFrameCallback = HTMLVideoElement.prototype.requestVideoFrameCallback;
+  HTMLVideoElement.prototype.requestVideoFrameCallback = jest.fn();
+  window.history.replaceState({}, "", "/?feedTransfer=prepared-preload-audio"); mobileFeedHandoffSnapshot();
   savedObserver = global.IntersectionObserver; global.IntersectionObserver = NoopObserver as unknown as typeof IntersectionObserver;
   savedFetch = global.fetch; global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ offers: {} }) });
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
@@ -40,16 +43,19 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   global.IntersectionObserver = savedObserver; global.fetch = savedFetch;
+  HTMLVideoElement.prototype.requestVideoFrameCallback = savedFrameCallback;
 });
 async function render(tab: "discover" | "following") {
   await act(async () => root.render(createElement(FeedList, { activeTab: tab, onChangeTab: jest.fn() })));
   expect(cards.size).toBe(2);
 }
 
-test.each(["discover", "following"] as const)("%s passes the opt-in prepared controller to its actual cards", async tab => {
-  window.history.replaceState({}, "", "/?feedTransfer=prepared-preload-audio");
+test.each(["discover", "following"] as const)("%s passes the default prepared controller to its actual cards without a selector", async tab => {
+  window.history.replaceState({}, "", `/dashboard?tab=${tab}`);
   await render(tab);
   expect([...cards.values()].every(card => card.mobileHandoff === "prepared-preload-audio")).toBe(true);
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-feed-tab")).toBe(tab);
+  expect(container.querySelector("[data-mobile-feed-transfer]")?.getAttribute("data-mobile-feed-transfer")).toBe("prepared-preload-audio");
   expect(exportFeedTrace().context).toEqual(expect.objectContaining({ feed: tab, mode: "candidate", feedTransfer: "prepared-preload-audio", retiredSourceCleanup: "immediate" }));
   window.history.replaceState({}, "", "/");
   await render(tab === "discover" ? "following" : "discover");
@@ -58,9 +64,18 @@ test.each(["discover", "following"] as const)("%s passes the opt-in prepared con
 
 test.each([false, true])("baseline and desktop stay outside prepared transfer (desktop=%s)", async isDesktop => {
   desktop = isDesktop;
-  if (desktop) window.history.replaceState({}, "", "/?feedTransfer=prepared-preload-audio");
+  window.history.replaceState({}, "", desktop ? "/dashboard" : "/dashboard?feedTransfer=0");
   await render("discover");
   expect([...cards.values()].every(card => card.mobileHandoff === false)).toBe(true);
+  expect(container.querySelector("[data-mobile-feed-transfer]")?.getAttribute("data-mobile-feed-transfer")).toBe(desktop ? "desktop" : "conventional");
+});
+
+test("a mobile browser without frame callbacks keeps conventional cards without a forced prepared watchdog", async () => {
+  HTMLVideoElement.prototype.requestVideoFrameCallback = undefined as unknown as typeof savedFrameCallback;
+  window.history.replaceState({}, "", "/dashboard");
+  await render("discover");
+  expect([...cards.values()].every(card => card.mobileHandoff === false)).toBe(true);
+  expect(container.querySelector("[data-mobile-feed-transfer]")?.getAttribute("data-mobile-feed-transfer")).toBe("conventional");
 });
 
 // JSDOM has no layout or CSS scrolling. Model the browser rule that an implicit

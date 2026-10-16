@@ -3,11 +3,35 @@ import { resolveMobileFeedHandoff, normalFeedController, mobileFeedReadoutSnapsh
 import { mobileFeedController } from "@/lib/mobileFeedController";
 import { PreparedMobileFeedController } from "@/lib/mobileFeedPreparedController";
 
-test("normal feed is off by default and only the exact transfer selector opts in", () => {
-  expect(resolveMobileFeedHandoff("")).toBe(false);
+test("normal feed defaults to prepared transfer and explicit selectors retain their opt-out behavior", () => {
+  expect(resolveMobileFeedHandoff("")).toBe("prepared-preload-audio");
   expect(resolveMobileFeedHandoff("?feedTransfer=prepared-preload-audio")).toBe("prepared-preload-audio");
   for (const value of ["1", "prepared", "prepared-audio", "prepared-inplace-audio", "", "0", "unknown"]) {
     expect(resolveMobileFeedHandoff(`?feedTransfer=${value}`, "prepared-preload-audio")).toBe(false);
+  }
+});
+
+test("a fresh supported page enables prepared playback without a selector and unsupported browsers fall back", () => {
+  const original = Object.getOwnPropertyDescriptor(HTMLVideoElement.prototype, "requestVideoFrameCallback");
+  window.history.replaceState({}, "", "/dashboard");
+  try {
+    Object.defineProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback", { configurable: true, value: jest.fn() });
+    jest.isolateModules(() => {
+      const candidate = jest.requireActual<typeof import("@/lib/mobileFeedCandidate")>("@/lib/mobileFeedCandidate");
+      expect(candidate.mobileFeedHandoffSnapshot()).toBe("prepared-preload-audio");
+      window.history.replaceState({}, "", "/dashboard?tab=following");
+      expect(candidate.mobileFeedHandoffSnapshot()).toBe("prepared-preload-audio");
+      Object.defineProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback", { configurable: true, value: undefined });
+      expect(candidate.mobileFeedHandoffSnapshot()).toBe(false);
+      Object.defineProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback", { configurable: true, value: jest.fn() });
+      window.history.replaceState({}, "", "/dashboard?feedTransfer=0");
+      expect(candidate.mobileFeedHandoffSnapshot()).toBe(false);
+      window.history.replaceState({}, "", "/dashboard");
+      expect(candidate.mobileFeedHandoffSnapshot()).toBe(false);
+    });
+  } finally {
+    if (original) Object.defineProperty(HTMLVideoElement.prototype, "requestVideoFrameCallback", original);
+    else delete (HTMLVideoElement.prototype as Partial<HTMLVideoElement>).requestVideoFrameCallback;
   }
 });
 

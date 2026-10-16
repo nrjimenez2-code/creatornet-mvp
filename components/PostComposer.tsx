@@ -7,6 +7,10 @@ import { AUTOMATIC_POST_CLASSIFICATION_VERSION } from "@/lib/automaticPostMetada
 import { Video, LockKeyhole } from "lucide-react";
 import { useUser } from "@/lib/useUser";
 import SchedulingConnections from "@/components/SchedulingConnections";
+import ProductDeliveryEditor from "@/components/ProductDeliveryEditor";
+import ExistingProductDelivery from "@/components/ExistingProductDelivery";
+import { LoadingLabel, Skeleton } from "@/components/loading/Skeletons";
+import { readProductDelivery, type ProductDelivery } from "@/lib/productDelivery";
 import { extractHashtags } from "@/lib/hashtags";
 import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
 import { readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
@@ -22,7 +26,7 @@ type Props = { onPosted?: () => void };
 type Product = {
   id: string;
   title: string;
-  type: "video" | "course" | "mentorship" | "call";
+  type: "video" | "bundle" | "course" | "mentorship" | "call";
   price_cents: number | null;
   membership_terms?: MonthlyMentorshipTerms | null;
   fixed_service_months?: number | null;
@@ -46,7 +50,8 @@ async function createProductViaAPI(input: {
   title: string;
   priceDollars?: string;
   description?: string;
-  type?: "video" | "course" | "mentorship" | "call";
+  type?: "video" | "bundle" | "course" | "mentorship" | "call";
+  delivery?: ProductDelivery;
   creator_id?: string;
   scheduling_url?: string;
   membership_terms?: MonthlyMentorshipTerms | null;
@@ -62,6 +67,7 @@ async function createProductViaAPI(input: {
       type: input.type ?? "video",
       price_cents: dollarsToCents(input.priceDollars ?? ""),
       creator_id: input.creator_id,
+      ...(input.delivery ? { delivery: input.delivery } : {}),
       scheduling_url: input.scheduling_url,
       membership_terms: input.membership_terms ?? null,
       ...(input.fixed_service_months != null ? { fixed_service_months: input.fixed_service_months } : {}),
@@ -75,15 +81,17 @@ async function createProductViaAPI(input: {
   return data.product as Product;
 }
 
-async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean }> {
+async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean; premiumDelivery: boolean; premiumDeliveryReady: boolean }> {
   const res = await fetch("/api/products", {
     method: "GET",
     credentials: "include",
   });
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.error || "Failed to load products");
+  if (!res.ok || data?.success === false || !Array.isArray(data?.items)) {
+    throw new Error("Failed to load post settings");
+  }
   const raw = (data?.items ?? []) as (Product & { product_id?: string })[];
-  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true };
+  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true, premiumDelivery: data?.capabilities?.premiumDelivery === true, premiumDeliveryReady: data?.capabilities?.premiumDeliveryReady === true };
 }
 
 /** Accept ANY https URL; auto-prefix missing scheme. */
@@ -334,7 +342,11 @@ export default function PostComposer({ onPosted }: Props) {
   const [newProdOpen, setNewProdOpen] = useState(false);
   const [newProdTitle, setNewProdTitle] = useState("");
   const [newProdPrice, setNewProdPrice] = useState<string>(""); // dollars
-  const [newProdType, setNewProdType] = useState<"video" | "course" | "mentorship" | "call">("video");
+  const [newProdType, setNewProdType] = useState<Product["type"]>("video");
+  const [premiumDeliveryEnabled, setPremiumDeliveryEnabled] = useState(false);
+  const [premiumPostingEnabled, setPremiumPostingEnabled] = useState(false);
+  const [newDelivery, setNewDelivery] = useState<ProductDelivery>({ links: [], videos: [] });
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
   const [paidCallsEnabled, setPaidCallsEnabled] = useState(false);
   const [newProdSchedulingUrl, setNewProdSchedulingUrl] = useState("");
   const [monthlyMembershipsReady, setMonthlyMembershipsReady] = useState(false);
@@ -355,7 +367,10 @@ export default function PostComposer({ onPosted }: Props) {
   const [uploadPct, setUploadPct] = useState<number | null>(null);
   const [uploadStage, setUploadStage] = useState<string>("");
   const [productsLoadedFor, setProductsLoadedFor] = useState<string | null>(null);
-  const loadingProducts = !!userId && productsLoadedFor !== userId;
+  const [productsLoadFailedFor, setProductsLoadFailedFor] = useState<string | null>(null);
+  const [productsLoadAttempt, setProductsLoadAttempt] = useState(0);
+  const loadingProducts = !userId || productsLoadedFor !== userId;
+  const productsLoadFailed = !!userId && productsLoadFailedFor === userId;
   const [creatingProduct, setCreatingProduct] = useState(false);
   const [stripeSellReady, setStripeSellReady] = useState<boolean | null>(null);
   const [tippingAvailable, setTippingAvailable] = useState(false);
@@ -370,15 +385,13 @@ export default function PostComposer({ onPosted }: Props) {
     (async () => {
       try {
         const result = await fetchMyProducts();
-        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); }
-      } catch (e) {
-        if (!cancelled) console.debug("products GET:", (e as { message?: string })?.message);
-      } finally {
-        if (!cancelled) setProductsLoadedFor(userId);
+        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); setProductsLoadFailedFor(null); setProductsLoadedFor(userId); }
+      } catch {
+        if (!cancelled) setProductsLoadFailedFor(userId);
       }
     })();
     return () => { cancelled = true; };
-  }, [userId]);
+  }, [userId, productsLoadAttempt]);
 
   useEffect(() => {
     if (!userId) return;
@@ -446,6 +459,7 @@ export default function PostComposer({ onPosted }: Props) {
         ? readFixedServiceOfferMonths(Number(newProdServiceMonths), newProdType, false) : null;
       if (serviceMonths !== null && !fixedServiceOffersEnabled) throw Error("Timed fixed-purchase offers are not enabled yet.");
       const newProduct = await createProductViaAPI({
+        ...(premiumDeliveryEnabled && newProdType !== "call" ? { delivery: readProductDelivery(newDelivery, newProdType) } : {}),
         title: t,
         priceDollars: newProdPrice,
         type: newProdType,
@@ -459,6 +473,7 @@ export default function PostComposer({ onPosted }: Props) {
       setProducts((prev) => [newProduct, ...prev]);
       setProductId(newProduct.id);
       setAttachBuy(true);
+      if (premiumDeliveryEnabled) { setAttachBooking(false); setTipsEnabled(false); }
 
       if (!priceDollars && newProduct.price_cents) {
         setPriceDollars(String(newProduct.price_cents / 100));
@@ -471,6 +486,7 @@ export default function PostComposer({ onPosted }: Props) {
       setNewProdSchedulingUrl("");
       setNewProdMonthly(false); setNewProdMinimumMonths(1); setNewProdAutoRenew(false);
       setNewProdFixedService(false); setNewProdServiceMonths("");
+      setNewDelivery({ links: [], videos: [] });
     } catch (e: unknown) {
       alert((e as { message?: string })?.message || "Failed to create product");
     } finally {
@@ -480,6 +496,8 @@ export default function PostComposer({ onPosted }: Props) {
 
   async function handlePost() {
     if (!userId || !videoFile || posting || chars > 300) return;
+    if (premiumDeliveryEnabled && attachBuy && !productId) { setPostError("Select a product before publishing."); return; }
+    if (premiumDeliveryEnabled && attachBooking && !bookingNormalized) { setPostError("Choose a free-call scheduling destination."); return; }
 
     // If a non-empty URL is provided but invalid, block with an inline error.
     if (attachBooking && bookingRaw !== "" && !bookingNormalized) {
@@ -511,7 +529,7 @@ export default function PostComposer({ onPosted }: Props) {
 
       // 3) optional premium file → Supabase (stays private)
       let premium_path: string | null = null;
-      if (premiumFile && !tipsEnabled) {
+      if (premiumFile && !tipsEnabled && !premiumDeliveryEnabled) {
         setUploadStage("Uploading premium file");
         setUploadPct(null); // Supabase path has no granular progress
         premium_path = await uploadPremiumToSupabase(supabase, premiumFile, userId);
@@ -521,7 +539,7 @@ export default function PostComposer({ onPosted }: Props) {
       const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       const validProductId = productId && uuidLike.test(String(productId)) ? productId : null;
       const attached = validProductId ? products.find((p) => p.id === validProductId) : null;
-      const price_cents = tipsEnabled ? null :
+      const price_cents = premiumDeliveryEnabled ? (attachBuy ? attached?.price_cents ?? null : null) : tipsEnabled ? null :
         attached?.membership_terms ? attached.price_cents : dollarsToCents(priceDollars) ?? attached?.price_cents ?? null;
 
       // 4b) Send selected product id when user chose one; API will verify it exists and belongs to user
@@ -541,6 +559,7 @@ export default function PostComposer({ onPosted }: Props) {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({
+          ...(premiumDeliveryEnabled ? { video_action: attachBuy ? "buy" : attachBooking ? "book" : tipsEnabled ? "tip" : null } : {}),
           title: title.trim() || null,
           content: caption.trim(),
           video_url,
@@ -598,6 +617,32 @@ export default function PostComposer({ onPosted }: Props) {
   /* UI                                                                 */
   /* ------------------------------------------------------------------ */
 
+  if (productsLoadFailed) {
+    return <div role="alert" className="rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-white">
+      <p className="font-semibold">Couldn’t load post settings.</p>
+      <p className="mt-1 text-sm text-white/70">Try again to open the composer.</p>
+      <button type="button" className="mt-4 rounded-lg bg-[#4A35C7] px-4 py-2 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#A78BFA]"
+        onClick={() => { setProductsLoadFailedFor(null); setProductsLoadedFor(null); setProductsLoadAttempt(attempt => attempt + 1); }}>
+        Retry
+      </button>
+    </div>;
+  }
+
+  if (loadingProducts) {
+    return <div aria-busy="true" className="py-2 text-white">
+      <LoadingLabel>Loading post settings…</LoadingLabel>
+      <div aria-hidden="true" className="space-y-4">
+        <Skeleton className="block h-4 w-28" />
+        <Skeleton className="block h-11 w-full rounded-xl" />
+        <Skeleton className="block h-4 w-40" />
+        <Skeleton className="block h-28 w-full rounded-xl" />
+        <Skeleton className="block h-4 w-24" />
+        <div className="flex gap-2">{[0, 1, 2].map(index => <Skeleton key={index} className="block h-10 w-20 rounded-lg" />)}</div>
+        <Skeleton className="block h-16 w-full rounded-xl" />
+      </div>
+    </div>;
+  }
+
   return (
     <div className="text-white">
       {/* Title */}
@@ -633,7 +678,22 @@ export default function PostComposer({ onPosted }: Props) {
       </div>
 
       {/* Price override */}
-      <div className="mt-4 space-y-1.5">
+      {premiumDeliveryEnabled && <fieldset className="mt-4 space-y-2">
+        <legend className="text-sm font-semibold text-white/90">Video button</legend>
+        <div className="inline-flex rounded-xl border border-white/20 bg-white/5 p-1" aria-label="Video button">
+          {(["Buy", "Book", "Tip"] as const).map(label => {
+            const selected = label === "Buy" ? attachBuy : label === "Book" ? attachBooking : tipsEnabled;
+            const unavailable = label === "Buy" ? stripeSellReady !== true : label === "Tip" ? stripeSellReady !== true || !tippingAvailable : false;
+            return <button type="button" key={label} aria-pressed={selected} disabled={unavailable || posting || !premiumPostingEnabled}
+              className={"rounded-lg px-4 py-2 text-sm font-semibold disabled:opacity-40 " + (selected ? "bg-[#4A35C7] text-white" : "text-white/70 hover:bg-white/10")}
+              onClick={() => { setAttachBuy(!selected && label === "Buy"); setAttachBooking(!selected && label === "Book"); setTipsEnabled(!selected && label === "Tip"); setPriceDollars(""); setPremiumFile(null); }}>
+              {label}
+            </button>;
+          })}
+        </div>
+        {!premiumPostingEnabled && <p role="status" className="text-xs text-amber-200/90">New posting is temporarily unavailable. Purchased content remains available in Library.</p>}
+      </fieldset>}
+      {!premiumDeliveryEnabled && <div className="mt-4 space-y-1.5">
         <label htmlFor="post-price" className="text-sm font-semibold text-white/90">
           Price (USD)
         </label>
@@ -654,10 +714,10 @@ export default function PostComposer({ onPosted }: Props) {
             Set a price after you connect Stripe (dashboard sidebar).
           </p>
         )}
-      </div>
+      </div>}
 
       {/* Tips are a mutually exclusive monetization mode for free videos. */}
-      {stripeSellReady === true && tippingAvailable && <div className="mt-4 rounded-xl border border-white/15 bg-white/5 p-3">
+      {!premiumDeliveryEnabled && stripeSellReady === true && tippingAvailable && <div className="mt-4 rounded-xl border border-white/15 bg-white/5 p-3">
         <label className="inline-flex items-center gap-2 text-sm font-semibold text-white/90">
           <input type="checkbox" checked={tipsEnabled} disabled={stripeSellReady !== true}
             onChange={(event) => {
@@ -677,7 +737,7 @@ export default function PostComposer({ onPosted }: Props) {
 
       {/* Product attach */}
       <div className="mt-4 space-y-2">
-        <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
+        {!premiumDeliveryEnabled && <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
           <input
             type="checkbox"
             className="h-4 w-4 rounded border-white/40 bg-transparent accent-[#4A35C7] [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-[#A78BFA]"
@@ -686,7 +746,7 @@ export default function PostComposer({ onPosted }: Props) {
             onChange={(e) => { setAttachBuy(e.target.checked); if (e.target.checked) setTipsEnabled(false); }}
           />
           Attach &quot;Buy / Book&quot; to this post
-        </label>
+        </label>}
         {stripeSellReady === false && (
           <p className="text-xs text-amber-200/90">
             Connect Stripe on the dashboard to attach products.
@@ -707,7 +767,7 @@ export default function PostComposer({ onPosted }: Props) {
                     {loadingProducts ? "Loading…" : "Select a product…"}
                   </option>,
                   ...products
-                    .filter((p) => p.id)
+                    .filter((p) => p.id && p.active !== false)
                     .map((p) => (
                       <option key={p.id} className="bg-black text-white" value={String(p.id)}>
                         {p.title}
@@ -729,6 +789,8 @@ export default function PostComposer({ onPosted }: Props) {
             </div>
 
             {!newProdOpen && products.find(product => product.id === productId)?.type === "call" && <SchedulingConnections purpose="session" />}
+            {!newProdOpen && premiumDeliveryEnabled && productId && products.find(product=>product.id===productId)?.type !== "call" &&
+              <ExistingProductDelivery key={productId} productId={productId} type={products.find(product=>product.id===productId)?.type ?? "video"} onBusy={setDeliveryBusy}/>}
             {newProdOpen && (
               <div className="space-y-2 rounded-xl border border-white/10 bg-black/40 p-3">
                 <input
@@ -752,12 +814,14 @@ export default function PostComposer({ onPosted }: Props) {
                   >
                     {[
                       <option key="video" className="bg-black text-white" value="video">Video</option>,
+                      ...(premiumDeliveryEnabled ? [<option key="bundle" className="bg-black text-white" value="bundle">Video bundle</option>] : []),
                       <option key="course" className="bg-black text-white" value="course">Course</option>,
                       <option key="mentorship" className="bg-black text-white" value="mentorship">Mentorship</option>,
                       ...(paidCallsEnabled ? [<option key="call" className="bg-black text-white" value="call">Standalone paid call</option>] : []),
                     ]}
                   </select>
                 </div>
+                {premiumDeliveryEnabled && newProdType !== "call" && <ProductDeliveryEditor type={newProdType} value={newDelivery} onChange={setNewDelivery} onBusy={setDeliveryBusy} />}
                 {newProdType === "mentorship" && monthlyMembershipsReady && <div className="space-y-2 rounded-lg border border-white/20 p-3 text-sm">
                   <label className="flex items-center gap-2"><input type="checkbox" checked={newProdMonthly} onChange={e => { setNewProdMonthly(e.target.checked); if (e.target.checked) setNewProdFixedService(false); }} />Sell monthly mentorship service</label>
                   {newProdMonthly && <>
@@ -809,7 +873,7 @@ export default function PostComposer({ onPosted }: Props) {
                   <button
                     type="button"
                     onClick={handleCreateProduct}
-                    disabled={creatingProduct}
+                    disabled={creatingProduct || deliveryBusy}
                     className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-black hover:opacity-90 disabled:opacity-60"
                   >
                     {creatingProduct ? "Creating…" : "Create"}
@@ -826,7 +890,7 @@ export default function PostComposer({ onPosted }: Props) {
                 const selected = products.find(p => p.id === productId);
                 if (selected?.membership_terms && selected.price_cents) return describeMonthlyMentorship(selected.price_cents, selected.membership_terms);
                 if (selected?.fixed_service_months != null) return fixedServiceDescription(selected.fixed_service_months);
-                return "Tip: leave the post price blank to reuse the attached product price. You can still override above.";
+                return premiumDeliveryEnabled ? selected?.price_cents != null ? `Buy · $${(selected.price_cents / 100).toFixed(2)} · ${selected.type}` : "Choose a product at its saved price." : "Tip: leave the post price blank to reuse the attached product price. You can still override above.";
               })()}
             </p>
           </div>
@@ -835,7 +899,7 @@ export default function PostComposer({ onPosted }: Props) {
 
       {/* Booking option */}
       <div className="mt-4 space-y-2">
-        <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
+        {!premiumDeliveryEnabled && <label className="inline-flex items-center gap-2 select-none text-sm text-white/90">
           <input
             type="checkbox"
             className="h-4 w-4 rounded border-white/40 bg-transparent accent-[#4A35C7] [color-scheme:dark] focus-visible:ring-2 focus-visible:ring-[#A78BFA]"
@@ -844,7 +908,7 @@ export default function PostComposer({ onPosted }: Props) {
             onChange={(e) => { setAttachBooking(e.target.checked); if (e.target.checked) setTipsEnabled(false); }}
           />
           Offer &quot;Book a free call&quot; on this post
-        </label>
+        </label>}
 
         {attachBooking && (
           <div className="rounded-xl border border-white/10 bg-white/5 p-3 space-y-2">
@@ -882,7 +946,7 @@ export default function PostComposer({ onPosted }: Props) {
           />
         </label>
 
-        <label className={`relative flex min-w-0 items-center gap-3 rounded-xl border border-white/20 bg-white/[0.02] px-4 py-3 text-sm focus-within:ring-2 focus-within:ring-[#A78BFA] ${tipsEnabled ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-white/5"}`}>
+        {!premiumDeliveryEnabled && <label className={`relative flex min-w-0 items-center gap-3 rounded-xl border border-white/20 bg-white/[0.02] px-4 py-3 text-sm focus-within:ring-2 focus-within:ring-[#A78BFA] ${tipsEnabled ? "cursor-not-allowed opacity-45" : "cursor-pointer hover:bg-white/5"}`}>
           <LockKeyhole aria-hidden="true" className="h-6 w-6 shrink-0 text-white/80" />
           <span className="min-w-0">
             <span className="block font-semibold">Premium video</span>
@@ -896,7 +960,7 @@ export default function PostComposer({ onPosted }: Props) {
             disabled={posting || tipsEnabled}
             onChange={(e) => setPremiumFile(e.target.files?.[0] ?? null)}
           />
-        </label>
+        </label>}
       </div>
 
       {/* Upload progress */}
@@ -926,7 +990,7 @@ export default function PostComposer({ onPosted }: Props) {
         <span id="post-caption-count" className="text-xs text-white/50">{chars} / 300</span>
         <button
           onClick={handlePost}
-          disabled={!canPost || posting}
+          disabled={!canPost || posting || deliveryBusy || creatingProduct || premiumDeliveryEnabled && (!premiumPostingEnabled || attachBuy && !productId)}
           className="rounded-full bg-[#4A35C7] px-5 py-2 text-sm font-semibold text-white hover:brightness-95 disabled:opacity-50"
         >
           {posting
