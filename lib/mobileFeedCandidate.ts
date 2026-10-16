@@ -5,7 +5,7 @@ export type MobileFeedHandoff = boolean | "prepared-preload-audio";
 type Controller = typeof mobileFeedController | PreparedMobileFeedController;
 
 // Supported mobile feeds use paused preparation by default, with immediate cleanup.
-const preparedController = new PreparedMobileFeedController("prepared-preload-audio");
+const preparedController = new PreparedMobileFeedController("prepared-preload-audio", { retainAudiblePlayer: true });
 let handoffForThisPageSession: MobileFeedHandoff = "prepared-preload-audio";
 let liveReadoutForThisPageSession = true;
 

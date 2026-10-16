@@ -141,6 +141,8 @@ test("explicit Retry reload applies once and permits the next qualified prepared
   await frame(preparation, target, 1);
   expect(events("preparation-ready").at(-1)?.detail.postId).toBe(id("a"));
   await render("a", true);
-  expect(events("prepared-player-selection").at(-1)?.detail.result).toBe("promoted");
-  expect(video("a")).toBe(preparation);
+  expect(events("prepared-player-selection").at(-1)?.detail.result).toBe("retained-main-with-cover");
+  expect(video("a")).toBe(first);
+  expect(preparation.hasAttribute("src")).toBe(true);
+  expect(preparation.muted).toBe(true);
 });
