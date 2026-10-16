@@ -94,6 +94,7 @@ HTMLElement.prototype.scrollIntoView = jest.fn();
 
 let container: HTMLDivElement;
 let root: Root;
+const originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
 
 async function render(props: { activeTab: "following" | "discover"; onChangeTab?: (t: "following" | "discover") => void }) {
   await act(async () => {
@@ -116,6 +117,11 @@ const buttonNamed = (label: string) =>
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // JSDOM lacks the browser API used to restore a feed without smooth travel.
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    configurable: true,
+    value(this: HTMLElement, options: ScrollToOptions) { this.scrollTop = options.top ?? this.scrollTop; },
+  });
   jest.spyOn(console, "error").mockImplementation(() => {});
   mockUser = { userId: null, loading: false };
   rpcImpl = async () => ({ data: [], error: null });
@@ -130,6 +136,8 @@ afterEach(async () => {
     root.unmount();
   });
   container.remove();
+  if (originalScrollTo) Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+  else delete (HTMLElement.prototype as Partial<HTMLElement>).scrollTo;
 });
 
 describe("FeedList states", () => {

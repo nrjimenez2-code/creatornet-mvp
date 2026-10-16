@@ -1,4 +1,22 @@
-# Mobile feed controlled release
+# Complete mobile feed release - October 15, 2026
+
+The owner authorized completing and taking LIVE the full original feed upgrade, including all prepared feed improvements, after focused code/release review and required automated gates pass with no unresolved code, security, data-integrity or deployment blocker. This supersedes the earlier opt-in-only release sequence below. Remaining manual iPhone Safari/Instagram acceptance, warmed-transition cohorts, physical performance measurements, resource profiling and TikTok comparisons are **owner-waived and unverified, not passed**. No new manual testing cycle is requested; historical failures and traces stay preserved.
+
+The release integrates all of PR #248 with current main, preserving main's full-height Discover/Following layout, persistent navigation, profile behavior, exclusive Buy/Book/Tip actions, private delivery and composer loading safeguards. It includes prepared-source transfer, strict recent-return identity/deadlines, terminal Retry protection, preparation buffer/ownership checks, source-pinned recovery and instant saved/reranked profile-return positioning. PR #242's fixes are already included through ancestry and do not need a separate merge.
+
+Supported mobile Discover and Following use `prepared-preload-audio` by default without query parameters, including Safari and Instagram's link browser. A paused neighbor prepares only after qualified main motion; adoption requires the same connected element/source/content/snapshot/target and actual frame/buffer readiness. The departing source retires before selected playback. There is one active source and at most one preparation source. Browsers without video-frame callbacks retain conventional playback rather than reaching the prepared startup watchdog. Desktop keeps its existing playback and ignores mobile selectors.
+
+`feedTransfer=0` or `feedBridge=0` explicitly disables the controller for the page session. `feedBridge=1` selects the earlier bridge comparison; an explicit `feedTransfer` takes precedence. Selection persists through same-page navigation; a fresh supported mobile page uses the release default. Diagnostics remain opt-in with `feedDebug=1`; `feedReadout=0` keeps capture/export while disabling live polling. Preview labs, source/retirement/rate experiments and HLS trials are not normal-feed defaults and retain their existing gates.
+
+No new Worker release, provider configuration, media operation, database migration, payment operation, credential change or ranking rewrite is included. Existing delivery resolution, source-version and verified-timeline fallback safeguards remain intact.
+
+Required automated gates remain exact-revision CI, full-suite fallback, typecheck, selector/media safeguards and Production build. Reuse evidence only for unchanged source and scope; inherited lint findings must remain explicit. Recheck main, PR head and checks immediately before merge, then use the existing Git-connected main Production workflow once. Do not promote a staging Preview into Production or dispatch a duplicate deployment. Verify the canonical full release SHA, required routes, served feed bundles, default mobile selection, explicit opt-out and desktop isolation. Browser evidence does not establish waived physical-phone acceptance.
+
+The pre-release main reference is `9bd6a26e20e95dd8a3a5fa0371b2a8d644c503a2`, with Ready Git-connected Production deployment `creatornet-ag9b0uzhh-nrjimenez2-codes-projects.vercel.app`. Confirm its canonical aliases and deployment ID before merge and preserve them in the release receipt. For session rollback use `feedTransfer=0`; a source revert or Production restoration must preserve unrelated newer work. Do not recreate consumed provider operations, follows, acquisitions or migrations.
+
+## Historical September 26 checkpoint
+
+The remainder records the prior checkpoint. Its opt-in defaults, held release authority and old rollback reference are superseded by the October 15 scope above.
 
 The owner asked on September 26, 2026 to defer physical-phone testing and continue preparing a live release. The recommended initial release keeps the controller opt-in. This is a change to the release sequence; it does not establish the original phone-performance acceptance gates or complete the overall smoothness goal.
 

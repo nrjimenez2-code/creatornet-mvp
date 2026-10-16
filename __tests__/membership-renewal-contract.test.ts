@@ -1,6 +1,26 @@
 import { assertMembershipActivated, assertMembershipInvoice, membershipActivationParams, membershipInvoiceConfiguration,
   membershipInvoicePayParams, membershipRenewalPeriod, inspectMembershipRenewalCapture, readMembershipFirstProof } from "@/lib/membershipRenewal";
 import { membershipRenewalFixture } from "../test-support/membership-renewal-fixtures";
+test.each([
+  "2026-01-01T00:00:00.000Z",
+  "2026-02-01T00:00:00.000Z",
+  "2026-03-01T00:00:00.000Z",
+  "2026-10-01T01:04:01.000Z",
+  "2028-02-01T00:00:00.000Z",
+  "2028-02-29T23:59:59.000Z",
+  "2026-12-31T23:59:59.000Z",
+])("default renewal fixture permits current-period capture at %s", timestamp => {
+  jest.useFakeTimers().setSystemTime(new Date(timestamp));
+  try {
+    const f = membershipRenewalFixture();
+    Object.assign(f.invoice, membershipInvoiceConfiguration(f.a, f.proof, 2));
+    f.capture();
+    expect(inspectMembershipRenewalCapture(f.a, f.proof, 2, f.invoice, f.invoicePayment,
+      f.paymentIntent, f.charge, f.balance, "req_fixture").providerProof.paymentIntentId).toBe("pi_renewal");
+  } finally {
+    jest.useRealTimers();
+  }
+});
 test("step 1: January-31 service stays on March-31 even when the held provider invoice arrives on March-28", () => {
   const f = membershipRenewalFixture(Date.UTC(2026, 0, 31, 12) / 1000, 2), p = membershipRenewalPeriod(f.a);
   expect(new Date(p.start * 1000).toISOString()).toBe("2026-03-31T12:00:00.000Z");

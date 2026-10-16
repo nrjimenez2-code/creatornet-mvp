@@ -112,3 +112,10 @@ test("a revoked creator connection explains why a saved booking request is pendi
  await act(async()=>root.render(createElement(Page)));
  expect(container.textContent).toContain('creator needs to reconnect Google Calendar');expect(container.textContent).toContain('pending request are saved');expect(container.textContent).not.toContain('Booking confirmed');
 });
+
+test.each(['2026-10-01T10:00:00Z','2026-10-05T19:00:00Z'])("a confirmed booking cannot be rescheduled at or after its start (%s)",async(now)=>{
+  jest.mocked(Date.now).mockReturnValue(Date.parse(now));
+  query=new URLSearchParams('reservation_id=reservation');await act(async()=>root.render(createElement(Page)));
+  expect(container.textContent).toContain('Booking confirmed');
+  expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(false);
+});

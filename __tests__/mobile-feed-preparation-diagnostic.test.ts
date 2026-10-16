@@ -42,12 +42,19 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-function prepare(ranges: number[][], debug = true) {
+function prepare(ranges: number[][], debug = true, resumeTarget?: number) {
   window.history.replaceState({}, "", debug ? "/?feedDebug=1" : "/");
   diagnostics = require("@/lib/mobileFeedDiagnostics");
   const { MobileFeedController } = require("@/lib/mobileFeedController") as typeof import("@/lib/mobileFeedController");
   diagnostics.resetFeedTrace();
   controller = new MobileFeedController();
+  if (resumeTarget !== undefined) {
+    const { claimMobileFeedPlayer, releaseMobileFeedPlayer } = require("@/lib/mobileFeedPlayer") as typeof import("@/lib/mobileFeedPlayer");
+    const token = Symbol("saved-neighbor");
+    const main = claimMobileFeedPlayer(document.createElement("div"), token, "https://example.test/neighbor.m3u8", "diagnostic-neighbor");
+    main.currentTime = resumeTarget;
+    releaseMobileFeedPlayer(token);
+  }
   const host = document.createElement("div"); document.body.appendChild(host);
   const present = jest.fn();
   controller.prepare({ postId: "diagnostic-neighbor", src: "https://example.test/neighbor.m3u8", host, present });
@@ -74,6 +81,58 @@ function deliverFrame(video: HTMLVideoElement, time: number) {
 function miss(attempt: number) {
   return diagnostics.exportFeedTrace().events.find(event => event.kind === "preparation-miss" && event.detail.attempt === attempt)?.detail;
 }
+
+test("the recorded one-microsecond HLS start offset prepares on the first attempt and activates warm", async () => {
+  const end = 31.5666666667;
+  const { video, present } = prepare([[0.000001, end]]);
+  await Promise.resolve();
+  deliverFrame(video, 0.03333333333333333);
+
+  const trace = diagnostics.exportFeedTrace();
+  const ready = trace.events.find(event => event.kind === "preparation-ready");
+  expect(present).toHaveBeenCalledWith(true);
+  expect(ready?.detail).toEqual(expect.objectContaining({
+    frameTarget: 0, frameValid: true, bufferedRanges: "[[0.000001,31.5666666667]]",
+    frameCallbackCount: 1, playRequestCount: 1,
+  }));
+  expect(ready?.detail.buffer).toBeCloseTo(end - 0.000001, 10);
+  expect(trace.events.find(event => event.kind === "preparation-state" && event.detail.phase === "ready")?.detail.attempt).toBe(1);
+  expect(trace.events.some(event => event.kind === "preparation-miss")).toBe(false);
+
+  controller.activate({
+    postId: "diagnostic-neighbor", src: video.src, token: Symbol("warmed-neighbor"),
+    host: document.createElement("div"), previewHost: document.createElement("div"), present: jest.fn(), ready: jest.fn(),
+  });
+  expect(diagnostics.exportFeedTrace().events.find(event => event.kind === "activation")?.detail.warmEligible).toBe(true);
+});
+
+test.each([
+  { name: "a gap larger than one microsecond", start: 0.000002, end: 4, frame: true, buffer: 0 },
+  { name: "less than one second of actual buffer", start: 0.000001, end: 0.5, frame: true, buffer: 0.499999 },
+  { name: "no decoded target frame", start: 0.000001, end: 4, frame: false, buffer: 3.999999 },
+])("zero-start normalization does not qualify $name", async ({ start, end, frame, buffer }) => {
+  const { video, present } = prepare([[start, end]]);
+  await Promise.resolve();
+  if (frame) deliverFrame(video, 0.03333333333333333);
+  jest.advanceTimersByTime(2_500);
+
+  expect(miss(1)).toEqual(expect.objectContaining({ reason: "attempt-timeout", frameTarget: 0, frameValid: frame }));
+  expect(miss(1)?.buffer).toBeCloseTo(buffer, 10);
+  expect(present).not.toHaveBeenCalledWith(true);
+  expect(diagnostics.exportFeedTrace().events.some(event => event.kind === "preparation-ready")).toBe(false);
+});
+
+test("a saved nonzero return target keeps strict buffer containment", async () => {
+  const { video, present } = prepare([[2.000001, 6]], true, 2);
+  await Promise.resolve();
+  deliverFrame(video, 2.033333333333333);
+  jest.advanceTimersByTime(2_500);
+
+  expect(miss(1)).toEqual(expect.objectContaining({
+    frameTarget: 2, frameValid: true, buffer: 0, bufferedRanges: "[[2.000001,6]]",
+  }));
+  expect(present).not.toHaveBeenCalledWith(true);
+});
 
 test("a near-zero decoded frame exposes a buffered range that excludes the exact target", async () => {
   const { video, present } = prepare([[0.033, 4]]);

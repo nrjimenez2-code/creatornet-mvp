@@ -19,7 +19,7 @@ import { scheduleFeedBackground } from "@/lib/feedBackground";
 import { FeedSkeleton } from "@/components/loading/Skeletons";
 import { clearMobileFeedSnapshot, readMobileFeedSnapshot, saveMobileFeedSnapshot } from "@/lib/mobileFeedSnapshot";
 import { feedTraceEnabled, observeFeedScroll, recordFeedEvent, setFeedRunContext } from "@/lib/mobileFeedDiagnostics";
-import { mobileFeedController } from "@/lib/mobileFeedController";
+import { mobileFeedHandoffSnapshot, mobileFeedReadoutSnapshot, normalFeedController } from "@/lib/mobileFeedCandidate";
 import {
   mapFeedV3Rows,
   isWithinRenderWindow,
@@ -49,12 +49,6 @@ function subscribeViewportSize(notify: () => void) {
 }
 const viewportSizeSnapshot = () => `${window.innerWidth}:${window.innerHeight}`;
 const debugSnapshot = () => feedTraceEnabled();
-let handoffForThisPageSession = false;
-const handoffSnapshot = () => {
-  const value = new URLSearchParams(window.location.search).get("feedBridge");
-  if (value !== null) handoffForThisPageSession = value === "1";
-  return handoffForThisPageSession;
-};
 function subscribeDebug(notify: () => void) {
   window.addEventListener("popstate", notify);
   return () => window.removeEventListener("popstate", notify);
@@ -97,15 +91,19 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const [refreshKey, setRefreshKey] = useState(0);
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const showDiagnostics = useSyncExternalStore(subscribeDebug, debugSnapshot, () => false);
-  const handoffRequested = useSyncExternalStore(subscribeDebug, handoffSnapshot, () => false);
-  const mobileHandoff = handoffRequested && !desktop;
-  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: mobileHandoff ? "candidate" : "baseline" }); }, [desktop, activeTab, mobileHandoff]);
+  const liveReadout = useSyncExternalStore(subscribeDebug, mobileFeedReadoutSnapshot, () => true);
+  const handoffRequested = useSyncExternalStore(subscribeDebug, mobileFeedHandoffSnapshot, () => false);
+  const mobileHandoff = desktop ? false : handoffRequested;
+  const feedController = normalFeedController(mobileHandoff);
+  useLayoutEffect(() => { if (!desktop) setFeedRunContext({ feed: activeTab, mode: mobileHandoff ? "candidate" : "baseline",
+    feedTransfer: mobileHandoff === "prepared-preload-audio" ? mobileHandoff : mobileHandoff ? "bridge" : "shared",
+    retiredSourceCleanup: "immediate", feedDiagnosticReadout: showDiagnostics ? liveReadout ? "live" : "capture-only" : "off" }); }, [desktop, activeTab, mobileHandoff, showDiagnostics, liveReadout]);
   useLayoutEffect(() => {
     if (!mobileHandoff) return;
-    const hide = () => { if (document.hidden) mobileFeedController.suspend(); };
+    const hide = () => { if (document.hidden) feedController.suspend(); };
     document.addEventListener("visibilitychange", hide);
-    return () => { document.removeEventListener("visibilitychange", hide); mobileFeedController.dispose(); };
-  }, [mobileHandoff, activeTab]);
+    return () => { document.removeEventListener("visibilitychange", hide); feedController.dispose(); };
+  }, [mobileHandoff, activeTab, feedController]);
   const offsetRef = useRef(0);
   const sessionRef = useRef<string | null>(null);
   const hasMoreRef = useRef(false);
@@ -175,13 +173,15 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
     const pending = pendingScrollRestoreRef.current;
     const root = feedScrollRef.current;
     if (loading || !pending || !root) return;
+    let target = pending.scrollTop ?? 0;
     if (pending.postId) {
       const section = sectionRefs.current.get(pending.postId);
       if (!section) return;
-      root.scrollTop += section.getBoundingClientRect().top - root.getBoundingClientRect().top;
-    } else {
-      root.scrollTop = pending.scrollTop ?? 0;
+      target = root.scrollTop + section.getBoundingClientRect().top - root.getBoundingClientRect().top;
     }
+    // scrollTop assignment obeys this container's smooth CSS and can activate
+    // intervening cards. Restoration must reach its target before paint.
+    root.scrollTo({ top: target, behavior: "instant" });
     feedScrollTopRef.current = root.scrollTop;
     pendingScrollRestoreRef.current = null;
   }, [loading, items]);
@@ -846,8 +846,9 @@ export default function FeedList({ activeTab, onChangeTab, highlightPostId, open
   const activeFrameReady = !!activePostId && readyPostId === activePostId;
 
   return (
-    <div className="relative h-full min-h-0 feed-mobile-viewport">
-      {showDiagnostics && !desktop && <MobileFeedDiagnostics activePostId={activePostId} getVideo={getFeedVideo} />}
+    <div className="relative h-full min-h-0 feed-mobile-viewport" data-feed-tab={activeTab}
+      data-mobile-feed-transfer={desktop ? "desktop" : mobileHandoff === "prepared-preload-audio" ? mobileHandoff : mobileHandoff ? "bridge" : "conventional"}>
+      {showDiagnostics && !desktop && <MobileFeedDiagnostics activePostId={activePostId} getVideo={getFeedVideo} liveReadout={liveReadout} />}
       {hasNewPosts && <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }} className="absolute top-14 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 border border-white/30 px-4 py-2 text-sm text-white">New posts · Refresh</button>}
       {(loadingMore || moreError) && <div role="status" className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 rounded-full bg-black/85 px-4 py-2 text-sm text-white">
         {moreError === "refresh" ? <button type="button" onClick={() => { setLoading(true); setRefreshKey(key => key + 1); }}>Refresh feed to continue</button>
