@@ -2,7 +2,9 @@
 // Ownership/guard tests only. Mocked media cannot establish WebKit sound grants,
 // picture/audio continuity, native decoder release or physical performance.
 import { PreparedMobileFeedController } from "@/lib/mobileFeedPreparedController";
-import { mobileFeedPlaybackReady, mobileFeedResumeSnapshot, ownsMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import { mobileFeedPlaybackReady, mobileFeedResumeSnapshot, ownsMobileFeedPlayer, pauseMobileFeedPlayer } from "@/lib/mobileFeedPlayer";
+import * as player from "@/lib/mobileFeedPlayer";
+import { pauseForInsights } from "@/lib/insightPlayback";
 import * as diagnostics from "@/lib/mobileFeedDiagnostics";
 
 let controller: PreparedMobileFeedController;
@@ -257,3 +259,65 @@ test("a brief native pause that resumes by itself does not consume recovery", as
   expect(active.recover).toHaveBeenCalledWith("playback-stall");
 });
 
+function advancingFor(active: ReturnType<typeof activate>, ms: number) {
+  const start = active.video.currentTime;
+  for (let sample = 1; sample <= ms / 250; sample++) {
+    advance(250); deliver(active.video, start + sample / 4, 100 + sample);
+  }
+}
+
+test("insights can hold playback beyond the watchdog and raw native resume keeps the current acceptance", async () => {
+  const active = await cold("insights");
+  const close = pauseForInsights(active.video, () => controller.canPlay(active.token));
+  advance(5000);
+  expect(active.video.paused).toBe(true); expect(active.recover).not.toHaveBeenCalled(); expect(active.failed).not.toHaveBeenCalled();
+  close(); await flush(); active.video.dispatchEvent(new Event("playing"));
+  advancingFor(active, 4000);
+  expect(active.video.paused).toBe(false); expect(active.recover).not.toHaveBeenCalled(); expect(active.failed).not.toHaveBeenCalled();
+  expect(active.ready).toHaveBeenCalledTimes(1);
+});
+
+test("interrupted audio resumes through native play and advancing frames without false recovery", async () => {
+  const active = await cold("native-interruption"); const session = { state: "interrupted" };
+  Object.defineProperty(navigator, "audioSession", { configurable: true, value: session });
+  active.video.pause(); advance(5000);
+  expect(active.recover).not.toHaveBeenCalled(); expect(active.failed).not.toHaveBeenCalled();
+  session.state = "active"; await active.video.play(); active.video.dispatchEvent(new Event("playing"));
+  advancingFor(active, 4000);
+  expect(active.recover).not.toHaveBeenCalled(); expect(active.failed).not.toHaveBeenCalled();
+  delete (navigator as Navigator & { audioSession?: unknown }).audioSession;
+});
+
+test("global navigation pause records explicit intent before pause and unsubscribes at release", async () => {
+  const original = player.onMobileFeedPauseRequested, stops: jest.Mock[] = [];
+  jest.spyOn(player, "onMobileFeedPauseRequested").mockImplementation(listener => {
+    const stop = jest.fn(original(listener)); stops.push(stop); return stop;
+  });
+  const active = await cold("navigation");
+  pauseMobileFeedPlayer(); advance(5000);
+  expect(active.video.paused).toBe(true); expect(active.recover).not.toHaveBeenCalled(); expect(active.failed).not.toHaveBeenCalled();
+  controller.release(active.token);
+  expect(stops).toHaveLength(1); expect(stops[0]).toHaveBeenCalledTimes(1);
+  const next = await cold("after-navigation"); pauseMobileFeedPlayer(); advance(5000);
+  expect(next.recover).not.toHaveBeenCalled(); expect(next.failed).not.toHaveBeenCalled();
+});
+
+test("play rejection diagnostics never export arbitrary names or messages", async () => {
+  const active = activate("redaction");
+  const secret = "https://private.example/video?token=private-token";
+  await play(active, Promise.reject({ name: secret, message: secret }));
+  expect(events("prepared-player-play-rejected").at(-1)?.detail.errorName).toBe("UnknownError");
+  expect(JSON.stringify(diagnostics.exportFeedTrace())).not.toContain("private-token");
+});
+
+
+test("preparation rejection diagnostics use the same bounded error-name whitelist", async () => {
+  controller.dispose(); controller = new PreparedMobileFeedController("prepared");
+  const secret = "https://private.example/prepared?token=private-preparation-token";
+  jest.mocked(HTMLMediaElement.prototype.play).mockRejectedValueOnce({ name: secret, message: secret });
+  const host = document.createElement("div"); document.body.appendChild(host);
+  controller.prepare({ postId: "private-preparation", src: src("private-preparation"), host, present: jest.fn() });
+  await flush();
+  expect(events("preparation-miss").at(-1)?.detail.errorName).toBe("UnknownError");
+  expect(JSON.stringify(diagnostics.exportFeedTrace())).not.toContain("private-preparation-token");
+});

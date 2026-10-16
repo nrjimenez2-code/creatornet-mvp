@@ -1,6 +1,7 @@
 // Shared prepared player. Supported mobile feeds use it by default; lab controls remain explicit.
-import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, finishPreparedMobileFeedRetirement, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileResumeExpiry, ownsMobileFeedPlayer, preparedMobileFeedRetirementPending, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
+import { adoptPreparedMobileFeedPlayer, claimMobileFeedPlayer, finishPreparedMobileFeedRetirement, mobileFeedPlaybackReady, mobileFeedResumeSnapshot, onMobileFeedPauseRequested, onMobileResumeExpiry, ownsMobileFeedPlayer, preparedMobileFeedRetirementPending, sameMobileResume, releaseMobileFeedPlayer, type ResumeSnapshot } from "./mobileFeedPlayer";
 import { feedTraceEnabled, playableBuffer, recordFeedEvent, validFeedFrame } from "./mobileFeedDiagnostics";
+import { insightPlaybackSuspended } from "./insightPlayback";
 
 type Presentation = (ready: boolean) => void;
 type Preparation = { postId: string; src: string; contentVersion?: string; host: HTMLElement; present: Presentation };
@@ -15,6 +16,12 @@ const STARTUP_FRAME_SAMPLE_LIMIT = 8;
 const NATIVE_PLAY_SAMPLE_LIMIT = 4;
 const PLAYBACK_RECOVERY_MS = 3_000;
 const MOTION_SAMPLE_MS = 250;
+const PLAY_ERROR_NAMES = new Set(["AbortError", "NotAllowedError", "NotSupportedError", "InvalidStateError", "NetworkError", "SecurityError", "EncodingError", "TimeoutError", "TypeError", "Error"]);
+
+function playErrorName(error: unknown) {
+  const name = error && typeof error === "object" && "name" in error ? error.name : undefined;
+  return typeof name === "string" && PLAY_ERROR_NAMES.has(name) ? name : "UnknownError";
+}
 
 function audioSessionSnapshot(): Record<string, string | null> {
   // Observe only. Changing the session type could change sound/route behavior.
@@ -270,7 +277,7 @@ export class PreparedMobileFeedController {
       void video.play()?.then(() => {
         if (collectDiagnostics && current() && requestedAttempt === attemptEpoch) playResolvedCount++;
       }, (reason: unknown) => {
-        const errorName = reason && typeof reason === "object" && "name" in reason && typeof reason.name === "string" ? reason.name : "unknown";
+        const errorName = playErrorName(reason);
         if (collectDiagnostics && current() && requestedAttempt === attemptEpoch) {
           playRejectedCount++;
           if (requestedEpoch !== playEpoch) obsoletePlayRejectionCount++;
@@ -425,7 +432,8 @@ export class PreparedMobileFeedController {
     const active: Activation = { token: input.token, postId: input.postId, src: input.src, video,
       playing: false, current, playRequested: () => {}, observeMainPlay: () => {}, stop: () => {} };
     this.active = active;
-    const blocked = () => intentionalPause || document.hidden || audioSessionSnapshot().audioSessionState === "interrupted";
+    const systemSuspended = () => document.hidden || insightPlaybackSuspended(video) || audioSessionSnapshot().audioSessionState === "interrupted";
+    const blocked = () => intentionalPause || systemSuspended();
     const fail = (reason: string) => {
       if (!current()) return;
       recordFeedEvent("handoff-recovery", { result: "retry", mode: "prepared", reason, recoveryUsed }, video);
@@ -563,8 +571,16 @@ export class PreparedMobileFeedController {
       if (collectFrameDiagnostics && frame !== undefined) { frameCancellations++; lastFrameCancelReason = "seeking"; }
       if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined; observe();
     };
-    const pauseState = (resetDeadline = true) => {
-      playEpoch++; accepted = false; active.playing = false; previous = previousCount = null;
+    const pauseState = (resetDeadline = true, preserveAcceptance = false) => {
+      // A known system/modal suspension does not revoke this owner's fulfilled
+      // play request. Native resume may call video.play() outside the card helper.
+      if (!preserveAcceptance) { playEpoch++; accepted = false; }
+      active.playing = false; previous = previousCount = null;
+      if (preserveAcceptance) {
+        epoch++; submissionFloor = performance.now(); previousSubmission = null;
+        if (frame !== undefined) video.cancelVideoFrameCallback?.(frame); frame = undefined;
+        clearTimeout(sampleTimer); sampleTimer = undefined;
+      }
       finishPreparedMobileFeedRetirement(input.token, document.hidden ? "hidden" : "pause");
       this.acceptedPreparationSound = false; this.refreshPreparationSound();
       clearTimeout(watchdog); watchdog = undefined;
@@ -580,7 +596,10 @@ export class PreparedMobileFeedController {
       if (recoverable && current() && !blocked() && !policyBlocked && playAttempted) {
         active.playing = false; this.preparing?.pause("main-paused");
         queueRecovery("native-pause"); armWatchdog();
-      } else { pauseState(playAttempted); if (recoverable && !intentionalPause) watchMotion(); }
+      } else {
+        pauseState(playAttempted, recoverable && !intentionalPause && !policyBlocked && systemSuspended());
+        if (recoverable && !intentionalPause) watchMotion();
+      }
     };
     const play = () => { if (current()) { if (!video.paused) playAttempted = true; armWatchdog(); observe(); } };
     const progress = () => this.resumePreparation();
@@ -588,6 +607,9 @@ export class PreparedMobileFeedController {
     const waiting = () => { active.playing = false; progress(); };
     active.playRequested = play;
     active.pauseRequested = () => { if (current()) { intentionalPause = true; pauseState(); } };
+    const unsubscribePause = onMobileFeedPauseRequested(pausedVideo => {
+      if (pausedVideo === video && current()) active.pauseRequested?.();
+    });
     active.observeMainPlay = ({ requestedAt, returnedAt, request }) => {
       if (!current()) return;
       intentionalPause = false; policyBlocked = false;
@@ -610,7 +632,7 @@ export class PreparedMobileFeedController {
         play(); progress(); watchMotion();
       }, (error: unknown) => {
         if (!current() || requestEpoch !== playEpoch) return;
-        const errorName = error && typeof error === "object" && "name" in error && typeof error.name === "string" ? error.name : "unknown";
+        const errorName = playErrorName(error);
         policyBlocked = errorName === "NotAllowedError";
         recordFeedEvent("prepared-player-play-rejected", { requestId, errorName, muted: requestedMuted, warmEligible: !!promoted, outputMeasured: false }, video);
         finishPreparedMobileFeedRetirement(input.token, "play-rejected");
@@ -623,6 +645,7 @@ export class PreparedMobileFeedController {
     video.addEventListener("progress", progress); video.addEventListener("stalled", progress);
     active.stop = () => {
       alive = false; this.preparedActiveReady = false; epoch++; playEpoch++; clearTimeout(watchdog);
+      unsubscribePause();
       clearTimeout(motionTimer); clearTimeout(sampleTimer); clearTimeout(recoveryTimer);
       this.deferredPreparation = null;
       if (this.retainedCover) this.clear(this.retainedCover);
