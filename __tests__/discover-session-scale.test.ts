@@ -17,7 +17,9 @@ const posts = Array.from({ length: 2005 }, (_, i) => ({
   created_at: new Date(Date.UTC(2020, 0, 1) + i * 86400000).toISOString(),
   poster_url: "https://example.test/poster.jpg",
 }));
-let snapshot: { post_ids: string[]; pilot_id?: string; pilot_variant?: string; pilot_placements?: Record<string,{position:number}> };
+let topicFixture = false;
+let viewerTopics: Record<string, string[]> = {};
+let snapshot: { post_ids: string[]; audiences: Record<string,string>; pilot_id?: string; pilot_variant?: string; pilot_placements?: Record<string,{position:number}> };
 function respond(op: Op) {
   if (op.table === "discover_pilots_v1") return {data:{id:"qa",enabled:true,policy_version:"commercial-order-v1",starts_at:"2000-01-01",ends_at:"2100-01-01",eligible_user_ids:["viewer"]},error:null};
   if (op.table === "discover_pilot_assignments_v1") return {data:{variant:"control"},error:null};
@@ -25,14 +27,16 @@ function respond(op: Op) {
     return {
       data: posts
         .filter((p) => p.id > String(op.filters.__gt_id ?? ""))
-        .slice(0, 1000),
+        .slice(0, 1000)
+        .map((post) => topicFixture ? { ...post, topics: Number(post.id.slice(1)) % 2
+          ? ['ecommerce','languages'] : ['languages','ecommerce'] } : post),
       error: null,
     };
   if (op.table === "profiles")
     return {
       data: op.inFilters.length
         ? op.inFilters[0].values.map((id) => ({ id, banned_at: null }))
-        : { interests: [], interest_topics: [] },
+        : { interests: [], interest_topics: viewerTopics[String(op.filters.id)] ?? [] },
       error: null,
     };
   if (op.table === "follows")
@@ -52,6 +56,8 @@ function respond(op: Op) {
   return { data: [], error: null };
 }
 beforeEach(() => {
+  topicFixture = false;
+  viewerTopics = {};
   db = createMockClient(respond);
   const original = db.from;
   db.from = (table) => {
@@ -94,6 +100,27 @@ test("Discover fetches only personal history and batches all candidate summaries
   expect(batches).toHaveLength(11);
   expect(batches.every((ids) => ids.length <= 200)).toBe(true);
   expect(new Set(batches.flat()).size).toBe(2005);
+});
+test('audiences preserve per-post topic priority and stay isolated between viewers', async () => {
+  topicFixture = true;
+  viewerTopics = { alice: ['ＥＣＯＭＭＥＲＣＥ', 'LANGUAGES'], bob: ['ecommerce'] };
+  await Promise.all([
+    createDiscoverSession('user:alice','alice','discover'),
+    createDiscoverSession('user:bob','bob','discover'),
+  ]);
+  const sessions = db.opsFor('discover_sessions_v1').map(op => op.payload as {
+    actor: string; audiences: Record<string,string>;
+  });
+  expect(sessions.find(s => s.actor === 'user:alice')?.audiences.p0000).toBe('languages');
+  expect(sessions.find(s => s.actor === 'user:alice')?.audiences.p0001).toBe('ecommerce');
+  expect(new Set(Object.values(sessions.find(s => s.actor === 'user:bob')!.audiences)))
+    .toEqual(new Set(['ecommerce']));
+});
+test('audience matching retains the existing twenty-topic normalization limit', async () => {
+  topicFixture = true;
+  viewerTopics = { viewer: [...Array.from({length:20},(_,i)=>'unmatched '+i),'languages','ecommerce'] };
+  await createDiscoverSession('user:viewer','viewer','discover');
+  expect(new Set(Object.values(snapshot.audiences))).toEqual(new Set(['general']));
 });
 
 test('only newly minted anonymous identities skip an empty history read', async () => {
