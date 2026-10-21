@@ -1,10 +1,17 @@
 import { allocateSharedCost, commissionAdjustment, cumulativeShare, distribution, withdrawableSurplus } from "@/lib/salesTeams/accounting";
 import { approvedTeamInstallments, canClose, canManageMember, commissionTerms, teamRole, teamSalesReady, teamSettlementReady } from "@/lib/salesTeams/policy";
+import {teamMoney} from "@/lib/salesTeams/statements";
 
 test("new team activity and settlement require their independent default-off gates",()=>{
  expect(teamSalesReady({})).toBe(false);expect(teamSettlementReady({})).toBe(false);
  expect(teamSalesReady({CREATOR_SALES_TEAM_SCHEMA_READY:"true",CREATOR_SALES_TEAM_READY:"true"})).toBe(true);
  expect(teamSettlementReady({CREATOR_SALES_TEAM_SCHEMA_READY:"true",CREATOR_SALES_TEAM_READY:"true"})).toBe(false);
+ expect(teamSettlementReady({CREATOR_SALES_TEAM_SCHEMA_READY:"true",CREATOR_TEAM_SETTLEMENT_READY:"true"})).toBe(false);
+});
+
+test("financial statement totals preserve integer cents beyond JavaScript's safe number range",()=>{
+ expect(teamMoney("9007199254740993")).toBe("$90,071,992,547,409.93");expect(teamMoney(-3)).toBe("-$0.03");
+ expect(teamMoney(101)).toBe("$1.01");expect(teamMoney("invalid")).toBe("Unavailable");
 });
 test("explicit commission, holding period, and renewal terms remain bounded",()=>{
  expect(()=>commissionTerms({commissionBps:undefined})).toThrow();

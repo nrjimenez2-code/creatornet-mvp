@@ -44,6 +44,13 @@ test("existing setup callbacks can finish without opening new setup or unknown p
   }
   for (const path of ["/api/stripe/connect/onboard", "/api/scheduling/oauth/start", "/api/scheduling/oauth/callback/unknown"]) expect(routePolicy(path).kind).toBe("product");
 });
+
+test("historical team statements keep authenticated read access without opening team writes",()=>{
+ expect(routePolicy("/dashboard/closers/earnings","GET").kind).toBe("purchase");
+ expect(routePolicy("/api/sales-team/statements","GET").kind).toBe("purchase");
+ expect(routePolicy("/api/sales-team/statements","POST").kind).toBe("product");
+ expect(routePolicy("/api/sales-team","POST").kind).toBe("product");
+});
 test("launch HTML contains legal/private access and only a validated Discord destination", () => {
   const html = launchHtml("https://discord.gg/bKC8q4z6B"); expect(html).toContain("Coming soon."); expect(html).toContain("Join our Discord"); expect(html).toContain("/auth?next=%2Fprivate-access");
   expect(html).not.toMatch(/<script|\/dashboard|\/api\/|video_url|post_id/); expect(html).toContain('/legal/support');

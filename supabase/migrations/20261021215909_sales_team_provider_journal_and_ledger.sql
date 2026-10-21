@@ -217,7 +217,7 @@ begin
  select * into v_op from public.sales_team_provider_operations_v1 where id=p_operation_id for update;
  if v_op.id is null or p_provider_id is null or p_provider_request_id !~ '^req_[A-Za-z0-9]+$' then raise exception 'INVALID_PROVIDER_BINDING'; end if;
  if v_op.provider_id is not null and (v_op.provider_id<>p_provider_id or v_op.provider_request_id<>p_provider_request_id) then raise exception 'PROVIDER_BINDING_CHANGED'; end if;
- if not p_reconciled and (v_op.status<>'dispatching' or v_op.lease_until<=clock_timestamp()) then raise exception 'PROVIDER_BINDING_REQUIRES_RECONCILIATION'; end if;
+ if p_reconciled is distinct from true and (v_op.status<>'dispatching' or v_op.lease_until<=clock_timestamp()) then raise exception 'PROVIDER_BINDING_REQUIRES_RECONCILIATION'; end if;
  update public.sales_team_provider_operations_v1 set provider_id=p_provider_id,provider_request_id=p_provider_request_id,bound_at=coalesce(bound_at,clock_timestamp()),status='bound',lease_until=null where id=p_operation_id;
  update public.sales_team_financial_alerts_v1 set status='resolved' where operation_id=p_operation_id and code='PROVIDER_RESULT_UNKNOWN' and status<>'resolved';
  return public.sales_team_operation_json_v1(p_operation_id);

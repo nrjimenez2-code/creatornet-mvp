@@ -7,8 +7,9 @@ export type TeamEnvironment = Record<string, string | undefined>;
 export const teamSchemaReady = (env: TeamEnvironment = process.env) => env.CREATOR_SALES_TEAM_SCHEMA_READY === "true";
 export const teamSalesReady = (env: TeamEnvironment = process.env) => teamSchemaReady(env) && env.CREATOR_SALES_TEAM_READY === "true";
 export const teamSaleSchemaReady = (env: TeamEnvironment = process.env) => teamSchemaReady(env) && env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY === "true";
+export const teamLedgerSchemaReady = (env: TeamEnvironment = process.env) => teamSaleSchemaReady(env) && env.CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY === "true";
 export const teamCheckoutReady = (env: TeamEnvironment = process.env) => teamSalesReady(env) && teamSaleSchemaReady(env) && env.CREATOR_TEAM_SALES_CHECKOUT_READY === "true";
-export const teamSettlementReady = (env: TeamEnvironment = process.env) => teamSchemaReady(env) && env.CREATOR_TEAM_SETTLEMENT_READY === "true";
+export const teamSettlementReady = (env: TeamEnvironment = process.env) => teamLedgerSchemaReady(env) && env.CREATOR_TEAM_SETTLEMENT_READY === "true";
 
 export class TeamSalesError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 409) {

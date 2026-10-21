@@ -7,6 +7,7 @@ jest.mock("@/lib/rateLimit",()=>({allowRequest:()=>true}));
 import { POST } from "@/app/api/sales-team/route";
 import { POST as assign } from "@/app/api/sales-team/assignments/route";
 import { teamRequest } from "@/lib/salesTeams/server";
+import {GET as statement} from "@/app/api/sales-team/statements/route";
 const creator="00000000-0000-4000-8000-000000000001",actor="00000000-0000-4000-8000-000000000002",target="00000000-0000-4000-8000-000000000003";
 const env={...process.env};
 const request=(body:Record<string,unknown>,headers:Record<string,string>={})=>new NextRequest("https://creatornet.example/api/sales-team",{
@@ -56,4 +57,12 @@ test("routing and future-term updates use curated inputs and require a reviewed 
  expect((await POST(request(body))).status).toBe(409);
  expect((await POST(request({...body,expected_revision:7}))).status).toBe(200);
  expect(mockRpc).toHaveBeenLastCalledWith("manage_sales_team_v1",expect.objectContaining({p_input:expect.objectContaining({expected_revision:7,commission_bps:1200})}));
+});
+
+test("financial statements bind the current user and remain readable with new activity disabled",async()=>{
+ const req=new NextRequest(`https://creatornet.example/api/sales-team/statements?creator_id=${creator}&actor_id=${creator}`,{headers:{authorization:"Bearer verified"}});
+ expect((await statement(req)).status).toBe(404);expect(mockRpc).not.toHaveBeenCalled();
+ process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY="true";process.env.CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY="true";delete process.env.CREATOR_SALES_TEAM_READY;
+ expect((await statement(req)).status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith("read_sales_team_statement_v1",{p_creator_id:creator,p_actor_id:actor,p_cursor:null,p_limit:20});
 });

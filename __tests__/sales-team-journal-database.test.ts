@@ -28,6 +28,12 @@ test("unknown and expired claims require reconciliation instead of another dispa
  await rpc("bind_sales_team_provider_operation_v1",[teamOperationId(scope),"pi_original","req_read",true]);expect((await claim()).status).toBe("bound");
  expect((await db.query<{status:string}>("select status from public.sales_team_financial_alerts_v1")).rows[0].status).toBe("resolved");
 });
+
+test("a missing reconciliation flag cannot bypass an expired dispatch lease",async()=>{
+ await claim();await db.exec("update public.sales_team_provider_operations_v1 set lease_until=now()-interval '1 second'");
+ for(const flag of [false,null])await denied(()=>rpc("bind_sales_team_provider_operation_v1",[teamOperationId(scope),"pi_original","req_read",flag]),/PROVIDER_BINDING_REQUIRES_RECONCILIATION/);
+ await rpc("bind_sales_team_provider_operation_v1",[teamOperationId(scope),"pi_original","req_read",true]);expect((await claim()).status).toBe("bound");
+});
 test("new activity closes on rollback while bound original readback remains available",async()=>{
  const first=await claim(),op=first.operation as {lease_token:string};await rpc("bind_sales_team_provider_operation_v1",[teamOperationId(scope),"pi_original","req_created",false]);
  await db.exec("update public.sales_team_controls_v1 set new_sales_enabled=false,access_enabled=false");expect((await claim()).status).toBe("bound");

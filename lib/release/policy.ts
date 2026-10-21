@@ -47,6 +47,8 @@ const operationMethods: Record<string, string> = {
   "/api/scheduling/google/notifications": "POST",
 };
 const purchaseRules: Array<[RegExp, string[]]> = [
+  [/^\/dashboard\/closers\/earnings$/, ["GET","HEAD"]],
+  [/^\/api\/sales-team\/statements$/, ["GET"]],
   [/^\/(library(?:\/[^/]+\/[^/]+)?|access\/[^/]+|success|cancel|payments\/recovery\/[^/]+)$/, ["GET", "HEAD"]],
   [/^\/memberships\/(complete|recovery|renewal-recovery|renewal-retry|payoff)$/, ["GET", "HEAD"]],
   [/^\/scheduling\/complete$/, ["GET", "HEAD"]],

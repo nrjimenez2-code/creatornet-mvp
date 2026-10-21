@@ -18,6 +18,7 @@ This is a new implementation of the October 21 closing-team plan. Its full accep
 | `CREATOR_SALES_TEAM_SCHEMA_READY` | Discover installed membership, invitation and assignment schema. Keep installed-schema discovery available for existing obligations. |
 | `CREATOR_SALES_TEAM_READY` | Admit new team administration/routing operations. |
 | `CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY` | Discover installed offer approvals and sale agreements. |
+| `CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY` | Discover installed financial ledger and statement read model, including historical obligations while new activity is disabled. |
 | `CREATOR_TEAM_SALES_CHECKOUT_READY` | Admit new team-sale review and acceptance, also requiring the existing purchase-policy/legal gates. |
 | `CREATOR_TEAM_SETTLEMENT_READY` | Separate settlement admission control; not enabled by team access or checkout. |
 
@@ -37,6 +38,7 @@ All gates default to false. The database also starts with access, new-sale and s
 - Receipt-driven cumulative commission/creator liabilities, saved holds, explicit refund responsibility, processing-cost credits, dispute freezes and conservative combined-loss accounting. Duplicate and stale observations do not repeat ledger entries. Provider observation and fulfillment handlers are still required.
 - Shared buyer/product admission uses the existing payment foundation's lock. Team agreement acceptance and legacy checkout creation cannot claim the same active purchase. Existing legacy rows require their original recovery path; they are not converted into team sales.
 - A shared booking-source transaction creates or adopts a current unpaid lead, preserves aliases from verified completion/attribution, and reuses its assignment across repeated requests. Enrolled creators' calendar redirects cannot fall through to an unbound legacy destination. Booking setup/completion records lead attribution; scheduling confirmation remains separate.
+- Scoped commission statements retain removed closers' own financial history, with no customer/provider identity or creator-accounting disclosure. Active managers/owners see creator-side accounting. Keyset pagination preserves whole-relationship totals as integer-cent strings. Transfers and reversals are shown separately; bank-payout evidence is explicitly unrecorded until its provider integration is implemented. This read path remains available under private-release controls and disabled new activity, with verified identity and database ownership checks.
 
 ## Work still required
 
@@ -58,6 +60,7 @@ Recorded local checks so far (source-only evidence; not provider acceptance):
 - Current scoped ESLint reported zero errors and warnings; full TypeScript check passed after correcting a synthetic session fixture's type assertion.
 - Private-release integration and team continuation/access tests: 14 suites, 109 tests passed. Scoped lint had zero errors/warnings and the full TypeScript check passed. This is local source evidence; the existing hosted owner-session acceptance is still unresolved.
 - Manager-control change: access/UI/API passed in 3 suites/24 tests. After additional targeted assertions and updating the reviewed-revision fixture, UI/API/sale/booking-source checks passed in 4 suites/33 tests; these runs cover 5 distinct suites/46 tests. Full TypeScript and scoped lint passed.
+- Statement/access/accounting/journal/receipt/release-policy change: 7 suites/65 tests passed. This includes historical access after departure, cross-creator denial, private financial-table/RPC denial, scoped manager accounting, cursor ownership, full-relationship totals, integer precision, recipient/dispute holds and an expired dispatch lease with a null reconciliation flag. Full TypeScript and scoped lint passed.
 
 PGlite uses synthetic users and minimal structural fixtures. Its Promise-based repeat requests verify durable deduplication but do not establish multiple hosted PostgreSQL session contention. No hosted team migration, provider mutation, purchase, transfer, refund, payout, deployment or LIVE acceptance has occurred. Full CI, full build/schema/security validation, browser verification and separately authorized sandbox/Production acceptance remain outstanding.
 
