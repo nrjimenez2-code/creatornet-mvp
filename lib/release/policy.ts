@@ -41,6 +41,7 @@ export function featureOpen(settings: ReleaseSettings | null, feature: Feature |
 export type RoutePolicy = { kind: "public" | "operation" | "purchase" | "continuation" | "owner" | "product"; feature?: Feature };
 const operationMethods: Record<string, string> = {
   "/api/stripe/webhook": "POST", "/api/webhook": "POST",
+  "/api/search/enrich": "GET",
   "/api/installments/collect": "GET", "/api/memberships/collect": "GET", "/api/memberships/recover-exits": "GET",
   "/api/scheduling/google/jobs": "GET", "/api/scheduling/google/sync": "GET", "/api/scheduling/google/maintenance": "GET",
   "/api/scheduling/google/notifications": "POST",

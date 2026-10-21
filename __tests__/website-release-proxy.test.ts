@@ -35,6 +35,8 @@ test("configuration failure denies actions and still supplies launch HTML", asyn
 test("signed webhook and cron handlers remain reachable without granting adjacent API access", async () => {
   expect((await request("/api/stripe/webhook", { method: "POST" })).headers.get("x-middleware-next")).toBe("1");
   expect((await request("/api/memberships/collect")).headers.get("x-middleware-next")).toBe("1"); expect(identity).not.toHaveBeenCalled();
+  expect((await request("/api/search/enrich")).headers.get("x-middleware-next")).toBe("1");
+  expect((await request("/api/search/enrich", { method: "POST" })).status).toBe(401);
   expect((await request("/api/stripe/anything", { method: "POST" })).status).toBe(401);
 });
 test("fulfillment requires verified identity and uses the minimal shell", async () => {
