@@ -27,6 +27,12 @@ test("new purchases, uploads, bookings and admin access are not purchase excepti
   expect(routePolicy("/admin/releases").kind).toBe("owner"); expect(routePolicy("/api/admin/refunds", "POST").kind).toBe("owner");
   expect(routePolicy("/profile/edit").feature).toBe("creatorTools");
 });
+test("existing setup callbacks can finish without opening new setup or unknown providers", () => {
+  for (const path of ["/api/stripe/connect/return", "/api/stripe/connect/refresh", "/api/scheduling/oauth/callback/google", "/api/scheduling/oauth/callback/calcom", "/api/scheduling/oauth/callback/calendly"]) {
+    expect(routePolicy(path, "GET").kind).toBe("purchase"); expect(routePolicy(path, "POST").kind).toBe("product");
+  }
+  for (const path of ["/api/stripe/connect/onboard", "/api/scheduling/oauth/start", "/api/scheduling/oauth/callback/unknown"]) expect(routePolicy(path).kind).toBe("product");
+});
 test("launch HTML contains legal/private access and only a validated Discord destination", () => {
   const html = launchHtml("https://discord.gg/bKC8q4z6B"); expect(html).toContain("Coming soon."); expect(html).toContain("Join our Discord"); expect(html).toContain("/auth?next=%2Fprivate-access");
   expect(html).not.toMatch(/<script|\/dashboard|\/api\/|video_url|post_id/); expect(html).toContain('/legal/support');

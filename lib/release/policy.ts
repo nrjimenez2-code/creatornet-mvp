@@ -69,6 +69,10 @@ const purchaseRules: Array<[RegExp, string[]]> = [
   [/^\/api\/scheduling\/google\/reservations\/[^/]+\/times$/, ["GET", "POST"]],
   [/^\/calls$/, ["GET", "HEAD"]],
   [/^\/api\/installments\/recovery$/, ["GET", "POST"]],
+  // Existing setup must be allowed to finish. These handlers require a saved
+  // Connect account or an unexpired, user-bound OAuth attempt and state cookie.
+  [/^\/api\/stripe\/connect\/(return|refresh)$/, ["GET"]],
+  [/^\/api\/scheduling\/oauth\/callback\/(calcom|calendly|google)$/, ["GET"]],
   [/^\/api\/memberships\/[^/]+\/(confirm|recovery|renewal-recovery|renewal-retry|bank-verification|payoff|exit)$/, ["POST"]],
   [/^\/api\/tips\/[^/]+\/status$/, ["GET"]],
 ];
