@@ -4,10 +4,14 @@ import { isSafeId } from "@/lib/ids";
 import { resolvePostForProduct, INVALID_POST } from "@/lib/checkoutGuards";
 import { productPurchaseTerms, type ConsentProduct } from "@/lib/purchaseConsent";
 import { purchasePoliciesActive } from "@/lib/purchasePolicies";
+import { mentorshipInstallmentOffersReady, readMentorshipInstallmentOptions } from "@/lib/mentorshipInstallmentOptions";
+import { mentorshipInstallmentQuote } from "@/lib/mentorshipInstallmentQuote";
+import { getProcessingFeeSchedule, getSubscriptionProcessingFeeSchedule } from "@/lib/money";
 import type { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-const headers = { "Cache-Control": "private, no-store" };
+const headers = { "Cache-Control": "private, no-store", Vary: "Cookie, Authorization" };
+type ReviewProduct = ConsentProduct & {active?:boolean|null;installment_options?:unknown};
 export async function GET(req: NextRequest) {
   try {
     if (!purchasePoliciesActive(process.env)) return Response.json({ error: "This purchase agreement is not active." }, { status: 409, headers });
@@ -15,19 +19,34 @@ export async function GET(req: NextRequest) {
     if (!user) return Response.json({ error: "Sign in to review your purchase." }, { status: 401, headers });
     const params = new URL(req.url).searchParams, productId = params.get("product_id");
     if (!isSafeId(productId)) return Response.json({ error: "Invalid product." }, { status: 400, headers });
+    const choicesReady=mentorshipInstallmentOffersReady(process.env) &&
+      ["CREATOR_MENTORSHIP_INSTALLMENT_SELECTOR_READY","CREATOR_MENTORSHIP_INSTALLMENT_RESERVATIONS_SCHEMA_READY",
+        "CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY","CREATOR_FIXED_SERVICE_SCHEMA_READY","CREATOR_PROCESSING_FEE_ENABLED"]
+        .every(key=>process.env[key]==="true");
     const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
-    const result = await admin.from("products").select("id,creator_id,title,type,description,price_cents,amount_cents,currency" +
+    const result = await admin.from("products").select("id,creator_id,title,type,description,price_cents,amount_cents,currency,active" +
       (process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true" ? ",membership_terms" : "") +
-      (process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY === "true" ? ",fixed_service_months" : ""))
-      .eq("id", productId).returns<ConsentProduct[]>().maybeSingle();
-    if (result.error || !result.data) return Response.json({ error: "Offer not available." }, { status: 404, headers });
+      (process.env.CREATOR_FIXED_SERVICE_SCHEMA_READY === "true" ? ",fixed_service_months" : "") +
+      (choicesReady ? ",installment_options" : ""))
+      .eq("id", productId).returns<ReviewProduct[]>().maybeSingle();
+    if (result.error || !result.data || result.data.active === false) return Response.json({ error: "Offer not available." }, { status: 404, headers });
     const product = result.data;
     if (product.fixed_service_months != null && process.env.CREATOR_FIXED_SERVICE_ONE_TIME_READY !== "true") {
       return Response.json({ error: "This fixed-service purchase agreement is not active." }, { status: 409, headers });
     }
     const postId = await resolvePostForProduct(admin, params.get("post_id"), product.id, product.creator_id || "");
     if (postId === INVALID_POST) return Response.json({ error: "This post does not sell that offer." }, { status: 400, headers });
-    return Response.json(productPurchaseTerms(product, user.id, postId), { headers });
+    const full=productPurchaseTerms(product,user.id,postId);
+    const manualCheckoutEnabled=product.type==="mentorship"&&Boolean(postId)&&user.id!==product.creator_id&&
+      process.env.CREATOR_MENTORSHIP_MANUAL_CHECKOUT_UI_READY==="true";
+    if(!choicesReady || product.type!=="mentorship" || user.id===product.creator_id || !postId)
+      return Response.json({...full,...(manualCheckoutEnabled?{manualCheckoutEnabled:true}:{})},{headers});
+    // Same authoritative product, buyer, post and fee helpers as the existing
+    // single-choice quote route. Reading choices does not reserve or charge.
+    const counts=readMentorshipInstallmentOptions(product.installment_options,product.type,product.membership_terms!=null,full.terms.amountCents);
+    const firstPaymentFees=getProcessingFeeSchedule(process.env),renewalFees=getSubscriptionProcessingFeeSchedule(process.env);
+    const installmentChoices=counts.map(paymentCount=>mentorshipInstallmentQuote({product,buyerId:user.id,postId,paymentCount,firstPaymentFees,renewalFees}));
+    return Response.json({...full,installmentChoices,...(manualCheckoutEnabled?{manualCheckoutEnabled:true}:{})},{headers});
   } catch {
     return Response.json({ error: "This offer needs review before payment." }, { status: 409, headers });
   }

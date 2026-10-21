@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import type { MembershipAgreement } from "@/lib/membershipAgreement";
 type Quote = { agreement: MembershipAgreement; fingerprint: string };
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 function Review() {
   const search = useSearchParams(), productId = search.get("product_id") || "", postId = search.get("post_id") || "";
   const [reload, setReload] = useState(0), key = JSON.stringify([productId, postId, reload]);
@@ -38,6 +39,34 @@ function Review() {
       window.location.assign(url.toString());
     } catch (error) { setPaymentError(error instanceof Error ? error.message : "Checkout needs retry or review."); setBusy(false); }
   }
+  async function manualCard() {
+    if (!accepted || !quote || busy || process.env.NEXT_PUBLIC_CREATOR_MONTHLY_MANUAL_BUYER_ENABLED !== "true") return;
+    setBusy(true); setPaymentError("");
+    try {
+      const key = `creatornet:monthly-manual-acceptance-v1:${productId}:${postId}:${quote.fingerprint}`;
+      let membershipId: string;
+      const prior = localStorage.getItem(key);
+      if (prior) {
+        if (!uuid.test(prior)) throw Error("Your saved monthly acceptance needs review.");
+        membershipId = prior;
+      } else {
+        const response = await fetch("/api/memberships/manual", { method: "POST", credentials: "include", cache: "no-store",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "accept", product_id: productId, post_id: postId,
+            consent: { accepted: true, version: quote.agreement.version, fingerprint: quote.fingerprint } }) });
+        const body = await response.json();
+        if (!response.ok || !uuid.test(body.membershipId)) throw Error(body.error || "Monthly acceptance needs review.");
+        membershipId = body.membershipId;
+        localStorage.setItem(key, membershipId);
+        if (localStorage.getItem(key) !== membershipId) throw Error("Could not save the original monthly acceptance.");
+      }
+      const selected = await fetch("/api/memberships/manual", { method: "POST", credentials: "include", cache: "no-store",
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "select", membership_id: membershipId }) });
+      const result = await selected.json();
+      if (!selected.ok || result.membershipId !== membershipId || !uuid.test(result.selectionId))
+        throw Error(result.error || "Your original monthly payment source needs review.");
+      window.location.assign(`/memberships/manual?membership_id=${encodeURIComponent(membershipId)}`);
+    } catch (error) { setPaymentError(error instanceof Error ? error.message : "Monthly card payment needs review."); setBusy(false); }
+  }
   return <main className="mx-auto max-w-3xl space-y-5 p-6">
     <Link href="/dashboard" className="text-sm underline">Back to CreatorNet</Link>
     <h1 className="text-2xl font-semibold">Review your monthly mentorship</h1>
@@ -65,8 +94,12 @@ function Review() {
         <span>I agree to this membership&apos;s displayed price, minimum, renewal, cancellation, delivery and refund terms and the linked agreement. I authorize its scheduled monthly card payments. This does not authorize a separate early-exit payoff charge.</span>
       </label>
       {paymentError && <><p role="alert">{paymentError}</p><button onClick={reloadOffer} disabled={busy} className="underline">Review current offer</button></>}
-      <button disabled={!accepted || busy} onClick={() => void checkout()} className="rounded-lg bg-white px-5 py-3 font-semibold text-black disabled:opacity-40">
-        {busy ? "Opening checkout..." : "Agree and continue to payment"}</button>
+      {process.env.NEXT_PUBLIC_CREATOR_MONTHLY_MANUAL_BUYER_ENABLED !== "true" &&
+        <button disabled={!accepted || busy} onClick={() => void checkout()} className="rounded-lg bg-white px-5 py-3 font-semibold text-black disabled:opacity-40">
+          {busy ? "Opening checkout..." : "Agree and continue to payment"}</button>}
+      {process.env.NEXT_PUBLIC_CREATOR_MONTHLY_MANUAL_BUYER_ENABLED === "true" &&
+        <button disabled={!accepted || busy} onClick={() => void manualCard()} className="ml-3 rounded-lg border px-5 py-3 font-semibold disabled:opacity-40">
+          {busy ? "Saving your agreement..." : "Agree and pay with a US card"}</button>}
     </>}
     <p className="text-sm">Questions? <a href="mailto:support@creatornet.net" className="underline">support@creatornet.net</a></p>
   </main>;

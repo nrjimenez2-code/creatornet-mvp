@@ -75,6 +75,14 @@ test("stale reschedule options cannot be submitted",async()=>{
   expect(container.querySelector('input[name=new-time]')).toBeNull();
 });
 
+test("a booking that has started keeps its confirmation and cannot be rescheduled",async()=>{
+  query=new URLSearchParams('reservation_id=reservation');
+  jest.spyOn(Date,'now').mockReturnValue(Date.parse(slot.start));
+  await act(async()=>root.render(createElement(Page)));
+  expect(container.textContent).toContain('Booking confirmed');
+  expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(false);
+});
+
 test("recovered external changes show the actual booking and allow another reschedule",async()=>{
  query=new URLSearchParams('reservation_id=reservation');
  fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'confirmed',revision:1,...slot,recoveryCode:'google_booking_changed_externally'}})});
