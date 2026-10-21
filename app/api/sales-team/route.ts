@@ -51,10 +51,17 @@ export async function POST(req:NextRequest){
       if(action==="invite"){
         if(typeof body.email!=="string"||!/^\S+@\S+\.\S+$/.test(body.email)||body.email.length>254||typeof body.token!=="string"||!/^[a-f0-9]{64}$/.test(body.token))throw new TeamSalesError("INVALID_INVITATION","Enter an email and a valid invitation identity.",400);
         input={...input,email:body.email.toLowerCase().trim(),token_hash:createHash("sha256").update(body.token).digest("hex"),invitation_id:teamId(body.request_id)};
-      }else input.membership_id=teamId(body.membership_id);
+      }else{
+        if(!Number.isSafeInteger(body.expected_revision)||body.expected_revision<1)throw new TeamSalesError("REVIEW_CURRENT_COMMISSION_TERMS","Refresh the member's current terms before changing them.");
+        input.membership_id=teamId(body.membership_id);input.expected_revision=body.expected_revision;
+      }
     }else if(action==="remove_member")input={membership_id:teamId(body.membership_id)};
     else if(action==="revoke_invitation")input={invitation_id:teamId(body.invitation_id)};
     else if(action==="bind_destination")input={target_id:teamId(body.target_id),membership_id:teamId(body.membership_id)};
+    else if(action==="configure_destination"){
+      if(!Number.isInteger(body.weight)||body.weight<0||body.weight>1000||typeof body.enabled!=="boolean")throw new TeamSalesError("INVALID_TEAM_DESTINATION","Choose a weight from 0 to 1000 and whether routing is enabled.",400);
+      input={target_id:teamId(body.target_id),weight:body.weight,enabled:body.enabled};
+    }
     else if(action==="configure_routing"&&typeof body.enabled==="boolean")input={enabled:body.enabled};
     else throw new TeamSalesError("UNKNOWN_TEAM_ACTION","Choose a supported team action.",400);
   }

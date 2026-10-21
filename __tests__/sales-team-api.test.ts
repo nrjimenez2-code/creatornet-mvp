@@ -48,3 +48,12 @@ test("unknown commands and absent commission terms fail before any mutation",asy
  expect((await POST(request({action:"invite",role:"closer",is_closer:true,email:"member@example.test",token:"a".repeat(64),request_id:target}))).status).toBe(400);
  expect(mockRpc.mock.calls.every(([name])=>name==="sales_team_actor_role_v1")).toBe(true);
 });
+
+test("routing and future-term updates use curated inputs and require a reviewed commission revision",async()=>{
+ expect((await POST(request({action:"configure_destination",target_id:target,weight:0,enabled:false,booking_url:"https://attacker.example"}))).status).toBe(200);
+ expect(mockRpc).toHaveBeenLastCalledWith("manage_sales_team_v1",{p_creator_id:creator,p_actor_id:actor,p_action:"configure_destination",p_input:{target_id:target,weight:0,enabled:false}});
+ const body={action:"configure_member",membership_id:target,role:"closer",is_closer:true,commission_bps:1200,hold_days:14,renewal_rule:"initial_commitment"};
+ expect((await POST(request(body))).status).toBe(409);
+ expect((await POST(request({...body,expected_revision:7}))).status).toBe(200);
+ expect(mockRpc).toHaveBeenLastCalledWith("manage_sales_team_v1",expect.objectContaining({p_input:expect.objectContaining({expected_revision:7,commission_bps:1200})}));
+});

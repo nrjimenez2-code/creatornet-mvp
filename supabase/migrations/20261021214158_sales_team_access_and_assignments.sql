@@ -255,6 +255,12 @@ begin
        update public.sales_team_memberships_v1 set status='removed',removed_at=clock_timestamp(),updated_at=clock_timestamp() where id=v_id returning to_jsonb(sales_team_memberships_v1.*) into v_after;
      else
        if v_member.status<>'active' then raise exception 'MEMBER_UNAVAILABLE'; end if;
+       if v_member.role is not distinct from p_input->>'role' and v_member.is_closer is not distinct from (p_input->>'is_closer')::boolean and
+          v_member.commission_bps is not distinct from (p_input->>'commission_bps')::integer and v_member.hold_days is not distinct from (p_input->>'hold_days')::integer and
+          v_member.renewal_rule is not distinct from p_input->>'renewal_rule' then
+         return jsonb_build_object('id',v_member.id,'result',to_jsonb(v_member),'reused',true);
+       end if;
+       if (p_input->>'expected_revision')::integer is distinct from v_member.commission_revision then raise exception 'REVIEW_CURRENT_COMMISSION_TERMS'; end if;
        update public.sales_team_memberships_v1 set role=p_input->>'role',is_closer=(p_input->>'is_closer')::boolean,
         commission_bps=(p_input->>'commission_bps')::integer,hold_days=(p_input->>'hold_days')::integer,renewal_rule=p_input->>'renewal_rule',
         commission_revision=commission_revision+1,accepted_commission_revision=null,updated_at=clock_timestamp()
@@ -263,6 +269,14 @@ begin
        insert into public.sales_team_commission_terms_v1 values(v_id,v_member.commission_revision,
          jsonb_build_object('version','creatornet-team-commission-v1','commissionBps',v_member.commission_bps,'holdDays',v_member.hold_days,'renewals',v_member.renewal_rule),p_actor_id,clock_timestamp());
      end if;
+   elsif p_action='configure_destination' then
+     select * into v_target from public.booking_targets where id=(p_input->>'target_id')::uuid and creator_id=p_creator_id for update;
+     if v_target.id is null or jsonb_typeof(p_input->'weight') is distinct from 'number' or
+        (p_input->>'weight')::numeric<>trunc((p_input->>'weight')::numeric) or (p_input->>'weight')::numeric not between 0 and 1000 or
+        jsonb_typeof(p_input->'enabled') is distinct from 'boolean' then raise exception 'INVALID_TEAM_DESTINATION'; end if;
+     v_id:=v_target.id;v_before:=to_jsonb(v_target);
+     update public.booking_targets set weight=(p_input->>'weight')::integer,active=(p_input->>'enabled')::boolean,is_active=(p_input->>'enabled')::boolean
+       where id=v_id returning to_jsonb(booking_targets.*) into v_after;
    elsif p_action='bind_destination' then
      select * into v_target from public.booking_targets where id=(p_input->>'target_id')::uuid and creator_id=p_creator_id for update;
      select * into v_member from public.sales_team_memberships_v1 where id=(p_input->>'membership_id')::uuid and creator_id=p_creator_id and status='active' and is_closer;

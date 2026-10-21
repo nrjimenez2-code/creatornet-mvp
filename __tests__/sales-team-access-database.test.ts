@@ -34,10 +34,23 @@ test("only the creator appoints or removes managers; managers can manage closers
  const manager=await addTeamMember(db,2,"manager",false), closer=await addTeamMember(db,3);
  await denied(()=>teamRpc(db,2,"invite",{role:"manager"}),/OWNER_REQUIRED/);
  await denied(()=>teamRpc(db,2,"remove_member",{membership_id:manager}),/OWNER_REQUIRED/);
- await teamRpc(db,2,"configure_member",{membership_id:closer,role:"closer",is_closer:true,commission_bps:1500,hold_days:30,renewal_rule:"every_renewal"});
+ const input={membership_id:closer,role:"closer",is_closer:true,commission_bps:1500,hold_days:30,renewal_rule:"every_renewal",expected_revision:1};
+ await teamRpc(db,2,"configure_member",input);
  const member=(await db.query<{commission_revision:number;accepted_commission_revision:number|null}>("select * from public.sales_team_memberships_v1 where id=$1",[closer])).rows[0];
  expect(member).toMatchObject({commission_revision:2,accepted_commission_revision:null});
  expect((await db.query("select * from public.sales_team_commission_terms_v1 where membership_id=$1",[closer])).rows).toHaveLength(2);
+ expect((await teamRpc(db,2,"configure_member",input)).reused).toBe(true);
+ await denied(()=>teamRpc(db,2,"configure_member",{...input,commission_bps:1600}),/REVIEW_CURRENT_COMMISSION_TERMS/);
+});
+
+test("managers adjust only their own destinations and zero weight stops new routing",async()=>{
+ const manager=await addTeamMember(db,2,"manager",false);await addTeamMember(db,3);
+ await teamRpc(db,2,"configure_destination",{target_id:id(103),weight:0,enabled:true});
+ await denied(()=>assign(1),/NO_ELIGIBLE_TEAM_DESTINATION/);
+ await denied(()=>teamRpc(db,2,"configure_destination",{target_id:id(150),weight:1,enabled:true}),/INVALID_TEAM_DESTINATION/);
+ await denied(()=>teamRpc(db,2,"configure_destination",{target_id:id(103),weight:1.5,enabled:true}),/INVALID_TEAM_DESTINATION/);
+ await teamRpc(db,1,"remove_member",{membership_id:manager});
+ await denied(()=>teamRpc(db,2,"configure_destination",{target_id:id(103),weight:1,enabled:true}),/TEAM_MANAGER_REQUIRED/);
 });
 test("revocation of the inviter invalidates their unaccepted invitation",async()=>{
  const manager=await addTeamMember(db,2,"manager",false);

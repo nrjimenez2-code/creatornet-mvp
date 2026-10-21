@@ -44,7 +44,7 @@ test("commission changes invalidate pending review but preserve an accepted immu
  const offer=await approveTeamOffer(db);const draft=await draftTeamSale(db,offer.options[0].id);await accept(draft.saleId,draft.quote.fingerprint);
  const saved=(await db.query("select terms from public.sales_team_sale_agreements_v1")).rows;
  const member=(await db.query<{id:string}>("select id from public.sales_team_memberships_v1")).rows[0].id;
- await teamRpc(db,1,"configure_member",{membership_id:member,role:"closer",is_closer:true,commission_bps:2000,hold_days:30,renewal_rule:"every_renewal"});
+ await teamRpc(db,1,"configure_member",{membership_id:member,role:"closer",is_closer:true,commission_bps:2000,hold_days:30,renewal_rule:"every_renewal",expected_revision:1});
  await teamRpc(db,1,"remove_member",{membership_id:member});
  await accept(draft.saleId,draft.quote.fingerprint);expect((await db.query("select terms from public.sales_team_sale_agreements_v1")).rows).toEqual(saved);
  await denied(()=>db.query("update public.sales_team_sale_agreements_v1 set terms='{}'"),/TEAM_HISTORY_IS_IMMUTABLE/);
