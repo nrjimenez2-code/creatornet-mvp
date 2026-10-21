@@ -505,7 +505,8 @@
   "git": {
     "deploymentEnabled": {
       "feat/video-insights": false,
-      "codex/mentorship-maintenance-integration-20261005": false
+      "codex/mentorship-maintenance-integration-20261005": false,
+      "codex/closing-teams-20261021": false
     }
   }
 }

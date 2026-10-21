@@ -181,3 +181,9 @@ supabase/migrations/*
 !supabase/migrations/20260924071323_manual_intent_card_only.sql
 !supabase/migrations/20260924071351_sandbox_rejected_full_release.sql
 !supabase/migrations/20260924074115_manual_card_method.sql
+!supabase/migrations/20261021214158_sales_team_access_and_assignments.sql
+!supabase/migrations/20261021214956_sales_team_approved_sale_agreements.sql
+!supabase/migrations/20261021215909_sales_team_provider_journal_and_ledger.sql
+!supabase/migrations/20261021220845_sales_team_receipt_accounting.sql
+!supabase/migrations/20261021221847_sales_team_shared_purchase_admission.sql
+!supabase/migrations/20261021222610_sales_team_booking_source_routing.sql

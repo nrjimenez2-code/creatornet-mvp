@@ -1,4 +1,4 @@
-import { recordBookingSetup, attributedBookingUrl } from "@/lib/discoverBookings";
+import { recordBookingSetup, completedBookingRedirect } from "@/lib/discoverBookings";
 import { completeFreeBooking } from "@/lib/freeBookingCheckout";
 import { premiumSchemaReady } from "@/lib/premiumReadiness";
 // app/api/confirm-purchase/route.ts
@@ -390,7 +390,7 @@ export async function POST(req: Request) {
           ok: true,
           session_id,
           kind: "booking",
-          booking_redirect_url: attributedBookingUrl(redirectUrl, await recordBookingSetup(session)),
+          booking_redirect_url: await completedBookingRedirect(redirectUrl,session,await recordBookingSetup(session)),
           post_id: postId,
           creator_id: creatorId,
         },

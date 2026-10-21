@@ -6,10 +6,13 @@ import { googleBookingConnectionFromUrl } from "@/lib/googleBookingUrl";
 import { getSiteUrl } from "@/lib/siteUrl";
 import { schedulingOrigin } from "@/lib/schedulingConfig";
 import { completedFreeBooking } from "@/lib/freeBookingReceipt";
+import { teamSchemaReady } from "@/lib/salesTeams/policy";
+import { routeCompletedTeamBooking } from "@/lib/salesTeams/routing";
 export async function recordBookingSetup(
   session: Stripe.Checkout.Session,
 ): Promise<string | null> {
-  if (!discoverEnabled() && process.env.GOOGLE_CALENDAR_ENABLED !== "true") return null;
+  const analyticsEnabled=discoverEnabled()||process.env.GOOGLE_CALENDAR_ENABLED==="true";
+  if (!analyticsEnabled && !teamSchemaReady()) return null;
   if (
     (session.mode !== "setup" && !completedFreeBooking(session)) ||
     session.status !== "complete" || !session.metadata ||
@@ -28,6 +31,10 @@ export async function recordBookingSetup(
     .single();
   if (postError || post?.creator_id !== creatorId)
     throw new Error("Booking source mismatch");
+  if(!analyticsEnabled){
+    await routeCompletedTeamBooking(admin,session,null);
+    return null;
+  }
   const { error } = await admin
     .from("discover_booking_attribution_v1")
     .upsert(
@@ -53,7 +60,13 @@ export async function recordBookingSetup(
     kind: "booking_setup_complete",
     entityKey: session.id,
   });
+  await routeCompletedTeamBooking(admin,session,data.id);
   return data.id;
+}
+
+export async function completedBookingRedirect(raw:string,session:Stripe.Checkout.Session,attributionId:string|null){
+  const team=await routeCompletedTeamBooking(admin,session,attributionId);
+  return attributedBookingUrl(team?.booking_url||raw,attributionId);
 }
 export function attributedBookingUrl(
   raw: string,
