@@ -10,8 +10,8 @@
  *    another creator's profile with the RLS-scoped browser client gets nothing:
  *    the watch page showed a purchased video with no creator, and the library
  *    listed every item as an anonymous "Creator". Both must go through
- *    /api/profiles, which is auth-gated, uses the service role, and returns
- *    display columns only.
+ *    authenticated display-only routes. The library's route additionally
+ *    limits creator names to the signed-in buyer's saved purchases.
  *
  * 2. DELIVERY. 8 posts carry a `premium_path` (7 of them also priced), but
  *    nothing in the app called either route that can sign that file
@@ -39,9 +39,10 @@ describe("creator attribution does not depend on a cross-user profiles read", ()
     expect(library).not.toMatch(/\.from\(\s*["']profiles["']\s*\)/);
   });
 
-  test("both resolve creators through /api/profiles", () => {
+  test("both resolve creators through authenticated display routes", () => {
     expect(watch).toContain("/api/profiles?ids=");
-    expect(library).toContain("/api/profiles?ids=");
+    expect(library).toContain("/api/library/creators?ids=");
+    expect(library).not.toContain("/api/profiles?ids=");
   });
 
   test("that route still returns display columns only", () => {
