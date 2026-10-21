@@ -13,6 +13,7 @@ import AuthPage from "@/app/auth/page";
 let root: Root, container: HTMLDivElement;
 beforeEach(() => {
   jest.clearAllMocks(); prepare.mockResolvedValue(true); profile.mockResolvedValue({ data: { interests: ["fitness"] }, error: null });
+  global.fetch = jest.fn().mockResolvedValue({ json: async () => ({ privateAccess: true, registrationOpen: false }) });
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
 });
 afterEach(async () => { await act(async () => root.unmount()); container.remove(); });

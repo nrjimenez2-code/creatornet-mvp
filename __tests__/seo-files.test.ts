@@ -5,17 +5,30 @@
  */
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
+import robots from "@/app/robots";
+import { loadReleaseSettings } from "@/lib/release/server";
+import { closedFeatures, SETTINGS_ID, type ReleaseSettings } from "@/lib/release/policy";
+
+jest.mock("@/lib/release/server", () => ({ loadReleaseSettings: jest.fn() }));
+const settings = (hidden: boolean): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden, features: { ...closedFeatures(), feed: true, profiles: true, search: true }, discord_invite: null, revision: 0, updated_at: "now" });
 
 const ROOT = join(__dirname, "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 describe("crawler plumbing", () => {
-  test("robots.ts exists and disallows every private surface", () => {
-    const src = read("app/robots.ts");
-    for (const path of ["/api/", "/admin", "/access/", "/library", "/profile", "/watch/", "/onboarding"]) {
-      expect(src).toContain(`"${path}"`);
-    }
-    expect(src).toContain("sitemap");
+  test.each([null, settings(true)])("hidden or unavailable settings deny all product crawling", async (state) => {
+    jest.mocked(loadReleaseSettings).mockResolvedValue(state);
+    const result = await robots();
+    expect(result.rules).toEqual([{ userAgent: "*", disallow: "/", allow: ["/$", "/legal/"] }]);
+    expect(result.sitemap).toMatch(/\/sitemap\.xml$/);
+  });
+
+  test("released discovery surfaces are exact exceptions to the private path deny", async () => {
+    jest.mocked(loadReleaseSettings).mockResolvedValue(settings(false));
+    const result = await robots();
+    expect(result.rules).toEqual([{ userAgent: "*", disallow: "/", allow: ["/$", "/legal/", "/dashboard$", "/creators/", "/search$", "/tag/"] }]);
+    jest.mocked(loadReleaseSettings).mockResolvedValue({ ...settings(false), features: closedFeatures() });
+    expect((await robots()).rules).toEqual([{ userAgent: "*", disallow: "/", allow: ["/$", "/legal/"] }]);
   });
 
   test("sitemap.ts never lists private or transactional routes", () => {

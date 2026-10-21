@@ -1,43 +1,47 @@
-// proxy.ts (project root)
-import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import type { CookieOptions } from "@supabase/ssr";
+import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { featureOpen, routePolicy } from "@/lib/release/policy";
+import { hasPrivateAccess, hasOwnedContinuation, loadReleaseSettings, verifiedIdentity } from "@/lib/release/server";
+import { launchHtml } from "@/lib/release/launch";
 
-/**
- * Routes that require a signed-in user.
- *
- * Matched EXACTLY, not by prefix. That matters: `/profile/:username` is a
- * PUBLIC creator profile (see app/profile/[username]/page.tsx, which simply
- * redirects to /creators/:username, a page that renders fine for logged-out
- * visitors). A `startsWith("/profile")` check swallows it and bounces every
- * shared creator link to the login page.
- *
- * Keep this array in sync with `config.matcher` below. They are two halves of
- * the same rule and nothing enforces that they agree.
- */
-const protectedExact = ["/profile", "/profile/edit"];
-
-export function proxy(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-  if (!protectedExact.includes(pathname)) return;
-
-  // Supabase puts the session in a cookie that starts with "sb-".
-  // NOTE: this only checks that such a cookie EXISTS. It does not verify the
-  // session. It is a redirect convenience so signed-out users land on /auth
-  // instead of an empty page; it is not the security boundary. The real
-  // protection is the per-page auth check plus row-level security.
-  const hasSbCookie = Array.from(req.cookies.getAll()).some((c) =>
-    c.name.startsWith("sb-")
-  );
-  if (!hasSbCookie) {
-    const url = req.nextUrl.clone();
-    url.pathname = "/auth";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+const privateHeaders = { "Cache-Control": "private, no-store, max-age=0", "CDN-Cache-Control": "no-store", "Vercel-CDN-Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", Vary: "Cookie, Authorization" };
+export async function proxy(req: NextRequest) {
+  const path = req.nextUrl.pathname;
+  if (req.headers.has("next-action")) return NextResponse.json({ error: "Server actions are unavailable during controlled release." }, { status: 403, headers: privateHeaders });
+  if (path.startsWith("/_next/static/") || path === "/_next/image" || ["/favicon.ico", "/creatornet-icon-192.png", "/apple-touch-icon.png"].includes(path)) return NextResponse.next();
+  const policy = routePolicy(path, req.method);
+  const responseCookies: Array<{ name: string; value: string; options?: CookieOptions }> = [];
+  const finish = (response: NextResponse) => {
+    Object.entries(privateHeaders).forEach(([key, value]) => response.headers.set(key, value));
+    responseCookies.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+    return response;
+  };
+  const next = () => {
+    // Overwrite untrusted client markers on every request.
+    const headers = new Headers(req.headers);
+    headers.set("x-creatornet-public-shell", ["public", "purchase", "continuation"].includes(policy.kind) ? "1" : "0");
+    return finish(NextResponse.next({ request: { headers } }));
+  };
+  // Exact operation exceptions retain their handler's signature/cron/token checks.
+  if (policy.kind === "operation" || policy.kind === "public") return next();
+  if (["/sitemap.xml", "/robots.txt"].includes(path)) return next();
+  const settings = await loadReleaseSettings();
+  let user = null;
+  try { user = await getAuthenticatedUser(req, { onCookie: (name, value, options) => { req.cookies.set(name, value); responseCookies.push({ name, value, options }); } }); } catch { /* deny */ }
+  if (policy.kind === "purchase" && verifiedIdentity(user)) return next();
+  if (policy.kind === "continuation" && await hasOwnedContinuation(req, user)) return next();
+  const privateAccess = await hasPrivateAccess(user, settings);
+  if (policy.kind === "owner") {
+    if (privateAccess && user?.id === settings?.owner_id) return next();
+  } else if (privateAccess || featureOpen(settings, policy.feature ?? null)) {
+    if (req.headers.has("next-action")) return finish(NextResponse.json({ error: "Server actions are unavailable during controlled release." }, { status: 403 }));
+    return next();
   }
+  if (path.startsWith("/api/") || !["GET", "HEAD"].includes(req.method) || req.headers.has("next-action")) {
+    return finish(NextResponse.json({ error: "Private access required." }, { status: user ? 403 : 401 }));
+  }
+  // Restricted page code and its product-data requests never execute.
+  return finish(new NextResponse(req.method === "HEAD" ? null : launchHtml(settings?.discord_invite ?? null), { headers: { "Content-Type": "text/html; charset=utf-8" } }));
 }
-
-export const config = {
-  // Exact literals on purpose. Do NOT change these to `/profile/:path*` —
-  // that is what was gating public creator profiles.
-  matcher: ["/profile", "/profile/edit"],
-};
+export const config = { matcher: ["/:path*"] };

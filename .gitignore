@@ -187,3 +187,4 @@ supabase/migrations/*
 !supabase/migrations/20261021220845_sales_team_receipt_accounting.sql
 !supabase/migrations/20261021221847_sales_team_shared_purchase_admission.sql
 !supabase/migrations/20261021222610_sales_team_booking_source_routing.sql
+!supabase/migrations/20261021010052_controlled_website_releases.sql

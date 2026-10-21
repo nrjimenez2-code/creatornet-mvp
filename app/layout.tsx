@@ -10,6 +10,7 @@ import SoundPreferenceSync from "@/components/SoundPreferenceSync";
 import MobileTabNav from "@/components/MobileTabNav";
 import DesktopNavigationShell from "@/components/DesktopNavigationShell";
 import { getSiteUrl } from "@/lib/siteUrl";
+import { headers } from "next/headers";
 
 export const metadata: Metadata = {
   metadataBase: new URL(getSiteUrl()),
@@ -45,14 +46,15 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const publicShell = (await headers()).get("x-creatornet-public-shell") === "1";
   return (
     <html lang="en" className="bg-black" data-scroll-behavior="smooth">
       <head>
         <link rel="preconnect" href="https://media.creatornet.net" />
       </head>
       <body className="min-h-svh bg-black text-gray-900 antialiased" suppressHydrationWarning>
-        <PostHogProvider>
+        {publicShell ? <UserProvider><Suspense fallback={null}><SupabaseAuthSync /></Suspense>{children}<CookieNotice /></UserProvider> : <PostHogProvider>
           <UserProvider>
             <SoundPreferenceSync />
             {/* Keep Supabase client + server sessions in sync */}
@@ -68,7 +70,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             </Suspense>
             <CookieNotice />
           </UserProvider>
-        </PostHogProvider>
+        </PostHogProvider>}
       </body>
     </html>
   );

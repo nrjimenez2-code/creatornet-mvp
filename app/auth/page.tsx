@@ -1,4 +1,6 @@
 "use client";
+import { buildAuthRedirectUrl } from "@/lib/authRedirect";
+import { routePolicy } from "@/lib/release/policy";
 import { AuthSkeleton } from "@/components/loading/Skeletons";
 
 import { useEffect, useMemo, useState } from "react";
@@ -7,7 +9,6 @@ import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
 import { authNextPath, prepareSessionNavigation } from "@/lib/browserSession";
-import { buildAuthRedirectUrl } from "@/lib/authRedirect";
 import {
   parseAuthErrorFromUrl,
   friendlyAuthError,
@@ -21,6 +22,18 @@ export default function AuthPage() {
   const { session, loading } = useUser();
 
   // -------- Session redirect on load --------
+  const [registrationOpen, setRegistrationOpen] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch("/api/release/session", { cache: "no-store", signal: controller.signal });
+        const result = await response.json();
+        if (!controller.signal.aborted) setRegistrationOpen(result.registrationOpen === true);
+      } catch { /* registration remains closed */ }
+    })();
+    return () => controller.abort();
+  }, []);
   const [checking, setChecking] = useState(true);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [sessionRetry, setSessionRetry] = useState(0);
@@ -39,7 +52,10 @@ export default function AuthPage() {
           return;
         }
         if (!mounted) return;
+        const access = await fetch("/api/release/session", { cache: "no-store" }).then(response => response.json());
         const next = authNextPath(window.location.search);
+        const recovery = next && ["purchase", "continuation"].includes(routePolicy(new URL(next, window.location.origin).pathname).kind);
+        if (!access.privateAccess && !access.publicFeed && !recovery) { window.location.replace("/private-access"); return; }
         if (next) {
           // A full navigation avoids reusing a prefetched unauthenticated redirect.
           window.location.replace(next);
@@ -362,7 +378,7 @@ export default function AuthPage() {
           Scroll, Learn, Earn.
         </p>
         <p className="mt-2 text-[13px] text-gray-500">
-          Short videos from creators who teach. Free to join.
+          {registrationOpen ? "Sign in or create an account." : "Private sign-in for existing accounts."}
         </p>
         {sessionError && (
           <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
@@ -372,6 +388,7 @@ export default function AuthPage() {
             }}>Try again</button>
           </div>
         )}
+        {oauthError && <p role="alert" className="mt-4 text-sm text-red-600">{oauthError}</p>}
 
         <button
           onClick={() => setShowForm(!showForm)}
@@ -380,6 +397,7 @@ export default function AuthPage() {
           Continue with email
         </button>
 
+        {registrationOpen && <>
         <div className="relative my-4">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-200" />
@@ -421,6 +439,7 @@ export default function AuthPage() {
           </p>
         )}
 
+        </>}
         {showForm && (
           <div className="mt-6 text-left" aria-live="polite">
             {emailStep === "email" ? (
@@ -570,6 +589,7 @@ export default function AuthPage() {
     </main>
   );
 }
+
 
 /* ---------- Inline Icons ---------- */
 function AppleIcon({ className = "" }: { className?: string }) {

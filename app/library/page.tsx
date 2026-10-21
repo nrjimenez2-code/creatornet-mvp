@@ -247,14 +247,14 @@ export default function LibraryPage() {
           { username: string | null; full_name: string | null }
         >();
         if (creatorIds.length > 0) {
-          // Via /api/profiles, not a direct table read: public.profiles has no
+          // Via a purchase-scoped endpoint, not a direct table read: public.profiles has no
           // cross-user SELECT policy (only `is_admin()` and `auth.uid() = id`),
           // so reading another creator's row with the RLS-scoped browser client
           // returns nothing and every item renders as an anonymous "Creator".
           // That route is auth-gated and returns display columns only.
           try {
             const res = await fetch(
-              `/api/profiles?ids=${encodeURIComponent(creatorIds.join(","))}`,
+              `/api/library/creators?ids=${encodeURIComponent(creatorIds.join(","))}`,
               { credentials: "include" }
             );
             if (res.ok) {

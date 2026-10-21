@@ -4,7 +4,8 @@ import BackButton from "@/components/BackButton";
 export const metadata: Metadata = {
   title: "Sign in",
   description:
-    "Sign in or create a free CreatorNet account to follow creators, scroll the feed, and buy their products, courses, and 1-on-1 calls.",
+    "Private sign-in for existing CreatorNet accounts.",
+  robots: { index: false, follow: false },
 };
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
