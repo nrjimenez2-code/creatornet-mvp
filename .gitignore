@@ -81,3 +81,4 @@ supabase/migrations/*
 !supabase/migrations/20260930022954_profile_website.sql
 !supabase/migrations/20260930031043_automatic_post_metadata.sql
 !supabase/migrations/20260930175120_composer_premium_delivery.sql
+!supabase/migrations/20261021010052_controlled_website_releases.sql

@@ -1,14 +1,18 @@
 import type { MetadataRoute } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getSiteUrl } from "@/lib/siteUrl";
+import { loadReleaseSettings } from "@/lib/release/server";
+import { featureOpen, routePolicy } from "@/lib/release/policy";
 
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 const MAX_POST_ROWS = 5000;
 
 // Public, crawlable routes only. Never list account, checkout or admin URLs.
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const site = getSiteUrl();
+  const settings = await loadReleaseSettings();
 
   const staticEntries: MetadataRoute.Sitemap = [
     { url: `${site}/`, changeFrequency: "daily", priority: 1 },
@@ -23,7 +27,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${site}/legal/creators`, changeFrequency: "monthly", priority: 0.2 },
     { url: `${site}/legal/support`, changeFrequency: "monthly", priority: 0.3 },
     { url: `${site}/legal/purchase-agreement`, changeFrequency: "monthly", priority: 0.2 },
-  ];
+  ].filter(entry => {
+    const path = new URL(entry.url).pathname;
+    return path === "/" || path.startsWith("/legal/") || featureOpen(settings, routePolicy(path).feature ?? null);
+  }) as MetadataRoute.Sitemap;
+  if (!featureOpen(settings, "profiles")) return staticEntries;
 
   // Creator pages are the indexable long tail — but only creators who have
   // actually posted. Listing every profile would leak usernames of accounts
