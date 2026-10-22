@@ -133,7 +133,7 @@ grant execute on function public.apply_full_server_payment_refund_object_v1(uuid
 do $patch$
 declare source text; needle text;
 begin
-  source:=pg_get_functiondef('public.account_full_server_financial_receipt_v1(uuid,uuid,jsonb,text,text)'::regprocedure);
+  source:=replace(pg_get_functiondef('public.account_full_server_financial_receipt_v1(uuid,uuid,jsonb,text,text)'::regprocedure),E'\r\n',E'\n');
   needle:='not in (''refund'',''dispute'')';
   if strpos(source,needle)=0 then raise exception 'Financial accounting admission differs'; end if;
   source:=replace(source,needle,'not in (''refund'',''dispute'',''refund_object'')');

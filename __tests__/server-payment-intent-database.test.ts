@@ -1123,6 +1123,15 @@ test("Refund object stale cumulative refund basis cannot overwrite a newer charg
   expect(await applyRefundObject(proof,basis)).toEqual({status:"reconciliation_required"});
   expect((await db.query("select count(*)::int n from full_server_payment_refund_observations_v1")).rows).toEqual([{n:0}]);
 });
+test.each(["\n","\r\n"])("Refund object migration accepts original accounting with %j line endings",async ending=>{
+  const {proof}=await fullReceiptFixture(36);await recordFull(proof);await installFullAccounting();await installCombinedFinancial();
+  const source=(await db.query<{definition:string}>("select pg_get_functiondef('public.account_full_server_financial_receipt_v1(uuid,uuid,jsonb,text,text)'::regprocedure) definition")).rows[0].definition;
+  await db.exec(source.replace(/\r?\n/g,ending));
+  await db.exec(readFileSync("supabase/migrations/20260923033818_full_server_refund_observations.sql","utf8").replace(/^begin;/,"").replace(/commit;\s*$/,""));
+  await refundFull(proof,1000,"evt_original");
+  expect(await accountFinancial("evt_original","refund")).toMatchObject({status:"original_financial_capture_accounted",accounted:true});
+  expect((await db.query("select access_granted from purchases")).rows).toEqual([{access_granted:false}]);
+});
 test.each(["refund","dispute"])("Refund object migration preserves original %s financial admission",async kind=>{
   const proof=await refundObjectFixture();
   if(kind==="refund")await refundFull(proof,1000,"evt_original");

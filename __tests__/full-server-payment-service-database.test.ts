@@ -53,6 +53,27 @@ async function purchase(session:string|null=null){
 async function credit(){return (await db.query<{v:boolean}>("select credit_purchase_earnings($1,8480) v",[id(9)])).rows[0].v;}
 async function ledger(){await db.query("insert into payment_fee_ledger values($1,$2,'pi_owned','ch_owned',10000,'paid',0,0,null)",[id(10),id(9)]);}
 const bind=(key:string|null=id(6),charge="ch_owned",at=paid)=>db.query("select bind_fixed_service_one_time_v1($1,$2,$3,'pi_owned',$4,$5,10000,'usd') v",[id(9),id(8),key,charge,at]);
+async function restoreOriginalServiceFunctions(changed=false){
+  await db.exec("drop function public.full_server_payment_service_consent_v1(public.purchases,uuid,text,bigint)");
+  for(const name of ["attach_fixed_service_consent_v1","bind_fixed_service_one_time_v1"]){
+    let source=original("097-fixed-service-one-time",name).replace("create function","create or replace function")
+      .replaceAll("from public.product_checkout_attempts attempt","from public.product_checkout_records_v1 attempt");
+    if(changed&&name==="bind_fixed_service_one_time_v1")source=source.replace("attempt.order_id=p.order_id)","attempt.order_id is not distinct from p.order_id)");
+    await db.exec(source);
+  }
+}
+const bindingMigration=()=>readFileSync("supabase/migrations/20260923014620_full_server_payment_service_binding.sql","utf8")
+  .replace(/^begin;/,"").replace(/commit;\s*$/,"");
+test.each(["\n","\r\n"])("service migration preserves binding with %j line endings",async ending=>{
+  await restoreOriginalServiceFunctions();
+  await db.exec(bindingMigration().replace(/\r?\n/g,ending));
+  await purchase();await credit();await ledger();await bind();
+  expect((await db.query("select count(*)::int n from fixed_purchase_service_contracts_v1")).rows).toEqual([{n:1}]);
+});
+test("service migration still rejects a changed original capture predicate",async()=>{
+  await restoreOriginalServiceFunctions(true);
+  await expect(db.exec(bindingMigration())).rejects.toThrow("Original service capture binding differs");
+});
 test("manual source attaches accepted service, masks access and uses existing once-only earnings before binding",async()=>{
   await purchase();expect((await db.query("select fixed_service_consent_id,access_granted from purchases")).rows)
     .toEqual([{fixed_service_consent_id:id(8),access_granted:false}]);

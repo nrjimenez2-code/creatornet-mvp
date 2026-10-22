@@ -25,6 +25,7 @@ let known: boolean, prior: boolean, firstCredited: boolean, authenticatedActor: 
 let agreement: Record<string, unknown>, purchase: Record<string, unknown>, session: Record<string, unknown>;
 const savedEnv = { ...process.env };
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
+jest.mock("../lib/supabaseClient", () => ({ createServerSupabase: async () => db }));
 jest.mock("next/headers", () => ({ cookies: async () => ({ getAll: () => [] }) }));
 jest.mock("../lib/stripeClient", () => ({ getStripe: jest.fn(() => { throw Error("Legacy Stripe must not be called"); }) }));
 jest.mock("../lib/installments/contextServer", () => ({ exactContextServerConfig: () => ({ approvedContext: context }) }));

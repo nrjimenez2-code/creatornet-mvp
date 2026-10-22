@@ -45,6 +45,9 @@ begin
   source:=replace(pg_get_functiondef('public.bind_fixed_service_one_time_v1(uuid,uuid,uuid,text,text,bigint,bigint,text)'::regprocedure),E'\r\n',E'\n');
   needle:=$old$    not exists(select 1 from public.product_checkout_records_v1 attempt where attempt.attempt_key=p_attempt_key and
       attempt.purchase_consent_id=c.id and attempt.stripe_checkout_session_id=p.session_id and attempt.order_id=p.order_id)$old$;
+  -- Match the same normalized bytes on Windows and Unix. Keep the exact-once
+  -- source guard: normalization must not admit a changed provenance predicate.
+  needle:=replace(needle,E'\r\n',E'\n');
   if (length(source)-length(replace(source,needle,'')))/length(needle)<>1 then raise exception 'Original service capture binding differs'; end if;
   execute replace(source,needle,$new$    not (exists(select 1 from public.product_checkout_records_v1 attempt where attempt.attempt_key=p_attempt_key and
       attempt.purchase_consent_id=c.id and attempt.stripe_checkout_session_id=p.session_id and attempt.order_id=p.order_id) or

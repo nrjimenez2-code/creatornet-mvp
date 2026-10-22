@@ -26,6 +26,18 @@ All gates default to false. The database also starts with access, new-sale and s
 
 ## Current local implementation
 
+October 22 regression continuation: the three failed suites saved at `38b521b`
+are resolved locally. Windows CRLF bytes in two candidate SQL migrations did
+not match their LF source predicates; both comparisons now normalize line
+endings while retaining the original provenance checks. The legacy checkout
+test now supplies its Supabase server factory without constructing an imported
+singleton before the mock database is initialized. Focused evidence: checkout
+17/17, service binding 22/22 (including both line endings and changed-source
+rejection), and payment database 323/323 (including both accounting line
+endings). The first repair run still failed 44 later accounting assertions;
+the follow-up repaired that cause. This is affected-suite evidence, not a new
+complete-suite or hosted acceptance result. Original receipts remain preserved.
+
 - Creator-scoped memberships and recoverable invitation request identities; current verified invitation email is checked through a narrow service-only private helper, without granting the service role broad Auth-table access.
 - Owner-only manager appointment/removal, manager management of closers, explicit manager-as-closer configuration, versioned commission terms, separate acceptance and payout-readiness requirements.
 - Private destination bindings over existing `booking_targets`; transactionally serialized weighted assignments with repeat-request reuse, unavailable-member exclusion, manual reassignment and frozen accepted-sale attribution. Unbound shared calendars grant no access.
