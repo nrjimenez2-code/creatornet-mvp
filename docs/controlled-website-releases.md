@@ -10,6 +10,16 @@ The Discord invite supplied for activation is `https://discord.gg/bKC8q4z6B`. It
 
 ## Enforcement
 
+### Temporary blank public page
+
+Release Controls includes a separate Public holding page form. While Hide website is on, choose Blank page or Coming Soon and click Save public page. This owner-only action saves only the presentation choice, using the same optimistic revision lock and transactional audit protections. It does not change feature flags, the master hide value, tester grants, Discord, or product rows. The original Coming Soon markup is preserved.
+
+Blank page serves an empty white HTML document, empty title, no product metadata or social previews, no links/scripts, and an inline empty favicon. Anonymous direct legal/support routes receive the same neutral response. Verified signed-in accounts retain policies/support, and existing purchase/operation exceptions remain unchanged. Private sign-in remains available by direct bookmark. Previously shared media/storage URLs remain unchanged.
+
+The separate additive website_public_holding_page migration defaults to Coming Soon, so applying it alone does not change the live presentation. Activate Blank page through the owner form after the reviewed code is released. Restore Coming Soon through the same form whenever desired. With Hide website off, feature releases and public legal routes retain their prior behavior.
+
+Blank mode serves an empty sitemap and allows crawlers to observe the noindex responses for old URLs. This is not a guarantee of removal from search history, third-party archives, or previously shared media. Configuration failure also returns a neutral document, without exposing the product.
+
 `proxy.ts` applies the shared server policy to direct URLs, API methods, RSC requests and unknown routes. Auth identity comes from the existing verified Supabase helper, including supported bearer tokens. Cookie presence and user metadata do not authorize private access. Server actions are closed; the current product has no server actions. New actions require an explicit reviewed policy before introduction.
 
 Unknown routes stay private even when individual public features open. Feature flags require a complete known-key boolean map and valid dependencies. The master hide setting overrides every public feature without changing the map. Existing financial/readiness/entitlement checks remain mandatory.

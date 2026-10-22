@@ -3,13 +3,13 @@ import type { NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { adminClient, AdminAuthError } from "@/lib/admin/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
-import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, type ReleaseSettings } from "./policy";
+import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, validPublicPage, type ReleaseSettings } from "./policy";
 
 export async function loadReleaseSettings(): Promise<ReleaseSettings | null> {
   try {
     const { data, error } = await adminClient().from("website_release_settings_v1").select("*").eq("id", SETTINGS_ID).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
     if (error || !data || typeof data.hidden !== "boolean" || !validFlags(data.features) || !dependenciesMet(data.features) || !Number.isSafeInteger(data.revision)) return null;
-    if (data.discord_invite !== null && !validDiscordInvite(data.discord_invite)) return null;
+    if ((data.discord_invite !== null && !validDiscordInvite(data.discord_invite)) || !validPublicPage(data.public_page)) return null;
     return data as ReleaseSettings;
   } catch { return null; }
 }

@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import type { CookieOptions } from "@supabase/ssr";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
-import { featureOpen, routePolicy } from "@/lib/release/policy";
+import { blankPublicPage, featureOpen, isLegalPage, routePolicy } from "@/lib/release/policy";
 import { hasPrivateAccess, hasOwnedContinuation, loadReleaseSettings, verifiedIdentity } from "@/lib/release/server";
-import { launchHtml } from "@/lib/release/launch";
+import { publicHoldingHtml } from "@/lib/release/launch";
 
 const privateHeaders = { "Cache-Control": "private, no-store, max-age=0", "CDN-Cache-Control": "no-store", "Vercel-CDN-Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", Vary: "Cookie, Authorization" };
 export async function proxy(req: NextRequest) {
@@ -24,11 +24,15 @@ export async function proxy(req: NextRequest) {
     return finish(NextResponse.next({ request: { headers } }));
   };
   // Exact operation exceptions retain their handler's signature/cron/token checks.
-  if (policy.kind === "operation" || policy.kind === "public") return next();
+  const legalPage = policy.kind === "public" && isLegalPage(path);
+  if (policy.kind === "operation" || (policy.kind === "public" && !legalPage)) return next();
   if (["/sitemap.xml", "/robots.txt"].includes(path)) return next();
   const settings = await loadReleaseSettings();
   let user = null;
   try { user = await getAuthenticatedUser(req, { onCookie: (name, value, options) => { req.cookies.set(name, value); responseCookies.push({ name, value, options }); } }); } catch { /* deny */ }
+  // Preserve policies/support for signed-in accounts and existing buyers, while
+  // anonymous direct links reveal no legal/product copy in the temporary mode.
+  if (legalPage && (!blankPublicPage(settings) || verifiedIdentity(user))) return next();
   if (policy.kind === "purchase" && verifiedIdentity(user)) return next();
   if (policy.kind === "continuation" && await hasOwnedContinuation(req, user)) return next();
   const privateAccess = await hasPrivateAccess(user, settings);
@@ -42,6 +46,6 @@ export async function proxy(req: NextRequest) {
     return finish(NextResponse.json({ error: "Private access required." }, { status: user ? 403 : 401 }));
   }
   // Restricted page code and its product-data requests never execute.
-  return finish(new NextResponse(req.method === "HEAD" ? null : launchHtml(settings?.discord_invite ?? null), { headers: { "Content-Type": "text/html; charset=utf-8" } }));
+  return finish(new NextResponse(req.method === "HEAD" ? null : publicHoldingHtml(settings), { headers: { "Content-Type": "text/html; charset=utf-8" } }));
 }
 export const config = { matcher: ["/:path*"] };

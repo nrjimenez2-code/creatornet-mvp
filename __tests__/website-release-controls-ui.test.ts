@@ -6,7 +6,7 @@ import { closedFeatures, SETTINGS_ID, type ReleaseSettings } from "@/lib/release
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root, container: HTMLDivElement, settings: ReleaseSettings, fetchMock: jest.Mock;
 beforeEach(() => {
-  settings = { id: SETTINGS_ID, owner_id: "owner", hidden: false, features: closedFeatures(), discord_invite: "https://discord.gg/bKC8q4z6B", revision: 7, updated_at: "now" };
+  settings = { id: SETTINGS_ID, owner_id: "owner", hidden: false, features: closedFeatures(), public_page: "coming-soon", discord_invite: "https://discord.gg/bKC8q4z6B", revision: 7, updated_at: "now" };
   fetchMock = jest.fn(); global.fetch = fetchMock;
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
 });
@@ -39,4 +39,17 @@ test("tester revocation sends only its exact existing account ID, decision and r
   await render([{ user_id: id, approved_at: "now" }]); await act(async () => button("Revoke access").click());
   expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/releases/testers"); expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ userId: id, approved: false, revision: 7 });
   expect(container.textContent).toContain("No testers are approved.");
+});
+
+test.each(["blank", "coming-soon"] as const)("owner can save %s independently of feature settings", async publicPage => {
+  settings.hidden = true; settings.public_page = publicPage === "blank" ? "coming-soon" : "blank";
+  fetchMock.mockResolvedValueOnce(response({ ok: true })).mockResolvedValueOnce(response({ settings: { ...settings, public_page: publicPage, revision: 8 }, testers: [], audit: [] }));
+  await render();
+  expect(fetchMock).not.toHaveBeenCalled();
+  await act(async () => container.querySelector<HTMLInputElement>(`input[type=radio][value="${publicPage}"]`)!.click());
+  await act(async () => button("Save public page").click());
+  expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/releases/public-page");
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ publicPage, revision: 7 });
+  expect(container.textContent).toContain(`Saved public page: ${publicPage === "blank" ? "Blank page" : "Coming Soon"}`);
+  expect(toggle("Hide website").checked).toBe(true);
 });

@@ -17,12 +17,17 @@ export const FEATURES = {
 } as const;
 export type Feature = keyof typeof FEATURES;
 export type FeatureFlags = Record<Feature, boolean>;
+export type PublicPage = "blank" | "coming-soon";
+export const validPublicPage = (value: unknown): value is PublicPage => value === "blank" || value === "coming-soon";
 export const closedFeatures = (): FeatureFlags => Object.fromEntries(Object.keys(FEATURES).map(key => [key, false])) as FeatureFlags;
 export const SETTINGS_ID = "00000000-0000-4000-8000-000000000001";
 export type ReleaseSettings = {
   id: string; owner_id: string | null; hidden: boolean; features: FeatureFlags;
-  discord_invite: string | null; revision: number; updated_at: string;
+  discord_invite: string | null; public_page: PublicPage; revision: number; updated_at: string;
 };
+/** Missing configuration stays neutral; feature releases retain their existing behavior. */
+export const blankPublicPage = (settings: ReleaseSettings | null): boolean => !settings || (settings.hidden && settings.public_page === "blank");
+export const isLegalPage = (path: string): boolean => /^\/legal\/(terms|privacy|cookies|refunds|delivery|creators|support|purchase-agreement)$/.test(path);
 
 export function validDiscordInvite(value: unknown): value is string {
   return typeof value === "string" && /^https:\/\/(discord\.gg\/[A-Za-z0-9-]+|discord\.com\/invite\/[A-Za-z0-9-]+)$/.test(value);
@@ -81,7 +86,7 @@ export function routePolicy(path: string, method = "GET"): RoutePolicy {
   if (operationMethods[path] === method) return { kind: "operation" };
   if (path === "/admin/releases" || path === "/api/admin/releases" || path === "/api/admin/releases/testers") return { kind: "owner" };
   if (["/auth", "/auth/callback", "/api/auth/callback", "/api/auth/email-code", "/private-access", "/api/release/session"].includes(path)) return { kind: "public" };
-  if (/^\/legal\/(terms|privacy|cookies|refunds|delivery|creators|support|purchase-agreement)$/.test(path) && ["GET", "HEAD"].includes(method)) return { kind: "public" };
+  if (isLegalPage(path) && ["GET", "HEAD"].includes(method)) return { kind: "public" };
   if (purchaseRules.some(([pattern, methods]) => pattern.test(path) && methods.includes(method))) return { kind: "purchase" };
   if (/^\/(scheduling\/book|api\/scheduling\/google\/book)\/[^/]+$/.test(path) && ["GET", "HEAD", "POST"].includes(method)) return { kind: "continuation", feature: "scheduling" };
   if (/^\/api\/checkout-link\/[^/]+$/.test(path) && method === "GET") return { kind: "continuation", feature: "checkout" };

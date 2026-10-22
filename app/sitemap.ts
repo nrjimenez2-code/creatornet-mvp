@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getSiteUrl } from "@/lib/siteUrl";
 import { loadReleaseSettings } from "@/lib/release/server";
-import { featureOpen, routePolicy } from "@/lib/release/policy";
+import { blankPublicPage, featureOpen, routePolicy } from "@/lib/release/policy";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -13,6 +13,7 @@ const MAX_POST_ROWS = 5000;
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const site = getSiteUrl();
   const settings = await loadReleaseSettings();
+  if (blankPublicPage(settings)) return [];
 
   const staticEntries: MetadataRoute.Sitemap = [
     { url: `${site}/`, changeFrequency: "daily", priority: 1 },

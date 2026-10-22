@@ -10,7 +10,7 @@ const from = jest.fn((table: string) => {
 jest.mock("@/lib/admin/server", () => ({ adminClient: () => ({ from, rpc }), AdminAuthError: class extends Error { constructor(public status: number, message: string) { super(message); } } }));
 jest.mock("@/lib/supabaseConnectAuth", () => ({ getAuthenticatedUser: (...args: unknown[]) => identity(...args) }));
 import { hasOwnedContinuation, hasPrivateAccess, loadReleaseSettings, requireReleaseOwner, updateReleaseSettings, verifyDiscordInvite } from "@/lib/release/server";
-const state = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden: true, features: closedFeatures(), discord_invite: "https://discord.gg/bKC8q4z6B", revision: 0, updated_at: "now" });
+const state = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden: true, features: closedFeatures(), public_page: "coming-soon", discord_invite: "https://discord.gg/bKC8q4z6B", revision: 0, updated_at: "now" });
 const user = (id = "owner") => ({ id, email_confirmed_at: "yes", user_metadata: { role: "admin" } }) as unknown as User;
 beforeEach(() => {
   jest.clearAllMocks(); identity.mockResolvedValue(user()); rpc.mockResolvedValue({ error: null });
@@ -19,6 +19,8 @@ beforeEach(() => {
 test("malformed or unavailable settings fail closed", async () => {
   replies.website_release_settings_v1.error = {}; expect(await loadReleaseSettings()).toBeNull();
   replies.website_release_settings_v1 = { data: { ...state(), features: { feed: true } }, error: null }; expect(await loadReleaseSettings()).toBeNull();
+  replies.website_release_settings_v1 = { data: { ...state(), public_page: "unexpected" }, error: null }; expect(await loadReleaseSettings()).toBeNull();
+  replies.website_release_settings_v1 = { data: { ...state(), public_page: "blank" }, error: null }; expect(await loadReleaseSettings()).toMatchObject({ public_page: "blank" });
 });
 test("only a verified owner or current tester grants private access; metadata grants nothing", async () => {
   expect(await hasPrivateAccess(user(), state())).toBe(true);

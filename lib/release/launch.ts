@@ -1,4 +1,7 @@
-import { validDiscordInvite } from "./policy";
+import { blankPublicPage, validDiscordInvite, type ReleaseSettings } from "./policy";
+/** Standalone empty document: no branding, product metadata, links, scripts or requests. */
+export const blankHtml = () => '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title></title><meta name="robots" content="noindex, nofollow"><link rel="icon" href="data:,"><style>html,body{margin:0;min-height:100%;background:#fff}</style></head><body></body></html>';
+export const publicHoldingHtml = (settings: ReleaseSettings | null) => blankPublicPage(settings) ? blankHtml() : launchHtml(settings?.discord_invite ?? null);
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, character => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!);
 /** No product providers, navigation or data fetches are mounted. */
 export function launchHtml(invite: string | null): string {
