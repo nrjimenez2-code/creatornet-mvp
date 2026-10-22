@@ -2,7 +2,7 @@ import { closedFeatures, dependenciesMet, featureOpen, routePolicy, validDiscord
 import { launchHtml } from "@/lib/release/launch";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-const settings = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden: true, features: closedFeatures(), discord_invite: "https://discord.gg/bKC8q4z6B", revision: 0, updated_at: "now" });
+const settings = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden: true, features: closedFeatures(), public_page: "coming-soon", discord_invite: "https://discord.gg/bKC8q4z6B", revision: 0, updated_at: "now" });
 test("initial state closes every public capability; hide retains feature choices", () => {
   const state = settings(); expect(Object.values(state.features).every(value => value === false)).toBe(true);
   state.features.feed = true; expect(featureOpen(state, "feed")).toBe(false);

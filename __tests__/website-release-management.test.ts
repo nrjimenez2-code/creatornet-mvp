@@ -23,7 +23,18 @@ test("dependencies are checked before writing, and actor identity always comes f
 });
 test("tester requests use the same owner gate and atomic versioned RPC", async () => {
   const userId = "11111111-1111-4111-8111-111111111111";
-  expect((await releaseManagement(req({ revision: 7, userId, approved: true }), true)).status).toBe(200);
+  expect((await releaseManagement(req({ revision: 7, userId, approved: true }), "testers")).status).toBe(200);
   expect(rpc).toHaveBeenCalledWith("set_website_tester_v1", { p_actor: "owner", p_revision: 7, p_user: userId, p_approved: true });
-  rpc.mockResolvedValue({ error: {} }); expect((await releaseManagement(req({ revision: 7, userId, approved: false }), true)).status).toBe(409);
+  rpc.mockResolvedValue({ error: {} }); expect((await releaseManagement(req({ revision: 7, userId, approved: false }), "testers")).status).toBe(409);
+});
+
+test("public page uses the owner revision and never writes feature settings or tester grants", async () => {
+  expect((await releaseManagement(req({ revision: 7, publicPage: "blank", actorId: "forged", hidden: false }), "public-page")).status).toBe(200);
+  expect(rpc).toHaveBeenCalledWith("set_website_public_page_v1", { p_actor: "owner", p_revision: 7, p_public_page: "blank" });
+  expect(update).not.toHaveBeenCalled();
+  rpc.mockClear();
+  expect((await releaseManagement(req({ revision: 6, publicPage: "coming-soon" }), "public-page")).status).toBe(409);
+  expect((await releaseManagement(req({ revision: 7, publicPage: "blank" }, "https://evil.test"), "public-page")).status).toBe(403);
+  expect((await releaseManagement(req({ revision: 7, publicPage: "unknown" }), "public-page")).status).toBe(400);
+  expect(rpc).not.toHaveBeenCalled();
 });
