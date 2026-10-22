@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createServerClient } from "@/lib/supabaseServer";
+import type { ServerClientOptions } from "@/lib/supabaseServer";
 import type { User } from "@supabase/supabase-js";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -16,9 +17,9 @@ function admin() {
  * Resolve the logged-in user from Bearer token (optional) or Supabase SSR cookies.
  * Manual JWT cookie parsing fails when Supabase uses chunked cookies — use createServerClient.
  */
-export async function getAuthenticatedUser(req?: NextRequest): Promise<User | null> {
+export async function getAuthenticatedUser(req?: NextRequest, options: ServerClientOptions = {}): Promise<User | null> {
   if (req) {
-    const bearer = req.headers.get("authorization")?.match(/Bearer\s+(.+)/i)?.[1];
+    const bearer = req.headers.get("authorization")?.match(/^Bearer\s+([^\s]+)$/i)?.[1];
     if (bearer) {
       const {
         data: { user },
@@ -28,7 +29,7 @@ export async function getAuthenticatedUser(req?: NextRequest): Promise<User | nu
     }
   }
 
-  const supabase = createServerClient();
+  const supabase = createServerClient({ ...options, request: req });
   const {
     data: { user },
     error,

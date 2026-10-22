@@ -7,9 +7,9 @@ export const metadata = {
   robots: { index: false, follow: false },
 };
 
-// Static is fine here
-export const dynamic = "force-static";
-export const revalidate = false;
+// The purchase-only shell depends on the verified request boundary.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default function CancelPage() {
   return (
@@ -23,9 +23,9 @@ export default function CancelPage() {
           <Link href="/" className="px-4 py-2 rounded-md border hover:bg-gray-50 text-sm">
             Back home
           </Link>
-          <a href="/library" className="px-4 py-2 rounded-md bg-black text-white text-sm hover:opacity-90">
+          <Link href="/library" prefetch={false} className="px-4 py-2 rounded-md bg-black text-white text-sm hover:opacity-90">
             View Library
-          </a>
+          </Link>
         </div>
         <p className="mt-6 text-xs text-gray-500">
           Questions?{" "}

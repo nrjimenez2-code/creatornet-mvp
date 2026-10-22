@@ -2,6 +2,8 @@ import { handleEmailCode } from "@/lib/emailCode";
 import { emailCodeMessage } from "@/lib/emailCodeMessage";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { isIP } from "node:net";
+import { loadReleaseSettings } from "@/lib/release/server";
+import { featureOpen } from "@/lib/release/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +18,11 @@ export async function POST(req: Request) {
   return handleEmailCode(req, {
     secret: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
     clientIp: ip,
+    async existingAccount(email) {
+      const { data, error } = await supabaseAdmin.rpc("website_existing_email_v1", { p_email: email });
+      if (error) throw new Error("Sign-in unavailable");
+      return typeof data === "string" || featureOpen(await loadReleaseSettings(), "registration");
+    },
     async rpc(name, args) {
       const { data, error } = await supabaseAdmin.rpc(name, args);
       if (error) throw new Error("Email code admission unavailable");
@@ -33,6 +40,9 @@ export async function POST(req: Request) {
       if (!sent.ok) throw new Error("Email delivery unavailable");
     },
     async createSession(email, agent) {
+      const existing = await supabaseAdmin.rpc("website_existing_email_v1", { p_email: email });
+      const registrationOpen = featureOpen(await loadReleaseSettings(), "registration");
+      if (existing.error || (typeof existing.data !== "string" && !registrationOpen)) throw new Error("Existing account required");
       const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
       // Supabase accepts forwarded client IPs only with modern secret keys.
       // Vercel overwrites this header; never trust a caller-selected generic XFF.
@@ -42,7 +52,7 @@ export async function POST(req: Request) {
       // Admin generation sends no email. Its provider credential never leaves
       // the server; only our separately verified six-digit code admits this call.
       const { data, error } = await supabaseAdmin.auth.admin.generateLink({ type: "magiclink", email });
-      if (error || !data.properties?.hashed_token) throw new Error("Session generation unavailable");
+      if (error || !data.properties?.hashed_token || (typeof existing.data === "string" && data.user.id !== existing.data)) throw new Error("Session generation unavailable");
       return fetch(`${url}/auth/v1/verify`, {
         method: "POST", cache: "no-store", signal: AbortSignal.timeout(15_000),
         headers: { apikey: key, "Sb-Forwarded-For": ip, "Content-Type": "application/json", ...(agent ? { "User-Agent": agent } : {}) },

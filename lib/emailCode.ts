@@ -9,6 +9,7 @@ export type EmailCodeDependencies = {
   clientIp: string;
   sendCode: (email: string, code: string) => Promise<void>;
   createSession: (email: string, agent: string) => Promise<Response>;
+  existingAccount?: (email: string) => Promise<boolean>;
 };
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 function reply(status: number, body: Record<string, unknown>, retry = 0) {
@@ -64,6 +65,8 @@ export async function handleEmailCode(req: Request, deps: EmailCodeDependencies)
       return reply(429, { error: admission.reason === "locked" ? "Too many code attempts. Please wait 15 minutes before trying again." : "Please wait before trying again.", retryAfter: retry, locked: admission.reason === "locked" }, retry);
     }
     if (!verify) {
+      // Preserve a uniform response without admitting website registration.
+      if (deps.existingAccount && !(await deps.existingAccount(email))) return reply(200, { sent: true, retryAfter: 60 });
       await deps.sendCode(email, code);
       return reply(200, { sent: true, retryAfter: 60 });
     }
