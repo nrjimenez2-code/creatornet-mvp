@@ -13,6 +13,7 @@ export async function POST(req:NextRequest,context:{params:Promise<{saleId:strin
  try{
   if(req.headers.get("origin")!==new URL(req.url).origin)throw new TeamSalesError("SAME_ORIGIN_REQUIRED","Accept terms from the CreatorNet review page.",403);
   const {saleId}=await context.params;const {admin,user,sale}=await readBuyerTeamSale(req,saleId);const body=await req.json();
+  if(sale.status==="closed_unpaid")throw new TeamSalesError("SALE_CLOSED_UNPAID","This payment was safely closed unpaid. Request a new review for another option.");
   if(body.accepted!==true||body.fingerprint!==sale.fingerprint||body.version!==sale.terms.version||Object.keys(body).some(key=>!["accepted","fingerprint","version"].includes(key)))
    throw new TeamSalesError("REVIEW_CURRENT_SALE_TERMS","Review and accept the current terms.");
   if(sale.status!=="accepted")requireTeamCheckout();

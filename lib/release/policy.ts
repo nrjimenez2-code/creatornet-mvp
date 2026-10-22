@@ -88,7 +88,7 @@ export function routePolicy(path: string, method = "GET"): RoutePolicy {
   if(path==="/dashboard/closers/payouts"&&["GET","HEAD"].includes(method)||path==="/api/sales-team/recipient"&&["GET","POST"].includes(method))
     return {kind:"continuation",feature:"creatorTools"};
   if (/^\/purchase\/team\/[a-f0-9-]{36}$/i.test(path) && ["GET","HEAD"].includes(method) ||
-      /^\/api\/sales-team\/sales\/[a-f0-9-]{36}$/i.test(path) && ["GET","POST"].includes(method))
+      /^\/api\/sales-team\/sales\/[a-f0-9-]{36}(?:\/payment)?$/i.test(path) && ["GET","POST"].includes(method))
     return {kind:"continuation",feature:"checkout"};
   if(path==="/api/book"&&method==="GET")return {kind:"continuation",feature:"scheduling"};
   if (/^\/(scheduling\/book|api\/scheduling\/google\/book)\/[^/]+$/.test(path) && ["GET", "HEAD", "POST"].includes(method)) return { kind: "continuation", feature: "scheduling" };

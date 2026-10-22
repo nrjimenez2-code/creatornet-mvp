@@ -43,12 +43,13 @@ export async function hasOwnedContinuation(req: NextRequest, user: User | null):
       const original=await db.rpc("sales_team_recipient_continuation_v1",{p_actor_id:user.id});
       return !original.error&&original.data===true;
     }
-    const teamSale=/^\/(?:purchase\/team|api\/sales-team\/sales)\/([a-f0-9-]{36})$/i.exec(req.nextUrl.pathname);
+    const teamSale=/^\/purchase\/team\/([a-f0-9-]{36})$|^\/api\/sales-team\/sales\/([a-f0-9-]{36})(?:\/payment)?$/i.exec(req.nextUrl.pathname);
+    if((req.nextUrl.pathname.startsWith("/purchase/team/")||req.nextUrl.pathname.startsWith("/api/sales-team/sales/"))&&!teamSale)return false;
     if(teamSale){
       if(!teamSaleSchemaReady())return false;
       // A draft or a team invitation is not an admitted payment continuation.
       // Query only the exact path's immutable, buyer-accepted agreement.
-      const agreement=await db.from("sales_team_sale_agreements_v1").select("id").eq("id",teamSale[1]).eq("buyer_id",user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
+      const agreement=await db.from("sales_team_sale_agreements_v1").select("id").eq("id",teamSale[1]??teamSale[2]).eq("buyer_id",user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
       return !agreement.error&&Boolean(agreement.data);
     }
     if (req.nextUrl.pathname.startsWith("/api/checkout-link/")) {

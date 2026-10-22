@@ -48,11 +48,12 @@ test("team continuation requires the exact buyer-accepted agreement, never anoth
   try{
     process.env.CREATOR_SALES_TEAM_SCHEMA_READY="true";process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY="true";
     const id="11111111-1111-4111-8111-111111111111";
-    const req=new NextRequest(`https://site.test/api/sales-team/sales/${id}?purchase_id=${id}`);
+    const req=new NextRequest(`https://site.test/api/sales-team/sales/${id}/payment?purchase_id=${id}`);
     replies.sales_team_sale_agreements_v1={data:null,error:null};replies.purchases={data:{id},error:null};
     expect(await hasOwnedContinuation(req,user("buyer"))).toBe(false);
     expect(from).toHaveBeenLastCalledWith("sales_team_sale_agreements_v1");
     replies.sales_team_sale_agreements_v1.data={id};expect(await hasOwnedContinuation(req,user("buyer"))).toBe(true);
+    expect(await hasOwnedContinuation(new NextRequest(`https://site.test/purchase/team/${id}/payment?purchase_id=${id}`),user("buyer"))).toBe(false);
     delete process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY;expect(await hasOwnedContinuation(req,user("buyer"))).toBe(false);
   }finally{process.env=env;}
 });

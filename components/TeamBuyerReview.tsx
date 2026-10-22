@@ -4,6 +4,7 @@ import {useEffect,useRef,useState} from "react";
 import {useUser} from "@/lib/useUser";
 import {useTeamApi} from "@/lib/salesTeams/client";
 import type {publicTeamSaleTerms} from "@/lib/salesTeams/agreement";
+import TeamBuyerPayment from "./TeamBuyerPayment";
 
 type Review={terms:ReturnType<typeof publicTeamSaleTerms>;fingerprint:string;status:string};
 export default function TeamBuyerReview({saleId}:{saleId:string}){
@@ -31,8 +32,8 @@ export default function TeamBuyerReview({saleId}:{saleId:string}){
    {review.terms.paymentKind==="installments"?<p>{review.terms.policy.installments}</p>:null}
    {review.terms.paymentKind==="monthly"?<p>{review.terms.policy.memberships}</p>:null}
    {review.terms.purchaseKind==="paid_call"?<p>{review.terms.policy.calls}</p>:null}
-   {review.status!=="accepted"?<><label><input type="checkbox" checked={accepted} disabled={busy} onChange={e=>setAccepted(e.target.checked)} /> I have reviewed and accept this offer, payment schedule, and purchase terms.</label>
-    <button disabled={!accepted||busy} onClick={()=>void confirm()}>{busy?"Recording acceptance…":"Accept purchase terms"}</button></>:<p role="status">Your purchase terms are accepted. Payment is not yet recorded.</p>}
+   {review.status==="closed_unpaid"?<p role="status">This payment was safely closed unpaid. Ask your closer for a new review to choose another approved option.</p>:review.status!=="accepted"?<><label><input type="checkbox" checked={accepted} disabled={busy} onChange={e=>setAccepted(e.target.checked)} /> I have reviewed and accept this offer, payment schedule, and purchase terms.</label>
+    <button disabled={!accepted||busy} onClick={()=>void confirm()}>{busy?"Recording acceptance…":"Accept purchase terms"}</button></>:<TeamBuyerPayment key={scope} saleId={saleId} userId={userId}/>}
   </>}
  </main>;
 }

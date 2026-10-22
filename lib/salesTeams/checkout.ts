@@ -35,6 +35,6 @@ export async function readBuyerTeamSale(req:NextRequest,saleId:string){
   const quote=quoteTeamSale(fresh,sale.id);
   if(!isDeepStrictEqual(fresh,sale.source_snapshot)||quote.fingerprint!==sale.fingerprint||!isDeepStrictEqual(quote.terms,sale.terms))
    throw new TeamSalesError("SALE_TERMS_CHANGED","The approved terms changed. Ask your closer for a refreshed review.");
- }else if(sale.status!=="accepted")throw new TeamSalesError("SALE_REVIEW_REPLACED","This option was replaced. Ask your closer for the current review.");
+ }else if(!["accepted","closed_unpaid"].includes(sale.status))throw new TeamSalesError("SALE_REVIEW_REPLACED","This option was replaced. Ask your closer for the current review.");
  return {admin,user,sale,publicTerms:publicTeamSaleTerms(sale.terms)};
 }

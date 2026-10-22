@@ -190,3 +190,4 @@ supabase/migrations/*
 !supabase/migrations/20261021230016_sales_team_financial_statements.sql
 !supabase/migrations/20261021010052_controlled_website_releases.sql
 !supabase/migrations/20261022223942_sales_team_recipient_onboarding.sql
+!supabase/migrations/20261022230849_sales_team_payment_collection.sql
