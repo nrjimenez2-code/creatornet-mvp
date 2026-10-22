@@ -48,6 +48,9 @@ test("existing setup callbacks can finish without opening new setup or unknown p
 test("historical team statements keep authenticated read access without opening team writes",()=>{
  expect(routePolicy("/dashboard/closers/earnings","GET").kind).toBe("purchase");
  expect(routePolicy("/api/sales-team/statements","GET").kind).toBe("purchase");
+ expect(routePolicy("/api/sales-team/recipient","GET")).toEqual({kind:"continuation",feature:"creatorTools"});
+ expect(routePolicy("/api/sales-team/recipient","POST")).toEqual({kind:"continuation",feature:"creatorTools"});
+ expect(routePolicy("/dashboard/closers/payouts")).toEqual({kind:"continuation",feature:"creatorTools"});
  expect(routePolicy("/api/sales-team/statements","POST").kind).toBe("product");
  expect(routePolicy("/api/sales-team","POST").kind).toBe("product");
 });

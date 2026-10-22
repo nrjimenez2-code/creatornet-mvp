@@ -15,6 +15,11 @@ export function teamError(error:unknown) {
     SALE_ATTRIBUTION_FROZEN:"This sale was accepted. Its closer attribution is fixed.",HISTORICAL_PAYMENT_NOT_ASSIGNABLE:"Existing payments cannot receive new commission attribution.",
     REVIEW_CURRENT_COMMISSION_TERMS:"Review and accept the current commission terms.",INVITATION_UNAVAILABLE:"This invitation is unavailable or belongs to another verified email.",
     INVITER_NO_LONGER_AUTHORIZED:"The invitation's sender no longer has permission. Request a new invitation.",
+    ORIGINAL_CONNECT_RECOVERY_REQUIRED:"Your original payout account setup needs reconciliation. No replacement account was requested.",
+    TEAM_RECIPIENT_IDENTITY_CONFLICT:"Your saved payout account identities differ and need review. No replacement account was requested.",
+    TEAM_RECIPIENT_SETUP_HELD:"Payout setup is currently held. Existing account verification remains available.",
+    ORIGINAL_ONBOARDING_LINK_NEEDS_REVIEW:"The original setup-link request needs reconciliation before another link can be requested.",
+    ONBOARDING_LINK_RATE_LIMITED:"Wait a minute before requesting another setup link.",
     DESTINATION_MEMBER_MISMATCH:"Choose a destination and closer from this creator's team.",MEMBER_ALREADY_EXISTS:"This person is already a member of the team."};
   const match=Object.keys(known).find(key=>code.includes(key));
   if(match)return teamJson({error:known[match],code:match},match==="OWNER_REQUIRED"||match==="TEAM_MANAGER_REQUIRED"?403:409);

@@ -4,7 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import { adminClient, AdminAuthError } from "@/lib/admin/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, type ReleaseSettings } from "./policy";
-import { teamSaleSchemaReady } from "@/lib/salesTeams/policy";
+import { teamSaleSchemaReady,teamRecipientSchemaReady } from "@/lib/salesTeams/policy";
 
 export async function loadReleaseSettings(): Promise<ReleaseSettings | null> {
   try {
@@ -38,6 +38,11 @@ export async function hasOwnedContinuation(req: NextRequest, user: User | null):
   if (!verifiedIdentity(user)) return false;
   try {
     const db = adminClient();
+    if(["/dashboard/closers/payouts","/api/sales-team/recipient"].includes(req.nextUrl.pathname)){
+      if(!teamRecipientSchemaReady())return false;
+      const original=await db.rpc("sales_team_recipient_continuation_v1",{p_actor_id:user.id});
+      return !original.error&&original.data===true;
+    }
     const teamSale=/^\/(?:purchase\/team|api\/sales-team\/sales)\/([a-f0-9-]{36})$/i.exec(req.nextUrl.pathname);
     if(teamSale){
       if(!teamSaleSchemaReady())return false;

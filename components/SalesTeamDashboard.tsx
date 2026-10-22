@@ -69,6 +69,7 @@ export default function SalesTeamDashboard(){
  return <main className={styles.page}><div className={styles.content}>
   <Link href="/dashboard/closers">← Bookings</Link><header className={styles.header}><h1>Sales team</h1><p>Assigned calls, approved offers, and commission agreements.</p></header>
   <Link href={`/dashboard/closers/earnings?creator_id=${encodeURIComponent(selected)}`}>Commission statements</Link>
+  <Link href="/dashboard/closers/payouts">Your payout setup</Link>
   <label htmlFor="team-context">Creator team</label><select id="team-context" value={selected} disabled={busy} onChange={e=>{router.push(`/dashboard/closers/team?creator_id=${encodeURIComponent(e.target.value)}`);}}>
    <option value={userId}>Your team</option>{choices.filter(c=>c.creator_id!==userId&&c.status==="active").map(c=><option key={c.creator_id} value={c.creator_id}>{c.creator_id} · {c.role}</option>)}
   </select>

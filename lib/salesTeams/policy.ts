@@ -10,6 +10,9 @@ export const teamSaleSchemaReady = (env: TeamEnvironment = process.env) => teamS
 export const teamLedgerSchemaReady = (env: TeamEnvironment = process.env) => teamSaleSchemaReady(env) && env.CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY === "true";
 export const teamCheckoutReady = (env: TeamEnvironment = process.env) => teamSalesReady(env) && teamSaleSchemaReady(env) && env.CREATOR_TEAM_SALES_CHECKOUT_READY === "true";
 export const teamSettlementReady = (env: TeamEnvironment = process.env) => teamLedgerSchemaReady(env) && env.CREATOR_TEAM_SETTLEMENT_READY === "true";
+export const teamRecipientSchemaReady = (env: TeamEnvironment = process.env) => teamLedgerSchemaReady(env) && env.CREATOR_TEAM_RECIPIENT_SCHEMA_READY === "true";
+export const teamRecipientOnboardingReady = (env: TeamEnvironment = process.env) => teamRecipientSchemaReady(env) && env.CREATOR_TEAM_RECIPIENT_ONBOARDING_READY === "true";
+export type TeamRecipientStatus={status:"not_started"|"verification_required"|"setup_required"|"ready";transfersActive:boolean;payoutsReady:boolean;verifiedAt:string|null};
 
 export class TeamSalesError extends Error {
   constructor(public readonly code: string, message: string, public readonly status = 409) {

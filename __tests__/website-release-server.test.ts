@@ -56,6 +56,18 @@ test("team continuation requires the exact buyer-accepted agreement, never anoth
     delete process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY;expect(await hasOwnedContinuation(req,user("buyer"))).toBe(false);
   }finally{process.env=env;}
 });
+test("recipient continuations require their own saved setup or accepted financial obligation",async()=>{
+ const env={...process.env};
+ try{
+  for(const key of ["CREATOR_SALES_TEAM_SCHEMA_READY","CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY","CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY","CREATOR_TEAM_RECIPIENT_SCHEMA_READY"])process.env[key]="true";
+  const req=new NextRequest("https://site.test/api/sales-team/recipient?user_id=someone-else&purchase_id=11111111-1111-4111-8111-111111111111");
+  rpc.mockResolvedValue({data:false,error:null});expect(await hasOwnedContinuation(req,user("closer"))).toBe(false);
+  expect(rpc).toHaveBeenLastCalledWith("sales_team_recipient_continuation_v1",{p_actor_id:"closer"});
+  rpc.mockResolvedValue({data:true,error:null});expect(await hasOwnedContinuation(req,user("closer"))).toBe(true);
+  rpc.mockResolvedValue({data:true,error:Error("unavailable")});expect(await hasOwnedContinuation(req,user("closer"))).toBe(false);
+  delete process.env.CREATOR_TEAM_RECIPIENT_SCHEMA_READY;expect(await hasOwnedContinuation(req,user("closer"))).toBe(false);
+ }finally{process.env=env;}
+});
 test("Discord validation rejects expired, missing and foreign invite destinations", async () => {
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ code: "bKC8q4z6B", guild: { id: "guild" }, expires_at: "2000-01-01" }) });
   expect(await verifyDiscordInvite("https://discord.gg/bKC8q4z6B")).toBe(false);

@@ -32,7 +32,7 @@ export default function SalesTeamStatements(){
  if(authLoading||userId&&loadedScope!==scope)return <main className={styles.page} aria-busy="true">Loading commission statements…</main>;
  if(!userId)return <main className={styles.page}><h1>Commission statements</h1><p>Sign in to view your own team earnings.</p><Link href="/auth">Sign in</Link></main>;
  return <main className={styles.page}><div className={styles.content}><Link href="/dashboard/closers">← Bookings</Link><h1>Commission statements</h1>
-  <label>Creator relationship<select value={creator} disabled={loading} onChange={event=>router.push(`/dashboard/closers/earnings?creator_id=${encodeURIComponent(event.target.value)}`)}>
+  <Link href="/dashboard/closers/payouts">Your payout setup</Link><label>Creator relationship<select value={creator} disabled={loading} onChange={event=>router.push(`/dashboard/closers/earnings?creator_id=${encodeURIComponent(event.target.value)}`)}>
    <option value={userId}>Your creator account</option>{relationships.filter(r=>r.creator_id!==userId).map(r=><option key={r.creator_id} value={r.creator_id}>{r.creator_id} · {r.status}</option>)}
   </select></label>
   <p>Statements show recorded commission obligations. Transfer completion and bank receipt are separate; bank-payout evidence is not yet recorded here.</p>
