@@ -14,7 +14,9 @@ import {observeTeamFinancialState} from "@/lib/salesTeams/financialObservation";
 declare const createLocalPostgres:()=>PGlite;
 const candidate="supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql";
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,available:number,raw:jest.Mock,refunds:Record<string,unknown>[],balances:Record<string,unknown>;
-beforeAll(async()=>{db=await sharedCashDatabase(createLocalPostgres());await db.exec(readFileSync(sharedCashReconciliationCandidate,"utf8"));await db.exec(readFileSync(candidate,"utf8"));},30000);
+beforeAll(async()=>{db=await sharedCashDatabase(createLocalPostgres());await db.exec(readFileSync(sharedCashReconciliationCandidate,"utf8"));await db.exec(readFileSync(candidate,"utf8"));
+ for(const name of ["20261023060912_sales_team_automatic_recovery.sql","20261023063905_sales_team_worker_refund_recovery.sql","20261023174324_sales_team_no_outbound_shared_recovery.sql"])await db.exec(readFileSync(`supabase/migrations/${name}`,"utf8"));
+},30000);
 beforeEach(async()=>{
  await db.exec("begin;update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,refund_review_enabled=true,refund_dispatch_enabled=true,fulfillment_enabled=true,cash_reservations_enabled=true,retained_refund_funding_enabled=true");
  f=await seedTeamCapture(db);receiptId=String((await f.record()).id);await db.query("update profiles set role='admin' where id=$1",[id(29)]);

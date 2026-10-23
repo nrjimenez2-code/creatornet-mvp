@@ -2,7 +2,7 @@ import type {SupabaseClient} from "@supabase/supabase-js";
 import {runTeamAutomaticRecovery} from "@/lib/salesTeams/recovery";
 import {readTeamFinancialSnapshot,observeTeamPaymentEvent} from "@/lib/salesTeams/financialReadback";
 import {refreshTeamBoundCollection} from "@/lib/salesTeams/collection";
-import {teamAutomaticRecoveryReady,teamAutomaticRefundRecoveryReady} from "@/lib/salesTeams/policy";
+import {teamAutomaticRecoveryReady,teamAutomaticRefundRecoveryReady,teamSharedUnsentRecoveryReady} from "@/lib/salesTeams/policy";
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
 jest.mock("@/lib/salesTeams/financialReadback",()=>({readTeamFinancialSnapshot:jest.fn(),observeTeamPaymentEvent:jest.fn()}));
 jest.mock("@/lib/salesTeams/collection",()=>({refreshTeamBoundCollection:jest.fn()}));
@@ -46,6 +46,9 @@ test("new-money flags are independent of the explicit recovery schema and execut
  expect(teamAutomaticRefundRecoveryReady(env)).toBe(false);
  const refunds={...env,CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_SCHEMA_READY:"true",CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_READY:"true"};
  expect(teamAutomaticRefundRecoveryReady(refunds)).toBe(true);expect(teamAutomaticRefundRecoveryReady({...refunds,CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_SCHEMA_READY:"false"})).toBe(false);expect(teamAutomaticRefundRecoveryReady({...refunds,CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_READY:"false"})).toBe(false);
+ expect(teamSharedUnsentRecoveryReady(env)).toBe(false);
+ const unsent={...env,CREATOR_TEAM_SHARED_UNSENT_RECOVERY_SCHEMA_READY:"true",CREATOR_TEAM_SHARED_UNSENT_RECOVERY_READY:"true"};
+ expect(teamSharedUnsentRecoveryReady(unsent)).toBe(true);expect(teamSharedUnsentRecoveryReady({...unsent,CREATOR_TEAM_SHARED_UNSENT_RECOVERY_SCHEMA_READY:"false"})).toBe(false);expect(teamSharedUnsentRecoveryReady({...unsent,CREATOR_TEAM_SHARED_UNSENT_RECOVERY_READY:"false"})).toBe(false);
 });
 
 test("the refund option is omitted for the installed four argument F20 queue",async()=>{

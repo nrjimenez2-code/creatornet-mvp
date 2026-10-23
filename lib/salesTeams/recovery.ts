@@ -10,13 +10,14 @@ import {inspectSharedCashOriginal} from "./sharedCashChecks";
 import type {SharedCashOriginal} from "./sharedCashReadback";
 import {observeTeamRecipient,type TeamRecipientSetup} from "./recipientPolicy";
 import {recoverTeamWorkerRefund} from "./workerRefunds";
+import {inspectSharedUnsentRecovery} from "./sharedUnsentRecovery";
 
 type Task={id:string;kind:"financial"|"event"|"shared_cash"|"recipient"|"fulfillment"|"refund";source_id:string;source:Record<string,unknown>};
 type Claim={status:"held"|"busy"|"slot_consumed"|"claimed";runId?:string;leaseToken?:string};
 /** Three durable tasks, at most forty object GETs, no retries or provider writes.
  * Context observations have their existing independent timeouts. Leases and
  * immutable results preserve uncertain invocations if a process disappears. */
-export async function runTeamAutomaticRecovery(c:TeamReceiptComposition,options:{now?:()=>number;fulfill?:boolean;recoverRefunds?:boolean}={}){
+export async function runTeamAutomaticRecovery(c:TeamReceiptComposition,options:{now?:()=>number;fulfill?:boolean;recoverRefunds?:boolean;recoverSharedUnsent?:boolean}={}){
  const now=options.now??Date.now,started=now();
  const bounded=()=>{if(now()<started||now()-started>=45000)throw Error("Recovery observation budget exhausted");};
  const current=async()=>{bounded();if(!isDeepStrictEqual(await c.observeContext(),c.context))throw Error("Recovery context changed");bounded();};
@@ -53,7 +54,8 @@ export async function runTeamAutomaticRecovery(c:TeamReceiptComposition,options:
       if(options.fulfill)await rpc("fulfill_sales_team_receipt_v1",{p_sale_id:source.saleId,p_buyer_id:source.buyerId,p_receipt_id:result.receiptId});
      }else{await rpc("complete_sales_team_lifecycle_event_v1",{p_event_id:task.source_id,p_state_id:refreshed.saved.state?.id??null});taskHeld=false;}
     }else if(task.kind==="shared_cash"){
-     const result=await inspectSharedCashOriginal(reader,{workerRunId:runId,kind:task.source.kind as SharedCashOriginal["kind"],id:String(task.source.id),checkId:task.id});taskHeld=result.held;
+     const unsent=options.recoverSharedUnsent?await inspectSharedUnsentRecovery(reader,{runId,leaseToken,taskId:task.id}):null;
+     const result=unsent??await inspectSharedCashOriginal(reader,{workerRunId:runId,kind:task.source.kind as SharedCashOriginal["kind"],id:String(task.source.id),checkId:task.id});taskHeld=result.held;
     }else if(task.kind==="fulfillment"){
      if(!options.fulfill)throw Error("Shared fulfillment recovery held");
      await rpc("fulfill_sales_team_receipt_v1",{p_sale_id:task.source.saleId,p_buyer_id:task.source.buyerId,p_receipt_id:task.source.receiptId});taskHeld=false;

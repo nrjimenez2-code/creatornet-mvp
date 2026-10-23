@@ -567,3 +567,59 @@ CI/build/browser checks, actual commercial/provider prerequisites, separately
 authorized hosted sandbox acceptance and distinct Production/LIVE/bank evidence
 also remain required. No external financial, account, migration, deployment,
 environment, scheduler or activation operation occurred in this continuation.
+
+### Guarded sources with no outbound operation — October 23 continuation
+
+Local candidate `20261023174324_sales_team_no_outbound_shared_recovery.sql`
+records immutable birth provenance only for sources created while the installed
+outgoing cash guards are required and their coverage triggers are active. It
+does not backfill older sources. A terminal status, elapsed time, metadata or an
+empty provider search cannot create that provenance. An existing admission,
+claim, uncertain restoration attempt or known outgoing provider identity excludes
+the source from this no-outbound path; existing original-outflow recovery remains.
+
+The independently default-off source flags are
+`CREATOR_TEAM_SHARED_UNSENT_RECOVERY_SCHEMA_READY` and
+`CREATOR_TEAM_SHARED_UNSENT_RECOVERY_READY`. Database control
+`shared_no_outbound_recovery_enabled` and an explicitly reviewed
+`no_outbound_contract_sha256` are separately required. Neither gate enables new
+money, a scheduler or a provider POST. The bounded worker tries this path only
+when explicitly ready, otherwise preserving the existing F18 reader.
+
+A current exact run/token/task/context and matching guarded source digest bind
+each immutable check/result/resolution. Legacy sources must be failed and never
+claimed, without either outgoing leg/admission. Tip sources must have no admitted
+or uncertain restoration and a current lost/prevented/closed-warning condition,
+independently read from the original charge and dispute twice. A won dispute with
+an originally frozen zero reversal also requires two reads of its fully reversed
+original transfer with exact charge/destination linkage. A won dispute with a
+positive frozen reversal still requires the actual restoration original.
+
+The liability reader subtracts only that source's current proven commitment and
+its configured cost reserve. Changed source/context/contract, a later claim or
+admission, new provider identity or later dispute win restores protection. The
+source revision invalidates older cash reads, and a later winning restoration
+requires a fresh protected-cash admission. Other creators, taxes, team balances
+and unrelated commitments remain protected. Resolution invalidates the cash
+epoch once. Completed checks replay without GETs; resolved sources leave the
+queue. The existing known-outflow resolution and legacy accounting are retained.
+
+Evidence in the same October 23 continuation workspace:
+`shared-unsent-integrated-initial.json` passed111 across six suites: no-outbound25,
+worker refunds19, retained funding22, shared reconciliation29, endpoint9 and
+transport/gates7. F18/F19/F21 fixtures install the complete local chain through
+F22 for that integration. After adding the zero-restoration case,
+`shared-unsent-zero-restoration.json` passed the affected29; it supersedes the25
+and overlaps that integration. Current TypeScript and scoped lint passed, with
+their final receipts retained. Failed intermediate receipts remain: a missing
+SQL quote was repaired; the synthetic fixture lacked required cash-policy
+evidence; and a correct SQL rejection needed a fixture savepoint to avoid an
+aborted outer PGlite transaction. No runtime proof guard was removed.
+
+This closes the bounded local path for eligible sources with verified absence
+of outgoing admission. Historical or uncertain originals remain held, requiring
+their original proof. It does not establish full historical/installed-schema
+compatibility or real provider behavior. Same-creator post-transfer recovery,
+later collection/lifecycle, settlement, protected surplus and actual bank payout
+remain unfinished, followed by the existing commercial, CI/build/browser,
+separately authorized sandbox and Production/LIVE acceptance gates.
