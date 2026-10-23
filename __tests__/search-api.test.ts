@@ -72,3 +72,8 @@ test('full-name suggestions find the username without suggesting topic-only matc
   const res=await GET(new Request('https://example.invalid/api/search/suggest?q=Luis'));
   expect(await res.json()).toMatchObject({suggestions:[{label:'storebuilder',type:'creator'}]});
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

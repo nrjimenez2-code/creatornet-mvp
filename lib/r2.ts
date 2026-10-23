@@ -31,8 +31,9 @@ export async function createPresignedUploadUrl(
     Key: key,
     ContentType: contentType,
     ContentLength: size,
+    IfNoneMatch: "*",
   });
-  return getSignedUrl(r2Client, cmd, { expiresIn: 3600, signableHeaders: new Set(["content-type", "content-length"]) });
+  return getSignedUrl(r2Client, cmd, { expiresIn: 3600, signableHeaders: new Set(["content-type", "content-length", "if-none-match"]) });
 }
 
 /** Turns an R2 object key into its public CDN URL. */

@@ -8,7 +8,7 @@ test("the real SDK signs MIME and length with the one-hour upload lifetime", asy
     const { createPresignedUploadUrl, r2Client } = await import("@/lib/r2");
     const send = jest.spyOn(r2Client, "send");
     const url = new URL(await createPresignedUploadUrl("videos/creator/test.mp4", "video/mp4", 500 * 1024 * 1024));
-    expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).toEqual(expect.arrayContaining(["content-type", "content-length", "host"]));
+    expect(url.searchParams.get("X-Amz-SignedHeaders")?.split(";")).toEqual(expect.arrayContaining(["content-type", "content-length", "if-none-match", "host"]));
     expect(url.searchParams.get("X-Amz-Expires")).toBe("3600");
     expect(send).not.toHaveBeenCalled();
     send.mockRestore();

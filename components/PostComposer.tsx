@@ -179,6 +179,7 @@ async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
  * fetch treats a 403/5xx as success, which silently saved dead URLs — and
  * (c) abort on a genuine stall rather than a flat wall-clock cap.
  */
+class PublicUploadConflict extends Error {}
 function putFileWithProgress(
   uploadUrl: string,
   file: File,
@@ -216,13 +217,14 @@ function putFileWithProgress(
 
     xhr.open("PUT", uploadUrl, true);
     xhr.setRequestHeader("Content-Type", contentType);
+    xhr.setRequestHeader("If-None-Match", "*");
     // The browser sets Content-Length for this File body; scripts must not set it.
 
     xhr.upload.onprogress = (e) => {
       armStall(); // real progress → restart the stall clock
       if (onProgress && e.lengthComputable) onProgress(e.loaded, e.total);
     };
-    xhr.onload = () =>
+    xhr.onload = () => xhr.status === 412 ? settle(new PublicUploadConflict("Upload needs verification.")) :
       xhr.status >= 200 && xhr.status < 300
         ? settle()
         : settle(new Error(`Storage rejected the upload (HTTP ${xhr.status}).`));
@@ -241,6 +243,8 @@ async function uploadToR2(
 ): Promise<string> {
   let lastErr: unknown = null;
   const contentType = (file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4")).trim().toLowerCase();
+  const operationId = crypto.randomUUID();
+  const payload = {filename:file.name,contentType,folder,size:file.size,operationId,uploadContract:"create-only-v1"};
 
   for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
     // Fresh presign per attempt — presigned URLs are short-lived.
@@ -248,12 +252,7 @@ async function uploadToR2(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({
-        filename: file.name,
-        contentType,
-        folder,
-        size: file.size,
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!res.ok) {
@@ -271,6 +270,12 @@ async function uploadToR2(
       await putFileWithProgress(uploadUrl, file, contentType, onProgress);
       return publicUrl;
     } catch (e) {
+      if (e instanceof PublicUploadConflict) {
+        const verified = await fetch("/api/upload/presign", {method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({...payload,verifyExisting:true})});
+        const recovered = await verified.json().catch(() => ({}));
+        if (verified.ok && recovered.alreadyUploaded === true && recovered.publicUrl === publicUrl) return publicUrl;
+        throw new Error(recovered.error ?? "Upload could not be verified. Please try again.");
+      }
       lastErr = e;
       if (attempt < UPLOAD_MAX_ATTEMPTS) {
         // Linear backoff, then re-presign and retry.
