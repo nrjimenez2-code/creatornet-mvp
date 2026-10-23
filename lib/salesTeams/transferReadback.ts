@@ -11,12 +11,24 @@ const objectId=(v:unknown)=>typeof v==="string"?v:(v as {id?:string}|null)?.id??
 const requestId=(v:unknown)=>(v as {lastResponse?:{requestId?:string}}|null)?.lastResponse?.requestId??"";
 const integer=(v:number)=>Number.isSafeInteger(v)&&v>=0&&v<=99999999;
 type ReaderComposition=Pick<TeamReceiptComposition,"context"|"observeContext"|"stripe">;
-function original(c:ReaderComposition,q:TeamTransferRequest){
+function original(c:Pick<ReaderComposition,"context">,q:TeamTransferRequest){
  validateTeamTransferRequest(c,q);const op=q.operation;check(op&&!q.canceled&&Number.isFinite(Date.parse(op.first_dispatch_at))&&Date.parse(op.first_dispatch_at)<=Date.now()+5000&&
   op.id===q.operation_id&&op.idempotency_key===`cn-team-v1:${q.operation_id}`&&isDeepStrictEqual(op.context,q.context)&&isDeepStrictEqual(op.request,q.request)&&
   isDeepStrictEqual({scopeId:op.scopeId,scopeKey:op.scopeKey,kind:op.kind,saleId:op.saleId,creatorId:op.creatorId,actorId:op.actorId,workerRunId:op.workerRunId},q.scope)&&
   ['dispatching','unknown','bound'].includes(op.status)&&(!op.provider_id||/^tr_[A-Za-z0-9]+$/.test(op.provider_id)));
  return op;
+}
+/** A direct POST/retrieve response can bind its exact original identity before
+ * a balance debit is available. Accounting still requires the stricter repeated
+ * transfer/balance readback below. A request ID alone cannot release money. */
+export function inspectTeamTransferDispatch(q:TeamTransferRequest,t:Stripe.Transfer){
+ original({context:q.context},q);
+ const first=Math.floor(Date.parse(q.operation!.first_dispatch_at)/1000),now=Math.floor(Date.now()/1000);
+ check(t.object==="transfer"&&/^tr_[A-Za-z0-9]+$/.test(t.id)&&t.livemode===(q.context.mode==="live")&&t.amount===Number(q.amount_cents)&&t.currency==="usd"&&
+  objectId(t.destination)===q.destination_id&&objectId(t.source_transaction)===q.chargeId&&t.source_type==="card"&&t.transfer_group===`cn_team_${q.sale_id}`&&
+  isDeepStrictEqual(snapshotProviderJson(t.metadata),q.request.params.metadata)&&Number.isSafeInteger(t.created)&&t.created>=first-5&&t.created<=now+5&&
+  t.amount_reversed===0&&t.reversed===false&&/^req_[A-Za-z0-9]+$/.test(requestId(t)));
+ return {id:t.id,requestId:requestId(t)};
 }
 function inspectTransfer(q:TeamTransferRequest,t:Stripe.Transfer,expectedId:string){
  const now=Math.floor(Date.now()/1000),first=Math.floor(Date.parse(q.operation!.first_dispatch_at)/1000),reversalCount=(t.reversals as Stripe.ApiList<Stripe.TransferReversal>&{total_count?:number})?.total_count;

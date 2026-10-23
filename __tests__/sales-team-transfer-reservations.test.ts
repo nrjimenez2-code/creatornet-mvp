@@ -7,7 +7,7 @@ import {teamFixtureId as id} from "@/test-support/sales-team-postgres";
 import {teamSupabaseFixture} from "@/test-support/sales-team-supabase-fixture";
 import {teamCashBalanceFixture} from "@/test-support/sales-team-cash-postgres";
 import {inspectTeamReceiptFinancials} from "@/lib/salesTeams/financialChecks";
-import {reserveTeamEarnedTransfer,validateTeamTransferRequest} from "@/lib/salesTeams/transferReservations";
+import {reserveTeamEarnedTransfer,validateTeamTransferRequest,type TeamTransferRequest} from "@/lib/salesTeams/transferReservations";
 import {fundTeamAdminRefund} from "@/lib/salesTeams/cashFunding";
 import {teamTransferReservationsReady} from "@/lib/salesTeams/policy";
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
@@ -16,11 +16,11 @@ const candidate="supabase/migrations/20261023180144_sales_team_transfer_reservat
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,raw:jest.Mock;
 beforeAll(async()=>{
  db=await sharedCashDatabase(createLocalPostgres());
- for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql",candidate,"supabase/migrations/20261023182527_sales_team_transfer_observations.sql"])await db.exec(readFileSync(path,"utf8"));
+ for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql",candidate,"supabase/migrations/20261023182527_sales_team_transfer_observations.sql","supabase/migrations/20261023184139_sales_team_transfer_execution.sql"])await db.exec(readFileSync(path,"utf8"));
 },30000);
 beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");});afterAll(async()=>{await db?.close();});
 async function fixture(){
- await db.exec("update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,fulfillment_enabled=true,cash_reservations_enabled=true,settlement_enabled=true,transfer_reservations_enabled=true");
+ await db.exec("update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,fulfillment_enabled=true,cash_reservations_enabled=true,settlement_enabled=true,transfer_reservations_enabled=true,transfer_observations_enabled=true,transfer_execution_enabled=true");
  f=await seedTeamCapture(db);f.base.balance.available_on=Math.floor(Date.now()/1000);f.base.balance.status="available";receiptId=String((await f.record()).id);await db.query("update profiles set role='admin' where id=$1",[id(29)]);
  await db.exec("update sales_team_cash_policy_v1 set reserve_cents=1000,refund_cost_reserve_cents=100,legacy_refund_cost_reserve_cents=100,tip_restoration_cost_reserve_cents=50,transfer_cost_reserve_cents=30,evidence='{\"scope\":\"synthetic settlement fixture only\"}',shared_adapter_sha256=encode(sha256(convert_to(pg_get_functiondef('creatornet_team_private.shared_platform_cash_liabilities_v1(jsonb)'::regprocedure),'UTF8')),'hex'),shared_contract_sha256=creatornet_team_private.shared_cash_contract_digest_v1(),retained_contract_sha256=creatornet_team_private.retained_cash_contract_digest_v1(),transfer_contract_sha256=creatornet_team_private.transfer_contract_digest_v1()");
  let sequence=0;raw=jest.fn(async(method:string,path:string)=>{
@@ -33,6 +33,7 @@ async function fixture(){
 type Run={runId:string;leaseToken:string};
 const claim=()=>f.rpc<Run&{status:string}>("claim_sales_team_settlement_run_v1",[id(80),c.context]);
 const reserve=(run:Run,beneficiary:"creator"|"closer"="creator",requestId=id(81),taskId=id(82))=>reserveTeamEarnedTransfer(c,{...run,taskId,requestId,receiptId,beneficiary});
+const claimTransfer=(run:Run,q:TeamTransferRequest,taskId=id(82))=>f.rpc<{status:string;operation:{lease_token:string}}>("run_sales_team_transfer_execution_v1",[run.runId,run.leaseToken,c.context,taskId,"claim",{operationId:q.operation_id,scope:q.scope,request:q.request}]);
 const denied=async(run:()=>Promise<unknown>,message:RegExp)=>{await db.exec("savepoint denied");try{await expect(run()).rejects.toThrow(message);}finally{await db.exec("rollback to savepoint denied");}};
 
 test("the actual transfer reservation candidate installs default off with no commercial reserve default",async()=>{
@@ -41,14 +42,14 @@ test("the actual transfer reservation candidate installs default off with no com
 test("an earned creator share freezes the accepted recipient and charge-bound original without a provider POST",async()=>{
  await fixture();const run=await claim(),q=await reserve(run);expect(q.request).toMatchObject({method:"POST",path:"/v1/transfers",params:{destination:"acct_creator",source_transaction:"ch_original",transfer_group:`cn_team_${f.sale}`}});
  expect(q.scope).toMatchObject({actorId:null,workerRunId:run.runId});expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:30}]);expect(raw.mock.calls.every(([method])=>method==="GET")).toBe(true);
- expect(await f.rpc("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,q.context,q.request])).toMatchObject({status:"dispatch"});
+ expect(await claimTransfer(run,q)).toMatchObject({status:"dispatch"});
 });
 test("commission remains held for the accepted 14-day period",async()=>{
  await fixture();const run=await claim();await denied(()=>reserve(run,"closer"),/CURRENT_EARNED_TRANSFER_SOURCE_REQUIRED/);expect((await db.query("select count(*)::int n from sales_team_transfer_requests_v1")).rows).toEqual([{n:0}]);
 });
 
 test("pending principal remains protected when a later financial adjustment reduces its unpaid share",async()=>{
- await fixture();const q=await reserve(await claim());await db.exec("update sales_team_creator_balances_v1 set creator_proceeds_cents=creator_proceeds_cents-100");
+ await fixture();const run=await claim(),q=await reserve(run);await claimTransfer(run,q);await db.exec("update sales_team_creator_balances_v1 set creator_proceeds_cents=creator_proceeds_cents-100");
  expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:130}]);
  expect(await f.rpc("sales_team_transfer_operation_admitted_v1",[q.scope,c.context])).toBe(false);
  expect((await db.query("select creator_released_cents::int n from sales_team_creator_balances_v1")).rows).toEqual([{n:0}]);
@@ -77,7 +78,7 @@ test("an audited cancellation requires that no provider journal exists and inval
 });
 
 test("an admitted journal can never be relabeled as an unsent cancellation or silently release money",async()=>{
- await fixture();const run=await claim(),q=await reserve(run),journal=await f.rpc<{operation:{lease_token:string}}>("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,c.context,q.request]);
+ await fixture();const run=await claim(),q=await reserve(run),journal=await claimTransfer(run,q);
  await f.rpc("mark_sales_team_provider_unknown_v1",[q.operation_id,journal.operation.lease_token]);
  await denied(()=>f.rpc("cancel_unsent_sales_team_transfer_v1",[run.runId,run.leaseToken,c.context,id(82)]),/ORIGINAL_TRANSFER_RECOVERY_REQUIRED/);
  expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:30}]);expect((await db.query("select count(*)::int n from sales_team_transfer_completions_v1")).rows).toEqual([{n:0}]);
@@ -112,7 +113,7 @@ test("a one-cent liquidity shortfall preserves every other liability and creates
 });
 
 test("bound originals remain recoverable after new transfer admission is turned off",async()=>{
- await fixture();const q=await reserve(await claim());await f.rpc("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,c.context,q.request]);await f.rpc("bind_sales_team_provider_operation_v1",[q.operation_id,"tr_original","req_originalPost",false]);
+ await fixture();const run=await claim(),q=await reserve(run);await claimTransfer(run,q);await f.rpc("bind_sales_team_provider_operation_v1",[q.operation_id,"tr_original","req_originalPost",false]);
  await db.exec("update sales_team_controls_v1 set settlement_enabled=false,transfer_reservations_enabled=false");
  expect(await f.rpc("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,c.context,q.request])).toMatchObject({status:"bound",operation:{provider_id:"tr_original"}});
  expect((await db.query("select creator_released_cents::int n from sales_team_creator_balances_v1")).rows).toEqual([{n:0}]);
@@ -153,12 +154,12 @@ test("unrecovered same-creator commission overpayment holds new creator proceeds
 });
 
 test("a foreign balance cannot provide an unpaid-share offset for the original pending transfer",async()=>{
- await fixture();const q=await reserve(await claim());await db.query("update sales_team_creator_balances_v1 set creator_id=$1",[id(3)]);
+ await fixture();const run=await claim(),q=await reserve(run);await claimTransfer(run,q);await db.query("update sales_team_creator_balances_v1 set creator_id=$1",[id(3)]);
  expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:Number(q.amount_cents)+30}]);expect(await f.rpc("sales_team_transfer_operation_admitted_v1",[q.scope,c.context])).toBe(false);
 });
 
 test("service callers can reserve an earned share through the exact invoker grants",async()=>{
- await fixture();await db.exec("set role service_role");const q=await reserve(await claim());
+ await fixture();await db.exec("set role service_role");const run=await claim(),q=await reserve(run);await claimTransfer(run,q);
  expect(q.beneficiary).toBe("creator");expect(await f.rpc("sales_team_transfer_operation_admitted_v1",[q.scope,c.context])).toBe(true);
 });
 
@@ -173,7 +174,7 @@ test("a later actual worker re-observes the original without changing its origin
  // Advance only the synthetic worker's recorded slot; no wall-clock or live job changes.
  await db.query("update sales_team_worker_runs_v1 set scheduled_slot=scheduled_slot-interval '15 minutes',lease_until=clock_timestamp()-interval '1 second' where id=$1",[id(80)]);
  const run=await f.rpc<Run>("claim_sales_team_settlement_run_v1",[id(83),c.context]);
- const replay=await reserve(run,"creator",q.id,id(84));expect(replay).toMatchObject({operation_id:q.operation_id,request:q.request,original_worker_run_id:id(80),scope:q.scope});
+ const replay=await reserve(run,"creator",q.id,id(84));expect(replay).toMatchObject({operation_id:q.operation_id,request:q.request,original_worker_run_id:id(80),scope:q.scope});await claimTransfer(run,replay,id(84));
  expect(await f.rpc("sales_team_transfer_operation_admitted_v1",[q.scope,c.context])).toBe(true);
  expect((await db.query("select count(*)::int n from sales_team_transfer_cash_rechecks_v1")).rows).toEqual([{n:2}]);
 });

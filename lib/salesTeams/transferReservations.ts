@@ -12,7 +12,7 @@ export type TeamTransferJournal=TeamOperationScope&{id:string;context:TeamReceip
 export type TeamTransferRequest={id:string;operation_id:string;receipt_id:string;sale_id:string;creator_id:string;beneficiary:"creator"|"closer";
  beneficiary_user_id:string;destination_id:string;amount_cents:number;receipt_revision:number;original_worker_run_id:string;
  chargeId:string;approvedRecipientId:string;context:TeamReceiptComposition["context"];request:TeamProviderRequest;scope:TeamOperationScope;canceled:boolean;completed:boolean;
- created_at:string;operation:TeamTransferJournal|null};
+ created_at:string;operation:TeamTransferJournal|null;held?:boolean};
 export function validateTeamTransferRequest(c:Pick<TeamReceiptComposition,"context">,q:TeamTransferRequest){
  const check=(v:unknown)=>{if(!v)throw Error("Original earned transfer requires reconciliation");};
  for(const value of [q.id,q.operation_id,q.receipt_id,q.sale_id,q.creator_id,q.beneficiary_user_id,q.original_worker_run_id])teamId(value);

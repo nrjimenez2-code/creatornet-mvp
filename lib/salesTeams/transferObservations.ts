@@ -16,7 +16,7 @@ export async function observeTeamAdmittedTransfer(c:TeamReceiptComposition,args:
  };
  const begun=await rpc<{checkId:string;completed:boolean;request:TeamTransferRequest}>("begin_sales_team_transfer_check_v1",{p_request_id:args.requestId,p_check_id:args.checkId});
  validateTeamTransferRequest(c,begun.request);if(begun.checkId!==args.checkId||begun.request.id!==args.requestId)throw Error("Original transfer check changed");
- if(begun.completed)return {requestId:args.requestId,completed:true,recorded:false};
+ if(begun.completed)return {requestId:args.requestId,completed:true,recorded:false,held:begun.request.held??true};
  const proof=begun.request.operation?.provider_id?await readTeamBoundTransfer(c,begun.request):await recoverTeamUnknownTransfer(c,begun.request);
  if(!proof)return {requestId:args.requestId,completed:false,recorded:false,held:true};
  return rpc<{requestId:string;completed:boolean;recorded:boolean;held:boolean;actualTransferCostCents:number}>("complete_sales_team_transfer_check_v1",{p_check_id:args.checkId,p_proof:proof});

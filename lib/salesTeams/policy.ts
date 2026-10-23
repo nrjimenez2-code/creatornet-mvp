@@ -32,6 +32,7 @@ export const teamAutomaticRefundRecoveryReady = (env: TeamEnvironment = process.
 export const teamSharedUnsentRecoveryReady = (env: TeamEnvironment = process.env) => teamAutomaticRecoveryReady(env) && env.CREATOR_TEAM_SHARED_UNSENT_RECOVERY_SCHEMA_READY === "true" && env.CREATOR_TEAM_SHARED_UNSENT_RECOVERY_READY === "true";
 export const teamTransferReservationsReady = (env: TeamEnvironment = process.env) => teamCashSchemaReady(env) && teamSettlementReady(env) && env.CREATOR_TEAM_TRANSFER_RESERVATIONS_SCHEMA_READY === "true" && env.CREATOR_TEAM_TRANSFER_RESERVATIONS_READY === "true";
 export const teamTransferObservationsReady = (env: TeamEnvironment = process.env) => teamCashSchemaReady(env) && env.CREATOR_TEAM_TRANSFER_RESERVATIONS_SCHEMA_READY === "true" && env.CREATOR_TEAM_TRANSFER_OBSERVATIONS_SCHEMA_READY === "true" && env.CREATOR_TEAM_TRANSFER_OBSERVATIONS_READY === "true";
+export const teamTransferExecutionReady = (env: TeamEnvironment = process.env) => teamTransferReservationsReady(env) && teamTransferObservationsReady(env) && env.CREATOR_TEAM_TRANSFER_EXECUTION_SCHEMA_READY === "true" && env.CREATOR_TEAM_TRANSFER_EXECUTION_READY === "true";
 export type TeamRecipientStatus={status:"not_started"|"verification_required"|"setup_required"|"ready";transfersActive:boolean;payoutsReady:boolean;verifiedAt:string|null};
 
 export class TeamSalesError extends Error {

@@ -784,3 +784,67 @@ No safeguard was removed: the equation and initial fulfillment write now both
 include the explicit actual cost while retaining legacy checks. All transport
 is mocked and SQL parents remain structural PGlite fixtures; matured commission
 uses a synthetic historical timestamp fixture. These are local receipts only.
+
+### Bounded original transfer dispatcher — October 23 continuation
+
+Local candidate `20261023184139_sales_team_transfer_execution.sql` adds a
+separate default-off `transfer_execution_enabled` control. Source gate
+`teamTransferExecutionReady` requires the existing reservation and observation
+readiness plus `CREATOR_TEAM_TRANSFER_EXECUTION_SCHEMA_READY` and
+`CREATOR_TEAM_TRANSFER_EXECUTION_READY`. Reserving an earned share does not
+authorize a provider write. No endpoint or scheduler is activated here.
+
+`dispatchTeamEarnedTransfer` takes a supplied composition and exact current
+run/token/task/request/check identifiers. Its default is observation only. New
+dispatch requires explicit caller admission, current accepted context evidence,
+fresh protected-cash re-observation, exact worker/task authorization, independent
+database execution/observation controls and the reviewed named contract. The
+existing provider journal still owns original scope, request, idempotency key and
+provider dispatch lease. A private admission records the actual dispatching worker
+separately from the immutable original-worker scope. Service callers cannot
+directly insert admission/actions; ordinary roles cannot invoke the definer.
+
+The transport allows at most one exact frozen POST and20 object GETs. New object
+requests share a65-second budget, with a45-second new-POST admission cutoff,
+pinned API version, zero retries and a10-second POST timeout. Context observers
+retain their own independent bounds. New dispatch rechecks execution and fresh
+cash before the wire call. Outcome-only audit/binding can drain after worker
+expiry using its original asserted provider lease and run token; it cannot issue
+another POST. An expired provider lease requires independent original recovery.
+
+A direct response can bind the exact transfer identity before its balance debit
+is available. It cannot release accounting. F24/F25 repeated available debit and
+fee proof remains mandatory. Bound or unknown originals bypass the new-create
+path with new-money-off. Unknown writes use the original event/key consumer;
+metadata alone never creates a replacement transfer. Completed replay needs no
+provider GET. The read model carries current accounting holds, including creator
+overpayment and reserve-overrun review, separately from completion of the original
+transfer. Bank payout remains unrecorded.
+
+This closes one supplied transfer task's local dispatch path only. Autonomous
+queue selection,15-minute scheduling, same-creator post-transfer recovery,
+later collection/lifecycle, daily protected surplus, real bank evidence/alerts
+and final presentation remain. The full schema/security, CI/build/browser,
+commercial, separately authorized sandbox and distinct Production/LIVE gates
+still apply. All exercised provider writes in the local fixtures are mocked.
+
+F26 evidence: `transfer-execution-integrated.json` passed241 across eight suites,
+135.906s, exit0: execution22, observation29, reservation33, retained22, worker
+refund19, shared unsent29, shared reconciliation29 and readback58. The seven SQL
+suites install the complete chain through F26; reservation/observation fixtures
+now use the actual execution authority when simulating admitted journal originals.
+After the immutable declaration lint repair and explicit deferred-FK immediacy
+assertion, `transfer-execution-final.json` passed the affected22 again. These
+overlap. Full incremental TypeScript and12-file scoped lint passed with zero
+errors/warnings. Source/staged whitespace checks passed.
+
+Failed receipts remain. The expanded72/73 run exposed the structural test's outer
+transaction remaining aborted after the runtime correctly handled an expired
+worker's observer RPC rejection. The fixture now gives each RPC its own savepoint,
+matching PostgREST's per-RPC rollback boundary; runtime authority checks stayed
+unchanged. A single prefer-const lint error was repaired. The final suite verifies
+the original admitted response can bind after worker expiry, pending balance
+evidence cannot release accounting, and later original observation with new-money
+off issues no replacement POST. Migration failure restores the prior admission
+function and leaves no partial execution tables. These are local structural and
+mock-provider receipts, not hosted, real provider, CI/build/browser or bank proof.
