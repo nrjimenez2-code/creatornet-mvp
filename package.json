@@ -12,7 +12,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
     "@aws-sdk/s3-request-presigner": "^3.1029.0",
-    "@sentry/nextjs": "^10.70.0",
+    "@sentry/nextjs": "10.76.2",
     "@stripe/stripe-js": "9.15.0",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/auth-ui-react": "^0.4.7",
@@ -24,7 +24,7 @@
     "framer-motion": "^12.23.24",
     "hls.js": "1.7.3",
     "lucide-react": "^0.548.0",
-    "next": "^16.3.5",
+    "next": "16.4.2",
     "posthog-js": "^1.418.10",
     "posthog-node": "^5.50.0",
     "react": "^19.2.4",
@@ -41,12 +41,15 @@
     "@types/react-dom": "^19",
     "autoprefixer": "^10.4.21",
     "eslint": "^9",
-    "eslint-config-next": "^16.3.2",
+    "eslint-config-next": "16.4.2",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.16",
     "ts-jest": "^29.4.6",
     "typescript": "^5"
+  },
+  "overrides": {
+    "brace-expansion@^1.1.7": "1.1.21"
   }
 }
