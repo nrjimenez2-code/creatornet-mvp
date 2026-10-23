@@ -7,6 +7,9 @@ import { readCreditedAdminContext } from "./contextBillingStop";
 import type { ExactPaymentContext, ExactPaymentContextEvidence } from "./paymentContext";
 import { ledgerFromRow, operationFromRow, type RefundOperation, type RefundOperationStore } from "../admin/refund-store";
 import { previewAdminRefund, createAndProcessAdminRefund, processRefundOperation, type RefundRequestInput } from "../admin/refunds";
+import {randomUUID} from "node:crypto";
+import {teamSharedCashReady} from "@/lib/salesTeams/policy";
+import {readTeamCashProof} from "@/lib/salesTeams/cashReadback";
 
 function check(v: unknown): asserts v { if (!v) throw Error("Context admin refund requires review"); }
 function record(v: unknown): Record<string, unknown> {
@@ -42,7 +45,7 @@ export async function runContextAdminRefund(args: {
     state.receipts.some(r => r.paymentIntentId === ledger.stripePaymentIntentId && r.amountCents === ledger.grossAmountCents));
   const destination = state.reservation.terms.destinationId;
   let chargeId = ledger.stripeChargeId, feeId: string | null = null;
-  let operation: RefundOperation | null = null, claimToken: string | null = null;
+  let operation: RefundOperation | null = null, claimToken: string | null = null, cashReadId: string | null = null;
   const get = async <T>(path: string, read: () => Promise<T>, account?: string) => {
     args.fresh(); return args.get(path, read, account);
   };
@@ -86,6 +89,23 @@ export async function runContextAdminRefund(args: {
     check(operation === null || op.id === operation.id); operation = op; return op;
   };
   const store: RefundOperationStore = {
+    preparePlatformCash: async operationId => {
+      if (!teamSharedCashReady()) return;
+      const saved = readOperation(await phase("read", {operationId}));
+      if (["completed", "failed"].includes(saved.status)) return;
+      const readId = randomUUID();
+      await phase("cash_begin", {operationId, readId});
+      const proof = await readTeamCashProof(context, async () => {await args.evidence(); return context;},
+        timeout => get("/v1/balance", () => stripe.balance.retrieve({}, {timeout, maxNetworkRetries: 0})));
+      await phase("cash_complete", {operationId, readId, proof});
+      await phase("cash_admit", {operationId, readId});
+      cashReadId = readId;
+    },
+    assertPlatformCash: async operationId => {
+      if (!teamSharedCashReady()) return;
+      check(cashReadId !== null);
+      await phase("cash_assert", {operationId, readId: cashReadId});
+    },
     getSourceContext: async id => {
       check(id === ledgerId); const current = record(await phase("source", {}));
       const l = ledgerFromRow(current.ledger);

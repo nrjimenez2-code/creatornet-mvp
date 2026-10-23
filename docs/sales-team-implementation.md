@@ -374,12 +374,13 @@ marker permits resolution without requiring cash controls on historical schema
 recovery. Transfer, reversal and surplus dispatch remain denied until their own
 funding contracts are completed; existing original reconciliation is preserved.
 
-The required shared-platform adapter currently raises
+At the committed core checkpoint, the required shared-platform adapter raised
 `SHARED_PLATFORM_CASH_COVERAGE_REQUIRED`. Its digest must be pinned by an explicit
 reviewed policy, and pinning the refusing implementation does not enable it.
 The core tests substitute a clearly synthetic adapter. **Legacy/shared cash
 coverage, common legacy outflow admission, use of retained refund shares and
-post-transfer same-creator recovery remain unfinished.** Do not call this core
+post-transfer same-creator recovery were unfinished at that checkpoint.** The
+following continuation adds local coverage and retained funding. Do not call this core
 a complete funding implementation or activate it. Source flags
 `CREATOR_TEAM_CASH_SCHEMA_READY` and `CREATOR_TEAM_CASH_FUNDING_READY`, plus database
 control `cash_reservations_enabled`, default off. Fresh refund readiness requires
@@ -401,5 +402,62 @@ history. These are PGlite/mock checks, not real provider, hosted contention,
 commercial reserve approval, CI/build, browser, sandbox or bank-payout proof.
 
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
+
+### Shared cash reconciliation and retained refund funding — October 22 continuation
+
+Local candidates `20261023030002_sales_team_shared_cash_coverage.sql` and
+`20261023034510_sales_team_shared_cash_reconciliation.sql` capture actual legacy
+refund and tip-restoration obligations, fence the existing outgoing legs and
+independently resolve already-bound originals. Terminal business status alone
+does not release cash. Default-off reconciliation requires an explicitly reviewed
+source digest. Checks retain the real administrator or current reconciliation
+worker identity. Source changes, unfinished workflows, missing originals,
+unowned/duplicate balance references, stale evidence and changed known provider
+IDs retain the hold. Completed checks replay without another provider GET.
+Cash resolution is once-only and invalidates older cash observations. It changes
+neither legacy earnings nor Library entitlements. `sharedCashChecks.ts` accepts
+supplied composition and has no global credential/client factory; no automatic
+dispatcher is activated by its existence.
+
+Candidate `20261023042321_sales_team_retained_refund_funding.sql` adds default-off
+`retained_refund_funding_enabled` and an explicitly reviewed retained-contract
+digest. A refund's immutable cash reservation can offset duplicate encumbrance
+with only its own still-unpaid creator and commission shares. The offset is
+capped by the same sale's projected unpaid-liability reduction, including
+cumulative rounding over existing later installments and a conservative upper
+bound on still-uncredited actual costs. It does not invent provider fees,
+reserves or commission terms. Tax, payout/processing reserves, other creators'
+balances and prior unknown outgoing commitments remain protected. No second
+retained reservation may consume the same sale's shares while the first remains
+unresolved. Creator, sale, closer membership and exact context must agree.
+
+The reservation stores immutable beneficiary floors. As independently reconciled
+earnings fall, the duplicate offset shrinks so the original outgoing principal
+remains encumbered until actual terminal cash proof resolves it. Already released
+shares cannot fund this offset. A changed retained-contract digest removes its
+offset conservatively; the shared cash digest also names the retained helpers.
+Turning off retained funding stops fresh dispatch from retained reservations
+while bound-original recovery remains available through its existing journal.
+This does not implement post-transfer clawback or same-creator recovery.
+
+Local evidence is in the continuation chat at
+`C:\Users\sandy\Documents\Codex\2026-10-22\goal-use-the-given-handoff-to-4\work`.
+The pre-pause shared integration passed76 in six suites; its current shared SQL
+scope was refreshed in `retained-outcomes-expanded.json` (PASS51 across retained22
+and shared29). The retained tests include the existing dispatcher and independent
+financial reconciler, creator/platform responsibility, late refund failure,
+lost-response original-event recovery with new-money gates off, one mocked POST,
+uneven-installment projection comparisons, tax/reserve protection, source hashes,
+service grants and transaction rollback. Later-installment projection fixtures
+are structural and do not prove actual later collection. The final retained/core
+integration is `retained-funding-final-integrated.json`. Full incremental
+TypeScript and scoped lint passed for the current added TypeScript source.
+
+These are PGlite/mock checks on actual candidates plus selected legacy functions
+and structural parent tables. Full historical/hosted schema compatibility, actual
+provider capabilities/commercial reserve readiness, browser acceptance, complete
+current CI/build, separately authorized sandbox acceptance and distinct
+Production/LIVE/bank-payout proof remain outstanding. No hosted candidate,
+scheduler, external transaction or release was activated by this continuation.
 
 Do not repeat the release-controls migration: its reviewed source filename is `20261021010052_controlled_website_releases.sql`, but the existing hosted applied-once receipt is version `20261021020911`. Reconcile that receipt before any proposed migration installation; a filename mismatch is not permission to replay it. Do not repeat old payment operations, consumed provider tests or preserved checkout tests just to reconstruct context. Do not use this branch's code as authority for hosted financial, account, scheduler, migration, deployment or Production/LIVE changes.

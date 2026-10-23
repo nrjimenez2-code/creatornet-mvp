@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { coordinateExactInstallmentRefund, coordinateMonthlyMentorshipRefund, type ExactRefundAdmission } from "@/lib/installments/collectionHold";
+import {teamSharedCashReady} from "@/lib/salesTeams/policy";
 import type {
   RefundReasonCode,
   RefundResponsibility,
@@ -127,6 +128,8 @@ export type RefundClaimResult =
   | "missing";
 
 export interface RefundOperationStore {
+  preparePlatformCash?(operationId: string): Promise<void>;
+  assertPlatformCash?(operationId: string): Promise<void>;
   getSourceContext(ledgerId: string): Promise<RefundSourceContext>;
   createOperation(input: CreateRefundOperationInput): Promise<RefundOperation>;
   getOperation(operationId: string): Promise<RefundOperation | null>;
@@ -298,9 +301,23 @@ export function ledgerFromRow(value: unknown): RefundLedgerSource {
 }
 
 export function createSupabaseRefundStore(
-  admin: SupabaseClient, env: Record<string, string | undefined> = process.env,
+  admin: SupabaseClient, env: Record<string, string | undefined> = process.env, actorId: string | null = null,
 ): RefundOperationStore {
   return {
+    async preparePlatformCash(operationId) {
+      if (!teamSharedCashReady(env)) return;
+      const saved = await admin.from("refund_operations").select("id,status").eq("id", operationId).maybeSingle();
+      if (saved.error || !saved.data) throw Error("Original shared refund operation missing");
+      if (["completed", "failed"].includes(saved.data.status)) return;
+      if (!actorId) throw Error("Current refund administrator required");
+      const [composition,cash] = await Promise.all([import("@/lib/salesTeams/context"),import("@/lib/salesTeams/cashFunding")]);
+      await cash.protectSharedCash(composition.createTeamPaymentContext(env), {kind: "legacy_refund", id: operationId}, actorId);
+    },
+    async assertPlatformCash(operationId) {
+      if (!teamSharedCashReady(env)) return;
+      const admitted = await admin.rpc("sales_team_shared_cash_admitted_v1", {p_source_kind: "legacy_refund", p_source_id: operationId});
+      if (admitted.error || admitted.data !== true) throw Error("Protected refund funds require review");
+    },
     coordinateInstallmentRefund: async (operationId, token) => {
       const monthly = await coordinateMonthlyMentorshipRefund(admin, operationId, token, env);
       return monthly === "not_applicable" ? coordinateExactInstallmentRefund(admin, operationId, token, env) : monthly;
