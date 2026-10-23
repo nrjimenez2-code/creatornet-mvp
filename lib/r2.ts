@@ -23,14 +23,16 @@ export const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL!;
  */
 export async function createPresignedUploadUrl(
   key: string,
-  contentType: string
+  contentType: string,
+  size: number
 ): Promise<string> {
   const cmd = new PutObjectCommand({
     Bucket: R2_BUCKET,
     Key: key,
     ContentType: contentType,
+    ContentLength: size,
   });
-  return getSignedUrl(r2Client, cmd, { expiresIn: 3600 });
+  return getSignedUrl(r2Client, cmd, { expiresIn: 3600, signableHeaders: new Set(["content-type", "content-length"]) });
 }
 
 /** Turns an R2 object key into its public CDN URL. */
@@ -40,9 +42,8 @@ export function r2PublicUrl(key: string): string {
 
 /**
  * Size and type of an object already in the bucket, or null if it is not
- * there. Used by POST /api/posts to refuse a post whose video blew past the
- * size cap: a presigned PUT cannot enforce a length without the browser
- * sending one up front, so the check happens once the bytes have landed.
+ * there. POST /api/posts verifies the landed object in addition to the signed
+ * upload contract, including uploads issued before that contract was enforced.
  */
 export async function headR2Object(
   key: string
@@ -58,8 +59,8 @@ export async function headR2Object(
 /**
  * Read only the first `length` bytes of an object, so a file's real format can
  * be identified without pulling a 500 MB video through this process. Uses a
- * Range request; returns null if the object cannot be read, so callers can fail
- * open on an R2 hiccup rather than block a creator.
+ * Range request; returns null if the object cannot be read, so publication can
+ * require verification before accepting the new post.
  */
 export async function readR2ObjectPrefix(
   key: string,

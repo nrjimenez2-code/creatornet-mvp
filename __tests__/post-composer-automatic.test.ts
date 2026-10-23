@@ -7,11 +7,13 @@ jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: "creator" }) }));
 import PostComposer from "@/components/PostComposer";
 let root: Root, container: HTMLDivElement, mockFetch: jest.Mock;
 let generationFails = false, uploadFails = false;
+let uploadHeaders: Array<[string, string]> = [];
 const originalFetch = globalThis.fetch, originalXHR = globalThis.XMLHttpRequest;
 const originalCreateURL = URL.createObjectURL, originalRevokeURL = URL.revokeObjectURL;
 let createSpy: jest.SpyInstance, canvasSpy: jest.SpyInstance, blobSpy: jest.SpyInstance;
 beforeEach(async () => {
   generationFails = false; uploadFails = false;
+  uploadHeaders = [];
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   mockFetch = jest.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/stripe/connect/status") return { ok: true, json: async () => ({ onboarding_complete: true, tipping_enabled: true }) };
@@ -23,7 +25,7 @@ beforeEach(async () => {
   globalThis.fetch = mockFetch;
   globalThis.XMLHttpRequest = class {
     status = 200; upload = {}; onload?: () => void;
-    open() {} setRequestHeader() {} abort() {}
+    open() {} setRequestHeader(name: string, value: string) { uploadHeaders.push([name, value]); } abort() {}
     send() { queueMicrotask(() => this.onload?.()); }
   } as unknown as typeof XMLHttpRequest;
   URL.createObjectURL = () => "blob:test"; URL.revokeObjectURL = jest.fn();
@@ -44,9 +46,9 @@ afterEach(async () => {
 });
 const button = () => Array.from(container.querySelectorAll("button")).find(node => node.textContent === "Post")!;
 const submit = async () => { await act(async () => button().click()); };
-const pick = async (label = "Public video") => {
+const pick = async (label = "Public video", type = "video/mp4") => {
   const input = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
-  Object.defineProperty(input, "files", { configurable: true, value: [new File(["video"], "test.mp4", { type: "video/mp4" })] });
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["video"], "test.mp4", { type })] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
 };
 const postRequest = () => mockFetch.mock.calls.find(([url]) => url === "/api/posts");
@@ -63,8 +65,22 @@ test("a public video can publish with empty title/caption and an automatically u
   const body = JSON.parse(String(postRequest()![1].body));
   expect(body).toMatchObject({ title: null, content: "", classification_version: 1, poster_url: "https://cdn.test/thumbnails/asset", hashtags: [] });
   expect(body).not.toHaveProperty("interests"); expect(body).not.toHaveProperty("topics");
+  const presigns = mockFetch.mock.calls.filter(([url]) => url === "/api/upload/presign").map(([, init]) => JSON.parse(String(init.body)));
+  expect(presigns).toEqual([
+    expect.objectContaining({ folder: "videos", contentType: "video/mp4", size: 5 }),
+    expect.objectContaining({ folder: "thumbnails", contentType: "image/jpeg", size: 6 }),
+  ]);
+  expect(uploadHeaders).toEqual([["Content-Type", "video/mp4"], ["Content-Type", "image/jpeg"]]);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test");
 });
+test("an unknown browser MIME uses the same fallback for signing and upload", async () => {
+  await pick("Public video", ""); await submit();
+  const presign = mockFetch.mock.calls.find(([url]) => url === "/api/upload/presign");
+  expect(JSON.parse(String(presign![1].body))).toMatchObject({ contentType: "video/mp4", size: 5 });
+  expect(uploadHeaders[0]).toEqual(["Content-Type", "video/mp4"]);
+  expect(uploadHeaders.some(([name]) => name.toLowerCase() === "content-length")).toBe(false);
+});
+
 test("caption hashtags and character counts remain visible and reach the automatic submission", async () => {
   const caption = container.querySelector("textarea")!;
   await act(async () => {

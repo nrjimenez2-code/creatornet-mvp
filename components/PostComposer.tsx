@@ -182,6 +182,7 @@ async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
 function putFileWithProgress(
   uploadUrl: string,
   file: File,
+  contentType: string,
   onProgress?: UploadProgressCb
 ): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -214,7 +215,8 @@ function putFileWithProgress(
     };
 
     xhr.open("PUT", uploadUrl, true);
-    xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+    xhr.setRequestHeader("Content-Type", contentType);
+    // The browser sets Content-Length for this File body; scripts must not set it.
 
     xhr.upload.onprogress = (e) => {
       armStall(); // real progress → restart the stall clock
@@ -238,6 +240,7 @@ async function uploadToR2(
   onProgress?: UploadProgressCb
 ): Promise<string> {
   let lastErr: unknown = null;
+  const contentType = (file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4")).trim().toLowerCase();
 
   for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
     // Fresh presign per attempt — presigned URLs are short-lived.
@@ -247,8 +250,9 @@ async function uploadToR2(
       credentials: "include",
       body: JSON.stringify({
         filename: file.name,
-        contentType: file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4"),
+        contentType,
         folder,
+        size: file.size,
       }),
     });
 
@@ -264,7 +268,7 @@ async function uploadToR2(
     };
 
     try {
-      await putFileWithProgress(uploadUrl, file, onProgress);
+      await putFileWithProgress(uploadUrl, file, contentType, onProgress);
       return publicUrl;
     } catch (e) {
       lastErr = e;
