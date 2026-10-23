@@ -5,6 +5,8 @@ import {salesTeamSaleDatabase,enableTeamSalesFixture,approveTeamOffer,draftTeamS
 import {teamFixtureId as id,addTeamMember} from "@/test-support/sales-team-postgres";
 import {captureRpc as rpc,seedTeamCapture} from "@/test-support/sales-team-capture-postgres";
 import {teamSharedDatabase} from "@/test-support/sales-team-shared-postgres";
+import {teamSupabaseFixture} from "@/test-support/sales-team-supabase-fixture";
+import {inspectTeamReceiptFinancials} from "@/lib/salesTeams/financialChecks";
 declare const createLocalPostgres:()=>PGlite;
 let db:PGlite;
 async function installComposerGuard(target:PGlite){
@@ -83,15 +85,23 @@ test("booked association history and management RPCs are service-only",async()=>
 test("canonical Book association continues through verified first receipt and shared Library fulfillment",async()=>{
  const integrated=await teamSharedDatabase(createLocalPostgres());
  try{
-  await installComposerGuard(integrated);await integrated.exec(readFileSync("supabase/migrations/20261023010604_sales_team_booked_offer_associations.sql","utf8"));
+  await installComposerGuard(integrated);await integrated.exec("alter table profiles add column role text");
+  for(const file of ["20261021230016_sales_team_financial_statements.sql","20261023000533_sales_team_payment_events.sql","20261023002620_sales_team_financial_reconciliation.sql","20261023010604_sales_team_booked_offer_associations.sql"])await integrated.exec(readFileSync(`supabase/migrations/${file}`,"utf8"));
   const capture=await seedTeamCapture(integrated,{beforeSetup:async()=>{
    await integrated.query("insert into posts(id,creator_id,allow_booking,video_action,action_version,booking_url) values($1,$2,true,'book',1,'https://calendar.example/original')",[id(22),id(1)]);
    await integrated.query("update bookings set post_id=$1 where id=$2",[id(22),teamSaleBooking]);
   },beforeApproval:async()=>{
-   await integrated.exec("update sales_team_controls_v1 set booked_offer_associations_enabled=true,fulfillment_enabled=true");
+   await integrated.exec("update sales_team_controls_v1 set booked_offer_associations_enabled=true,fulfillment_enabled=true,event_reconciliation_enabled=true,financial_reconciliation_enabled=true");
    await rpc(integrated,"manage_sales_team_booked_offer_v1",[id(1),id(1),teamSaleBooking,id(21),id(25),0,true]);
   }});
   const receipt=await capture.record(),purchase=await capture.rpc<{purchaseId:string}>("fulfill_sales_team_receipt_v1",[capture.sale,capture.buyer,receipt.id]);
+  await integrated.query("update profiles set role='admin' where id=$1",[id(29)]);let sequence=0;
+  const raw=jest.fn(async(method:string,path:string)=>{
+   if(method!=="GET")throw Error("Integrated financial inspection cannot write to provider");
+   const value=path==="/v1/payment_intents/pi_original"?capture.base.paymentIntent:path==="/v1/charges/ch_original"?capture.base.charge:path==="/v1/balance_transactions/txn_original"?capture.base.balance:path==="/v1/refunds"||path==="/v1/disputes"?{object:"list",data:[],has_more:false}:null;
+   if(!value)throw Error(path);return JSON.parse(JSON.stringify({...value,lastResponse:{requestId:`req_integrated${++sequence}`}}));
+  });
+  expect(await inspectTeamReceiptFinancials({admin:teamSupabaseFixture(integrated),stripe:{rawRequest:raw},context:capture.contract.context,observeContext:async()=>capture.contract.context,observeEvidence:async()=>capture.evidence},String(receipt.id),id(29))).toMatchObject({held:false});
   expect(await capture.rpc("read_sales_team_entitlement_v1",[purchase.purchaseId,capture.buyer])).toMatchObject({allowed:true});
   expect((await integrated.query("select post_id,product_id,access_granted from purchases")).rows).toEqual([{post_id:id(22),product_id:id(21),access_granted:false}]);
   expect((await integrated.query("select video_action,product_id,allow_booking from posts where id=$1",[id(22)])).rows).toEqual([{video_action:"book",product_id:null,allow_booking:true}]);

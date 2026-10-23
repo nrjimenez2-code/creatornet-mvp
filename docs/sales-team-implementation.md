@@ -269,6 +269,12 @@ Receipts are `work/booked-offers-integration.json`, `booked-offers-final.json`,
 `booked-offers-typecheck-final.log` and `booked-offers-lint-final.json` in the
 continuation chat. These are structural/guard/mock checks, not complete historical
 schema installation, hosted contention, real browser/provider or LIVE acceptance.
+A subsequent combined fixture installs the statement, signed-event, financial
+and booked-offer candidates together on the shared capture base. Canonical Book,
+accepted offer, first receipt, independent GET-only financial inspection and
+shared Library entitlement pass together (`work/combined-financial-booked.json`,
+10 tests). Combined TypeScript and scoped lint also pass. The full historical
+installed-schema and release gates remain outstanding.
 
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
 
