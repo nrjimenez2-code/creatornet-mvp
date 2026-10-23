@@ -1,16 +1,17 @@
 "use client";
+import Link from "next/link";
 import {useEffect,useRef,useState} from "react";
 import {loadStripe,type Stripe,type StripeElements,type StripeAddressElement,type StripePaymentElement} from "@stripe/stripe-js";
 import {createClient} from "@/lib/supabaseClient";
 import {prepareSessionNavigation} from "@/lib/browserSession";
 import {useTeamApi} from "@/lib/salesTeams/client";
 
-type Payment={phase:string;amountCents:number;currency:string;saveForFuture:boolean;clientSecret?:string;pendingRequest:{id:string;kind:"token"|"reconfirm"}|null};
+type Payment={phase:string;amountCents:number;currency:string;saveForFuture:boolean;automaticDebitsStopped?:boolean;clientSecret?:string;pendingRequest:{id:string;kind:"token"|"reconfirm"}|null};
 type Pending={id:string;kind:"token"|"reconfirm";token?:string};
 type Elements={stripe:Stripe;elements:StripeElements;payment:StripePaymentElement;address:StripeAddressElement};
 const descriptions:Record<string,string>={not_started:"Prepare your payment to enter card details.",needs_method:"Enter your card and complete US billing address.",requires_action:"Your bank needs to verify this payment.",
  requires_confirmation:"Bank verification is complete. Continue to finish your payment.",processing:"Your original payment is processing. Check its status before taking another action.",
- captured_pending_receipt:"Stripe reports this payment captured. CreatorNet is verifying the receipt before access is delivered.",paid:"Your payment receipt is verified.",
+ captured_pending_receipt:"Stripe reports this payment captured. CreatorNet is verifying the receipt before access is delivered.",receipt_verified:"Your payment receipt is verified. Delivery is being prepared.",payment_review:"Your captured payment is under financial review. Check its status for an update.",paid:"Your payment receipt is verified. Your purchase is in your Library.",
  stop_pending:"Stop is saved. The original payment must be reconciled before it can be safely closed.",stopped:"This payment is safely closed unpaid. Ask your closer for a new review to choose another approved option.",canceled:"The original payment was canceled. Choose Stop to close this unpaid purchase.",review_required:"Check the original payment before continuing."};
 export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:string}){
  const api=useTeamApi(),[view,setView]=useState<Payment|null>(null),[enabled,setEnabled]=useState(false),[error,setError]=useState<string|null>(null),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[pending,setPending]=useState<Pending|null>(null);
@@ -74,6 +75,8 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
   {view?.phase==="requires_confirmation"&&!unresolved?<button disabled={busy||!enabled} onClick={()=>void act("reconfirm")}>Complete payment</button>:null}
   {unresolved?<button disabled={busy} onClick={()=>void act("resume")}>Check original confirmation</button>:null}
   <button disabled={busy} onClick={()=>void act("refresh")}>Refresh payment status</button>
-  {view&&!["paid","stopped","captured_pending_receipt"].includes(view.phase)?<button disabled={busy} onClick={()=>void act("stop")}>Stop this payment</button>:null}
+  {view?.phase==="paid"?<Link href="/library">Open Library</Link>:null}
+  {view?.saveForFuture&&["paid","captured_pending_receipt","receipt_verified","payment_review"].includes(view.phase)?view.automaticDebitsStopped?<p>Future automatic debits are stopped. Any remaining contractual balance requires review.</p>:<button disabled={busy} onClick={()=>void act("stop")}>Stop future automatic payments</button>:null}
+  {view&&!["paid","stopped","captured_pending_receipt","receipt_verified","payment_review"].includes(view.phase)?<button disabled={busy} onClick={()=>void act("stop")}>Stop this payment</button>:null}
  </section>;
 }

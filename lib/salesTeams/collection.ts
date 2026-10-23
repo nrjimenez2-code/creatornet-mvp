@@ -17,7 +17,7 @@ export type TeamCollection={sale:{id:string;buyer_id:string;creator_id:string;co
  setup:{customer_operation_id:string;customer_request:TeamProviderRequest;context:ExactPaymentContext;expires_at:string;created_at:string}|null;
  runtime:{customer_id:string|null;stop_requested_at:string|null;canceled_at:string|null;financial_hold:boolean}|null;
  obligation:{id:string;amount_cents:number;period_number:number}|null;attempt:{contract:TeamPaymentContract;intent_operation_id:string;request:TeamProviderRequest}|null;
- confirmation:SavedConfirmation|null;state:State|null;receipt:{id:string}|null;closed:boolean};
+ confirmation:SavedConfirmation|null;state:State|null;receipt:{id:string;fulfilled?:boolean;held?:boolean}|null;closed:boolean};
 const rec=(v:unknown):Json=>v&&typeof v==="object"&&!Array.isArray(v)?v as Json:{};
 const requestId=(v:unknown)=>String(rec(rec(v).lastResponse).requestId||"");
 const now=()=>Math.floor(Date.now()/1000);
@@ -63,9 +63,10 @@ async function observeState(c:Composition,s:TeamCollection,pi:Stripe.PaymentInte
  await assertContext(c,s);await teamRpc(c.admin,"record_sales_team_payment_state_v1",{p_obligation_id:s.attempt.contract.obligationId,p_proof:proof});return proof;
 }
 export function teamCollectionView(s:TeamCollection,pi?:Stripe.PaymentIntent){
- const phase=s.receipt?"paid":s.closed?"stopped":s.state?.status==="succeeded"?"captured_pending_receipt":s.runtime?.stop_requested_at?"stop_pending":!s.attempt?"not_started":
+ const phase=s.receipt?s.receipt.held?"payment_review":s.receipt.fulfilled?"paid":"receipt_verified":s.closed?"stopped":s.state?.status==="succeeded"?"captured_pending_receipt":s.runtime?.stop_requested_at?"stop_pending":!s.attempt?"not_started":
   s.state?.status==="requires_payment_method"?"needs_method":s.state?.status??"review_required";
  return {phase,amountCents:s.obligation?.amount_cents??s.sale.terms.payments[0].amountCents,currency:"usd",saveForFuture:s.sale.terms.paymentKind!=="full",
+  automaticDebitsStopped:Boolean(s.runtime?.stop_requested_at),
   ...(phase==="requires_action"&&pi?.status==="requires_action"&&pi.client_secret?{clientSecret:pi.client_secret}:{}),
   pendingRequest:s.confirmation&&s.confirmation.operation_status!=="bound"?{id:s.confirmation.request_id,kind:s.confirmation.kind}:null};
 }

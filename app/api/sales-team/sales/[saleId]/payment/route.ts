@@ -1,9 +1,10 @@
 import {NextRequest} from "next/server";
 import {createTeamPaymentContext} from "@/lib/salesTeams/context";
 import {readBuyerTeamSale,requireTeamCheckout} from "@/lib/salesTeams/checkout";
-import {teamId,TeamSalesError,teamPaymentSchemaReady,teamPaymentCollectionReady} from "@/lib/salesTeams/policy";
-import {teamError,teamJson} from "@/lib/salesTeams/server";
+import {teamId,TeamSalesError,teamPaymentSchemaReady,teamPaymentCollectionReady,teamReceiptRecordingReady,teamFulfillmentReady} from "@/lib/salesTeams/policy";
+import {teamError,teamJson,teamRpc} from "@/lib/salesTeams/server";
 import {readTeamCollection,teamCollectionView,prepareTeamCollection,confirmTeamCollection,stopTeamCollection} from "@/lib/salesTeams/collection";
+import {recordTeamCapture} from "@/lib/salesTeams/receipts";
 async function owned(req:NextRequest,params:Promise<{saleId:string}>){
  if(!teamPaymentSchemaReady())throw new TeamSalesError("TEAM_PAYMENT_NOT_ENABLED","This payment path is not enabled.",404);
  const {saleId}=await params,{admin,user,sale}=await readBuyerTeamSale(req,saleId);
@@ -38,6 +39,11 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
     payment=await confirmTeamCollection(composition,saleId,user.id,{requestId:body.request_id,kind:request.data.kind,tokenId:request.data.token_id,recoveryOnly:true});
    }
   }else payment=await confirmTeamCollection(composition,saleId,user.id,{requestId:body.request_id,kind:action==="confirm"?"token":"reconfirm",...(action==="confirm"?{tokenId:body.confirmation_token}:{})});
+  if(["captured_pending_receipt","receipt_verified","payment_review","paid"].includes(payment.phase)&&teamReceiptRecordingReady()){
+   const receipt=await recordTeamCapture(composition,saleId,user.id);
+   if((receipt.status==="verified"||receipt.status==="verified_held")&&teamFulfillmentReady())await teamRpc(composition.admin,"fulfill_sales_team_receipt_v1",{p_sale_id:saleId,p_buyer_id:user.id,p_receipt_id:receipt.receiptId});
+   payment=teamCollectionView(await readTeamCollection(composition,saleId,user.id));
+  }
   return teamJson({payment,collectionEnabled:teamPaymentCollectionReady()});
  }catch(error){return teamError(error);}
 }

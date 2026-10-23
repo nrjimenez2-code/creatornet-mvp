@@ -45,3 +45,9 @@ test("bank action uses only the owned client secret and refreshes independent se
  phase="requires_action";await mount();await click("Verify with your bank");expect(bank).toHaveBeenCalledWith({clientSecret:"pi_original_secret_owned"});
  expect(fetchMock.mock.calls.some(([,o])=>o.body&&JSON.parse(o.body).action==="refresh")).toBe(true);expect(sessionStorage.length).toBe(0);
 });
+test("a paid plan can stop future automatic debits while retaining the existing paid purchase",async()=>{
+ phase="paid";enabled=false;let stopped=false;
+ fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{if(options?.body&&JSON.parse(String(options.body)).action==="stop")stopped=true;return response({payment:{...view(),automaticDebitsStopped:stopped},collectionEnabled:false});});
+ await mount();await click("Stop future automatic payments");expect(container.textContent).toContain("Future automatic debits are stopped");expect(container.textContent).toContain("Any remaining contractual balance requires review");expect(container.querySelector('a[href="/library"]')).not.toBeNull();
+ expect(token).not.toHaveBeenCalled();
+});
