@@ -7,11 +7,13 @@ const fixture = JSON.parse(readFileSync("test-support/server-feed-production-fix
   functions: { name: string; schema: string; definition: string; body_md5: string }[];
 };
 const migration = readFileSync("supabase/migrations/20261023031406_server_only_legacy_feed_bridge.sql", "utf8");
+const postDeploy = readFileSync("supabase/migrations/20261023032324_revoke_legacy_client_feed_after_deploy.sql", "utf8");
 const viewer = "11111111-1111-4111-8111-111111111111", other = "22222222-2222-4222-8222-222222222222";
 const creator = "33333333-3333-4333-8333-333333333333", banned = "44444444-4444-4444-8444-444444444444";
 const post = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const names = ["request.jwt.claims", "request.jwt.claim", "request.jwt.claim.sub", "request.jwt.claim.role"];
 let db: PGlite;
+let preDeploy: { aclUnchanged: boolean; anonymous: string[]; following: string[]; bridge: string[] };
 jest.setTimeout(90000);
 beforeAll(async () => {
   db = createLocalPostgres();
@@ -31,7 +33,21 @@ beforeAll(async () => {
     insert into likes values('${viewer}','${post}');`);
   for (const f of fixture.functions) await db.exec(f.definition);
   await db.exec("grant execute on function public.get_feed_v3(text,integer,integer) to anon,authenticated,service_role;");
+  const acl = async () => (await db.query<{ acl: string }>("select proacl::text acl from pg_proc where oid='public.get_feed_v3(text,integer,integer)'::regprocedure")).rows[0].acl;
+  const oldAcl = await acl();
   await db.exec(migration);
+  preDeploy = { aclUnchanged: oldAcl === await acl(), anonymous: [], following: [], bridge: [] };
+  // Before application deployment, current SSR calls must remain available.
+  await db.exec("begin;set local role anon");
+  await claims([JSON.stringify({role:"anon"}),"","","anon"]);
+  preDeploy.anonymous = (await db.query<{post_id:string}>("select * from public.get_feed_v3('discover',20,0)")).rows.map(row=>row.post_id);
+  await db.exec("rollback;begin;set local role authenticated");
+  await claims([JSON.stringify({role:"authenticated",sub:viewer}),"",viewer,"authenticated"]);
+  preDeploy.following = (await db.query<{post_id:string}>("select * from public.get_feed_v3('following',20,0)")).rows.map(row=>row.post_id);
+  await db.exec("rollback;begin;set local role service_role");
+  preDeploy.bridge = (await call(viewer,"following")).rows.map(row=>row.post_id);
+  await db.exec("rollback");
+  await db.exec(postDeploy);
 });
 afterAll(async () => { await db.close(); });
 beforeEach(async () => { await db.exec("begin"); });
@@ -48,6 +64,10 @@ async function readClaims() {
 }
 const call = (actor: string | null, tab = "discover") => db.query<{ post_id: string; is_liked: boolean; is_following: boolean }>(
   "select * from public.get_feed_for_actor_v1($1,$2,20,0)", [actor, tab]);
+
+test("additive pre-deploy phase preserves old SSR anonymous/following access and permits the new bridge",()=>{
+  expect(preDeploy).toEqual({aclUnchanged:true,anonymous:[post],following:[post],bridge:[post]});
+});
 
 test("migration retains the exact captured feed body and result contract", async () => {
   const captured = fixture.functions.find(f => f.name === "get_feed_v3")!;
@@ -121,3 +141,25 @@ test("migration refuses a changed legacy body before altering privileges", async
     expect((await isolated.query<{ exists: boolean }>("select to_regprocedure('public.get_feed_for_actor_v1(uuid,text,integer,integer)') is not null as exists")).rows[0].exists).toBe(false);
   } finally { await isolated.close(); }
 });
+
+test.each(["missing bridge", "bridge body", "bridge metadata", "bridge PUBLIC grant", "legacy body"])(
+  "post-deploy revoke refuses %s drift without closing the old entry prematurely", async drift => {
+    const isolated = createLocalPostgres();
+    try {
+      await isolated.exec("create role anon;create role authenticated;create role service_role;create schema auth;");
+      for (const f of fixture.functions) await isolated.exec(f.definition);
+      await isolated.exec("grant execute on function public.get_feed_v3(text,integer,integer) to anon,authenticated,service_role");
+      await isolated.exec(migration);
+      if(drift==="missing bridge") await isolated.exec("drop function public.get_feed_for_actor_v1(uuid,text,integer,integer)");
+      if(drift==="bridge body") {
+        const definition=(await isolated.query<{definition:string}>("select pg_get_functiondef('public.get_feed_for_actor_v1(uuid,text,integer,integer)'::regprocedure) definition")).rows[0].definition;
+        await isolated.exec(definition.replace("return query select * from public.get_feed_v3(p_tab,p_limit,p_offset);","raise exception 'Changed bridge';"));
+      }
+      if(drift==="bridge metadata") await isolated.exec("alter function public.get_feed_for_actor_v1(uuid,text,integer,integer) security definer");
+      if(drift==="bridge PUBLIC grant") await isolated.exec("grant execute on function public.get_feed_for_actor_v1(uuid,text,integer,integer) to public");
+      if(drift==="legacy body") await isolated.exec(fixture.functions.find(f=>f.name==="get_feed_v3")!.definition.replace("v_uid uuid := auth.uid();","v_uid uuid := null;"));
+      await expect(isolated.exec(postDeploy)).rejects.toThrow(/differs|privileges/);
+      await isolated.exec("rollback");
+      expect((await isolated.query<{allowed:boolean}>("select has_function_privilege('anon','public.get_feed_v3(text,integer,integer)','EXECUTE') allowed")).rows[0].allowed).toBe(true);
+    } finally { await isolated.close(); }
+  });

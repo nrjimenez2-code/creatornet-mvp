@@ -1,4 +1,6 @@
--- Preserve the reviewed legacy feed body while making the API its only client entry.
+-- PRE-DEPLOY additive phase. Preserve existing legacy feed ACLs until every
+-- current application deployment has switched to the verified service bridge.
+-- The separately reviewed post-deploy migration closes direct client execution.
 begin;
 set local lock_timeout = '5s';
 set local statement_timeout = '30s';
@@ -50,7 +52,8 @@ begin
 end $bridge$;
 revoke all on function public.get_feed_for_actor_v1(uuid,text,integer,integer) from public,anon,authenticated;
 grant execute on function public.get_feed_for_actor_v1(uuid,text,integer,integer) to service_role;
-revoke all on function public.get_feed_v3(text,integer,integer) from public,anon,authenticated;
+-- Do not revoke the old function here: current Production still uses its
+-- authenticated SSR caller. Revoke only after the new code is verified live.
 grant execute on function public.get_feed_v3(text,integer,integer) to service_role;
 notify pgrst,'reload schema';
 commit;
