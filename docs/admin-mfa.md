@@ -23,6 +23,13 @@ Incomplete enrollments are listed from the SDK's `all` factors array (its
 `totp` list contains verified factors only). Review/cancel an unverified setup
 before replacing it; an uncertain enrollment response is not blindly replayed.
 
+Successful verification can also invalidate another browser's session that has
+not completed MFA. Keep a fresh-sign-in recovery check in one browser session;
+verifying in the original browser during that check can invalidate the test
+session. A `session_not_found` failure requires a fresh normal sign-in, not new
+factors or repeated codes. The UI distinguishes invalid sign-in, rate limiting,
+invalid TOTP and other verification failures without showing provider details.
+
 Explicit MFA actions use public SDK fetch/storage adapters to bind requests and
 the resulting session commit to the original stored sign-in. A concurrent
 sign-out, replacement account, or another tab's storage update discards a late

@@ -86,7 +86,15 @@ function PrivilegedMfaPanel({ userId }: { userId: string }) {
       const { error: verifyError } = await client().auth.mfa.challengeAndVerify({ factorId, code: code.trim() });
       setCode("");
       if (verifyError?.code === "mfa_session_changed") { setEnrollment(null); throw Error("Your sign-in changed. Reload Account security before trying again."); }
-      if (verifyError) throw Error("That authenticator code was not accepted. Check the code and your device time, then try again.");
+      if (verifyError) {
+        if (["session_not_found", "session_expired", "bad_jwt", "no_authorization", "refresh_token_not_found", "refresh_token_already_used"].includes(verifyError.code ?? "") || verifyError.name === "AuthSessionMissingError" || verifyError.status === 401) {
+          setEnrollment(null); setStatus(null); setFactors([]); setPendingFactors([]); setSelected("");
+          throw Error("This browser's sign-in is no longer valid. Sign in again, then verify your authenticator.");
+        }
+        if (verifyError.code === "over_request_rate_limit" || verifyError.status === 429) throw Error("Too many verification attempts. Wait a minute before trying again.");
+        if (verifyError.code === "mfa_verification_failed") throw Error("That authenticator code was not accepted. Check the selected authenticator and your device time, then try again.");
+        throw Error("Could not verify your authenticator. Reload Account security before trying again.");
+      }
       // Clear the enrollment secret immediately; do not retain it if cookie
       // synchronization fails after the provider has already verified it.
       setEnrollment(null);

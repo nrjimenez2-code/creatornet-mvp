@@ -83,3 +83,69 @@ test("verification waits for session-cookie synchronization and confirmed server
   expect(mockPrepare).toHaveBeenCalledTimes(1);
   expect(container.textContent).toContain("Administrator controls are ready");
 });
+
+test.each([
+  [{ code: "session_not_found", status: 403 }, "This browser's sign-in is no longer valid", true],
+  [{ name: "AuthSessionMissingError", status: 400 }, "This browser's sign-in is no longer valid", true],
+  [{ status: 401 }, "This browser's sign-in is no longer valid", true],
+  [{ code: "over_request_rate_limit", status: 429 }, "Too many verification attempts", false],
+  [{ status: 429 }, "Too many verification attempts", false],
+  [{ code: "mfa_verification_failed", status: 422 }, "Check the selected authenticator and your device time", false],
+  [{ status: 403 }, "Could not verify your authenticator", false],
+  [{ status: 500 }, "Could not verify your authenticator", false],
+  [{ name: "AuthRetryableFetchError", status: 0 }, "Could not verify your authenticator", false],
+  [{ code: "mfa_session_changed", status: 409 }, "Your sign-in changed. Reload Account security", false],
+])("verification failure %j gives actionable guidance without retrying", async (failure, expected, needsSignIn) => {
+  status = { ...status, verifiedFactorCount: 1 };
+  mockFactors.mockResolvedValue({ data: { all: [], totp: [{ id: "primary", status: "verified", friendly_name: "Primary" }] }, error: null });
+  mockVerify.mockResolvedValue({ error: { name: "AuthApiError", message: "PRIVATE-PROVIDER-DETAIL", ...failure } });
+  await render();
+  const input = container.querySelector('input[aria-label="Six-digit authenticator code"]') as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "123456");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain(expected);
+  expect(container.textContent).not.toContain("PRIVATE-PROVIDER-DETAIL");
+  expect(mockVerify).toHaveBeenCalledTimes(1);
+  expect(mockPrepare).not.toHaveBeenCalled();
+  expect(mockEnroll).not.toHaveBeenCalled();
+  expect(mockUnenroll).not.toHaveBeenCalled();
+  expect(container.querySelector('a[href="/auth?next=%2Faccount%2Fsecurity"]') !== null).toBe(needsSignIn);
+  if (needsSignIn) {
+    expect(input.isConnected).toBe(false);
+    expect(container.querySelector('input[aria-label="Six-digit authenticator code"]')).toBeNull();
+    expect(container.querySelector("form")).toBeNull();
+    expect(container.querySelector("select")).toBeNull();
+    expect(container.textContent).not.toContain("Check the selected authenticator");
+    await click(button("Retry"));
+    const reloadedInput = container.querySelector('input[aria-label="Six-digit authenticator code"]') as HTMLInputElement;
+    expect(reloadedInput).not.toBeNull();
+    expect(reloadedInput.value).toBe("");
+    expect(mockVerify).toHaveBeenCalledTimes(1);
+  } else {
+    expect((container.querySelector('input[aria-label="Six-digit authenticator code"]') as HTMLInputElement).value).toBe("");
+  }
+});
+
+test("an invalid sign-in discards displayed setup material without removing the pending factor", async () => {
+  await render();
+  await click(container.querySelector('input[type="checkbox"]')!);
+  await click(button("Start authenticator setup"));
+  expect(container.textContent).toContain("SYNTHETIC-SETUP-SECRET");
+  mockVerify.mockResolvedValue({ error: { code: "session_not_found", status: 403 } });
+  const input = container.querySelector('input[aria-label="Six-digit authenticator code"]') as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "123456");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => { container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })); });
+  expect(container.textContent).not.toContain("SYNTHETIC-SETUP-SECRET");
+  expect(container.querySelector('[aria-label="New authenticator setup"]')).toBeNull();
+  expect(container.querySelector('a[href="/auth?next=%2Faccount%2Fsecurity"]')).not.toBeNull();
+  expect(mockVerify).toHaveBeenCalledTimes(1);
+  expect(mockEnroll).toHaveBeenCalledTimes(1);
+  expect(mockUnenroll).not.toHaveBeenCalled();
+  expect(mockPrepare).not.toHaveBeenCalled();
+});
