@@ -1,13 +1,13 @@
 import {GET} from "@/app/api/sales-team/recovery/route";
-import {teamAutomaticRecoveryReady,teamFulfillmentReady} from "@/lib/salesTeams/policy";
+import {teamAutomaticRecoveryReady,teamAutomaticRefundRecoveryReady,teamFulfillmentReady} from "@/lib/salesTeams/policy";
 import {createTeamPaymentContext} from "@/lib/salesTeams/context";
 import {runTeamAutomaticRecovery} from "@/lib/salesTeams/recovery";
-jest.mock("@/lib/salesTeams/policy",()=>({teamAutomaticRecoveryReady:jest.fn(),teamFulfillmentReady:jest.fn()}));
+jest.mock("@/lib/salesTeams/policy",()=>({teamAutomaticRecoveryReady:jest.fn(),teamAutomaticRefundRecoveryReady:jest.fn(),teamFulfillmentReady:jest.fn()}));
 jest.mock("@/lib/salesTeams/context",()=>({createTeamPaymentContext:jest.fn()}));
 jest.mock("@/lib/salesTeams/recovery",()=>({runTeamAutomaticRecovery:jest.fn()}));
 const secret="synthetic-recovery-cron-fixture-secret-only";
 const req=(authorization:string|null=`Bearer ${secret}`)=>new Request("https://fixture.vercel.app/api/sales-team/recovery",{headers:authorization?{authorization}:{}});
-beforeEach(()=>{jest.clearAllMocks();process.env.CRON_SECRET=secret;jest.mocked(teamAutomaticRecoveryReady).mockReturnValue(true);jest.mocked(teamFulfillmentReady).mockReturnValue(false);jest.mocked(runTeamAutomaticRecovery).mockResolvedValue({status:"complete",observed:1,held:0});});
+beforeEach(()=>{jest.clearAllMocks();process.env.CRON_SECRET=secret;jest.mocked(teamAutomaticRecoveryReady).mockReturnValue(true);jest.mocked(teamAutomaticRefundRecoveryReady).mockReturnValue(false);jest.mocked(teamFulfillmentReady).mockReturnValue(false);jest.mocked(runTeamAutomaticRecovery).mockResolvedValue({status:"complete",observed:1,held:0});});
 test.each([null,"wrong",`Bearer ${secret}extra`])("invalid cron authorization performs no composition or database work (%s)",async header=>{
  expect((await GET(req(header))).status).toBe(401);expect(createTeamPaymentContext).not.toHaveBeenCalled();expect(runTeamAutomaticRecovery).not.toHaveBeenCalled();
 });
@@ -19,6 +19,11 @@ test("default-off source readiness stops before any provider/client composition"
 });
 test("authenticated ready invocation returns only bounded summary counts with no-store",async()=>{
  const response=await GET(req());expect(response.status).toBe(200);expect(response.headers.get("Cache-Control")).toBe("private, no-store");expect(await response.json()).toEqual({status:"complete",observed:1,held:0});
+ expect(runTeamAutomaticRecovery).toHaveBeenCalledWith(undefined,{fulfill:false,recoverRefunds:false});
+});
+
+test("automatic refund readiness is passed independently after cron authorization",async()=>{
+ jest.mocked(teamAutomaticRefundRecoveryReady).mockReturnValue(true);await GET(req());expect(runTeamAutomaticRecovery).toHaveBeenCalledWith(undefined,{fulfill:false,recoverRefunds:true});
 });
 test("unexpected internal errors preserve holds without exposing provider details",async()=>{
  jest.mocked(runTeamAutomaticRecovery).mockRejectedValue(Error("private-provider-detail"));const log=jest.spyOn(console,"error").mockImplementation(()=>{});

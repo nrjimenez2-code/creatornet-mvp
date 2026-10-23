@@ -63,19 +63,47 @@ export function teamAdminRefundView(q:TeamAdminRefundRequest,disposition:string)
  * Recovery reconciles a real provider event's original idempotency key, never
  * metadata alone, and can only retrieve the original refund thereafter. */
 export async function processTeamAdminRefund(c:TeamReceiptComposition,actorId:string,request:string,admitNew=false){
- let q=await readTeamAdminRefund(c,actorId,request);check(q);
+ const authority:TeamRefundRecoveryAuthority={
+  read:()=>readTeamAdminRefund(c,actorId,request),
+  beginCheck:async receiptId=>(await teamRpc<{checkId:string}>(c.admin,"begin_sales_team_financial_check_v1",{p_check_id:randomUUID(),p_receipt_id:receiptId,p_actor_id:actorId,p_event_id:null,p_worker_run_id:null,p_context:c.context})).checkId,
+  inspect:(receiptId,checkId)=>inspectTeamReceiptFinancials(c,receiptId,actorId,checkId),
+  recordRecovery:proof=>teamRpc(c.admin,"record_sales_team_refund_recovery_v1",{p_actor_id:actorId,p_request_id:request,p_proof:proof}),
+  recordResult:proof=>teamRpc(c.admin,"record_sales_team_refund_result_v1",{p_actor_id:actorId,p_request_id:request,p_proof:proof}),
+  responsibility:()=>teamRpc(c.admin,"record_sales_team_refund_responsibility_v1",{p_actor_id:actorId,p_request_id:request}),
+  resolveCash:()=>teamRpc(c.admin,"resolve_sales_team_refund_cash_v1",{p_actor_id:actorId,p_request_id:request,p_context:c.context})
+ };
+ return processTeamRefund(c,authority,{actorId,admitNew});
+}
+/** Internal supplied authority for observing an already admitted original. The
+ * worker never acquires the admin's authority to dispatch or cancel a refund. */
+export type TeamRefundRecoveryAuthority={
+ read:()=>Promise<TeamAdminRefundRequest|null>;
+ beginCheck:(receiptId:string)=>Promise<string>;
+ inspect:(receiptId:string,checkId?:string)=>Promise<{checkId:string}>;
+ recordRecovery:(proof:Record<string,unknown>)=>Promise<unknown>;
+ recordResult:(proof:Record<string,unknown>)=>Promise<TeamAdminRefundRequest>;
+ responsibility:()=>Promise<unknown>;
+ resolveCash:()=>Promise<unknown>;
+};
+export async function recoverTeamAdmittedRefund(c:TeamReceiptComposition,authority:TeamRefundRecoveryAuthority){
+ return processTeamRefund(c,authority);
+}
+async function processTeamRefund(c:TeamReceiptComposition,authority:TeamRefundRecoveryAuthority,admin?:{actorId:string;admitNew:boolean}){
+ const actorId=admin?.actorId,admitNew=admin?.admitNew===true;
+ const read=async()=>{const value=await authority.read();check(value);validateRequest(c,value);return value;};
+ let q=await read();
  if(q.result?.status==="canceled_before_dispatch"){
-  if(q.receipt.held){await inspectTeamReceiptFinancials(c,q.receipt_id,actorId);q=await readTeamAdminRefund(c,actorId,request);check(q);}
-  if(q.cashReserved)await teamRpc(c.admin,"resolve_sales_team_refund_cash_v1",{p_actor_id:actorId,p_request_id:q.id,p_context:c.context});
+  if(q.receipt.held){await authority.inspect(q.receipt_id);q=await read();}
+  if(q.cashReserved)await authority.resolveCash();
   return teamAdminRefundView(q,"canceled_before_dispatch");
  }
  let recoveryCheckId:string|undefined;
  if(q.operation&&!q.receipt.held){
-  const begun=await teamRpc<{checkId:string}>(c.admin,"begin_sales_team_financial_check_v1",{p_check_id:randomUUID(),p_receipt_id:q.receipt_id,p_actor_id:actorId,p_event_id:null,p_worker_run_id:null,p_context:c.context});recoveryCheckId=begun.checkId;
+  recoveryCheckId=await authority.beginCheck(q.receipt_id);
  }
  if(!q.operation){
-  if(!admitNew||q.requested_by!==actorId)return teamAdminRefundView(q,"not_dispatched");
-  const inspection=await inspectTeamReceiptFinancials(c,q.receipt_id,actorId);
+  if(!admitNew||!actorId||q.requested_by!==actorId)return teamAdminRefundView(q,"not_dispatched");
+  const inspection=await authority.inspect(q.receipt_id);
   q=await teamRpc<TeamAdminRefundRequest>(c.admin,"attach_sales_team_refund_check_v1",{p_actor_id:actorId,p_request_id:q.id,p_check_id:inspection.checkId});validateRequest(c,q);
   await fundTeamAdminRefund(c,actorId,q.id);
  }
@@ -102,21 +130,21 @@ export async function processTeamAdminRefund(c:TeamReceiptComposition,actorId:st
    const snapshot=event.data.object as Stripe.Refund,found=await retrieve(snapshot.id);
    const immutable=(r:Stripe.Refund)=>({id:r.id,object:r.object,charge:objectId(r.charge),pi:objectId(r.payment_intent),amount:r.amount,currency:r.currency,created:r.created,metadata:r.metadata});
    check(isDeepStrictEqual(immutable(snapshot),immutable(found.refund))&&Date.now()>=started&&Date.now()-started<25000);
-   await teamRpc(c.admin,"record_sales_team_refund_recovery_v1",{p_actor_id:actorId,p_request_id:original.id,p_proof:{eventId:event.id,eventType:event.type,eventCreated:event.created,livemode:event.livemode,account:null,
+   await authority.recordRecovery({eventId:event.id,eventType:event.type,eventCreated:event.created,livemode:event.livemode,account:null,
     idempotencyKey,originalRequestId,refundId:found.id,chargeId:original.receipt.chargeId,paymentIntentId:original.receipt.paymentIntentId,amountCents:Number(original.amount_cents),currency:"usd",refundCreated:found.refund.created,
-    metadata:found.refund.metadata,context:c.context,eventReadRequestId:eventReads.get(event.id),refundReadRequestId:requestId(found.refund),readStartedAt:started}});
+    metadata:found.refund.metadata,context:c.context,eventReadRequestId:eventReads.get(event.id),refundReadRequestId:requestId(found.refund),readStartedAt:started});
    return {...found,requestId:originalRequestId};
   },validate:object=>{check(object.id===object.refund.id);inspectRefund(original,object.refund,Math.floor(Date.now()/1000));}});
- q=await readTeamAdminRefund(c,actorId,request);check(q);
+ q=await read();
  if(result.status!=="bound")return teamAdminRefundView(q,result.status);
  const bound=q,started=Date.now(),first=await retrieve(result.object.id),second=await retrieve(result.object.id);
  const proof=inspectRefund(bound,second.refund,Math.floor(Date.now()/1000)),stable=(r:Stripe.Refund)=>{const p=inspectRefund(bound,r,Math.floor(Date.now()/1000));const {providerRequestId,...fields}=p;void providerRequestId;return fields;};
  check(isDeepStrictEqual(stable(first.refund),stable(second.refund))&&Date.now()>=started&&Date.now()-started<25000&&isDeepStrictEqual(await c.observeContext(),c.context));
- q=await teamRpc<TeamAdminRefundRequest>(c.admin,"record_sales_team_refund_result_v1",{p_actor_id:actorId,p_request_id:q.id,p_proof:{...proof,readStartedAt:started}});
- if(["succeeded","failed","canceled"].includes(proof.status))await teamRpc(c.admin,"record_sales_team_refund_responsibility_v1",{p_actor_id:actorId,p_request_id:q.id});
- await inspectTeamReceiptFinancials(c,q.receipt_id,actorId,recoveryCheckId);
- if(q.cashReserved)await teamRpc(c.admin,"resolve_sales_team_refund_cash_v1",{p_actor_id:actorId,p_request_id:q.id,p_context:c.context});
- q=await readTeamAdminRefund(c,actorId,request);check(q);const status=q.observedStatus??proof.status;return teamAdminRefundView(q,status==="succeeded"?"refund_observed":status==="failed"||status==="canceled"?"refund_not_completed":"refund_pending");
+ q=await authority.recordResult({...proof,readStartedAt:started});
+ if(["succeeded","failed","canceled"].includes(proof.status))await authority.responsibility();
+ await authority.inspect(q.receipt_id,recoveryCheckId);
+ if(q.cashReserved)await authority.resolveCash();
+ q=await read();const status=q.observedStatus??proof.status;return teamAdminRefundView(q,status==="succeeded"?"refund_observed":status==="failed"||status==="canceled"?"refund_not_completed":"refund_pending");
 }
 export async function cancelUnsentTeamRefund(c:TeamReceiptComposition,actorId:string,requestId:string){
  const q=await readTeamAdminRefund(c,actorId,requestId);check(q);

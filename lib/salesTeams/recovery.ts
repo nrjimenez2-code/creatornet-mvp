@@ -9,13 +9,14 @@ import {refreshTeamBoundCollection} from "./collection";
 import {inspectSharedCashOriginal} from "./sharedCashChecks";
 import type {SharedCashOriginal} from "./sharedCashReadback";
 import {observeTeamRecipient,type TeamRecipientSetup} from "./recipientPolicy";
+import {recoverTeamWorkerRefund} from "./workerRefunds";
 
-type Task={id:string;kind:"financial"|"event"|"shared_cash"|"recipient"|"fulfillment";source_id:string;source:Record<string,unknown>};
+type Task={id:string;kind:"financial"|"event"|"shared_cash"|"recipient"|"fulfillment"|"refund";source_id:string;source:Record<string,unknown>};
 type Claim={status:"held"|"busy"|"slot_consumed"|"claimed";runId?:string;leaseToken?:string};
 /** Three durable tasks, at most forty object GETs, no retries or provider writes.
  * Context observations have their existing independent timeouts. Leases and
  * immutable results preserve uncertain invocations if a process disappears. */
-export async function runTeamAutomaticRecovery(c:TeamReceiptComposition,options:{now?:()=>number;fulfill?:boolean}={}){
+export async function runTeamAutomaticRecovery(c:TeamReceiptComposition,options:{now?:()=>number;fulfill?:boolean;recoverRefunds?:boolean}={}){
  const now=options.now??Date.now,started=now();
  const bounded=()=>{if(now()<started||now()-started>=45000)throw Error("Recovery observation budget exhausted");};
  const current=async()=>{bounded();if(!isDeepStrictEqual(await c.observeContext(),c.context))throw Error("Recovery context changed");bounded();};
@@ -34,10 +35,13 @@ export async function runTeamAutomaticRecovery(c:TeamReceiptComposition,options:
  const drain=async()=>{await Promise.allSettled([...pending]);};
  try{
   for(let n=0;n<3&&now()>=started&&now()-started<35000;n++){
-   await current();const task=await rpc<Task|null>("next_sales_team_recovery_task_v1",{...scope,p_fulfill:options.fulfill===true});if(!task)break;
+   await current();const task=await rpc<Task|null>("next_sales_team_recovery_task_v1",{...scope,p_fulfill:options.fulfill===true,...(options.recoverRefunds===true?{p_refunds:true}:{})});if(!task)break;
    let taskHeld=true;
    try{
-    if(task.kind==="financial"){
+    if(task.kind==="refund"){
+     if(!options.recoverRefunds)throw Error("Original refund recovery held");
+     const result=await recoverTeamWorkerRefund(reader,{runId,leaseToken,taskId:task.id,requestId:task.source_id});taskHeld=result.held;
+    }else if(task.kind==="financial"){
      const begun=await rpc<{checkId:string;completed:boolean;held:boolean;source:TeamEventSource}>("begin_sales_team_recovery_financial_v1",{...scope,p_task_id:task.id});
      if(begun.completed)taskHeld=begun.held;
      else{const inspected=await readTeamFinancialSnapshot(reader,begun.source,{eventId:null,balances:true});await current();const result=await rpc<{held:boolean}>("complete_sales_team_recovery_financial_v1",{...scope,p_check_id:begun.checkId,p_expected_revision:inspected.revision,p_snapshot:inspected.snapshot});taskHeld=result.held;}

@@ -515,3 +515,55 @@ also remain unfinished. This inspection seam must not be treated as that complet
 financial dispatcher or as authority to activate a scheduler.
 
 Do not repeat the release-controls migration: its reviewed source filename is `20261021010052_controlled_website_releases.sql`, but the existing hosted applied-once receipt is version `20261021020911`. Reconcile that receipt before any proposed migration installation; a filename mismatch is not permission to replay it. Do not repeat old payment operations, consumed provider tests or preserved checkout tests just to reconstruct context. Do not use this branch's code as authority for hosted financial, account, scheduler, migration, deployment or Production/LIVE changes.
+
+### Worker recovery of admitted refund originals — October 23 continuation
+
+The existing F21 candidate `20261023063905_sales_team_worker_refund_recovery.sql`
+has now been installed and verified locally. `workerRefunds.ts` supplies actual
+run/token/task authority to the existing original-event/key refund recovery.
+The public administrator path retains fresh-dispatch authority. The worker path
+can only inspect an admitted original or finish an already audited unsent
+cancellation; it cannot create a refund or invent a cancellation. It shares
+F20's bounded GET-only transport and drain-before-audit behavior.
+
+The sixth task kind is independently default off. Source gates
+`CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_SCHEMA_READY` and
+`CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_READY`, plus database control
+`automatic_refund_recovery_enabled`, are required in addition to F20 readiness.
+The optional fifth queue argument is omitted when refund recovery is disabled,
+preserving compatibility with the installed F20 four-argument queue. No scheduler
+is registered or activated. New-money-off does not prevent original recovery.
+
+Each phase checks the current context, run, token, lease, exact unfinished task,
+admitted journal and reviewed source digest. Live original dispatch leases are
+excluded. Financial checks must belong to that exact task, request, receipt and
+worker. Direct financial completion also rejects a finished task. Immutable
+sidecars retain the actual worker observer separately from original human
+approval, even after the approver loses admin access. Original approved cost
+responsibility/reason, provider POST bytes, IDs and keys remain unchanged.
+Metadata alone cannot establish refund ownership. Terminal success includes the
+cash-reservation state, so a reconciled receipt with unavailable cash evidence
+still reports held. Failed independent checks roll back stale-check links/results.
+
+Evidence root:
+`C:\Users\sandy\Documents\Codex\2026-10-23\goal-use-the-given-handoff-to\work`.
+`worker-refund-integrated-initial.json` passed111 across worker refunds19,
+automatic recovery20, transport/gates7, endpoint8, admin refund database35 and
+retained funding22. After the final completed-task guard,
+`worker-refund-authority-final.json` passed the affected19 again. These overlap;
+they are not130 distinct tests. Current full incremental TypeScript passed.
+Scoped lint passed with zero errors/warnings. Earlier failed receipts are
+retained: the first runtime fixture omitted required fulfillment readiness;
+the next exposed identifier validation of an unrelated extra fixture field.
+The fixture and explicit named identifier validation were corrected without
+weakening payment admission or financial proof checks.
+
+All provider transport is mocked and SQL uses PGlite on the existing structural
+parent fixtures. This closes the local F21 implementation gap only. No-outbound
+terminal shared release, same-creator post-transfer recovery, later collections
+and lifecycle, settlement, protected surplus and confirmed bank payouts remain.
+Full historical/installed-schema security compatibility, current complete
+CI/build/browser checks, actual commercial/provider prerequisites, separately
+authorized hosted sandbox acceptance and distinct Production/LIVE/bank evidence
+also remain required. No external financial, account, migration, deployment,
+environment, scheduler or activation operation occurred in this continuation.

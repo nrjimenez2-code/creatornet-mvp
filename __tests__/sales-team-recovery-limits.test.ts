@@ -2,7 +2,7 @@ import type {SupabaseClient} from "@supabase/supabase-js";
 import {runTeamAutomaticRecovery} from "@/lib/salesTeams/recovery";
 import {readTeamFinancialSnapshot,observeTeamPaymentEvent} from "@/lib/salesTeams/financialReadback";
 import {refreshTeamBoundCollection} from "@/lib/salesTeams/collection";
-import {teamAutomaticRecoveryReady} from "@/lib/salesTeams/policy";
+import {teamAutomaticRecoveryReady,teamAutomaticRefundRecoveryReady} from "@/lib/salesTeams/policy";
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
 jest.mock("@/lib/salesTeams/financialReadback",()=>({readTeamFinancialSnapshot:jest.fn(),observeTeamPaymentEvent:jest.fn()}));
 jest.mock("@/lib/salesTeams/collection",()=>({refreshTeamBoundCollection:jest.fn()}));
@@ -43,4 +43,11 @@ test("an exhausted observation budget cannot commit a stale financial snapshot",
 test("new-money flags are independent of the explicit recovery schema and execution gates",()=>{
  const env={CREATOR_SALES_TEAM_SCHEMA_READY:"true",CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY:"true",CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY:"true",CREATOR_TEAM_PAYMENT_SCHEMA_READY:"true",CREATOR_TEAM_RECEIPT_SCHEMA_READY:"true",CREATOR_TEAM_EVENT_SCHEMA_READY:"true",CREATOR_TEAM_FINANCIAL_SCHEMA_READY:"true",CREATOR_TEAM_REFUND_DISPATCH_SCHEMA_READY:"true",CREATOR_TEAM_CASH_SCHEMA_READY:"true",CREATOR_TEAM_AUTOMATIC_RECOVERY_SCHEMA_READY:"true",CREATOR_TEAM_AUTOMATIC_RECOVERY_READY:"true"};
  expect(teamAutomaticRecoveryReady(env)).toBe(true);expect(teamAutomaticRecoveryReady({...env,CREATOR_TEAM_AUTOMATIC_RECOVERY_READY:"false"})).toBe(false);expect(teamAutomaticRecoveryReady({...env,CREATOR_TEAM_AUTOMATIC_RECOVERY_SCHEMA_READY:"false"})).toBe(false);
+ expect(teamAutomaticRefundRecoveryReady(env)).toBe(false);
+ const refunds={...env,CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_SCHEMA_READY:"true",CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_READY:"true"};
+ expect(teamAutomaticRefundRecoveryReady(refunds)).toBe(true);expect(teamAutomaticRefundRecoveryReady({...refunds,CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_SCHEMA_READY:"false"})).toBe(false);expect(teamAutomaticRefundRecoveryReady({...refunds,CREATOR_TEAM_AUTOMATIC_REFUND_RECOVERY_READY:"false"})).toBe(false);
+});
+
+test("the refund option is omitted for the installed four argument F20 queue",async()=>{
+ const f=fixture(true);await runTeamAutomaticRecovery(f.c);expect(f.rpc).toHaveBeenCalledWith("next_sales_team_recovery_task_v1",expect.not.objectContaining({p_refunds:expect.anything()}));
 });
