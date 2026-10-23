@@ -9,6 +9,7 @@ import { exactContextServerConfig } from "../installments/contextServer";
 import { CONTEXT_RESERVATION_VERSION } from "../installments/contextReservation";
 import { HELD_INSTALLMENT_VERSION } from "../installments/heldInvoice";
 import { assertAgreementId } from "../installments/agreementStore";
+import {RefundWorkflowError} from "./refunds";
 
 type Base = { admin: SupabaseClient; actorId: string; env?: Record<string, string | undefined> };
 type Preview = { kind: "preview"; input: RefundRequestInput };
@@ -26,6 +27,9 @@ export async function executeAdminRefundAction(base: Base, action: Preview | Cha
   } else ledgerId = action.input.paymentFeeLedgerId;
   assertAgreementId(ledgerId);
   const source = await store.getSourceContext(ledgerId);
+  if (source.ledger.salesTeamSaleId) {
+    throw new RefundWorkflowError(409, "This team payment needs its separate-charge refund workflow and commission reconciliation.");
+  }
   if (source.ledger.bookingPaymentId) {
     // select(*) also supports the earlier deployed schema, where the protocol
     // column is absent. No missing-table/lookup error is swallowed as legacy.

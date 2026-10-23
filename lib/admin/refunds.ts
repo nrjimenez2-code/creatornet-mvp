@@ -227,6 +227,9 @@ export async function previewAdminRefund(
 ): Promise<AdminRefundPreview> {
   validateRefundInput(input);
   const source = await store.getSourceContext(input.paymentFeeLedgerId);
+  if (source.ledger.salesTeamSaleId) {
+    throw new RefundWorkflowError(409, "This team payment needs its separate-charge refund workflow and commission reconciliation.");
+  }
   if (!source.ledger.stripePaymentIntentId) {
     throw new RefundWorkflowError(422, "This payment is not linked to Stripe.");
   }

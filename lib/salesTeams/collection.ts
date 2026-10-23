@@ -70,6 +70,14 @@ export function teamCollectionView(s:TeamCollection,pi?:Stripe.PaymentIntent){
   ...(phase==="requires_action"&&pi?.status==="requires_action"&&pi.client_secret?{clientSecret:pi.client_secret}:{}),
   pendingRequest:s.confirmation&&s.confirmation.operation_status!=="bound"?{id:s.confirmation.request_id,kind:s.confirmation.kind}:null};
 }
+/** Event recovery reads one already bound original and its current state. It
+ * cannot reserve a customer/intent, confirm a payment or repeat a provider POST. */
+export async function refreshTeamBoundCollection(c:Composition,saleId:string,buyerId:string,obligationId:string){
+ let s=await readTeamCollection(c,saleId,buyerId);await assertContext(c,s);check(s.attempt?.contract.obligationId===obligationId);
+ const op=await prior(c,s.attempt.intent_operation_id);check(op?.status==="bound"&&op.provider_id);
+ const pi=await originalIntent(c,s,op.provider_id);await observeState(c,s,pi);s=await readTeamCollection(c,saleId,buyerId);
+ return {saved:s,pi,view:teamCollectionView(s,pi)};
+}
 export async function prepareTeamCollection(c:Composition,saleId:string,buyerId:string,admitNew:boolean){
  let s=await readTeamCollection(c,saleId,buyerId);await assertContext(c,s);if(s.closed||s.receipt)return {saved:s,view:teamCollectionView(s)};
  const customerScope=scope(s,"customer","customer:v1"),customerId=teamOperationId(customerScope);

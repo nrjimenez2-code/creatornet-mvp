@@ -29,6 +29,8 @@ This is a new implementation of the October 21 closing-team plan. Its full accep
 | `CREATOR_TEAM_RECEIPT_RECORDING_READY` | Admit receipt recording independently of new sales; required before new collection. |
 | `CREATOR_TEAM_FULFILLMENT_SCHEMA_READY` | Read shared team purchase/delivery bindings and timed entitlements after new activity stops. |
 | `CREATOR_TEAM_FULFILLMENT_READY` | Admit first shared purchase/fee accounting and delivery; required before new collection. |
+| `CREATOR_TEAM_EVENT_SCHEMA_READY` | Discover signed event holds and immutable financial observations. Original ownership fencing remains installed even when source flags are disabled. |
+| `CREATOR_TEAM_EVENT_RECONCILIATION_READY` | Apply current independently read team payment events; required before new collection. |
 
 All gates default to false. The database also starts with access, new-sale and settlement controls false. Financial configuration starts without approved context, verified pricing, reserve configuration or approved disclosures. A source change or migration must not mark these accepted.
 
@@ -66,7 +68,7 @@ complete-suite or hosted acceptance result. Original receipts remain preserved.
 
 ## Work still required
 
-Connect automated account capability events/current worker verification; verify calendar confirmation against assigned destinations and expose its verified state; connect signed team event routing before legacy effects; complete independent refund/dispute/responsibility observations and recovery, fixed-total/monthly later-payment, cancellation and payoff behavior; implement actual shared-cost reconciliation, settlement claims, reserve-protected withdrawals, bank-payout status and alerts; complete the earnings/accounting views. First-payment collection, receipt recovery, shared Library fulfillment and safely unpaid replacement are locally implemented. Actual Stripe account/payment availability, hosted onboarding and browser/provider acceptance remain unverified. Full installed-schema compatibility and booked-offer admission against the current exclusive video-action/booking model still require verification.
+Connect automated account capability events/current worker verification; verify calendar confirmation against assigned destinations and expose its verified state; complete refund/dispute balance-cost and responsibility review/recovery, separate-charge admin refunds, fixed-total/monthly later-payment, cancellation and payoff behavior; implement actual shared-cost reconciliation, settlement claims, reserve-protected withdrawals, bank-payout status and alerts; complete the earnings/accounting views. Signed team event routing, current bounded independent financial observations, first-payment collection, receipt recovery, shared Library fulfillment and safely unpaid replacement are locally implemented. Actual Stripe account/payment availability, hosted onboarding and browser/provider acceptance remain unverified. Full installed-schema compatibility and booked-offer admission against the current exclusive video-action/booking model still require verification.
 
 The new distribution protocol must preserve the payment candidate's pre-charge billing/card checks, current authorization/Stop checks, original operation identities, independent provider receipts and immutable saved request bytes. A default hosted Checkout capture must not bypass those gates.
 
@@ -100,6 +102,69 @@ PGlite uses synthetic users and minimal structural fixtures. Its Promise-based r
 October 22 capture/fulfillment continuation: latest applicable receipts cover 12 distinct affected suites / 125 passing tests: capture policy16, capture SQL9, independent readback5, shared fulfillment12, entitlement reader6, full buyer API flow3; existing collection API16/UI8/adapter9, private delivery17, membership access routes20 and Library creator access4. The full API fixture drives GET-only provider recovery through real PGlite receipt, commission, shared accounting and Library entitlement while new sales are disabled. Full TypeScript and scoped lint pass with zero lint errors/warnings. Initial failures exposed an ambiguous SQL alias, missing fixture types, a clean-versus-financial fixture mismatch, and a journal transaction-start timestamp that could precede its token inside a long transaction. New operations now default to actual admission time; existing operation timestamps/identities are untouched. A new long-transaction check preserves that invariant. A later ambiguous receipt-proof variable was also corrected. Failed/diagnostic receipts remain saved. These structural tests reuse the real shared ledger constraints and delivery functions, but do not establish full historical composer/CTA or hosted schema compatibility. The previous webpack pass at `c2e45fa` predates these runtime changes; there is no new current-revision full build or CI result.
 
 ## Hosted catalog evidence and no-repeat boundaries
+
+October 22 signed-event continuation adds the local candidate
+`20261023000533_sales_team_payment_events.sql`. The canonical webhook routes
+bound team intents/charges before every legacy payment/refund/dispute adapter,
+including duplicate refund-confirmation repair. Signature, destination/mode and
+the shared durable event claim still run first. Metadata can fence a payment
+for review; it cannot grant ownership or supply accounting terms. Only an
+uninstalled locator function permits unmarked legacy fallback. Database errors
+and owned/marked objects fail closed. Installed saved ownership continues to
+fence the legacy path with application flags disabled.
+
+New deliveries persist an immutable event locator and pending hold before any
+provider inspection. Pending events close Library access and fresh payment
+dispatch. Failed reads, a worker loss or disabled application gates leave the
+hold durable. Current lifecycle recovery only reads an already bound original;
+it does not create customers/intents or reconfirm a debit. Captured events
+independently inspect the original capture, bounded paginated refund/dispute
+lists and repeated list membership/current charge reads. Original charge fees
+replace estimates only after verified readback. Event observations and shared
+accounting commit together, and a later retry can resume pending shared
+fulfillment without another receipt or payment.
+
+Confirmed refunded principal immediately reduces commission even if the
+bounded refund list is incomplete. Missing responsibility decisions, pending
+refunds, unmatched dispute identities, incomplete lists and ambiguous partial
+refund/dispute overlap remain held. Another pending event cannot be cleared by
+one completed delivery. Dispute balance adjustments and related costs still
+require their dedicated reconciliation; a won dispute alone does not release
+that financial review. The refund-review table is a private immutable seam;
+the admin review and separate-charge refund dispatcher are still incomplete.
+Legacy admin preview/create/retry explicitly refuse team ledger rows before
+provider calls, instead of using destination-charge transfer/application-fee
+operations. New team collection requires the independent event gate in source
+and the database. All new controls default false. No hosted migration or
+provider mutation is implied by this source implementation.
+
+Provider API references: [list refunds](https://docs.stripe.com/api/refunds/list),
+[list disputes](https://docs.stripe.com/api/disputes/list), and
+[marketplace refunds/disputes](https://docs.stripe.com/connect/marketplace/tasks/refunds-disputes).
+The installed Stripe SDK declarations confirm the charge filters and cursor
+pagination. The original charge's processing cost is kept distinct from
+dispute/refund balance adjustments and later shared settlement costs.
+
+Latest applicable local signed-event receipts cover 23 distinct suites / 455
+passing tests across scoped runs: signed team HTTP/database16, locator7,
+financial policy7, capture readback5, buyer receipt API3, collection9/API16,
+legacy webhook342 across eleven suites, legacy admin refund API3/workflow10/
+app12, installment refund coordination19 and monthly coordination6. Full
+TypeScript passed; scoped lint has zero errors and 23 existing `any` warnings
+in the canonical webhook. This is not a consolidated full-suite or CI pass.
+Initial runs failed on SQL parentheses, a Request/NextRequest test type, a mock
+error constructor/overload, and a fixture failure that incorrectly shared a
+PostgreSQL transaction across a simulated failed HTTP request. A recovery run
+also named a nonexistent adapter test; its two real suites passed, but that
+run was not green. The broad webhook run initially failed 24 assertions in two
+legacy fixtures: catch-all reservation responses also answered the new locator,
+and write-denial assertions treated its exact read-only RPC as a write. Fixtures
+now return no team owner only for that named lookup and continue checking every
+other operation. The two corrected legacy suites plus latest team signed suite
+pass125, including signature order, private history, lost-read durable holds,
+concurrent pending deliveries, pre-receipt holds and post-accounting delivery
+recovery. Failed/partial receipts are preserved. No new build, hosted schema,
+browser, real provider mutation or acceptance result is claimed.
 
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
 

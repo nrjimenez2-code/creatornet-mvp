@@ -13,11 +13,12 @@ export const teamSettlementReady = (env: TeamEnvironment = process.env) => teamL
 export const teamRecipientSchemaReady = (env: TeamEnvironment = process.env) => teamLedgerSchemaReady(env) && env.CREATOR_TEAM_RECIPIENT_SCHEMA_READY === "true";
 export const teamRecipientOnboardingReady = (env: TeamEnvironment = process.env) => teamRecipientSchemaReady(env) && env.CREATOR_TEAM_RECIPIENT_ONBOARDING_READY === "true";
 export const teamPaymentSchemaReady = (env: TeamEnvironment = process.env) => teamLedgerSchemaReady(env) && env.CREATOR_TEAM_PAYMENT_SCHEMA_READY === "true";
-export const teamPaymentCollectionReady = (env: TeamEnvironment = process.env) => teamPaymentSchemaReady(env) && teamCheckoutReady(env) && env.CREATOR_TEAM_PAYMENT_COLLECTION_READY === "true" && teamReceiptRecordingReady(env) && teamFulfillmentReady(env);
+export const teamPaymentCollectionReady = (env: TeamEnvironment = process.env) => teamPaymentSchemaReady(env) && teamCheckoutReady(env) && env.CREATOR_TEAM_PAYMENT_COLLECTION_READY === "true" && teamReceiptRecordingReady(env) && teamFulfillmentReady(env) && teamEventReconciliationReady(env);
 export const teamReceiptSchemaReady = (env: TeamEnvironment = process.env) => teamPaymentSchemaReady(env) && env.CREATOR_TEAM_RECEIPT_SCHEMA_READY === "true";
 export const teamReceiptRecordingReady = (env: TeamEnvironment = process.env) => teamReceiptSchemaReady(env) && env.CREATOR_TEAM_RECEIPT_RECORDING_READY === "true";
 export const teamFulfillmentSchemaReady = (env: TeamEnvironment = process.env) => teamReceiptSchemaReady(env) && env.CREATOR_TEAM_FULFILLMENT_SCHEMA_READY === "true";
 export const teamFulfillmentReady = (env: TeamEnvironment = process.env) => teamFulfillmentSchemaReady(env) && env.CREATOR_TEAM_FULFILLMENT_READY === "true";
+export const teamEventReconciliationReady = (env: TeamEnvironment = process.env) => teamFulfillmentSchemaReady(env) && env.CREATOR_TEAM_EVENT_SCHEMA_READY === "true" && env.CREATOR_TEAM_EVENT_RECONCILIATION_READY === "true";
 export type TeamRecipientStatus={status:"not_started"|"verification_required"|"setup_required"|"ready";transfersActive:boolean;payoutsReady:boolean;verifiedAt:string|null};
 
 export class TeamSalesError extends Error {

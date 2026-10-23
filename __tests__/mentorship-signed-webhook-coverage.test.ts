@@ -44,7 +44,7 @@ test.each(gaps.flatMap(type => [[type, context.apiVersion] as const, [type, "202
   expect(claim.mock.invocationCallOrder[0]).toBeLessThan(worker.mock.invocationCallOrder[0]);
   expect(worker.mock.invocationCallOrder[0]).toBeLessThan(complete.mock.invocationCallOrder[0]);
   expect(exactHandoff).not.toHaveBeenCalled(); expect(release).not.toHaveBeenCalled();
-  expect(db.ops.every(op => op.kind === "select")).toBe(true);
+  expect(db.ops.every(op => op.kind === "select" || op.kind === "rpc" && op.table === "locate_sales_team_payment_event_v1")).toBe(true);
 });
 test.each(gaps)("failed %s reconciliation is retryable and never marked complete", async type => {
   lifecycle.mockRejectedValue(Error("synthetic provider unavailable")); payment.mockRejectedValue(Error("synthetic provider unavailable"));

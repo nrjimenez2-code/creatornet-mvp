@@ -1493,6 +1493,14 @@ export async function POST(req: NextRequest) {
   const claimKey = `stripe:${event.id}`;
   const claim = await claimStripeEvent(claimKey, event.type);
   if (claim.status === "duplicate") {
+    try {
+      const { locateTeamPaymentEvent } = await import("@/lib/salesTeams/webhook");
+      if (await locateTeamPaymentEvent({ event, admin, stripe: getStripe() })) {
+        return NextResponse.json({ ok: true, duplicate: true });
+      }
+    } catch {
+      return jerr("team-event-review", "Original payment needs review", 500);
+    }
     // Repair a legacy missing confirmation on an authenticated resend without
     // rerunning payment, earnings, access, or Stripe refund mutations.
     if (event.type === "charge.refunded") {
@@ -1523,6 +1531,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { handoffTeamPaymentWebhook } = await import("@/lib/salesTeams/webhook");
+    if (await handoffTeamPaymentWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
     // Signature and durable event claim are already verified above. Exact
     // Checkout/invoices must never also enter legacy one-time accounting.
     const { handoffBuyerMentorshipRefundWebhook, handoffBuyerMentorshipDisputeWebhook } = await import("@/lib/mentorshipInstallmentWebhook");

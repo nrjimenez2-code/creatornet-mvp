@@ -193,3 +193,4 @@ supabase/migrations/*
 !supabase/migrations/20261022230849_sales_team_payment_collection.sql
 !supabase/migrations/20261022233620_sales_team_verified_capture.sql
 !supabase/migrations/20261022234208_sales_team_shared_fulfillment.sql
+!supabase/migrations/20261023000533_sales_team_payment_events.sql

@@ -1,6 +1,9 @@
 import {observeTeamFinancialState} from "@/lib/salesTeams/financialObservation";
 const base={chargeId:"ch_original",subtotalCents:10000,chargeRefundedCents:0,actualProcessingCostCents:320,refunds:[],refundListComplete:true,decisions:[],disputes:[]};
 test("verified clean payment has no refund/dispute hold",()=>{expect(observeTeamFinancialState(base)).toMatchObject({refundedCents:0,totalLossCents:0,reviewHold:false,disputeHold:false});});
+test("an incomplete refund list cannot restore commission on independently confirmed refunded principal",()=>{
+ expect(observeTeamFinancialState({...base,chargeRefundedCents:3000,refundListComplete:false})).toMatchObject({refundedCents:3000,totalLossCents:3000,reviewHold:true});
+});
 test("refund processing-cost responsibility reuses existing creator/platform policy",()=>{
  const refund={id:"re_original",chargeId:base.chargeId,amountCents:10000,status:"succeeded" as const,created:1};
  const creator=observeTeamFinancialState({...base,chargeRefundedCents:10000,refunds:[refund],decisions:[{refundId:refund.id,chargeId:base.chargeId,responsibility:"creator",reasonCode:"creator_non_delivery"}]});

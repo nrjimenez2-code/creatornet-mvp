@@ -17,6 +17,7 @@ export type RefundOperationStatus =
 
 export interface RefundLedgerSource {
   id: string;
+  salesTeamSaleId?: string | null;
   creatorId: string;
   purchaseId: string | null;
   orderId: string | null;
@@ -271,6 +272,7 @@ export function ledgerFromRow(value: unknown): RefundLedgerSource {
   const row = value as Record<string, unknown>;
   return {
     id: stringValue(row.id, "payment ledger id"),
+    salesTeamSaleId: nullableString(row.sales_team_sale_id),
     creatorId: stringValue(row.creator_id, "creator id"),
     purchaseId: nullableString(row.purchase_id),
     orderId: nullableString(row.order_id),
@@ -308,7 +310,7 @@ export function createSupabaseRefundStore(
         admin
           .from("payment_fee_ledger")
           .select(
-            "id, creator_id, purchase_id, order_id, booking_payment_id, stripe_payment_intent_id, stripe_charge_id, gross_amount_cents, platform_fee_cents, processing_fee_cents, total_creator_deduction_cents, creator_net_cents, actual_stripe_fee_cents, refunded_amount_cents, currency, status",
+            "*",
           )
           .eq("id", ledgerId)
           .maybeSingle(),

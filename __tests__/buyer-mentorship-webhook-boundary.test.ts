@@ -1,5 +1,8 @@
 import Stripe from "stripe";
-import { createMockClient } from "./__mocks__/supabaseQueryMock";
+import { createMockClient as baseMockClient } from "./__mocks__/supabaseQueryMock";
+const teamLocator="locate_sales_team_payment_event_v1";
+const createMockClient=(respond?:Parameters<typeof baseMockClient>[0])=>baseMockClient(op=>op.kind==="rpc"&&op.table===teamLocator?{data:null,error:null}:respond?.(op));
+const buyerOperations=()=>db.ops.filter(op=>!(op.kind==="rpc"&&op.table===teamLocator));
 const verifier = new Stripe("sk_test_synthetic_no_network"), secret = "synthetic-buyer-boundary";
 const claim = jest.fn(), complete = jest.fn(), release = jest.fn(), monthly = jest.fn(), exact = jest.fn();
 const retrieveCharge = jest.fn();
@@ -17,7 +20,9 @@ jest.mock("@/lib/mentorshipInstallmentActivationRuntime",()=>({activateBuyerMent
 jest.mock("@/lib/mentorshipInstallmentAccounting", () => ({ recordBuyerMentorshipFirstPayment: (...a: unknown[]) => recordBuyer(...a) }));
 let db = createMockClient(() => ({ data: null, error: null }));
 jest.mock("@supabase/supabase-js", () => ({ createClient: () => db }));
-jest.mock("@/lib/stripeClient", () => ({ getStripe: () => ({ webhooks: verifier.webhooks, charges: { retrieve: retrieveCharge } }) }));
+jest.mock("@/lib/stripeClient", () => ({ getStripe: () => ({ webhooks: verifier.webhooks, charges: { retrieve: retrieveCharge },
+  rawRequest:async(method:string,path:string)=>{if(method!=="GET"||!/^\/v1\/charges\/ch_[A-Za-z0-9]+$/.test(path))throw Error("Unexpected provider write or path");return {...await retrieveCharge(path.slice("/v1/charges/".length)),lastResponse:{requestId:"req_teamLocatorRead"}};},
+}) }));
 jest.mock("@/lib/stripeEvents", () => ({ claimStripeEvent: (...a: unknown[]) => claim(...a), completeStripeEvent: (...a: unknown[]) => complete(...a), releaseStripeEvent: (...a: unknown[]) => release(...a) }));
 jest.mock("@/lib/membershipWebhook", () => ({ handoffMonthlyMentorshipWebhook: (...a: unknown[]) => monthly(...a) }));
 jest.mock("@/lib/installments/routeHandoff", () => ({ handoffExactInstallmentWebhook: (...a: unknown[]) => exact(...a) }));
@@ -53,7 +58,7 @@ test.each([
   expect((await deliver(object, type)).status).toBe(500);
   expect(claim).toHaveBeenCalledTimes(1); expect(release).toHaveBeenCalledWith("stripe:evt_synthetic", "synthetic-token");
   expect(complete).not.toHaveBeenCalled(); expect(monthly).not.toHaveBeenCalled(); expect(exact).not.toHaveBeenCalled();
-  expect(db.ops).toEqual([]);
+  expect(buyerOperations()).toEqual([]);
 });
 test("unmarked invoice for a persistently bound buyer Customer is also held", async () => {
   process.env.CREATOR_MENTORSHIP_INSTALLMENT_CUSTOMER_SCHEMA_READY = "true";
@@ -158,7 +163,7 @@ test.each([["checkout.session.completed","checkout.session","cs_owned"],["paymen
   expect((await deliver({object,id,customer:"cus_owned",livemode:false,metadata:{...metadata,buyer_id:"forged"}},type)).status).toBe(200);
   expect(recordBuyer).toHaveBeenCalledWith(expect.objectContaining({buyerId,requestId,
     expectedEvent:{reservationId,customerId:"cus_owned",livemode:false,object,id}}));
-  expect(db.ops[0].filters).toEqual({customer_id:"cus_owned"});expect(db.ops[1].filters).toEqual({id:reservationId});
+  expect(buyerOperations()[0].filters).toEqual({customer_id:"cus_owned"});expect(buyerOperations()[1].filters).toEqual({id:reservationId});
   expect(complete).toHaveBeenCalledTimes(1);expect(release).not.toHaveBeenCalled();expect(monthly).not.toHaveBeenCalled();expect(exact).not.toHaveBeenCalled();
   expect(complete.mock.invocationCallOrder[0]).toBeGreaterThan(recordBuyer.mock.invocationCallOrder[0]);
 });
@@ -198,7 +203,7 @@ test("dispute resolves protocol metadata on the charge's PaymentIntent", async (
   retrieveCharge.mockResolvedValue({ object: "charge", id: "ch_test", livemode: false, customer: null,
     payment_intent: { object: "payment_intent", id: "pi_test", livemode: false, metadata } });
   expect((await deliver({ object: "dispute", charge: "ch_test", payment_intent: "pi_test" }, "charge.dispute.closed")).status).toBe(500);
-  expect(db.ops).toEqual([]); expect(monthly).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled();
+  expect(buyerOperations()).toEqual([]); expect(monthly).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled();
 });
 
 test.each(["provider failure", "wrong charge", "wrong mode", "wrong intent", "wrong intent mode", "missing charge"])("dispute uncertainty releases original claim: %s", async issue => {
@@ -216,7 +221,7 @@ test("verified nonbuyer dispute preserves existing routing", async () => {
   process.env.CREATOR_MENTORSHIP_INSTALLMENT_CUSTOMER_SCHEMA_READY = "true";
   retrieveCharge.mockResolvedValue({ object: "charge", id: "ch_test", livemode: false, customer: "cus_other", payment_intent: null });
   expect((await deliver({ object: "dispute", charge: "ch_test" }, "charge.dispute.created")).status).toBe(200);
-  expect(db.ops).toHaveLength(1); expect(monthly).toHaveBeenCalledTimes(1); expect(complete).toHaveBeenCalledTimes(1);
+  expect(buyerOperations()).toHaveLength(1); expect(monthly).toHaveBeenCalledTimes(1); expect(complete).toHaveBeenCalledTimes(1);
 });
 
 test("forged unexpanded dispute cannot trigger provider lookup", async () => {

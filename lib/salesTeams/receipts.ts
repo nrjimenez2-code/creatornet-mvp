@@ -9,21 +9,21 @@ import {teamRpc} from "./server";
 import {TEAM_STRIPE_API_VERSION,type TeamProviderRequest} from "./providerOperation";
 import {teamIntentRequest,type TeamPaymentContract,type TeamTokenProof} from "./paymentProtocol";
 import {inspectTeamReceipt,type TeamCaptureConfirmation} from "./receiptPolicy";
-type Composition={admin:SupabaseClient;stripe:Pick<Stripe,"rawRequest">;context:ExactPaymentContext;observeContext:()=>Promise<ExactPaymentContext>;observeEvidence:()=>Promise<ExactPaymentContextEvidence>};
+export type TeamReceiptComposition={admin:SupabaseClient;stripe:Pick<Stripe,"rawRequest">;context:ExactPaymentContext;observeContext:()=>Promise<ExactPaymentContext>;observeEvidence:()=>Promise<ExactPaymentContextEvidence>};
 type Operation={id:string;kind:string;status:string;provider_id:string|null;request:TeamProviderRequest;context:ExactPaymentContext;sale_id:string;creator_id:string;actor_id:string;first_dispatch_at:string};
 export type TeamCaptureSource={contract:TeamPaymentContract;intent:Operation;firstConfirmationDispatchAt:string;
  confirmation:{operation_id:string;request_id:string;kind:"token"|"reconfirm";token_id:string;token_proof:TeamTokenProof;request:TeamProviderRequest;operation:Operation|null}|null;
- receipt:{id:string;processing_cost_cents:number|null}|null};
+ receipt:{id:string;observation_revision:number;payment_intent_id:string;charge_id:string;refunded_subtotal_cents:number;processing_cost_cents:number|null;balance_transaction_id:string|null;available_on:string|null}|null};
 const check:(v:unknown)=>asserts v=v=>{if(!v)throw new TeamSalesError("TEAM_CAPTURE_REVIEW_REQUIRED","The original captured payment needs receipt reconciliation.");};
 const id=(v:unknown)=>typeof v==="string"?v:(v as {id?:string}|null)?.id??"";
 const req=(v:unknown)=>(v as {lastResponse?:{requestId?:string}}|null)?.lastResponse?.requestId??"";
 const options={apiVersion:TEAM_STRIPE_API_VERSION,maxNetworkRetries:0,timeout:10000};
 /** Provider transport is GET-only here. This can recover existing confirmation
  * evidence and record captured money, but cannot issue a charge or replacement. */
-export async function recordTeamCapture(c:Composition,saleId:string,buyerId:string,obligationId:string|null=null){
+export async function readTeamCapture(c:TeamReceiptComposition,saleId:string,buyerId:string,obligationId:string|null=null){
  teamId(saleId);teamId(buyerId);if(obligationId)teamId(obligationId);
  const read=()=>teamRpc<TeamCaptureSource|null>(c.admin,"read_sales_team_capture_source_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_obligation_id:obligationId});
- let source=await read();if(!source)return {status:"not_started" as const};
+ let source=await read();if(!source)return null;
  const context=async()=>{const before=Date.now();check(isDeepStrictEqual(c.context,source!.contract.context)&&isDeepStrictEqual(await c.observeContext(),c.context)&&Date.now()>=before&&Date.now()-before<30000);};
  await context();const started=Date.now();
  const get=async<T>(path:string)=>{const value=await c.stripe.rawRequest("GET",path,{},options) as T;check(/^req_[A-Za-z0-9]+$/.test(req(value)));return value;};
@@ -31,7 +31,7 @@ export async function recordTeamCapture(c:Composition,saleId:string,buyerId:stri
   source.intent.id===source.contract.operationId&&source.intent.sale_id===saleId&&source.intent.actor_id===buyerId&&source.intent.creator_id===source.contract.terms.creatorId&&
   isDeepStrictEqual(source.intent.context,c.context)&&isDeepStrictEqual(source.intent.request,teamIntentRequest(source.contract,await c.observeEvidence()))&&/^pi_[A-Za-z0-9]+$/.test(source.intent.provider_id??""));
  let pi=await get<Stripe.PaymentIntent>(`/v1/payment_intents/${source.intent.provider_id}`);
- if(pi.status!=="succeeded")return {status:"awaiting_capture" as const};
+ if(pi.status!=="succeeded")return null;
  check(source.confirmation);
  if(source.confirmation.operation?.status!=="bound"){
   await confirmTeamCollection(c,saleId,buyerId,{requestId:source.confirmation.request_id,kind:source.confirmation.kind,tokenId:source.confirmation.token_id,recoveryOnly:true});
@@ -53,8 +53,13 @@ export async function recordTeamCapture(c:Composition,saleId:string,buyerId:stri
  const proof=inspect(pi,charge,await c.observeEvidence()),stable=(value:typeof proof)=>{const {providerRequestId,...fields}=value;void providerRequestId;return fields;};
  check(isDeepStrictEqual(stable(initial),stable(proof)));await context();check(Date.now()>=started&&Date.now()-started<60000);
  const fresh=await read();check(fresh&&isDeepStrictEqual(fresh.contract,saved.contract)&&isDeepStrictEqual(fresh.intent,saved.intent)&&isDeepStrictEqual(fresh.confirmation,saved.confirmation));
+ return {source:saved,binding,proof,readback:{intentRequestId:req(pi),chargeRequestId:req(charge),balanceRequestId:balance?req(balance):null,readStartedAt:started,observedAt:Math.floor(Date.now()/1000)}};
+}
+export async function recordTeamCapture(c:TeamReceiptComposition,saleId:string,buyerId:string,obligationId:string|null=null){
+ const inspected=await readTeamCapture(c,saleId,buyerId,obligationId);if(!inspected)return {status:"awaiting_capture" as const};
+ const {source:saved,binding,proof,readback}=inspected;
  const receipt=await teamRpc<{id:string;review_hold:boolean;dispute_hold:boolean;processing_cost_cents:number|null}>(c.admin,"record_verified_sales_team_capture_v1",{
   p_sale_id:saleId,p_buyer_id:buyerId,p_obligation_id:saved.contract.obligationId,p_confirmation_id:binding.operationId,
-  p_capture:{receipt:proof,readback:{intentRequestId:req(pi),chargeRequestId:req(charge),balanceRequestId:balance?req(balance):null,readStartedAt:started,observedAt:Math.floor(Date.now()/1000)}}});
+  p_capture:{receipt:proof,readback}});
  return {status:receipt.review_hold||receipt.dispute_hold?"verified_held" as const:"verified" as const,receiptId:receipt.id,processingCostPending:receipt.processing_cost_cents===null};
 }

@@ -22,9 +22,12 @@ export function observeTeamFinancialState(args:{chargeId:string;subtotalCents:nu
  }
  for(const decision of args.decisions){if(decision.chargeId!==args.chargeId||decisions.has(decision.refundId)||!reasonMatchesResponsibility(decision.reasonCode,decision.responsibility))throw Error("Refund responsibility requires review");decisions.set(decision.refundId,decision);}
  const successful=[...refunds.values()].filter(r=>r.status==="succeeded").sort((a,b)=>a.created-b.created||a.id.localeCompare(b.id));
- const refundedCents=successful.reduce((sum,r)=>sum+r.amountCents,0);
- if(refundedCents>args.subtotalCents)throw Error("Confirmed refunds exceed the charge");
- if(!args.refundListComplete||refundedCents!==args.chargeRefundedCents)alerts.push("REFUND_TOTAL_UNRECONCILED");
+ const listedRefundedCents=successful.reduce((sum,r)=>sum+r.amountCents,0);
+ if(listedRefundedCents>args.subtotalCents)throw Error("Confirmed refunds exceed the charge");
+ // A bounded/incomplete list cannot restore commission on principal the
+ // independently retrieved original charge already confirms was refunded.
+ const refundedCents=Math.max(listedRefundedCents,args.chargeRefundedCents);
+ if(!args.refundListComplete||listedRefundedCents!==args.chargeRefundedCents)alerts.push("REFUND_TOTAL_UNRECONCILED");
  if([...refunds.values()].some(r=>r.status==="pending"||r.status==="requires_action"))alerts.push("REFUND_PENDING");
  let totalLossCents=refundedCents,disputeHold=false;
  const disputeIds=new Set<string>();

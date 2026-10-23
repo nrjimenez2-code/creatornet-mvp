@@ -14,7 +14,7 @@ beforeEach(()=>{
  for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY"])delete process.env[key];
  admin={kind:"scoped-admin"};owned.mockResolvedValue({admin,user:{id:buyer},sale:{status:"accepted"}});read.mockResolvedValue({view});compose.mockReturnValue(composition);prepare.mockResolvedValue({view});confirm.mockResolvedValue(view);stop.mockResolvedValue(view);
 });afterEach(()=>{process.env={...env};});
-const enabled=()=>{for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY","CREATOR_TEAM_RECEIPT_SCHEMA_READY","CREATOR_TEAM_RECEIPT_RECORDING_READY","CREATOR_TEAM_FULFILLMENT_SCHEMA_READY","CREATOR_TEAM_FULFILLMENT_READY"])process.env[key]="true";};
+const enabled=()=>{for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY","CREATOR_TEAM_RECEIPT_SCHEMA_READY","CREATOR_TEAM_RECEIPT_RECORDING_READY","CREATOR_TEAM_FULFILLMENT_SCHEMA_READY","CREATOR_TEAM_FULFILLMENT_READY","CREATOR_TEAM_EVENT_SCHEMA_READY","CREATOR_TEAM_EVENT_RECONCILIATION_READY"])process.env[key]="true";};
 test("status is buyer-owned and available while new collection is held",async()=>{
  const response=await GET(request(),context);expect(response.status).toBe(200);expect(await response.json()).toEqual({payment:view,collectionEnabled:false});expect(response.headers.get("cache-control")).toBe("private, no-store");
  expect(read).toHaveBeenCalledWith({admin},sale,buyer);expect(compose).not.toHaveBeenCalled();
