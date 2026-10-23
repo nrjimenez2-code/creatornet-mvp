@@ -1,0 +1,108 @@
+{
+  "functions": [
+    {
+      "signature": "get_feed_v2(uuid,integer,integer)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "ecb4abbb9ff1fffdb2c55fed57d10b97",
+      "definition": "CREATE OR REPLACE FUNCTION public.get_feed_v2(p_user_id uuid, p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)\n RETURNS TABLE(post_id uuid, feed_score numeric)\n LANGUAGE sql\nAS $function$\n  SELECT\n    p.id AS post_id,\n    (COALESCE(uis.interest_score, 0) * 10)\n    + (COALESCE(pm.views, 0) * 1)\n    + (COALESCE(pm.completions, 0) * 3)\n    + (COALESCE(p.likes_count, 0) * 5)\n    + COALESCE(pm.post_conversion_score, 0)\n    AS feed_score\n  FROM posts p\n  LEFT JOIN post_metrics pm ON pm.post_id = p.id\n  LEFT JOIN LATERAL (\n    SELECT COALESCE(MAX(score), 0) AS interest_score\n    FROM user_interest_scores\n    WHERE user_id = p_user_id\n      AND category IN (\n        SELECT LOWER(t) FROM unnest(p.interests) AS t\n      )\n  ) uis ON TRUE\n  WHERE (p.video_url IS NOT NULL OR p.poster_url IS NOT NULL)\n    AND p.hidden_at is null and not exists (select 1 from public.profiles banned_creator where banned_creator.id=p.creator_id and banned_creator.banned_at is not null) AND p.removed_at IS NULL\n  ORDER BY feed_score DESC, p.created_at DESC\n  LIMIT p_limit\n  OFFSET p_offset;\n$function$\n"
+    },
+    {
+      "signature": "get_profile_rating(uuid)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "87251d31324cb35cd2c8ddd4b1ccab83",
+      "definition": "CREATE OR REPLACE FUNCTION public.get_profile_rating(p_profile_id uuid)\n RETURNS TABLE(avg_rating numeric, review_count bigint)\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  RETURN QUERY\r\n  SELECT\r\n    COALESCE(p.review_rating, 0)::NUMERIC(3, 2) as avg_rating,\r\n    COALESCE(p.review_count, 0)::BIGINT as review_count\r\n  FROM public.profiles p\r\n  WHERE p.id = p_profile_id;\r\nEND;\r\n$function$\n"
+    },
+    {
+      "signature": "interests_to_text_array(jsonb)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "b7e88b51a1ff6dac7eea41da12360be4",
+      "definition": "CREATE OR REPLACE FUNCTION public.interests_to_text_array(j jsonb)\n RETURNS text[]\n LANGUAGE sql\n IMMUTABLE\nAS $function$\r\n  select coalesce(\r\n    array(select jsonb_array_elements_text(coalesce(j, '[]'::jsonb))),\r\n    array[]::text[]\r\n  );\r\n$function$\n"
+    },
+    {
+      "signature": "interests_to_text_array(text[])",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "7ca431b5adf30f30423b2fe7aafeb665",
+      "definition": "CREATE OR REPLACE FUNCTION public.interests_to_text_array(t text[])\n RETURNS text[]\n LANGUAGE sql\n IMMUTABLE\nAS $function$\r\n  select coalesce(t, array[]::text[]);\r\n$function$\n"
+    },
+    {
+      "signature": "jsonb_to_text_array(jsonb)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "91c82213270d31c6ad0bbd61169c1e67",
+      "definition": "CREATE OR REPLACE FUNCTION public.jsonb_to_text_array(j jsonb)\n RETURNS text[]\n LANGUAGE sql\n IMMUTABLE\nAS $function$\r\n  select coalesce(\r\n    array(select jsonb_array_elements_text(coalesce(j, '[]'::jsonb))),\r\n    array[]::text[]\r\n  );\r\n$function$\n"
+    },
+    {
+      "signature": "log1p_safe(double precision)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "0ffa7d504e5818feafe0c67c03c01cb8",
+      "definition": "CREATE OR REPLACE FUNCTION public.log1p_safe(x double precision)\n RETURNS double precision\n LANGUAGE sql\n IMMUTABLE\nAS $function$ select ln(1.0 + greatest(0.0, x)); $function$\n"
+    },
+    {
+      "signature": "minmax_norm(double precision,double precision,double precision)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "36e5c7422afe7bb29f7b9001576edfc0",
+      "definition": "CREATE OR REPLACE FUNCTION public.minmax_norm(x double precision, xmin double precision, xmax double precision)\n RETURNS double precision\n LANGUAGE sql\n IMMUTABLE\nAS $function$ select case when xmax > xmin then (x - xmin) / (xmax - xmin) else 0.0 end; $function$\n"
+    },
+    {
+      "signature": "set_updated_at()",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "b6bcb231a06d85bdac65eb9f9a7f6bad",
+      "definition": "CREATE OR REPLACE FUNCTION public.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nbegin\r\n  new.updated_at = now();\r\n  return new;\r\nend $function$\n"
+    },
+    {
+      "signature": "sv_components(timestamp with time zone)",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "b00d481cc4e3c2749abb776948ee21eb",
+      "definition": "CREATE OR REPLACE FUNCTION public.sv_components(now_ts timestamp with time zone)\n RETURNS TABLE(post_id uuid, sv_1h double precision, sv_24h double precision, sv_7d double precision)\n LANGUAGE sql\n STABLE\nAS $function$\r\n  with p as (\r\n    select\r\n      p.post_id,\r\n      p.created_at\r\n    from public.purchases as p\r\n    where p.is_refund  = false\r\n      and p.is_suspect = false\r\n      and p.created_at > now_ts - interval '8 days'\r\n  )\r\n  select\r\n    post_id,\r\n    sum( exp( -ln(2) * extract(epoch from (now_ts - created_at)) /   3600.0) ) as sv_1h,\r\n    sum( exp( -ln(2) * extract(epoch from (now_ts - created_at)) /  86400.0) ) as sv_24h,\r\n    sum( exp( -ln(2) * extract(epoch from (now_ts - created_at)) / (7*86400.0)) ) as sv_7d\r\n  from p\r\n  group by post_id;\r\n$function$\n"
+    },
+    {
+      "signature": "update_reviews_updated_at()",
+      "prosecdef": false,
+      "proconfig": null,
+      "definition_hash": "0807db4d0620b1265247ce2c36933afe",
+      "definition": "CREATE OR REPLACE FUNCTION public.update_reviews_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\r\nBEGIN\r\n  NEW.updated_at = NOW();\r\n  RETURN NEW;\r\nEND;\r\n$function$\n"
+    }
+  ],
+  "views": [
+    {
+      "relname": "feed_debug",
+      "relkind": "v",
+      "relacl": "{postgres=arwdDxtm/postgres,anon=awdDxtm/postgres,authenticated=awdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "is_updatable": "NO",
+      "is_insertable_into": "NO",
+      "definition": " SELECT p.id,\n    p.title,\n    p.created_at,\n    mv.sv_1h,\n    mv.sv_24h,\n    mv.sv_7d\n   FROM posts p\n     LEFT JOIN sales_velocity_mv mv ON mv.post_id = p.id\n  ORDER BY mv.sv_1h DESC NULLS LAST\n LIMIT 200;"
+    },
+    {
+      "relname": "post_engagement_daily",
+      "relkind": "v",
+      "relacl": "{postgres=arwdDxtm/postgres,anon=awdDxtm/postgres,authenticated=awdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "is_updatable": "NO",
+      "is_insertable_into": "NO",
+      "definition": " SELECT post_id,\n    GREATEST(0.0, avg(watch_time_ms)) AS avg_watch_ms,\n    sum(\n        CASE\n            WHEN liked THEN 1\n            ELSE 0\n        END) AS likes_24h,\n    sum(\n        CASE\n            WHEN commented THEN 1\n            ELSE 0\n        END) AS comments_24h\n   FROM post_engagements\n  WHERE created_at > (now() - '24:00:00'::interval)\n  GROUP BY post_id;"
+    },
+    {
+      "relname": "post_freshness",
+      "relkind": "v",
+      "relacl": "{postgres=arwdDxtm/postgres,anon=awdDxtm/postgres,authenticated=awdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "is_updatable": "YES",
+      "is_insertable_into": "YES",
+      "definition": " SELECT id AS post_id,\n        CASE\n            WHEN (now() - created_at) <= '02:00:00'::interval THEN 1.0\n            WHEN (now() - created_at) <= '24:00:00'::interval THEN 0.4\n            ELSE 0.0\n        END AS freshness_boost\n   FROM posts;"
+    },
+    {
+      "relname": "trending_hashtags",
+      "relkind": "v",
+      "relacl": "{postgres=arwdDxtm/postgres,anon=awdDxtm/postgres,authenticated=awdDxtm/postgres,service_role=arwdDxtm/postgres}",
+      "is_updatable": "NO",
+      "is_insertable_into": "NO",
+      "definition": " SELECT tag,\n    count(*) AS uses\n   FROM ( SELECT unnest(posts.hashtags) AS tag\n           FROM posts) t\n  GROUP BY tag\n  ORDER BY (count(*)) DESC;"
+    }
+  ]
+}
