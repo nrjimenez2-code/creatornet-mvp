@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { AdminAuthError } from "@/lib/admin/server";
 import { dependenciesMet, validDiscordInvite, validFlags, validPublicPage } from "./policy";
 import { requireReleaseOwner, updateReleaseSettings } from "./server";
+import { MfaRequiredError } from "@/lib/adminMfa";
 export async function readReleaseState({ settings, db }: Awaited<ReturnType<typeof requireReleaseOwner>>) {
   const [approved, audit] = await Promise.all([
     db.from("website_release_testers_v1").select("user_id,approved_at").order("approved_at", { ascending: false }).limit(500),
@@ -39,6 +40,7 @@ export async function releaseManagement(req: NextRequest, section: "settings" | 
     }
     return reply({ ok: true });
   } catch (error) {
+    if (error instanceof MfaRequiredError) return reply({ error: error.message, code: error.code, securityUrl: error.securityUrl }, 403);
     if (error instanceof AdminAuthError) return reply({ error: error.message }, error.status);
     return reply({ error: "Release Controls could not complete the request. Reload to check the current state before trying again." }, 503);
   }

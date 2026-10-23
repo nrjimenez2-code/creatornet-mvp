@@ -10,7 +10,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabaseClient";
+import { createClient, isCurrentBrowserMfaSession } from "@/lib/supabaseClient";
 import posthog from "posthog-js";
 
 type UserContextValue = {
@@ -60,6 +60,9 @@ function useProvideUser(): UserContextValue {
     const { data: sub } = supabase.auth.onAuthStateChange(
       (_event, nextSession) => {
         if (cancelled) return;
+        // A later sign-out/replacement can land after an MFA storage commit
+        // but before its event. Never render that superseded identity.
+        if (_event === "MFA_CHALLENGE_VERIFIED" && nextSession && !isCurrentBrowserMfaSession(nextSession.access_token)) return;
         // INITIAL_SESSION can also finish after a refresh was superseded.
         if (_event === "INITIAL_SESSION" && authEvents > 0) return;
         authEvents += 1;

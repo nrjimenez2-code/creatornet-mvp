@@ -96,7 +96,7 @@ test("runtime User-Agent suffix preserves admission but malformed products do no
   expect((await hook()).error).toBeUndefined();
   expect((await finish()).verified).toBe(true);
 });
-test.each(["oauth", "token_refresh"])("%s does not need an OTP admission", async method => {
+test.each(["oauth", "token_refresh", "totp"])("%s does not need an OTP admission", async method => {
   expect(await hook(method)).toMatchObject({ claims: { session_id: session } });
 });
 test("expired and replayed application codes cannot reserve a session", async () => {
