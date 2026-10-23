@@ -98,14 +98,9 @@ export default function AuthPage() {
   // -------- Surface a sign-in that failed --------
   //
   // A failed OAuth round-trip comes back to this page with the reason in the
-  // URL. lib/supabaseClient.ts uses the implicit flow, so that reason lands in
-  // the hash fragment. Nothing in the app read it, so a failed sign-in rendered
-  // an ordinary, error-free sign-in page — indistinguishable from "I clicked it
-  // and nothing happened", which is how this was reported to us.
-  //
-  // Verified against production before writing this: the hash is still intact
-  // seconds after load, so reading it from an effect is reliable and needs no
-  // race-avoiding tricks.
+  // URL. Read both PKCE query errors and legacy hash errors so unsuccessful
+  // provider redirects have a visible explanation. Token-bearing implicit
+  // redirects are rejected by the PKCE client before they can set a session.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const parsed = parseAuthErrorFromUrl(window.location.search, window.location.hash);
