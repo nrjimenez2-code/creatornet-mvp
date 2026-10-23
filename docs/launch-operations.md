@@ -12,9 +12,11 @@ rules, contact routing, retention or alert delivery. Moderation report email fai
 are separately tracked and retried through the existing admin flow.
 
 The current launch preparation observed a Vercel team budget of USD200 with alerts at
-50%, 75% and 100%; automatic pausing and budget webhooks were off and its status required
-owner review as overdue. This is a dated observation, not an approved spend increase or
-a hard ceiling. Recheck the current billing window, team, spend and recipient settings.
+50%, 75% and 100%; automatic pausing and budget webhooks were off. The owner subsequently
+paid invoice JEKXFOTJ-0013 for USD43.68, and the October 23 UTC readback showed zero due
+and active hosting billing. Do not repeat that payment. This is a dated observation,
+not an approved spend increase or a hard ceiling. Recheck the current billing window,
+team, spend and recipient settings.
 The owner chooses thresholds and channels. Enabling a team-wide automatic pause can
 interrupt unrelated projects, owned purchase recovery and required provider callbacks.
 Do not enable it as an implicit incident response.
