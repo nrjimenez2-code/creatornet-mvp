@@ -16,7 +16,7 @@ const candidate="supabase/migrations/20261023180144_sales_team_transfer_reservat
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,raw:jest.Mock;
 beforeAll(async()=>{
  db=await sharedCashDatabase(createLocalPostgres());
- for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql",candidate])await db.exec(readFileSync(path,"utf8"));
+ for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql",candidate,"supabase/migrations/20261023182527_sales_team_transfer_observations.sql"])await db.exec(readFileSync(path,"utf8"));
 },30000);
 beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");});afterAll(async()=>{await db?.close();});
 async function fixture(){

@@ -721,3 +721,66 @@ not require a reversal list total_count, and fixture response headers/status wer
 missing from its declared shape. Canonical immutable JSON comparison and correct
 SDK shapes resolved these without weakening original identity or balance proof.
 All transport remains mocked. No hosted/provider financial operation occurred.
+
+### Verified original transfer accounting — October 23 continuation
+
+Local candidate `20261023182527_sales_team_transfer_observations.sql` and
+`transferObservations.ts` consume readback for an already admitted original.
+Database `transfer_observations_enabled` defaults off. Independent source gates
+`CREATOR_TEAM_TRANSFER_OBSERVATIONS_SCHEMA_READY` and
+`CREATOR_TEAM_TRANSFER_OBSERVATIONS_READY` require cash/reservation schema
+readiness but do not require new-transfer or new-buyer admission to stay on.
+An observation-only worker can claim a bounded settlement slot for an admitted
+original with those new-money controls off. This does not dispatch a transfer or
+install a scheduler.
+
+Each begin/completion checks the actual current run/token/context/task, named
+reviewed contract, saved original request/journal and exact receipt revision.
+Current observer history remains separate from the immutable original worker.
+The narrow completion definer validates exact sanitized transfer/debit/fee
+shapes and current repeated-read proof. Unknown binding requires the actual
+original event request key and request ID. The old binding alias is unavailable
+to service callers. Live dispatch leases cannot be stolen. Stale, foreign,
+fractional, NULL/missing or extra private fields cannot consume a reservation.
+Service callers retain SELECT only on completion, recovery and actual-cost facts;
+ordinary roles cannot invoke the definers or read private observation history.
+
+Completion atomically records the original transfer, independently linked actual
+fee, released principal and immutable ledger entry, recomputes creator earnings,
+syncs shared accounting and invalidates cash observations. Replays do not repeat
+GETs or accounting. A late failure rolls back binding, recovery proof, completion,
+cost and principal together. Actual costs reduce only the accepted creator's
+proceeds; closer commission remains its accepted collected-subtotal share. The
+original charge-processing fee and CreatorNet12% remain separate. A creator
+overpayment/deficit stays visible and blocks applicable future transfer admission
+until same-creator recovery is implemented and independently proven.
+
+Actual transfer costs are also conserved in shared order/fee-ledger accounting,
+whether fulfillment occurs before or after the transfer is observed. The guarded
+split-constraint edit adds only the new team cost term and retains the existing
+legacy branch. Legacy rows must retain zero team transfer cost. Unknown reviewed
+arithmetic or a late grant failure aborts the entire migration. A cost above its
+original explicit allowance is recorded as the actual fact, opens a dedicated
+alert, and holds further new transfers pending review. It is not erased to make
+the estimate agree with the provider.
+
+The statement exposes actual transfer costs in creator accounting and retains
+`bankPayoutStatus=not_recorded`. This is Stripe transfer accounting only. Actual
+dispatch, same-creator post-transfer recovery, later lifecycle/scheduling,
+protected surplus, bank observation/alerts and final presentation still remain,
+alongside full historical-schema/security, current CI/build/browser, commercial,
+separately authorized sandbox and distinct Production/LIVE acceptance.
+
+F25 evidence: `transfer-observations-final.json` passed161 across six suites:
+observations29, reservations33, retained funding22, worker refunds19, shared
+unsent29 and shared reconciliation29. All install the complete candidate chain
+through F25. Full incremental TypeScript and nine-file scoped lint passed with
+zero errors/warnings; source/staged whitespace checks passed. Earlier receipts
+remain: the expanded suite passed23/24 with no shared fulfillment row; the first
+full integration passed155/156 and exposed the missing transfer-cost term in the
+shared conservation equation. The corrected27-test scope passed before the final
+migration rollback checks. These executions overlap and must not be summed.
+No safeguard was removed: the equation and initial fulfillment write now both
+include the explicit actual cost while retaining legacy checks. All transport
+is mocked and SQL parents remain structural PGlite fixtures; matured commission
+uses a synthetic historical timestamp fixture. These are local receipts only.

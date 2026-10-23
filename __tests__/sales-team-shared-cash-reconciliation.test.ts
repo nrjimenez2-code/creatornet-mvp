@@ -12,7 +12,7 @@ import {readSharedCashOriginal,type SharedCashOriginal,type SharedCashObservatio
 declare const createLocalPostgres:()=>PGlite;
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>;
 beforeAll(async()=>{db=await sharedCashDatabase(createLocalPostgres());await db.exec(readFileSync(sharedCashReconciliationCandidate,"utf8"));
- for(const name of ["20261023042321_sales_team_retained_refund_funding.sql","20261023060912_sales_team_automatic_recovery.sql","20261023063905_sales_team_worker_refund_recovery.sql","20261023174324_sales_team_no_outbound_shared_recovery.sql","20261023180144_sales_team_transfer_reservations.sql"])await db.exec(readFileSync(`supabase/migrations/${name}`,"utf8"));
+ for(const name of ["20261023042321_sales_team_retained_refund_funding.sql","20261023060912_sales_team_automatic_recovery.sql","20261023063905_sales_team_worker_refund_recovery.sql","20261023174324_sales_team_no_outbound_shared_recovery.sql","20261023180144_sales_team_transfer_reservations.sql","20261023182527_sales_team_transfer_observations.sql"])await db.exec(readFileSync(`supabase/migrations/${name}`,"utf8"));
 },30000);
 beforeEach(async()=>{
  await db.exec("begin;update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,fulfillment_enabled=true,shared_cash_reconciliation_enabled=true");
