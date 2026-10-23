@@ -6,6 +6,7 @@ import {readTeamCapture,type TeamReceiptComposition} from "./receipts";
 import {TEAM_STRIPE_API_VERSION} from "./providerOperation";
 import {teamRpc} from "./server";
 import type {RefundReasonCode,RefundResponsibility} from "@/lib/refundAllocation";
+import {inspectTeamFinancialBalance,reconcileTeamFinancialBalances,type TeamBalanceOwners,type TeamFinancialBalance} from "./balancePolicy";
 
 export type TeamEventSource={saleId:string;buyerId:string;obligationId:string;paymentIntentId:string;context:TeamReceiptComposition["context"]};
 type Refund=Parameters<typeof observeTeamFinancialState>[0]["refunds"][number];
@@ -19,9 +20,15 @@ const cents=(v:number)=>Number.isSafeInteger(v)&&v>=0;
 /** Signed events only wake this independent, bounded GET-only inspection. All
  * ownership, amounts and decisions come from the original saved source and
  * current service reads. An incomplete list records a hold, never a release. */
-export async function observeTeamPaymentEvent(c:TeamReceiptComposition,source:TeamEventSource,eventId:string){
+export async function readTeamFinancialSnapshot(c:TeamReceiptComposition,source:TeamEventSource,observation:{eventId:string|null;balances:boolean}){
  const started=Date.now(),requestIds:string[]=[];
  const bounded=()=>check(Date.now()>=started&&Date.now()-started<45000);
+ const originalStripe=c.stripe;
+ c={...c,stripe:{rawRequest:async(...args:Parameters<Stripe["rawRequest"]>)=>{
+  bounded();check(args[0]==="GET");
+  const result=await originalStripe.rawRequest(args[0],args[1],args[2],{...args[3],timeout:Math.min(10000,45000-(Date.now()-started)),maxNetworkRetries:0});
+  bounded();return result;
+ }}};
  const get=async<T>(path:string,params:Record<string,unknown>={})=>{bounded();const v=await c.stripe.rawRequest("GET",path,params,options) as T;check(/^req_[A-Za-z0-9]+$/.test(requestId(v)));requestIds.push(requestId(v));bounded();return v;};
  const capture=await readTeamCapture(c,source.saleId,source.buyerId,source.obligationId);check(capture&&capture.proof.paymentIntentId===source.paymentIntentId&&isDeepStrictEqual(source.context,c.context));
  const chargeId=capture.proof.chargeId,amount=capture.proof.subtotalCents;
@@ -49,13 +56,39 @@ export async function observeTeamPaymentEvent(c:TeamReceiptComposition,source:Te
   return {id:d.id,chargeId,amountCents:d.amount,status:d.status};
  });
  const decisions=reviews.map(r=>{check(refunds.some(f=>f.id===r.refund_id&&f.amountCents===Number(r.amount_cents))&&r.charge_id===chargeId);return {refundId:r.refund_id,chargeId,responsibility:r.responsibility,reasonCode:r.reason_code};});
- const state=observeTeamFinancialState({chargeId,subtotalCents:amount,chargeRefundedCents:capture.proof.refundedCents,actualProcessingCostCents:capture.proof.processingCostCents,
-  refunds,refundListComplete:refundList.complete,decisions,disputes});
+ const stateArgs={chargeId,subtotalCents:amount,chargeRefundedCents:capture.proof.refundedCents,actualProcessingCostCents:capture.proof.processingCostCents,
+  refunds,refundListComplete:refundList.complete,decisions,disputes};
+ let state=observeTeamFinancialState(stateArgs);
+ let balanceEvidence:ReturnType<typeof reconcileTeamFinancialBalances>&{owners:TeamBalanceOwners;entries:TeamFinancialBalance[];refundListComplete:boolean;disputeListComplete:boolean}|undefined;
+ if(observation.balances){
+  const owners:TeamBalanceOwners={refunds:refundList.values.map(r=>({id:r.id,status:r.status!,amountCents:r.amount,balanceId:id(r.balance_transaction)||null,failureBalanceId:id(r.failure_balance_transaction)||null})),
+   disputes:disputeList.values.map(d=>({id:d.id,status:d.status,amountCents:d.amount,balanceIds:d.balance_transactions.map(id)}))};
+  const refs=[...owners.refunds.flatMap(r=>[{id:r.balanceId,ownerId:r.id,kind:"refund" as const},{id:r.failureBalanceId,ownerId:r.id,kind:"refund_failure" as const}]),
+   ...owners.disputes.flatMap(d=>d.balanceIds.map(key=>({id:key,ownerId:d.id,kind:null})))].filter(r=>r.id!==null);
+  check(new Set(refs.map(r=>r.id)).size===refs.length&&refs.every(r=>/^txn_[A-Za-z0-9]+$/.test(r.id!)));
+  const entries:TeamFinancialBalance[]=[];let cursor=0;
+  // Each worker consumes one original reference at a time. All admitted reads
+  // finish before a failure is propagated; no abandoned provider GET survives.
+  const outcomes=await Promise.allSettled(Array.from({length:Math.min(4,refs.length,32)},async()=>{
+   while(cursor<Math.min(refs.length,32)){const ref=refs[cursor++];const value=await get<Stripe.BalanceTransaction>(`/v1/balance_transactions/${ref.id}`);
+    const kind=ref.kind??(value.reporting_category==="dispute_reversal"?"dispute_reversal":"dispute");
+    entries.push(inspectTeamFinancialBalance(value,{expectedId:ref.id!,ownerId:ref.ownerId,chargeId,kind,paidAt:capture.proof.paidAt,now:Math.floor(Date.now()/1000)}));}
+  }));
+  const failed=outcomes.find(v=>v.status==="rejected");if(failed?.status==="rejected")throw failed.reason;
+  entries.sort((a,b)=>a.id<b.id?-1:a.id>b.id?1:0);
+  const balance=reconcileTeamFinancialBalances({subtotalCents:amount,originalCostCents:capture.proof.processingCostCents,owners,entries,
+   refundListComplete:refundList.complete,disputeListComplete:disputeList.complete,decisions,basePlatformCreditCents:state.platformProcessingCostCreditCents});
+  if(balance.complete&&disputes.every(d=>["won","lost","prevented","warning_closed"].includes(d.status))&&entries.length){
+   state=observeTeamFinancialState({...stateArgs,verifiedCombinedLoss:{subtotalCents:balance.principalLossCents,providerEvidenceIds:entries.map(e=>e.id)}});
+  }
+  state.platformProcessingCostCreditCents=balance.originalProcessingCreditCents;
+  state.alerts.push(...balance.alerts);balanceEvidence={...balance,owners,entries,refundListComplete:refundList.complete,disputeListComplete:disputeList.complete};
+ }
  if(!disputeList.complete)state.alerts.push("DISPUTE_LIST_INCOMPLETE");
  if(capture.proof.disputed&&!disputes.length)state.alerts.push("DISPUTE_IDENTITY_UNRECONCILED");
  // Dispute/refund balance adjustments and associated fees must be reconciled
  // separately from the original charge's processing fee before funds release.
- if(disputes.length)state.alerts.push("DISPUTE_BALANCE_COST_RECONCILIATION_REQUIRED");
+ if(disputes.length&&!balanceEvidence)state.alerts.push("DISPUTE_BALANCE_COST_RECONCILIATION_REQUIRED");
  // Re-read complete bounded lists, including their membership. Another refund
  // or dispute must not hide behind an unchanged disputed=true charge flag.
  const [againRefunds,againDisputes]=await Promise.all([list<Stripe.Refund>("/v1/refunds","re"),list<Stripe.Dispute>("/v1/disputes","du")]);
@@ -64,6 +97,17 @@ export async function observeTeamPaymentEvent(c:TeamReceiptComposition,source:Te
  const disputeFields=(d:Stripe.Dispute)=>({id:d.id,object:d.object,charge:id(d.charge),pi:id(d.payment_intent),amount:d.amount,currency:d.currency,status:d.status,created:d.created,livemode:d.livemode,balance:d.balance_transactions});
  check(refundList.complete===againRefunds.complete&&disputeList.complete===againDisputes.complete&&isDeepStrictEqual(refundList.values.map(refundFields),againRefunds.values.map(refundFields))&&
   isDeepStrictEqual(disputeList.values.map(disputeFields),againDisputes.values.map(disputeFields)));
+ if(balanceEvidence){
+  let cursor=0;
+  const outcomes=await Promise.allSettled(Array.from({length:Math.min(4,balanceEvidence.entries.length)},async()=>{
+   while(cursor<balanceEvidence!.entries.length){const previous=balanceEvidence!.entries[cursor++];
+    const current=inspectTeamFinancialBalance(await get<Stripe.BalanceTransaction>(`/v1/balance_transactions/${previous.id}`),{expectedId:previous.id,ownerId:previous.ownerId,chargeId,kind:previous.kind,paidAt:capture.proof.paidAt,now:Math.floor(Date.now()/1000)});
+    const economic=(v:TeamFinancialBalance)=>{const {providerRequestId,status,availableOn,...fields}=v;void providerRequestId;void status;void availableOn;return fields;};
+    check(isDeepStrictEqual(economic(previous),economic(current)));
+   }
+  }));
+  const failed=outcomes.find(v=>v.status==="rejected");if(failed?.status==="rejected")throw failed.reason;
+ }
  const refreshed=await readTeamCapture(c,source.saleId,source.buyerId,source.obligationId);check(refreshed);
  const stable=(v:typeof capture.proof)=>{const {providerRequestId,...fields}=v;void providerRequestId;return fields;};
  check(isDeepStrictEqual(stable(capture.proof),stable(refreshed.proof))&&isDeepStrictEqual(capture.source.contract,refreshed.source.contract)&&
@@ -71,7 +115,10 @@ export async function observeTeamPaymentEvent(c:TeamReceiptComposition,source:Te
  const currentReviews=await teamRpc<Review[]>(c.admin,"read_sales_team_refund_reviews_v1",{p_sale_id:source.saleId,p_buyer_id:source.buyerId,p_obligation_id:source.obligationId});check(isDeepStrictEqual(reviews,currentReviews));
  check(isDeepStrictEqual(await c.observeContext(),c.context));bounded();state.reviewHold=state.alerts.length>0;
  const proof={context:c.context,chargeId,paymentIntentId:source.paymentIntentId,...state,refundIds:refunds.map(r=>r.id),decisionIds:reviews.map(r=>r.id),
-  providerEvidenceIds:capture.proof.balanceTransactionId?[capture.proof.balanceTransactionId]:[],sourceEventId:eventId,providerRequestIds:requestIds};
- return teamRpc<{receiptId:string;held:boolean}>(c.admin,"complete_sales_team_payment_event_v1",{p_event_id:eventId,p_expected_revision:capture.source.receipt?.observation_revision??null,
-  p_snapshot:{capture:{receipt:refreshed.proof,readback:refreshed.readback},proof,refunds,disputes,readStartedAt:started}});
+  providerEvidenceIds:[...(capture.proof.balanceTransactionId?[capture.proof.balanceTransactionId]:[]),...(balanceEvidence?.entries.map(e=>e.id)??[])],sourceEventId:observation.eventId,providerRequestIds:requestIds};
+ return {revision:capture.source.receipt?.observation_revision??null,snapshot:{capture:{receipt:refreshed.proof,readback:refreshed.readback},proof,refunds,disputes,readStartedAt:started,...(balanceEvidence?{balanceEvidence}:{})}};
+}
+export async function observeTeamPaymentEvent(c:TeamReceiptComposition,source:TeamEventSource,eventId:string,balances=false){
+ const inspected=await readTeamFinancialSnapshot(c,source,{eventId,balances});
+ return teamRpc<{receiptId:string;held:boolean}>(c.admin,"complete_sales_team_payment_event_v1",{p_event_id:eventId,p_expected_revision:inspected.revision,p_snapshot:inspected.snapshot});
 }

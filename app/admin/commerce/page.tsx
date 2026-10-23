@@ -6,6 +6,7 @@ import Link from "next/link";
 import { membershipAdminReady } from "@/lib/membershipAdmin";
 import { buyerMentorshipAdminReady } from "@/lib/mentorshipInstallmentAdmin";
 import { fullRefundReviewAdminReady } from "@/lib/fullRefundReviewAdmin";
+import { teamFinancialReconciliationReady } from "@/lib/salesTeams/policy";
 
 // Money data must never come from a stale cache.
 export const dynamic = "force-dynamic";
@@ -20,6 +21,8 @@ export default async function CommercePage() {
   const initialData = await fetchCommerceInitialData();
   return (
     <AdminDataProvider initialData={initialData}>
+      {teamFinancialReconciliationReady() && <Link href="/admin/commerce/sales-team"
+        className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review team payment costs →</Link>}
       {fullRefundReviewAdminReady() && <Link href="/admin/commerce/full-refunds"
         className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review full-payment refunds →</Link>}
       {buyerMentorshipAdminReady() && <Link href="/admin/commerce/buyer-installments"

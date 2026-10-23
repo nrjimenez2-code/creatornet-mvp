@@ -1,0 +1,12 @@
+import type Stripe from "stripe";
+import {inspectTeamFinancialBalance,reconcileTeamFinancialBalances,type TeamBalanceOwners} from "@/lib/salesTeams/balancePolicy";
+const original={id:"txn_refund",object:"balance_transaction",source:"re_original",amount:-1000,fee:40,net:-1040,currency:"usd",created:100,available_on:200,status:"available",exchange_rate:null,type:"refund",reporting_category:"refund",lastResponse:{requestId:"req_original"},fee_details:[{amount:40,currency:"usd",application:null,type:"stripe_fee"}]};
+const args={expectedId:"txn_refund",ownerId:"re_original",chargeId:"ch_original",kind:"refund" as const,paidAt:100,now:200};
+const inspect=(value=original)=>inspectTeamFinancialBalance(value as unknown as Stripe.BalanceTransaction,args);
+const owners:TeamBalanceOwners={refunds:[{id:"re_original",status:"succeeded",amountCents:1000,balanceId:"txn_refund",failureBalanceId:null}],disputes:[]};
+const input=()=>({subtotalCents:3333,originalCostCents:127,owners:structuredClone(owners),entries:[inspect()],refundListComplete:true,disputeListComplete:true,decisions:[{refundId:"re_original",chargeId:"ch_original",responsibility:"platform" as const,reasonCode:"platform_technical_error" as const}],basePlatformCreditCents:38});
+test("allocates actual auxiliary fee without changing the original charge processing cost",()=>{expect(reconcileTeamFinancialBalances(input())).toMatchObject({complete:true,principalLossCents:1000,feeAdjustmentCents:40,originalProcessingCreditCents:38,financialProcessingCreditCents:40});});
+test.each([{source:"ch_original"},{net:-1000},{currency:"eur"},{reporting_category:"adjustment"},{amount:-1000.5},{fee_details:[]}])("rejects unowned or inconsistent independent balance: %o",extra=>{expect(()=>inspect({...original,...extra})).toThrow();});
+test("duplicate refund ownership cannot manufacture complete coverage",()=>{const value=input();value.owners.refunds.push(value.owners.refunds[0]);expect(()=>reconcileTeamFinancialBalances(value)).toThrow();});
+test("incomplete reads retain known refunded principal and a hold",()=>{const value=input();value.entries=[];value.refundListComplete=false;expect(reconcileTeamFinancialBalances(value)).toMatchObject({complete:false});});
+test("a fee credit larger than the audited platform allocation retains review",()=>{const value=input();value.entries=[{...inspect(),feeCents:-50,netCents:-950}];expect(reconcileTeamFinancialBalances(value)).toMatchObject({complete:false,originalProcessingCreditCents:0,financialProcessingCreditCents:0});});

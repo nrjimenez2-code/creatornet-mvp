@@ -31,6 +31,9 @@ This is a new implementation of the October 21 closing-team plan. Its full accep
 | `CREATOR_TEAM_FULFILLMENT_READY` | Admit first shared purchase/fee accounting and delivery; required before new collection. |
 | `CREATOR_TEAM_EVENT_SCHEMA_READY` | Discover signed event holds and immutable financial observations. Original ownership fencing remains installed even when source flags are disabled. |
 | `CREATOR_TEAM_EVENT_RECONCILIATION_READY` | Apply current independently read team payment events; required before new collection. |
+| `CREATOR_TEAM_FINANCIAL_SCHEMA_READY` | Discover private financial inspections, balance traces, retry identities and cost adjustments. |
+| `CREATOR_TEAM_FINANCIAL_RECONCILIATION_READY` | Independently reconcile original refund/dispute principal, costs and credits; required before fresh collection. |
+| `CREATOR_TEAM_REFUND_REVIEW_READY` | Admit an audited responsibility decision for an existing independently read successful refund. This does not dispatch a refund. |
 
 All gates default to false. The database also starts with access, new-sale and settlement controls false. Financial configuration starts without approved context, verified pricing, reserve configuration or approved disclosures. A source change or migration must not mark these accepted.
 
@@ -165,6 +168,65 @@ pass125, including signature order, private history, lost-read durable holds,
 concurrent pending deliveries, pre-receipt holds and post-accounting delivery
 recovery. Failed/partial receipts are preserved. No new build, hosted schema,
 browser, real provider mutation or acceptance result is claimed.
+
+### Independent financial costs and admin inspections — October 22 continuation
+
+The financial reconciliation candidate now encloses every guarded patch in one
+transaction. Private immutable inspection requests map retry UUIDs to the same
+original check, including after a resumed request completes. A pending check
+holds Library access and fresh collection before provider reads. Another
+pending check or signed event cannot be cleared by completing this check.
+Replaying a completed request returns the current hold, without provider reads.
+
+The reusable financial reader retrieves refund debit/failure-credit and dispute
+withdrawal/reinstatement transactions by their independently listed references.
+It admits at most 32 distinct references with concurrency four, a 45-second
+admission budget and per-request timeouts capped to its remainder. It rereads
+list membership, transaction economics, capture identity, decisions and context.
+These limits have local fixture coverage, not measured provider acceptance.
+Raw customer data, descriptions and dispute evidence are excluded from stored
+proof. Incomplete/changed/unknown traces retain their holds.
+
+Original charge processing costs remain separate from signed net auxiliary
+fees/credits. Audited refund responsibility allocates original processing cents
+using the existing cumulative fee algorithm, plus that refund's actual auxiliary
+costs. SQL independently checks identity, integer cents, reference coverage,
+principal, credit allocation and source-event binding before accounting. Closed
+disputes can now reconcile principal and costs; winning alone is insufficient.
+Shared orders/fee ledger, post-commission creator earnings and scoped statements
+include auxiliary adjustments without calling legacy earnings credit twice.
+
+The default-off admin view at `/admin/commerce/sales-team` and its same-origin
+API require persisted administrator authority and the exact financial context.
+They inspect originals and record permanent responsibility for an independently
+retrieved, already successful refund. Review retains a hold until a fresh
+inspection. They do not dispatch refunds. The existing legacy refund fence
+continues to reject team rows.
+
+Local evidence includes 24 PGlite integration cases covering real guarded
+installation, shared ledger/earnings/Library accounting, mixed checks, original
+request recovery, role isolation, malformed proofs and full transaction rollback
+on a failure in the final patch, 32-reference/four-read limits, admission expiry
+and mixed-case cumulative allocation ordering. Admin API/UI, balance policy, collection gates,
+signed events and existing capture/shared/statement fixtures also passed their
+affected checks: 126 distinct cases across 14 suites, using latest applicable
+receipts rather than summing repeated runs. Two cases drive the real signature
+verifier and canonical HTTP webhook through the new financial path with GET-only
+provider mocks, including duplicate delivery and original-read recovery. Full TypeScript passed after explicitly widening the generated
+UUID parameter to a validated string; scoped ESLint has zero errors/warnings.
+Exact receipts are retained in the continuation chat's `work/financial-*.json`
+and typecheck logs. This is local fixture/mock proof. Current full CI/build,
+installed hosted compatibility, real browser/provider acceptance and bank payout
+remain unverified. Financial/refund-review source and database controls remain
+off. No hosted migration, provider write or release activation was performed.
+
+Remaining product work includes the separate-charge refund dispatcher, automated
+pending-event/check/capability recovery, later collection and Stop/payoff,
+settlement/surplus/bank-payout observations, and actual booking/composer schema
+compatibility. Source inspection confirms the canonical post API rejects
+`product_id` for a book action while the team sale source requires a booked
+post's `product_id`. The canonical path needs a separate, authorized booked-offer
+association; the structural shared fixture does not resolve this conflict.
 
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
 

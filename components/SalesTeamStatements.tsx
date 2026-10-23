@@ -48,6 +48,7 @@ export default function SalesTeamStatements(){
     {data.scope==="creator"&&entry.creatorAccounting?<details><summary>Creator accounting</summary>
      <p>Sale subtotal {teamMoney(entry.creatorAccounting.saleSubtotalCents)} · Creator proceeds {teamMoney(entry.creatorAccounting.creatorProceedsCents)} · Platform revenue {teamMoney(entry.creatorAccounting.platformRevenueCents)}</p>
      <p>Recorded processing cost {teamMoney(entry.creatorAccounting.actualProcessingCostCents)} · Processing reserve {teamMoney(entry.creatorAccounting.processingReserveCents)} · Payout-cost reserve {teamMoney(entry.creatorAccounting.payoutCostReserveCents)}</p>
+     {entry.creatorAccounting.actualFinancialAdjustmentCostCents!==undefined?<p>Refund and dispute cost adjustment {teamMoney(entry.creatorAccounting.actualFinancialAdjustmentCostCents)} · Total platform processing credit {teamMoney(entry.creatorAccounting.platformProcessingCreditCents)} · Refund and dispute processing credit {teamMoney(entry.creatorAccounting.financialProcessingCreditCents??0)}</p>:null}
      <p>Creator deficit {teamMoney(entry.creatorAccounting.creatorDeficitCents)} · Tax reserve {teamMoney(entry.creatorAccounting.taxReserveCents)}</p>
     </details>:null}
    </article>):<p>No commission receipts recorded for this relationship.</p>}

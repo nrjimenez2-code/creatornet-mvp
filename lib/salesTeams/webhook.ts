@@ -4,7 +4,7 @@ import type {SupabaseClient} from "@supabase/supabase-js";
 import {isDeepStrictEqual} from "node:util";
 import {TEAM_STRIPE_API_VERSION} from "./providerOperation";
 import {createTeamPaymentContext} from "./context";
-import {teamEventReconciliationReady,teamFulfillmentReady,teamPaymentSchemaReady} from "./policy";
+import {teamEventReconciliationReady,teamFinancialReconciliationReady,teamFulfillmentReady,teamPaymentSchemaReady} from "./policy";
 import {teamRpc} from "./server";
 import {refreshTeamBoundCollection} from "./collection";
 import {observeTeamPaymentEvent,type TeamEventSource} from "./financialReadback";
@@ -69,7 +69,7 @@ export async function handoffTeamPaymentWebhook(args:Args){
  check(isDeepStrictEqual(c.context,source.context)&&isDeepStrictEqual(await c.observeContext(),source.context));
  const saved=await refreshTeamBoundCollection(c,source.saleId,source.buyerId,source.obligationId);
  if(saved.saved.receipt||saved.saved.state?.status==="succeeded"){
-  const result=await observeTeamPaymentEvent(c,source,args.event.id);
+  const result=await observeTeamPaymentEvent(c,source,args.event.id,teamFinancialReconciliationReady(args.env));
   if(teamFulfillmentReady(args.env))await teamRpc(c.admin,"fulfill_sales_team_receipt_v1",{p_sale_id:source.saleId,p_buyer_id:source.buyerId,p_receipt_id:result.receiptId});
  }else await teamRpc(c.admin,"complete_sales_team_lifecycle_event_v1",{p_event_id:args.event.id,p_state_id:saved.saved.state?.id??null});
  return true;

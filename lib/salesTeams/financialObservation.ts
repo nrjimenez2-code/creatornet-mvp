@@ -21,7 +21,7 @@ export function observeTeamFinancialState(args:{chargeId:string;subtotalCents:nu
   if(!["succeeded","pending","failed","canceled","requires_action"].includes(refund.status))throw Error("Unknown refund state requires review");
  }
  for(const decision of args.decisions){if(decision.chargeId!==args.chargeId||decisions.has(decision.refundId)||!reasonMatchesResponsibility(decision.reasonCode,decision.responsibility))throw Error("Refund responsibility requires review");decisions.set(decision.refundId,decision);}
- const successful=[...refunds.values()].filter(r=>r.status==="succeeded").sort((a,b)=>a.created-b.created||a.id.localeCompare(b.id));
+ const successful=[...refunds.values()].filter(r=>r.status==="succeeded").sort((a,b)=>a.created-b.created||(a.id<b.id?-1:a.id>b.id?1:0));
  const listedRefundedCents=successful.reduce((sum,r)=>sum+r.amountCents,0);
  if(listedRefundedCents>args.subtotalCents)throw Error("Confirmed refunds exceed the charge");
  // A bounded/incomplete list cannot restore commission on principal the

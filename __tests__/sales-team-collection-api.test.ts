@@ -14,7 +14,7 @@ beforeEach(()=>{
  for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY"])delete process.env[key];
  admin={kind:"scoped-admin"};owned.mockResolvedValue({admin,user:{id:buyer},sale:{status:"accepted"}});read.mockResolvedValue({view});compose.mockReturnValue(composition);prepare.mockResolvedValue({view});confirm.mockResolvedValue(view);stop.mockResolvedValue(view);
 });afterEach(()=>{process.env={...env};});
-const enabled=()=>{for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY","CREATOR_TEAM_RECEIPT_SCHEMA_READY","CREATOR_TEAM_RECEIPT_RECORDING_READY","CREATOR_TEAM_FULFILLMENT_SCHEMA_READY","CREATOR_TEAM_FULFILLMENT_READY","CREATOR_TEAM_EVENT_SCHEMA_READY","CREATOR_TEAM_EVENT_RECONCILIATION_READY"])process.env[key]="true";};
+const enabled=()=>{for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY","CREATOR_TEAM_RECEIPT_SCHEMA_READY","CREATOR_TEAM_RECEIPT_RECORDING_READY","CREATOR_TEAM_FULFILLMENT_SCHEMA_READY","CREATOR_TEAM_FULFILLMENT_READY","CREATOR_TEAM_EVENT_SCHEMA_READY","CREATOR_TEAM_EVENT_RECONCILIATION_READY","CREATOR_TEAM_FINANCIAL_SCHEMA_READY","CREATOR_TEAM_FINANCIAL_RECONCILIATION_READY"])process.env[key]="true";};
 test("status is buyer-owned and available while new collection is held",async()=>{
  const response=await GET(request(),context);expect(response.status).toBe(200);expect(await response.json()).toEqual({payment:view,collectionEnabled:false});expect(response.headers.get("cache-control")).toBe("private, no-store");
  expect(read).toHaveBeenCalledWith({admin},sale,buyer);expect(compose).not.toHaveBeenCalled();
@@ -32,6 +32,10 @@ test.each(["amount","buyer_id","customer_id","payment_intent_id","return_url","a
 test("new preparation uses only saved sale and authenticated buyer identities",async()=>{
  enabled();expect((await POST(request({action:"prepare"}),context)).status).toBe(200);expect(prepare).toHaveBeenCalledWith(composition,sale,buyer,true);
  expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_original"}),context)).status).toBe(200);expect(confirm).toHaveBeenCalledWith(composition,sale,buyer,{requestId,kind:"token",tokenId:"ctoken_original"});
+});
+test("fresh collection requires independent financial reconciliation readiness",async()=>{
+ enabled();delete process.env.CREATOR_TEAM_FINANCIAL_RECONCILIATION_READY;
+ expect((await POST(request({action:"prepare"}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();
 });
 test("Stop and refresh retain original recovery with new activity disabled",async()=>{
  expect((await POST(request({action:"stop"}),context)).status).toBe(200);expect(stop).toHaveBeenCalledWith(composition,sale,buyer);
