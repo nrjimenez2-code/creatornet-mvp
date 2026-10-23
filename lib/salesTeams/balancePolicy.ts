@@ -39,7 +39,7 @@ export function reconcileTeamFinancialBalances(args:{subtotalCents:number;origin
   (args.originalCostCents===null||Number.isSafeInteger(args.originalCostCents)&&args.originalCostCents>=0));
  const seen=new Set<string>(),ownerIds=new Set<string>(),decisionIds=new Set<string>(),alerts:string[]=[];let feeCents=0,principal=0,refundFeesForPlatform=0;
  check(args.owners.refunds.length<=300&&args.owners.disputes.length<=300&&args.entries.length<=32);
- for(const d of args.decisions){check(!decisionIds.has(d.refundId)&&reasonMatchesResponsibility(d.reasonCode,d.responsibility)&&args.owners.refunds.some(r=>r.id===d.refundId&&r.status==="succeeded"));decisionIds.add(d.refundId);}
+ for(const d of args.decisions){check(!decisionIds.has(d.refundId)&&reasonMatchesResponsibility(d.reasonCode,d.responsibility)&&args.owners.refunds.some(r=>r.id===d.refundId));decisionIds.add(d.refundId);}
  const refs=new Map<string,{ownerId:string;kind:TeamFinancialBalance["kind"]}>();
  const admit=(key:string|null,ownerId:string,kind:TeamFinancialBalance["kind"])=>{if(!key)return;check(/^txn_[A-Za-z0-9]+$/.test(key)&&!refs.has(key));refs.set(key,{ownerId,kind});};
  for(const r of args.owners.refunds){check(/^re_[A-Za-z0-9]+$/.test(r.id)&&!ownerIds.has(r.id)&&Number.isSafeInteger(r.amountCents)&&r.amountCents>0&&r.amountCents<=args.subtotalCents&&["succeeded","pending","requires_action","failed","canceled"].includes(r.status));ownerIds.add(r.id);admit(r.balanceId,r.id,"refund");admit(r.failureBalanceId,r.id,"refund_failure");

@@ -17,6 +17,7 @@ beforeAll(async()=>{
  await db.exec("alter table profiles add column role text");
  await db.exec(readFileSync("supabase/migrations/20261021230016_sales_team_financial_statements.sql","utf8"));
  await db.exec(readFileSync("supabase/migrations/20261023002620_sales_team_financial_reconciliation.sql","utf8"));
+ await db.exec(readFileSync("supabase/migrations/20261023012742_sales_team_admin_refund_dispatch.sql","utf8"));
 },30000);
 beforeEach(async()=>{
  await db.exec("begin;update sales_team_controls_v1 set financial_reconciliation_enabled=true,refund_review_enabled=true,fulfillment_enabled=true,event_reconciliation_enabled=true");

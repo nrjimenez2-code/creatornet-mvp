@@ -7,7 +7,7 @@ import { teamId,TeamSalesError } from "./policy";
 
 export const TEAM_STRIPE_API_VERSION="2026-08-26.dahlia";
 export type TeamProviderRequest={apiVersion:string;method:"POST";path:string;params:Record<string,unknown>};
-export type TeamOperationKind="recipient"|"customer"|"intent"|"confirmation"|"cancellation"|"transfer"|"reversal"|"withdrawal"|"setup";
+export type TeamOperationKind="recipient"|"customer"|"intent"|"confirmation"|"cancellation"|"transfer"|"reversal"|"withdrawal"|"setup"|"refund";
 export type TeamOperationScope={scopeId:string;scopeKey:string;kind:TeamOperationKind;saleId:string|null;creatorId:string|null;actorId:string|null;workerRunId?:string|null};
 type TeamOperation=TeamOperationScope&{id:string;request:TeamProviderRequest;context:ExactPaymentContext;status:string;
  idempotency_key:string;lease_token:string|null;lease_until:string|null;first_dispatch_at:string|null;provider_id:string|null;provider_request_id:string|null};

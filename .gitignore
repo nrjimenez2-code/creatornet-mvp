@@ -196,3 +196,4 @@ supabase/migrations/*
 !supabase/migrations/20261023000533_sales_team_payment_events.sql
 !supabase/migrations/20261023002620_sales_team_financial_reconciliation.sql
 !supabase/migrations/20261023010604_sales_team_booked_offer_associations.sql
+!supabase/migrations/20261023012742_sales_team_admin_refund_dispatch.sql

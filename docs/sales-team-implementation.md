@@ -276,6 +276,74 @@ shared Library entitlement pass together (`work/combined-financial-booked.json`,
 10 tests). Combined TypeScript and scoped lint also pass. The full historical
 installed-schema and release gates remain outstanding.
 
+### Admin refund requests and original recovery — October 22 continuation
+
+The local candidate `20261023012742_sales_team_admin_refund_dispatch.sql`
+and `/api/admin/sales-team/refunds` now add a separate team refund request,
+explicit preview/confirmation, one admitted refund POST, and original-only
+recovery. The legacy destination-charge admin fence stays in place. No provider
+write or hosted installation was executed to verify this candidate.
+
+A persisted current administrator freezes the original receipt, revision, exact
+cents, cost bearer, reason, context, request UUID, provider-operation UUID,
+request bytes and idempotency key. Reservation holds the receipt before provider
+reads. Fresh dispatch requires a complete clean inspection after reservation,
+unchanged observation revision, no competing pending event/check, and current
+database execution gates including signed-event reconciliation. The POST only
+refunds the original separate charge; it includes no automatic transfer or
+application-fee reversal parameters. Unstarted requests can be audited as
+canceled only while no provider operation exists.
+
+Recovery never admits an unstarted POST. An unknown outcome can bind only after
+an independently retrieved real provider event proves the original journal
+idempotency key and original provider request ID, plus the owned refund's exact
+economics/context. Matching metadata alone cannot establish ownership. Recovery
+stores actual event-list/refund GET request IDs and can continue with new-money
+dispatch disabled. Known originals are independently retrieved and reconciled;
+a failed read first retains a durable financial hold.
+
+Stripe's [refund testing guidance](https://docs.stripe.com/testing#refunds)
+documents that an initially successful refund can later fail. Principal
+restoration requires a complete independently owned debit/return-credit trace,
+once-only consumption of the actual failure credit, and deferred links to the
+completed financial check and immutable balance entry. The general monotonic
+refund guard remains. A final financial observation is linked into the original
+request's immutable history and controls the reported status; event/worker
+checks keep their actual provenance instead of impersonating an administrator.
+A missing bound original or terminal-state regression cannot clear the hold.
+
+The admin client saves and verifies its actor/receipt/mode-scoped original
+request before dispatch, retains it on unknown outcomes, and offers original
+recovery while new refunds are held. It has no default cost bearer or reason.
+It clears a saved request only for the matching reconciled definitive outcome.
+Saved provider status and a Stripe transfer do not confirm bank receipt.
+
+The latest applicable local receipts cover 92 distinct cases across eight suites,
+not one consolidated full-suite run: refund SQL/runtime24, admin API14/UI7,
+source gates3, existing financial SQL24, real-signature HTTP4, balance policy10
+and provider journal6. The new SQL/runtime cases install the complete candidate
+on the shared fixture, exercise mocked one-POST/GET-only recovery, enforce the
+final-observation and once-only-credit rules, and roll back every schema change
+after a failure injected at the final grant. Existing financial cases now install
+the refund candidate as well. Exact latest receipts include
+`work/refund-dispatch-verified.json`, `refund-dispatch-final-observation.json`
+(reuse only its passing financial24/HTTP4), `refund-dispatch-final-scoped.json`
+(gates3/balance10/journal6), and `refund-dispatch-safety-initial.json`
+(unchanged API14). Earlier failures are preserved and are superseded only by the
+specific passing follow-ups. These are local SQL/jsdom/signature/mock checks;
+there is no real browser or provider-money acceptance. Full TypeScript exits 0
+and scoped ESLint has zero errors/warnings at this checkpoint.
+
+Source gates `CREATOR_TEAM_REFUND_DISPATCH_SCHEMA_READY` and
+`CREATOR_TEAM_REFUND_DISPATCH_READY`, and database control
+`refund_dispatch_enabled`, default false. This implements local request,
+dispatch and reconciliation seams; it does not establish launch readiness.
+Refund available-funds protection, protected global reserves and post-transfer
+creator/commission recovery remain unfinished integration work before activation,
+along with the other collection, worker, settlement and bank-payout workstream
+requirements. Full historical schema, CI/build, browser/provider, authorized
+sandbox and separately approved Production/LIVE acceptance remain outstanding.
+
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
 
 Do not repeat the release-controls migration: its reviewed source filename is `20261021010052_controlled_website_releases.sql`, but the existing hosted applied-once receipt is version `20261021020911`. Reconcile that receipt before any proposed migration installation; a filename mismatch is not permission to replay it. Do not repeat old payment operations, consumed provider tests or preserved checkout tests just to reconstruct context. Do not use this branch's code as authority for hosted financial, account, scheduler, migration, deployment or Production/LIVE changes.

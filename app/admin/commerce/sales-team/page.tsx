@@ -1,15 +1,16 @@
 import Link from "next/link";
 import {notFound} from "next/navigation";
 import {requireAdmin} from "@/lib/admin/server";
-import {teamFinancialReconciliationReady,teamRefundReviewReady} from "@/lib/salesTeams/policy";
+import {teamFinancialReconciliationReady,teamRefundReviewReady,teamRefundDispatchReady,teamRefundDispatchSchemaReady} from "@/lib/salesTeams/policy";
 import {createTeamPaymentContext} from "@/lib/salesTeams/context";
 import {readTeamFinancialAdmin} from "@/lib/salesTeams/financialAdmin";
 import {teamMoney} from "@/lib/salesTeams/statements";
 import FinancialControls from "./FinancialControls";
+import RefundControls from "./RefundControls";
 export const dynamic="force-dynamic";
 const path="/admin/commerce/sales-team";
 export default async function TeamFinancialPage({searchParams}:{searchParams:Promise<{after?:string|string[]}>}){
- const {user}=await requireAdmin();if(!teamFinancialReconciliationReady())notFound();
+ const {user}=await requireAdmin();if(!teamFinancialReconciliationReady()&&!teamRefundDispatchSchemaReady())notFound();
  const after=(await searchParams).after??null;if(after!==null&&(typeof after!=="string"||!/^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(after)))notFound();
  let page:Awaited<ReturnType<typeof readTeamFinancialAdmin>>;
  try{page=await readTeamFinancialAdmin(createTeamPaymentContext(),user.id,after);}catch{return <div role="alert">Team financial records are unavailable. <Link href={path}>Refresh records</Link></div>;}
@@ -23,7 +24,8 @@ export default async function TeamFinancialPage({searchParams}:{searchParams:Pro
    <p>Original processing {row.processingCostCents===null?"Awaiting evidence":teamMoney(row.processingCostCents)} · Refund/dispute cost adjustment {teamMoney(row.adjustmentCostCents)} · Auxiliary processing credit {teamMoney(row.financialProcessingCreditCents)}</p>
    <p>Payment {row.paymentIntentId} · Charge {row.chargeId}</p>
    {row.reviews.map(r=><p key={r.refundId}>{r.refundId}: {r.responsibility==="platform"?"CreatorNet":"Creator"} responsibility · {r.reasonCode.replaceAll("_"," ")}</p>)}
-   <FinancialControls key={`${row.receiptId}:${row.revision}`} receiptId={row.receiptId} revision={row.revision} reviewEnabled={teamRefundReviewReady()} refunds={row.refunds.filter(r=>r.status==="succeeded"&&!row.reviews.some(d=>d.refundId===r.id)).map(r=>({id:r.id,amountCents:r.amountCents}))}/>
+   {teamFinancialReconciliationReady()?<FinancialControls key={`${user.id}:${row.receiptId}:${row.revision}`} receiptId={row.receiptId} revision={row.revision} reviewEnabled={teamRefundReviewReady()} refunds={row.refunds.filter(r=>r.status==="succeeded"&&!row.reviews.some(d=>d.refundId===r.id)).map(r=>({id:r.id,amountCents:r.amountCents}))}/>:null}
+   {teamRefundDispatchSchemaReady()?<RefundControls key={`${user.id}:${page.mode}:${row.receiptId}`} actorId={user.id} receiptId={row.receiptId} mode={page.mode} enabled={teamRefundDispatchReady()} requests={row.refundRequests??[]}/>:null}
   </section>)}
   <nav className="flex gap-5" aria-label="Team financial pages">{after?<Link href={path}>First page</Link>:null}{page.nextCursor?<Link href={`${path}?after=${encodeURIComponent(page.nextCursor)}`}>Next page</Link>:null}</nav>
  </div>;
