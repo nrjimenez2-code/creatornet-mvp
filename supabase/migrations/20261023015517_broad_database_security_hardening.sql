@@ -20,6 +20,28 @@ revoke insert,update,delete on public.bookings from public,anon,authenticated;
 revoke insert(id,post_id,buyer_id,creator_id,status,linked_order_id,created_at),
   update(id,post_id,buyer_id,creator_id,status,linked_order_id,created_at)
   on public.bookings from public,anon,authenticated;
+-- Public/legacy creation omits these generated identities. Client-supplied
+-- cross-column aliases could make id-or-product_id payment lookups ambiguous.
+revoke insert,update on public.products from public,anon,authenticated;
+revoke insert(id,product_id),update(id,product_id) on public.products from public,anon,authenticated;
+grant insert(creator_id,title,description,type,price_cents,external_url,thumbnail_url,is_active,created_at,active,updated_at,plan_months,stripe_price_id,fulfillment,discord_channel_id,whop_listing_id,deliver_url,discord_invite_url,whop_listing_url,amount_cents,currency,post_id,product_type,premium_video_url,membership_terms,fixed_service_months,delivery_revision),
+  update(creator_id,title,description,type,price_cents,external_url,thumbnail_url,is_active,created_at,active,updated_at,plan_months,stripe_price_id,fulfillment,discord_channel_id,whop_listing_id,deliver_url,discord_invite_url,whop_listing_url,amount_cents,currency,post_id,product_type,premium_video_url,membership_terms,fixed_service_months,delivery_revision) on public.products to authenticated;
+-- Current clients use get_feed_v3. Obsolete owner-privileged feeds omit current
+-- moderation/engagement checks; remove their unused client entry points.
+do $$ declare signature text; routine regprocedure; begin
+  foreach signature in array array[
+    'public.get_feed_discover(integer,uuid)',
+    'public.get_feed_following(uuid,integer)',
+    'public.get_feed_v1(uuid,integer)'
+  ] loop
+    routine:=to_regprocedure(signature);
+    if routine is null or not (select prosecdef from pg_proc where oid=routine)
+      or not has_function_privilege('service_role',routine,'EXECUTE') then
+      raise exception 'Legacy feed definition or service access changed: %',signature;
+    end if;
+    execute format('revoke execute on function %s from public,anon,authenticated',routine);
+  end loop;
+end $$;
 -- public is trusted (client CREATE refused above); pg_temp is explicitly last.
 -- Preserve all existing bodies, owners, ACLs, volatility and return contracts.
 do $$ declare signature text; routine regprocedure; begin
