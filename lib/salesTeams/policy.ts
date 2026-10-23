@@ -27,6 +27,7 @@ export const teamCashSchemaReady = (env: TeamEnvironment = process.env) => teamR
 export const teamCashFundingReady = (env: TeamEnvironment = process.env) => teamCashSchemaReady(env) && env.CREATOR_TEAM_CASH_FUNDING_READY === "true";
 export const teamSharedCashReady = (env: TeamEnvironment = process.env) => teamCashFundingReady(env) && env.CREATOR_TEAM_SHARED_CASH_READY === "true";
 export const teamRefundDispatchReady = (env: TeamEnvironment = process.env) => teamRefundDispatchSchemaReady(env) && teamRefundReviewReady(env) && teamSharedCashReady(env) && env.CREATOR_TEAM_REFUND_DISPATCH_READY === "true";
+export const teamAutomaticRecoveryReady = (env: TeamEnvironment = process.env) => teamCashSchemaReady(env) && env.CREATOR_TEAM_AUTOMATIC_RECOVERY_SCHEMA_READY === "true" && env.CREATOR_TEAM_AUTOMATIC_RECOVERY_READY === "true";
 export type TeamRecipientStatus={status:"not_started"|"verification_required"|"setup_required"|"ready";transfersActive:boolean;payoutsReady:boolean;verifiedAt:string|null};
 
 export class TeamSalesError extends Error {

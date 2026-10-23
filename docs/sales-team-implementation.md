@@ -460,4 +460,58 @@ current CI/build, separately authorized sandbox acceptance and distinct
 Production/LIVE/bank-payout proof remain outstanding. No hosted candidate,
 scheduler, external transaction or release was activated by this continuation.
 
+### Bounded automatic original inspection — October 22 continuation
+
+Local candidate `20261023060912_sales_team_automatic_recovery.sql` and
+`/api/sales-team/recovery` implement an authenticated inspection seam. The source
+flags `CREATOR_TEAM_AUTOMATIC_RECOVERY_SCHEMA_READY` and
+`CREATOR_TEAM_AUTOMATIC_RECOVERY_READY`, database control
+`automatic_recovery_enabled`, and an explicitly reviewed recovery-contract digest
+are independently required. They default off and do not require new-money gates.
+No cron entry is registered by this change.
+
+The existing scheduling authenticator refuses missing/short secrets and compares
+the complete Bearer authorization securely before client composition. A durable
+15-minute slot and 90-second worker lease fence duplicate/overlapping runs. Each
+run admits at most three tasks and forty object GETs within a 45-second object
+observation budget; context observations retain their own existing timeouts.
+Provider writes and network retries are refused. Already admitted GETs drain
+before a task result is recorded. Expired/changed context, source hash or worker
+authority retains existing holds. Immutable task/run results retain the actual
+observer and only bounded codes; raw errors, contact email and provider/customer
+descriptions are not copied into task evidence.
+
+The queue handles stale financial checks, durable signed-event handoffs, terminal
+shared outflows and bound recipient capability refresh. A stale check's original
+initiator remains immutable; a current independent worker proof can atomically
+complete it with explicit recovery links and observer columns. A deferred result
+link prevents removing a hold without its completed independent proof. Recent
+checks remain with their existing reader. Failed proofs roll back all recovery
+links/results. Normal admin inspection retains its existing authority/validation.
+Unknown shared originals remain held without metadata adoption or a provider POST.
+Recipient refresh checks the saved original twice, preserves its account identity
+and invalidates cached readiness after failed current verification.
+
+When fulfillment is explicitly ready, the queue also resumes missing Library
+delivery from an already verified receipt using the existing idempotent shared
+purchase/order contract. Event reconciliation followed by a delivery error is
+recorded as requiring review and can resume through this separate delivery task.
+Success results require their actual completed domain proof. Review alerts are
+deduplicated in the existing private financial-alert table and resolve only after
+successful proof; no outbound notification is sent by this implementation.
+
+Latest local receipt `automatic-recovery-delivery.json` passed33 in three suites:
+SQL/runtime20, bounded transport6 and endpoint authorization7. Current full
+incremental TypeScript and scoped lint passed. Earlier alias, SQL CASE parsing and
+test-fixture typing failures remain in their receipts and are superseded only by
+the specific passing follow-ups. These fixtures install actual candidates on the
+same structural legacy fixture; they do not establish a hosted scheduler run,
+full historical schema compatibility, actual provider operation or LIVE proof.
+
+Automatic unknown team-refund journal recovery and no-outbound terminal shared
+release still need their own complete provenance paths. Later collection/lifecycle,
+same-creator post-transfer recovery, settlement, surplus and confirmed bank payout
+also remain unfinished. This inspection seam must not be treated as that complete
+financial dispatcher or as authority to activate a scheduler.
+
 Do not repeat the release-controls migration: its reviewed source filename is `20261021010052_controlled_website_releases.sql`, but the existing hosted applied-once receipt is version `20261021020911`. Reconcile that receipt before any proposed migration installation; a filename mismatch is not permission to replay it. Do not repeat old payment operations, consumed provider tests or preserved checkout tests just to reconstruct context. Do not use this branch's code as authority for hosted financial, account, scheduler, migration, deployment or Production/LIVE changes.

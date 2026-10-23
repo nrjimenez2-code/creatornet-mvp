@@ -13,7 +13,7 @@ export type SharedCashBalanceEntry={id:string;sourceId:string;kind:string;amount
  status:"available";balanceType:"payments";feeDetails:{amount:number;currency:"usd";application:null;type:string}[];requestId:string};
 export type SharedCashObservation={version:"creatornet-shared-cash-observation-v1";sourceKind:SharedCashOriginal["kind"];sourceId:string;fingerprint:string;context:ExactPaymentContext;
  readStartedAt:number;complete:boolean;holdReason:string|null;objects:Record<string,unknown>;balances:SharedCashBalanceEntry[];reads:Read[]};
-type Reader={context:ExactPaymentContext;observeContext():Promise<ExactPaymentContext>;stripe:{rawRequest(method:string,path:string,params:object,options:object):Promise<unknown>}};
+type Reader={context:ExactPaymentContext;observeContext():Promise<ExactPaymentContext>;stripe:{rawRequest(method:string,path:string,params:Record<string,unknown>,options:object):Promise<unknown>}};
 const check:(value:unknown)=>asserts value=value=>{if(!value)throw Error("Original shared cash evidence requires review");};
 const objectId=(value:unknown)=>typeof value==="string"?value:(value as {id?:string}|null)?.id??"";
 const money=(value:unknown):value is number=>Number.isSafeInteger(value)&&Math.abs(Number(value))<=9007199254740991;
