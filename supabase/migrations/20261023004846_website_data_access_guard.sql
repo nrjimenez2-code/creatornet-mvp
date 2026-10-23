@@ -21,7 +21,8 @@ begin
   if auth.role()='service_role' then return true; end if;
   select * into s from public.website_release_settings_v1 where id='00000000-0000-4000-8000-000000000001';
   if not found or public.valid_website_release_flags_v1(s.features) is not true then return false; end if;
-  if caller is not null and coalesce(auth.jwt()->>'is_anonymous','false')='false'
+  if auth.role()='authenticated' and caller is not null and s.owner_id is not null
+    and coalesce(auth.jwt()->>'is_anonymous','false')='false'
     and website_release_private.verified_account_v1(caller) then
     if caller=s.owner_id or exists(select 1 from public.website_release_testers_v1 where user_id=caller) then return true; end if;
   end if;
@@ -33,7 +34,7 @@ create function website_release_private.client_post_read_v1(p_post uuid,p_creato
 language plpgsql stable security definer set search_path='' as $$
 declare caller uuid := auth.uid();
 begin
-  if caller is null or coalesce(auth.jwt()->>'is_anonymous','false') <> 'false'
+  if auth.role() is distinct from 'authenticated' or caller is null or coalesce(auth.jwt()->>'is_anonymous','false') <> 'false'
     or not exists(select 1 from auth.users u where u.id=caller
       and (u.email_confirmed_at is not null or u.phone_confirmed_at is not null)) then return false; end if;
   -- Only preview metadata already reachable under the existing grants/policies.
@@ -45,7 +46,7 @@ $$;
 create function website_release_private.client_profile_read_v1(p_profile uuid) returns boolean
 language sql stable security definer set search_path='' as $$
   -- Own-profile reads also carry ban status to existing server-side safeguards.
-  select auth.uid()=p_profile;
+  select auth.role()='authenticated' and auth.uid()=p_profile;
 $$;
 
 -- SECURITY DEFINER feed/analytics functions bypass table RLS. Check the signed

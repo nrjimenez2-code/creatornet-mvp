@@ -125,6 +125,13 @@ test('missing configuration fails closed for public reads',async()=>{
   await db.exec('delete from public.website_release_settings_v1');
   await asRole('anon',null,async()=>{expect(await ids('posts')).toEqual([]);expect(await ids('products')).toEqual([]);});
 });
+test('a missing saved owner cannot admit a tester, and an anonymous role cannot act as the owner',async()=>{
+  await db.query('insert into public.website_release_testers_v1(user_id,approved_by) values($1,$2)',[tester,owner]);
+  await db.exec('update public.website_release_settings_v1 set owner_id=null');
+  await asRole('authenticated',tester,async()=>{expect(await ids('products')).toEqual([]);});
+  await db.query('update public.website_release_settings_v1 set owner_id=$1',[owner]);
+  await asRole('anon',owner,async()=>{expect(await ids('posts')).toEqual([]);expect(await ids('products')).toEqual([]);});
+});
 test('API hook is registered and original private identity helpers stay non-executable',async()=>{
   const setting=await db.query<{setting:string}>("select unnest(setconfig) as setting from pg_db_role_setting d join pg_roles r on r.oid=d.setrole where r.rolname='authenticator'");
   expect(setting.rows).toEqual([{setting:'pgrst.db_pre_request=website_release_private.check_data_request_v1'}]);
