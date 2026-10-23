@@ -70,21 +70,30 @@ export async function DELETE(
       );
     }
 
-    const { error: paymentDeleteError } = await admin
+    // Payment attempts remain accounting evidence even when unpaid or expired.
+    // Never erase them or leave an outstanding provider link without its booking.
+    const { data: payments, error: paymentError } = await admin
       .from("booking_payments")
-      .delete()
-      .eq("booking_id", bookingId);
+      .select("id")
+      .eq("booking_id", bookingId)
+      .limit(1);
 
-    if (
-      paymentDeleteError &&
-      !/booking_payments.*does not exist/i.test(paymentDeleteError.message || "")
-    ) {
-      throw paymentDeleteError;
+    if (paymentError || !payments) {
+      throw paymentError ?? new Error("Booking payment history is unavailable");
     }
+    const paymentConflict = () => NextResponse.json(
+      { error: "Bookings with payment history cannot be deleted." },
+      { status: 409 }
+    );
+    if (payments.length) return paymentConflict();
 
-    const { error: bookingDeleteError } = await admin.from("bookings").delete().eq("id", bookingId);
+    const { error: bookingDeleteError } = await admin.from("bookings").delete()
+      .eq("id", bookingId).eq("creator_id", userId);
 
     if (bookingDeleteError) {
+      // The RESTRICT foreign key also protects a payment inserted after the
+      // existence check above. No provider cancellation is implied by deletion.
+      if (["23001", "23503"].includes(bookingDeleteError.code ?? "")) return paymentConflict();
       throw bookingDeleteError;
     }
 
