@@ -1,0 +1,48 @@
+{
+  "sourceProjectRef": "rvkqxgghqitkwzdsuclz",
+  "readOnlyCapture": true,
+  "functions": [
+    {
+      "schema": "auth",
+      "name": "jwt",
+      "signature": "auth.jwt()",
+      "result": "jsonb",
+      "proconfig": null,
+      "prosecdef": false,
+      "body_md5": "2db09c3fc855ba90e71d3ae28cfadae3",
+      "definition": "CREATE OR REPLACE FUNCTION auth.jwt()\n RETURNS jsonb\n LANGUAGE sql\n STABLE\nAS $function$\n  select \n    coalesce(\n        nullif(current_setting('request.jwt.claim', true), ''),\n        nullif(current_setting('request.jwt.claims', true), '')\n    )::jsonb\n$function$\n"
+    },
+    {
+      "schema": "auth",
+      "name": "role",
+      "signature": "auth.role()",
+      "result": "text",
+      "proconfig": null,
+      "prosecdef": false,
+      "body_md5": "f31486fed08a7402e89d4aa71b0ad273",
+      "definition": "CREATE OR REPLACE FUNCTION auth.role()\n RETURNS text\n LANGUAGE sql\n STABLE\nAS $function$\n  select \n  coalesce(\n    nullif(current_setting('request.jwt.claim.role', true), ''),\n    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role')\n  )::text\n$function$\n"
+    },
+    {
+      "schema": "auth",
+      "name": "uid",
+      "signature": "auth.uid()",
+      "result": "uuid",
+      "proconfig": null,
+      "prosecdef": false,
+      "body_md5": "cdef18c69c4f4cbbced2eaf81e628b49",
+      "definition": "CREATE OR REPLACE FUNCTION auth.uid()\n RETURNS uuid\n LANGUAGE sql\n STABLE\nAS $function$\n  select \n  coalesce(\n    nullif(current_setting('request.jwt.claim.sub', true), ''),\n    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')\n  )::uuid\n$function$\n"
+    },
+    {
+      "schema": "public",
+      "name": "get_feed_v3",
+      "signature": "get_feed_v3(text,integer,integer)",
+      "result": "TABLE(post_id uuid, creator_id uuid, product_id uuid, price_cents integer, title text, video_url text, poster_url text, interests text[], hashtags text[], created_at timestamp with time zone, likes_count integer, comments_count integer, shares_count integer, allow_booking boolean, booking_url text, creator_name text, creator_username text, creator_avatar_url text, product_type text, product_price_cents integer, is_liked boolean, is_following boolean, purchase_count integer, creator_verified boolean)",
+      "proconfig": [
+        "search_path=public"
+      ],
+      "prosecdef": true,
+      "body_md5": "56a02092532bed4751a478871b4b2261",
+      "definition": "CREATE OR REPLACE FUNCTION public.get_feed_v3(p_tab text DEFAULT 'discover'::text, p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)\n RETURNS TABLE(post_id uuid, creator_id uuid, product_id uuid, price_cents integer, title text, video_url text, poster_url text, interests text[], hashtags text[], created_at timestamp with time zone, likes_count integer, comments_count integer, shares_count integer, allow_booking boolean, booking_url text, creator_name text, creator_username text, creator_avatar_url text, product_type text, product_price_cents integer, is_liked boolean, is_following boolean, purchase_count integer, creator_verified boolean)\n LANGUAGE plpgsql\n STABLE SECURITY DEFINER\n SET search_path TO 'public'\nAS $function$\ndeclare\n  v_uid uuid := auth.uid();\n  v_limit integer := least(greatest(coalesce(p_limit, 20), 1), 50);\n  v_offset integer := least(greatest(coalesce(p_offset, 0), 0), 2000);\nbegin\n  if p_tab = 'following' then\n    -- Following feed requires a logged-in viewer.\n    if v_uid is null then\n      return;\n    end if;\n\n    return query\n    select\n      p.id,\n      p.creator_id,\n      p.product_id,\n      p.price_cents,\n      p.title,\n      p.video_url,\n      p.poster_url,\n      p.interests,\n      p.hashtags,\n      p.created_at,\n      coalesce(p.likes_count, 0),\n      coalesce(p.comments_count, 0),\n      coalesce(p.shares_count, 0),\n      coalesce(p.allow_booking, false),\n      p.booking_url,\n      prof.full_name,\n      prof.username,\n      prof.avatar_url,\n      prod.p_type,\n      prod.p_price,\n      exists (\n        select 1 from likes l\n        where l.user_id = v_uid and l.post_id = p.id\n      ),\n      true,\n      coalesce(p.purchase_count, 0),\n      (prof.stripe_account_id is not null and coalesce(prof.stripe_onboarding_complete, false))\n    from posts p\n    join follows f\n      on f.following_id = p.creator_id\n     and f.follower_id = v_uid\n    left join profiles prof on prof.id = p.creator_id\n    left join lateral (\n      select pr.type as p_type,\n             case\n               when pr.amount_cents > 0 then pr.amount_cents\n               when pr.price_cents  > 0 then pr.price_cents\n               else null\n             end as p_price\n      from products pr\n      where p.product_id is not null\n        and (pr.id = p.product_id or pr.product_id = p.product_id)\n      order by (pr.id = p.product_id) desc\n      limit 1\n    ) prod on true\n    where p.active is distinct from false\n      and p.hidden_at is null and not exists (select 1 from public.profiles banned_creator where banned_creator.id=p.creator_id and banned_creator.banned_at is not null)\n      and p.removed_at is null\n      and (p.video_url is not null or p.poster_url is not null)\n    order by p.created_at desc, p.id desc\n    limit v_limit offset v_offset;\n\n  else\n    -- Discover: ranking formula byte-for-byte from get_feed_v2.\n    return query\n    select\n      x.r_post_id,\n      x.r_creator_id,\n      x.r_product_id,\n      x.r_price_cents,\n      x.r_title,\n      x.r_video_url,\n      x.r_poster_url,\n      x.r_interests,\n      x.r_hashtags,\n      x.r_created_at,\n      x.r_likes_count,\n      x.r_comments_count,\n      x.r_shares_count,\n      x.r_allow_booking,\n      x.r_booking_url,\n      x.r_creator_name,\n      x.r_creator_username,\n      x.r_creator_avatar_url,\n      x.r_product_type,\n      x.r_product_price_cents,\n      (v_uid is not null and exists (\n        select 1 from likes l\n        where l.user_id = v_uid and l.post_id = x.r_post_id\n      )),\n      (v_uid is not null and exists (\n        select 1 from follows f\n        where f.follower_id = v_uid and f.following_id = x.r_creator_id\n      )),\n      x.r_purchase_count,\n      x.r_creator_verified\n    from (\n      select\n        p.id as r_post_id,\n        p.creator_id as r_creator_id,\n        p.product_id as r_product_id,\n        p.price_cents as r_price_cents,\n        p.title as r_title,\n        p.video_url as r_video_url,\n        p.poster_url as r_poster_url,\n        p.interests as r_interests,\n        p.hashtags as r_hashtags,\n        p.created_at as r_created_at,\n        coalesce(p.likes_count, 0) as r_likes_count,\n        coalesce(p.comments_count, 0) as r_comments_count,\n        coalesce(p.shares_count, 0) as r_shares_count,\n        coalesce(p.allow_booking, false) as r_allow_booking,\n        p.booking_url as r_booking_url,\n        (coalesce(uis.interest_score, 0) * 10)\n          + (coalesce(pm.views, 0) * 1)\n          + (coalesce(pm.completions, 0) * 3)\n          + (coalesce(p.likes_count, 0) * 5)\n          + coalesce(pm.post_conversion_score, 0) as r_feed_score,\n        prof.full_name as r_creator_name,\n        prof.username as r_creator_username,\n        prof.avatar_url as r_creator_avatar_url,\n        prod.p_type as r_product_type,\n        prod.p_price as r_product_price_cents,\n        coalesce(p.purchase_count, 0) as r_purchase_count,\n        (prof.stripe_account_id is not null and coalesce(prof.stripe_onboarding_complete, false)) as r_creator_verified\n      from posts p\n      left join post_metrics pm on pm.post_id = p.id\n      left join profiles prof on prof.id = p.creator_id\n      left join lateral (\n        select coalesce(max(score), 0) as interest_score\n        from user_interest_scores\n        where user_id = v_uid\n          and category in (\n            select lower(t) from unnest(p.interests) as t\n          )\n      ) uis on true\n      left join lateral (\n        select pr.type as p_type,\n               case\n                 when pr.amount_cents > 0 then pr.amount_cents\n                 when pr.price_cents  > 0 then pr.price_cents\n                 else null\n               end as p_price\n        from products pr\n        where p.product_id is not null\n          and (pr.id = p.product_id or pr.product_id = p.product_id)\n        order by (pr.id = p.product_id) desc\n        limit 1\n      ) prod on true\n      where (p.video_url is not null or p.poster_url is not null)\n        and p.hidden_at is null and not exists (select 1 from public.profiles banned_creator where banned_creator.id=p.creator_id and banned_creator.banned_at is not null)\n        and p.removed_at is null\n        and p.active is distinct from false\n    ) x\n    order by x.r_feed_score desc, x.r_created_at desc, x.r_post_id desc\n    limit v_limit offset v_offset;\n  end if;\nend;\n$function$\n"
+    }
+  ]
+}
