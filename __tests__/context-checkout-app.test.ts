@@ -52,6 +52,8 @@ beforeEach(() => {
     status: "complete", payment_status: "paid", metadata: { installment_collection_version: "exact-cents-context-v2", installment_plan_id: reservation, buyer_id: buyer } };
   db = createMockClient(op => {
     if (op.table === "bookings") return { data: { id: booking, creator_id: creator, buyer_id: buyer, post_id: post, status: "booked" }, error: null };
+    if (op.table === "posts") return { data: { id: post, creator_id: creator, product_id: product }, error: null };
+    if (op.table === "products") return { data: { id: product, creator_id: creator }, error: null };
     if (op.table === "exact_installment_context_reservations_v2") return { data: known ? { id: reservation } : null, error: null };
     if (op.table === "booking_payments") return { data: prior ? [{ id: "old-payment" }] : [], error: null };
     if (op.table === "read_exact_context_checkout_links_v2") return { data: [{ reservationId: reservation, bookingId: booking, terms,

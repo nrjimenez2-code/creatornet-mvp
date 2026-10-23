@@ -175,6 +175,8 @@ describe("real booking HTTP integration",()=>{
     const booking={id:h.args.bookingId,creator_id:owner,buyer_id:h.f.terms.buyerId,post_id:h.f.terms.postId,status:"booked"};
     httpDb=createMockClient(op=>{
       if(op.table==="bookings")return {data:op.columns?.includes("linked_order_id")?[booking]:booking,error:null};
+      if(op.table==="posts")return {data:op.filters.id?{id:booking.post_id,creator_id:booking.creator_id,product_id:h.f.terms.productId}:[],error:null};
+      if(op.table==="products")return {data:op.orFilters.length?{id:h.f.terms.productId,creator_id:booking.creator_id}:[],error:null};
       if(op.table==="exact_installment_agreements")return {data:{id:h.f.agreement.id,terms:h.f.terms,status:"awaiting_first",
         created_at:new Date(h.f.agreement.createdAt*1000).toISOString(),stripe_customer_id:h.f.customer.id,
         stripe_subscription_id:h.f.subscription.id,stripe_checkout_session_id:h.f.session.id},error:null};
@@ -201,7 +203,11 @@ describe("real booking HTTP integration",()=>{
     expect(res.headers.get("referrer-policy")).toBe("no-referrer");
     expect(await res.json()).toMatchObject({url:h.payment.link_url,payment:{amount_total_cents:199900}});
     expect(httpDb.opsFor("reserve_exact_installment_checkout")).toHaveLength(1);
-    expect(httpDb.opsFor("products")).toHaveLength(0); // Owned reservation RPC supplies authoritative price.
+    // HTTP admission verifies product ownership; the reservation RPC still
+    // supplies authoritative price and the sole exact payment protocol.
+    expect(httpDb.opsFor("products")).toHaveLength(1);
+    expect(httpDb.opsFor("products")[0]).toMatchObject({kind:"select"});
+    expect(httpDb.opsFor("products")[0].columns).toContain("creator_id");
     expect(h.f.mocks.checkout.sessions.create).toHaveBeenCalledTimes(1);
   });
   test.each(["no token","invalid session","foreign creator"])("%s stops before private lookup or reservation",async(reason)=>{

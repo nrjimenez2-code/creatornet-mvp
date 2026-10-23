@@ -105,8 +105,50 @@ export async function POST(
       return NextResponse.json({ error: "You do not own this booking" }, { status: 403 });
     }
 
-    // Exact plans have their own integer-cent validator. Dispatch only after
-    // ownership verification, but BEFORE the legacy equal-price/percent gates.
+    const { data: post, error: postError } = await admin
+      .from("posts")
+      .select("id, title, product_id, creator_id")
+      .eq("id", booking.post_id)
+      .maybeSingle<{ id: string; title: string | null; product_id: string | null; creator_id: string | null }>();
+
+    if (postError) throw postError;
+    if (!post || !post.product_id) {
+      return NextResponse.json(
+        { error: "The post linked to this booking is missing a product" },
+        { status: 400 }
+      );
+    }
+    if (post.creator_id !== booking.creator_id) {
+      return NextResponse.json({ error: "Booking product ownership differs." }, { status: 403 });
+    }
+
+    const { data: product, error: productError } = await admin
+      .from("products")
+      .select("id, product_id, title, amount_cents, currency, creator_id")
+      .or(eitherIdFilter(["product_id", "id"], post.product_id))
+      .maybeSingle<{
+        id: string;
+        product_id: string | null;
+        title: string | null;
+        amount_cents: number;
+        currency: string | null;
+        creator_id: string | null;
+      }>();
+
+    if (productError) throw productError;
+    if (!product) {
+      return NextResponse.json(
+        { error: "Product not found for this booking" },
+        { status: 400 }
+      );
+    }
+    if (product.creator_id !== booking.creator_id) {
+      return NextResponse.json({ error: "Booking product ownership differs." }, { status: 403 });
+    }
+
+    // A creator-owned booking alone is not permission to sell its referenced
+    // post/product. Verify the entire ownership chain before any payment path.
+    // Exact plans retain their own validator before legacy arithmetic gates.
     const exact = await handoffExactCheckoutLink({ bookingId: booking.id, actorId: user.id, body,
       origin: req.headers.get("origin"), admin, stripe: getStripe, env: process.env });
     if (exact) return NextResponse.json(await withBuyerCheckoutLink(exact.body,booking), { status: exact.status, headers: {
@@ -116,40 +158,6 @@ export async function POST(
       return NextResponse.json(
         { error: "This booking has already been paid.", code: "BOOKING_ALREADY_PAID" },
         { status: 409 }
-      );
-    }
-
-    const { data: post, error: postError } = await admin
-      .from("posts")
-      .select("id, title, product_id")
-      .eq("id", booking.post_id)
-      .maybeSingle<{ id: string; title: string | null; product_id: string | null }>();
-
-    if (postError) throw postError;
-    if (!post || !post.product_id) {
-      return NextResponse.json(
-        { error: "The post linked to this booking is missing a product" },
-        { status: 400 }
-      );
-    }
-
-    const { data: product, error: productError } = await admin
-      .from("products")
-      .select("id, product_id, title, amount_cents, currency")
-      .or(eitherIdFilter(["product_id", "id"], post.product_id))
-      .maybeSingle<{
-        id: string;
-        product_id: string | null;
-        title: string | null;
-        amount_cents: number;
-        currency: string | null;
-      }>();
-
-    if (productError) throw productError;
-    if (!product) {
-      return NextResponse.json(
-        { error: "Product not found for this booking" },
-        { status: 400 }
       );
     }
 
