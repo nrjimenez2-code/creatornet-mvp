@@ -198,3 +198,81 @@ test('legacy duration recovery in the descriptor is read-only',async()=>{
  assert.equal((await (await worker.fetch(f.request(),f.env)).json()).durationSeconds,12.5);
  assert.equal(f.env.STATE.objects.get(recordKey).body,before);
 });
+
+function launchFixture() {
+ const f=fixture(),key='videos/11111111-1111-4111-8111-111111111111/launch_22222222-2222-4222-8222-222222222222.mp4';
+ f.env.MEDIA.objects.set(key,f.env.MEDIA.objects.get('videos/test.mp4'));
+ f.env.MEDIA.objects.delete('videos/test.mp4');
+ return {...f,key,get uploads(){return f.uploads},set ambiguous(v){f.ambiguous=v},set error(v){f.error=v},
+  msg(etag='source'){const message=f.msg();message.body.object={key,eTag:etag};return message;},
+  replace(etag){f.env.MEDIA.objects.set(key,{etag,size:4});}};
+}
+
+test('new upload key admits one ETag durably, including concurrent changed-version delivery',async()=>{
+ const f=launchFixture();
+ await processMessage(f.msg(),f.env);
+ f.replace('replacement');
+ const replacements=Array.from({length:8},()=>f.msg('replacement'));
+ await Promise.all(replacements.map(message=>processMessage(message,f.env)));
+ assert.equal(f.uploads,1);assert(replacements.every(message=>message.acked));
+ const admissions=[...f.env.STATE.objects.entries()].filter(([key])=>key.startsWith('admissions/source-v1/'));
+ assert.equal(admissions.length,1);
+ const admission=JSON.parse(admissions[0][1].body);
+ assert.equal(admission.key,f.key);assert.equal(admission.etag,'source');
+ assert.equal([...f.env.STATE.objects.keys()].filter(key=>key.startsWith('jobs/')).length,1);
+ const response=await worker.fetch(new Request('https://media.creatornet.net/auto/'+f.key),f.env);
+ assert.equal(response.headers.get('location'),'https://media.creatornet.net/'+f.key);
+});
+
+test('concurrent first deliveries of the admitted ETag start one import',async()=>{
+ const f=launchFixture();
+ await Promise.all(Array.from({length:8},()=>processMessage(f.msg(),f.env)));
+ assert.equal(f.uploads,1);
+ assert.equal([...f.env.STATE.objects.keys()].filter(key=>key.startsWith('admissions/')).length,1);
+ assert.equal([...f.env.STATE.objects.keys()].filter(key=>key.startsWith('jobs/')).length,1);
+});
+
+test('an ambiguous admission write is reconciled on retry before the single import',async()=>{
+ const f=launchFixture(),put=f.env.STATE.put.bind(f.env.STATE);let uncertain=true;
+ f.env.STATE.put=async(key,...args)=>{
+  const value=await put(key,...args);
+  if(key.startsWith('admissions/')&&uncertain){uncertain=false;throw Error('ambiguous admission response');}
+  return value;
+ };
+ await assert.rejects(processMessage(f.msg(),f.env),/ambiguous admission/);
+ assert.equal(f.uploads,0);
+ await processMessage(f.msg(),f.env);
+ await processMessage(f.msg(),f.env);
+ assert.equal(f.uploads,1);
+});
+
+test('conflicting conditional admission create reads the durable winner and never imports replacement',async()=>{
+ const f=launchFixture(),get=f.env.STATE.get.bind(f.env.STATE),put=f.env.STATE.put.bind(f.env.STATE);
+ let firstRead=true;
+ const admissionKey='admissions/source-v1/'+createHash('sha256').update(f.key).digest('hex')+'.json';
+ const originalId=createHash('sha256').update(f.key+'\noriginal').digest('hex');
+ await put(admissionKey,JSON.stringify({version:1,key:f.key,etag:'original',id:originalId}));
+ f.env.STATE.get=async key=>{if(key===admissionKey&&firstRead){firstRead=false;return null;}return get(key);};
+ const message=f.msg();await processMessage(message,f.env);
+ assert(message.acked);assert.equal(f.uploads,0);
+ assert.equal([...f.env.STATE.objects.keys()].filter(key=>key.startsWith('jobs/')).length,0);
+});
+
+test('invalid admission fails closed and failed encoding never releases its first-version admission',async()=>{
+ const f=launchFixture();f.error=true;
+ await processMessage(f.msg(),f.env);assert.equal(f.uploads,1);
+ f.replace('second');const replacement=f.msg('second');await processMessage(replacement,f.env);
+ assert(replacement.acked);assert.equal(f.uploads,1);
+ const admissionKey=[...f.env.STATE.objects.keys()].find(key=>key.startsWith('admissions/'));
+ await f.env.STATE.put(admissionKey,JSON.stringify({version:1,key:'foreign',etag:'second',id:'foreign'}));
+ await assert.rejects(processMessage(f.msg('second'),f.env),/requires reconciliation/);
+ assert.equal(f.uploads,1);
+});
+
+test('legacy overwrite remains eligible for its existing per-ETag encoding behavior',async()=>{
+ const f=fixture();await processMessage(f.msg(),f.env);
+ f.env.MEDIA.objects.set('videos/test.mp4',{etag:'second',size:4});
+ const replacement=f.msg();replacement.body.object.eTag='second';await processMessage(replacement,f.env);
+ assert.equal(f.uploads,2);
+ assert.equal([...f.env.STATE.objects.keys()].filter(key=>key.startsWith('admissions/')).length,0);
+});

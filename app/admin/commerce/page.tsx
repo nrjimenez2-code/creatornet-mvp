@@ -3,6 +3,7 @@ import { fetchCommerceInitialData } from "@/lib/admin/commerce-data";
 import { CommercePageClient } from "./CommercePageClient";
 import { exactAdminEnabled } from "@/lib/installments/adminActions";
 import Link from "next/link";
+import { requireAdminPage } from "@/lib/admin/server";
 
 // Money data must never come from a stale cache.
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export const dynamic = "force-dynamic";
  * page's client tree reads these rows instead of the layout's demo seed).
  */
 export default async function CommercePage() {
+  await requireAdminPage();
   const initialData = await fetchCommerceInitialData();
   return (
     <AdminDataProvider initialData={initialData}>

@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { adminClient, AdminAuthError } from "@/lib/admin/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { requireAdminMfa } from "@/lib/adminMfa";
 import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, validPublicPage, type ReleaseSettings } from "./policy";
 
 export async function loadReleaseSettings(): Promise<ReleaseSettings | null> {
@@ -26,10 +27,11 @@ export async function hasPrivateAccess(user: User | null, settings: ReleaseSetti
   } catch { return false; }
 }
 export async function requireReleaseOwner(req?: NextRequest) {
-  const user = await getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req, { readOnlyAuthCookies: true });
   if (!verifiedIdentity(user)) throw new AdminAuthError(401, "Sign in required");
   const settings = await loadReleaseSettings();
   if (settings?.owner_id !== user.id || !(await hasPrivateAccess(user, settings))) throw new AdminAuthError(403, "Release owner required");
+  await requireAdminMfa(user.id, req);
   return { user, settings, db: adminClient() };
 }
 /** A saved buyer-owned operation admits only its existing fulfillment route. Handlers recheck entitlement/readiness. */

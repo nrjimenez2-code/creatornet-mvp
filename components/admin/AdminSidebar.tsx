@@ -24,6 +24,7 @@ interface NavItem {
 }
 
 const NAV_ITEMS: NavItem[] = [
+  { href: "/account/security", label: "Account security", exact: true, icon: <IconUsers size={17} /> },
   { href: "/admin/releases", label: "Release Controls", exact: false, icon: <IconGrid size={17} /> },
   { href: "/admin", label: "Overview", exact: true, icon: <IconGrid size={17} /> },
   { href: "/admin/users", label: "Users & Creators", exact: false, icon: <IconUsers size={17} /> },

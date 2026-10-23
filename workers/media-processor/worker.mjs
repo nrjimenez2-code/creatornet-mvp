@@ -9,6 +9,33 @@ const json = async (bucket, key) => { const object = await bucket.get(key); retu
 const save = (bucket, key, value) => bucket.put(key, JSON.stringify(value), {httpMetadata:{contentType:'application/json'}});
 const cleanEtag = e => String(e || '').replaceAll('"', '');
 
+// New presigns use a distinct flat basename. Legacy timestamp keys retain
+// their existing overwrite/re-encode contract. This is not a public URL cache.
+const immutableUploadKey = key => /^videos\/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\/launch_[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}\.(mp4|mov|webm|m4v|mpeg|mpg|3gp|mkv)$/i.test(key);
+async function admitSourceVersion(env, key, etag, id) {
+  if (!immutableUploadKey(key)) return true;
+  const admissionKey = 'admissions/source-v1/' + await digest(key) + '.json';
+  let admission = await json(env.STATE, admissionKey);
+  if (!admission) {
+    const intent = {version:1,key,etag,id,createdAt:new Date().toISOString()};
+    // R2's conditional create serializes different ETags for one upload key.
+    // A timeout is uncertain: retry reads this same intent, never replaces it.
+    const created = await env.STATE.put(admissionKey, JSON.stringify(intent),
+      {onlyIf:{etagDoesNotMatch:'*'},httpMetadata:{contentType:'application/json'}});
+    admission = created ? intent : await json(env.STATE, admissionKey);
+  }
+  if (!admission || admission.version !== 1 || admission.key !== key ||
+      typeof admission.etag !== 'string' || !admission.etag ||
+      admission.id !== await digest(key + '\n' + admission.etag)) {
+    throw new Error('Source processing admission requires reconciliation');
+  }
+  if (admission.etag !== etag || admission.id !== id) {
+    console.warn(JSON.stringify({event:'media_source_replay_skipped',job:id}));
+    return false;
+  }
+  return true;
+}
+
 // Cache only completed public metadata, never a request, response, or I/O promise.
 // Every use still checks the current source ETag with R2. Binding isolation keeps
 // another environment from reusing this environment's ready records.
@@ -105,6 +132,9 @@ export async function processMessage(message, env) {
   const head = await env.MEDIA.head(key);
   if (!head || head.size > MAX_BYTES || head.size < 1 || head.etag !== cleanEtag(event.object.eTag)) { message.ack(); return; }
   const id = await digest(key + '\n' + head.etag);
+  // Only the first admitted content version of a new upload key may encode.
+  // Replacement bytes remain available through the existing original fallback.
+  if (!await admitSourceVersion(env, key, head.etag, id)) { message.ack(); return; }
   const stateKey = 'jobs/' + id + '.json';
   let state = await json(env.STATE, stateKey);
   if (state?.phase === 'done' || state?.phase === 'failed') { message.ack(); return; }

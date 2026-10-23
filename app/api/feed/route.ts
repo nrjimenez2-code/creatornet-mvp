@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { admitRequest, admissionResponse } from "@/lib/abuse/admission";
 import { createServerClient } from "@/lib/supabaseServer";
 import { isSellReadyProfile, SELL_READY_COLUMNS } from "@/lib/sellReady";
 import { withDiscoverDatabaseTiming, discoverDatabaseTimingHeader } from '@/lib/discoverDatabaseTiming';
@@ -36,9 +37,14 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
  try{
   if(!discoverEnabled()){
    if(offset>=2000)return NextResponse.json({items:[],nextOffset:offset,hasMore:false,session:null});
+   const authenticated=await createServerClient({readOnlyAuthCookies:true}).auth.getUser();
+   if(authenticated.error && authenticated.error.name!=='AuthSessionMissingError')throw authenticated.error;
+   const viewer=authenticated.data.user;
+   await admitRequest(req,'feed_page',viewer?`user:${viewer.id}`:null);
    // A late feed refresh must not restore cookies after a newer sign-out/login.
    // Browser auth and its serialized callback own session-cookie synchronization.
-   const {data,error}=await createServerClient({readOnlyAuthCookies:true}).rpc('get_feed_v3',{p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
+   const {supabaseAdmin}=await import("@/lib/supabaseAdmin");
+   const {data,error}=await supabaseAdmin.rpc('get_feed_for_actor_v1',{p_actor:viewer?.id??null,p_tab:tab,p_limit:Math.min(limit,2000-offset),p_offset:offset});
    if(error)throw error;
    let items = data ?? [];
    if (process.env.CREATOR_TIPPING_ENABLED === "true" && items.length) {
@@ -60,10 +66,13 @@ async function feedResponse(req:NextRequest,lifecycle:string[]){
    return NextResponse.json({items,nextOffset:offset+(data?.length??0),hasMore:(data?.length??0)>=limit&&offset+limit<2000,session:null},{headers:{'Cache-Control':'private, no-store'}});
   }
   const identity=await measured('identity',()=>discoverIdentity(req,{readOnlyAuthCookies:true}));
+  await admitRequest(req,'feed_page',identity.actor);
+  if(!req.nextUrl.searchParams.has('session')) await admitRequest(req,'feed_session',identity.actor);
   const session=req.nextUrl.searchParams.get('session')??await measured('session',()=>createDiscoverSession(identity.actor,identity.userId,tab,identity.newAnonymous));
   const result=await measured('page',()=>readDiscoverPage(session,identity.actor,offset,limit,identity.userId));
   return finish(setDiscoverCookie(NextResponse.json({...result,session,actorToken:identity.token}),identity.cookie));
  }catch(error){
+  const admission=admissionResponse(error);if(admission)return finish(admission);
   if(error instanceof DiscoverSessionUnavailableError)
    return finish(NextResponse.json({error:'This feed needs to be refreshed.',code:DISCOVER_SESSION_UNAVAILABLE},{status:410,headers:{'Cache-Control':'private, no-store'}}));
   const code = error && typeof error === 'object' && 'code' in error ? error.code : null;

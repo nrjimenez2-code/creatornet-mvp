@@ -2,6 +2,8 @@ import type { User } from "@supabase/supabase-js";
 import { NextRequest } from "next/server";
 import { closedFeatures, SETTINGS_ID, type ReleaseSettings } from "@/lib/release/policy";
 const identity = jest.fn(), rpc = jest.fn();
+const mfa = jest.fn();
+jest.mock("@/lib/adminMfa", () => ({ requireAdminMfa: (...args: unknown[]) => mfa(...args) }));
 let replies: Record<string, { data: unknown; error: unknown }>;
 const from = jest.fn((table: string) => {
   const query = { select: () => query, eq: () => query, in: () => query, abortSignal: () => query, maybeSingle: async () => replies[table], then: (resolve: (value: unknown) => void) => Promise.resolve(replies[table]).then(resolve) };
@@ -14,6 +16,7 @@ const state = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidd
 const user = (id = "owner") => ({ id, email_confirmed_at: "yes", user_metadata: { role: "admin" } }) as unknown as User;
 beforeEach(() => {
   jest.clearAllMocks(); identity.mockResolvedValue(user()); rpc.mockResolvedValue({ error: null });
+  mfa.mockResolvedValue(undefined);
   replies = { website_release_settings_v1: { data: state(), error: null }, profiles: { data: { banned_at: null }, error: null }, website_release_testers_v1: { data: null, error: null } };
 });
 test("malformed or unavailable settings fail closed", async () => {
@@ -35,6 +38,14 @@ test("release management requires the exact owner even for approved testers", as
   identity.mockResolvedValue(user("tester")); replies.website_release_testers_v1.data = { user_id: "tester" };
   await expect(requireReleaseOwner()).rejects.toMatchObject({ status: 403 });
   identity.mockResolvedValue(null); await expect(requireReleaseOwner()).rejects.toMatchObject({ status: 401 });
+});
+
+test("release controls require assurance for the exact verified owner while private access remains available", async () => {
+  mfa.mockRejectedValue(Object.assign(Error("Verify authenticator"), { status: 403, code: "MFA_REQUIRED" }));
+  const req = new NextRequest("https://site.test/api/admin/releases", { method: "PATCH" });
+  expect(await hasPrivateAccess(user(), state())).toBe(true);
+  await expect(requireReleaseOwner(req)).rejects.toMatchObject({ code: "MFA_REQUIRED" });
+  expect(mfa).toHaveBeenCalledWith("owner", req);
 });
 test("continuations require saved ownership; parsing leaves the request body available to its handler", async () => {
   const id = "11111111-1111-4111-8111-111111111111";

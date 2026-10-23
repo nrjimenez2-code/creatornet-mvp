@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { admitRequest, admissionResponse } from "@/lib/abuse/admission";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { interpretSearch, normalizeSearchText } from "@/lib/searchQuery";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
@@ -9,6 +10,7 @@ export async function GET(req: Request) {
   try { input = interpretSearch(new URL(req.url).searchParams.get("q") ?? ""); }
   catch { return NextResponse.json({ error: "Invalid search query." }, { status: 400 }); }
   try {
+    await admitRequest(req,"search_suggest");
     const [topics, matches] = await Promise.all([
       supabaseAdmin.rpc("search_topics_v1", { query_text: input.normalized }),
       input.normalized ? supabaseAdmin.rpc("search_relevance_v1", { query_text: input.normalized, identity_query: input.raw.replace(/^#/, ""), related_terms: [], page_number: 0, page_size: 5 }) : Promise.resolve({ data: null, error: null }),
@@ -26,6 +28,7 @@ export async function GET(req: Request) {
     for (const offering of matches.data?.offerings ?? []) suggestions.push({ label: offering.title, type: "offering" });
     return NextResponse.json({ suggestions: suggestions.slice(0,10), topics: topics.data ?? [] });
   } catch (error) {
+    const admission=admissionResponse(error);if(admission)return admission;
     console.error("[search/suggest]", error);
     return NextResponse.json({ error: "Suggestions unavailable." }, { status: 503 });
   }

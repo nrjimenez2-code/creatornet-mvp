@@ -1,4 +1,5 @@
 import { enrichPostViewCounts } from "@/lib/postViewCountsServer";
+import { admitRequest, admissionResponse } from "@/lib/abuse/admission";
 import { after, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ creators: [], items: [], offerings: [], totals: { creators: 0, videos: 0, offerings: 0 }, page, page_size: SEARCH_PAGE_SIZE });
   }
   try {
+    await admitRequest(req,"search");
     const { data, error } = await supabaseAdmin.rpc("search_relevance_v1", {
       query_text: input.normalized,
       related_terms: input.related,
@@ -62,6 +64,7 @@ export async function POST(req: Request) {
       normalized_query: input.normalized,
     });
   } catch (error) {
+    const admission=admissionResponse(error);if(admission)return admission;
     console.error("[search/perform] search failed", error);
     return NextResponse.json({ error: "Search isn't working right now. Please try again." }, { status: 503 });
   }

@@ -3,16 +3,28 @@
 
 import { createClient as createBrowserClient, SupabaseClient } from "@supabase/supabase-js";
 import { createServerClient } from "@supabase/ssr"; // safe to import everywhere
+import { createMfaSessionGuard } from "@/lib/mfaSessionGuard";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 /** Browser/client factory (use in React client components) */
 let _clientInstance: SupabaseClient | null = null;
+let _mfaGuard: ReturnType<typeof createMfaSessionGuard> | null = null;
 export function createClient(): SupabaseClient {
   // Client-side: reuse singleton to avoid "Multiple GoTrueClient instances" warning
   if (typeof window !== "undefined") {
     if (!_clientInstance) {
+      const storageKey = `sb-${new URL(SUPABASE_URL).hostname.split(".")[0]}-auth-token`;
+      try {
+        const storage = window.localStorage;
+        storage.getItem(storageKey);
+        _mfaGuard = createMfaSessionGuard(storageKey, storage, `${SUPABASE_URL.replace(/\/+$/, "")}/auth/v1`, (input, init) => fetch(input, init));
+      } catch {
+        // Preserve the SDK's in-memory fallback for ordinary sign-in when a
+        // browser blocks storage. MFA needs a reliable persisted commit guard.
+        _mfaGuard = null;
+      }
       _clientInstance = createBrowserClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
         auth: {
           persistSession: true,
@@ -21,8 +33,10 @@ export function createClient(): SupabaseClient {
           // Bind OAuth callbacks to this browser's saved verifier. Implicit
           // token fragments can otherwise replace identity through a link.
           flowType: "pkce",
-          storage: window.localStorage,
+          storageKey,
+          storage: _mfaGuard?.storage,
         },
+        global: _mfaGuard ? { fetch: _mfaGuard.fetch } : undefined,
       });
     }
     return _clientInstance;
@@ -36,6 +50,16 @@ export function createClient(): SupabaseClient {
       detectSessionInUrl: false,
     },
   });
+}
+
+export function runMfaAction<T>(token: string, action: () => Promise<T>): Promise<T> {
+  createClient();
+  if (!_mfaGuard) throw Error("Authenticator setup requires browser storage. Allow site storage or use a regular browser window and sign in again.");
+  return _mfaGuard.run(token, action);
+}
+
+export function isCurrentBrowserMfaSession(token: string): boolean {
+  return _mfaGuard?.currentTokenMatches(token) ?? false;
 }
 
 /**
