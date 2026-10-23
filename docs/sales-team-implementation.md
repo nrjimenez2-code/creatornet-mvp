@@ -682,3 +682,42 @@ actual provider eligibility, LIVE execution or bank payment. A read-only connect
 account inventory reported CreatorNet in test mode; this is not capability,
 balance or financial acceptance evidence. No real financial POST, hosted migration,
 deployment, push, merge, scheduler, environment or account mutation occurred.
+
+### Original transfer readback foundation — October 23 continuation
+
+`transferReadback.ts` independently observes an already admitted original. Its
+composition contains only context observation and provider GET capability, with
+no database authority. The expected context and saved original are frozen before
+reads. It validates the actual journal's original worker, exact request, operation
+ID, original dispatch time and idempotency identity. Bound originals require the
+saved transfer ID and original provider request ID. Uncertain originals require
+a complete bounded event list with exactly one `transfer.created` event carrying
+that original idempotency key and request ID; metadata alone cannot establish
+ownership. A live original dispatch lease cannot be stolen. No POST is retried.
+
+Repeated current reads validate accepted destination, original charge/group,
+amount, USD/card/test-or-live context, immutable metadata, destination payment,
+absence of reversal, and the exact platform Payments balance debit. The debit
+must be available, unreversed, currency-compatible and linked to that transfer;
+actual principal, nonnegative supported fees and net impact must reconcile.
+Distinct provider request IDs, fixed time/read limits and repeated context checks
+are mandatory. Expanded IDs are normalized; descriptions and unrelated private
+provider data are excluded. The reversal list's optional legacy total count is
+checked when supplied; complete empty membership and zero reversed amount remain
+required. Pending, reversed, foreign, changing or incomplete evidence remains held.
+
+This closes only the local independent transfer readback implementation gap.
+It does not bind the journal, dispatch a transfer, release accounting, write a
+completion, activate a job or establish bank payment. A future consumer must
+revalidate the current worker/task/source, original reserved fee allowance and
+atomic once-only accounting before using any proof.
+
+`transfer-readback-integrated.json` passed85 across readback52 and actual F23
+reservation33,16.301s, exit0. After freezing the expected context and adding fee/
+SDK-list guards, `transfer-readback-final.json` passed58; this overlaps the prior85.
+Full incremental TypeScript and three-file scoped lint passed. Earlier failures
+remain: provider JSON prototypes differed across execution realms, the SDK does
+not require a reversal list total_count, and fixture response headers/status were
+missing from its declared shape. Canonical immutable JSON comparison and correct
+SDK shapes resolved these without weakening original identity or balance proof.
+All transport remains mocked. No hosted/provider financial operation occurred.
