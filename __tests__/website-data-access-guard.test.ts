@@ -96,7 +96,7 @@ test('buyer metadata, embedded purchase relationships, own progress and existing
 });
 test('feed-only release opens feed reads but preserves closed products, engagement and publishing',async()=>{
   await release({...closedFeatures(),feed:true});
-  await asRole('anon',null,async()=>{expect(await ids('posts')).toHaveLength(3);expect(await ids('products')).toEqual([]);expect(await ids('comments')).toEqual([]);await request('rpc/get_feed_v1');});
+  await asRole('anon',null,async()=>{expect(await ids('posts')).toHaveLength(3);expect(await ids('products')).toEqual([]);expect(await ids('comments')).toEqual([]);await request('rpc/get_feed_v3');});
 });
 test('public features remain public to an anonymous-auth session without granting private access',async()=>{
   await release({...closedFeatures(),feed:true});

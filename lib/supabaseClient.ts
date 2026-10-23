@@ -18,6 +18,9 @@ export function createClient(): SupabaseClient {
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true,
+          // Bind OAuth callbacks to this browser's saved verifier. Implicit
+          // token fragments can otherwise replace identity through a link.
+          flowType: "pkce",
           storage: window.localStorage,
         },
       });

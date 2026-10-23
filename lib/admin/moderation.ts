@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { adminAuthErrorResponse, requireAdmin } from "@/lib/admin/server";
 import type { UserStatus, VideoStatus } from "@/types/admin";
+import { isSameOriginRequest } from "@/lib/sameOrigin";
 
 const TARGET_ID_PATTERN = /^[A-Za-z0-9-]{1,64}$/;
 const MAX_REASON_LENGTH = 500;
@@ -88,6 +89,7 @@ export async function runModerationAction<Row>(
   req: NextRequest,
   spec: ModerationSpec<Row>
 ): Promise<NextResponse> {
+  if (!isSameOriginRequest(req)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   let actorId: string;
   let admin: Awaited<ReturnType<typeof requireAdmin>>["admin"];
   try {

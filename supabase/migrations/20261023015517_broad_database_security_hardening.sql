@@ -1,0 +1,69 @@
+-- Close legacy writable-view bypasses and pin routine lookup paths.
+-- No rows, existing function bodies, service-role grants or release settings change.
+begin;
+set local lock_timeout='5s';
+set local statement_timeout='30s';
+do $$ begin
+  if has_schema_privilege('anon','public','CREATE') or has_schema_privilege('authenticated','public','CREATE') then
+    raise exception 'Public schema must not allow client object creation';
+  end if;
+end $$;
+revoke all privileges on public.post_freshness,public.feed_debug,public.trending_hashtags,
+  public.post_engagement_daily,public.sales_velocity_mv from anon,authenticated;
+alter view public.post_freshness set (security_invoker=true);
+alter view public.feed_debug set (security_invoker=true);
+alter view public.trending_hashtags set (security_invoker=true);
+alter view public.post_engagement_daily set (security_invoker=true);
+-- Creation/cancellation is server-authorized. Keep owned recovery SELECTs;
+-- remove the obsolete direct-client path that could fabricate booking state.
+revoke insert,update,delete on public.bookings from public,anon,authenticated;
+revoke insert(id,post_id,buyer_id,creator_id,status,linked_order_id,created_at),
+  update(id,post_id,buyer_id,creator_id,status,linked_order_id,created_at)
+  on public.bookings from public,anon,authenticated;
+-- Public/legacy creation omits these generated identities. Client-supplied
+-- cross-column aliases could make id-or-product_id payment lookups ambiguous.
+revoke insert,update on public.products from public,anon,authenticated;
+revoke insert(id,product_id),update(id,product_id) on public.products from public,anon,authenticated;
+grant insert(creator_id,title,description,type,price_cents,external_url,thumbnail_url,is_active,created_at,active,updated_at,plan_months,stripe_price_id,fulfillment,discord_channel_id,whop_listing_id,deliver_url,discord_invite_url,whop_listing_url,amount_cents,currency,post_id,product_type,premium_video_url,membership_terms,fixed_service_months,delivery_revision),
+  update(creator_id,title,description,type,price_cents,external_url,thumbnail_url,is_active,created_at,active,updated_at,plan_months,stripe_price_id,fulfillment,discord_channel_id,whop_listing_id,deliver_url,discord_invite_url,whop_listing_url,amount_cents,currency,post_id,product_type,premium_video_url,membership_terms,fixed_service_months,delivery_revision) on public.products to authenticated;
+-- Current clients use get_feed_v3. Obsolete owner-privileged feeds omit current
+-- moderation/engagement checks; remove their unused client entry points.
+do $$ declare signature text; routine regprocedure; begin
+  foreach signature in array array[
+    'public.get_feed_discover(integer,uuid)',
+    'public.get_feed_following(uuid,integer)',
+    'public.get_feed_v1(uuid,integer)'
+  ] loop
+    routine:=to_regprocedure(signature);
+    if routine is null or not (select prosecdef from pg_proc where oid=routine)
+      or not has_function_privilege('service_role',routine,'EXECUTE') then
+      raise exception 'Legacy feed definition or service access changed: %',signature;
+    end if;
+    execute format('revoke execute on function %s from public,anon,authenticated',routine);
+  end loop;
+end $$;
+-- public is trusted (client CREATE refused above); pg_temp is explicitly last.
+-- Preserve all existing bodies, owners, ACLs, volatility and return contracts.
+do $$ declare signature text; routine regprocedure; begin
+  foreach signature in array array[
+    'public.get_feed_v2(uuid,integer,integer)',
+    'public.get_profile_rating(uuid)',
+    'public.interests_to_text_array(jsonb)',
+    'public.interests_to_text_array(text[])',
+    'public.jsonb_to_text_array(jsonb)',
+    'public.log1p_safe(double precision)',
+    'public.minmax_norm(double precision,double precision,double precision)',
+    'public.set_updated_at()',
+    'public.sv_components(timestamp with time zone)',
+    'public.update_reviews_updated_at()'
+  ] loop
+    routine:=to_regprocedure(signature);
+    if routine is null or (select proconfig is not null from pg_proc where oid=routine) then
+      raise exception 'Routine missing or its configuration changed: %',signature;
+    end if;
+    execute format('alter function %s set search_path=pg_catalog,public,pg_temp',routine);
+  end loop;
+end $$;
+notify pgrst,'reload schema';
+commit;
+

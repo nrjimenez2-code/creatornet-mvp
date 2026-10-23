@@ -580,13 +580,14 @@ describe("booking payment links", () => {
         };
       }
       if (op.table === "posts" && op.kind === "select") {
-        return { data: { id: "post_1", title: "Call", product_id: "product_1" }, error: null };
+        return { data: { id: "post_1", title: "Call", product_id: "product_1", creator_id: "creator_1" }, error: null };
       }
       if (op.table === "products" && op.kind === "select") {
         return {
           data: {
             id: "product_row_1",
             product_id: "product_1",
+            creator_id: "creator_1",
             title: "Call",
             amount_cents: options.amountCents ?? 10_000,
             currency: "usd",

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { createPresignedUploadUrl, r2PublicUrl } from "@/lib/r2";
-import { isAllowedUpload, safeExtension, type UploadFolder } from "@/lib/uploadPolicy";
+import { isAllowedUpload, maxBytesFor, safeExtension, type UploadFolder } from "@/lib/uploadPolicy";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 
 // Each call hands out a signed URL that can write to object storage. Thirty a
@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null);
-  const { filename, contentType, folder } = body ?? {};
+  const { filename, contentType, folder, size } = body ?? {};
 
   if (!filename || !contentType || !folder) {
     return NextResponse.json(
@@ -35,6 +35,10 @@ export async function POST(req: NextRequest) {
   const allowedFolders: UploadFolder[] = ["videos", "thumbnails"];
   if (!allowedFolders.includes(folder)) {
     return NextResponse.json({ error: "Invalid folder" }, { status: 400 });
+  }
+
+  if (!Number.isSafeInteger(size) || size < 1 || size > maxBytesFor(folder)) {
+    return NextResponse.json({ error: "Invalid upload size or file exceeds the upload limit." }, { status: 400 });
   }
 
   // Content-Type is part of the signature, so R2 rejects a PUT whose type
@@ -55,7 +59,7 @@ export async function POST(req: NextRequest) {
   const ext = safeExtension(filename, folder);
   const key = `${folder}/${user.id}/${Date.now()}.${ext}`;
 
-  const uploadUrl = await createPresignedUploadUrl(key, String(contentType).trim().toLowerCase());
+  const uploadUrl = await createPresignedUploadUrl(key, String(contentType).trim().toLowerCase(), size);
   const publicUrl = r2PublicUrl(key);
 
   return NextResponse.json({ uploadUrl, publicUrl, key });
