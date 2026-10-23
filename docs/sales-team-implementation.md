@@ -623,3 +623,62 @@ compatibility or real provider behavior. Same-creator post-transfer recovery,
 later collection/lifecycle, settlement, protected surplus and actual bank payout
 remain unfinished, followed by the existing commercial, CI/build/browser,
 separately authorized sandbox and Production/LIVE acceptance gates.
+
+### Earned-share transfer reservation foundation — October 23 continuation
+
+Local candidate `20261023180144_sales_team_transfer_reservations.sql` freezes
+the accepted creator or closer's currently unpaid earned share as an immutable
+original transfer request. It binds the original charge, accepted destination,
+original intent's transfer group, exact amount, context, worker provenance,
+operation ID and idempotency identity. It does not install a transfer dispatcher,
+verified accounting completion, scheduler or bank payout implementation.
+
+Independent source gates `CREATOR_TEAM_TRANSFER_RESERVATIONS_SCHEMA_READY` and
+`CREATOR_TEAM_TRANSFER_RESERVATIONS_READY`, existing settlement/cash readiness,
+and database `transfer_reservations_enabled` are required. Database admission
+also requires an explicitly reviewed `transfer_contract_sha256` and explicit
+`transfer_cost_reserve_cents`; neither has an operational default. One settlement
+worker can claim each 15-minute slot with a 90-second lease, current context,
+token and matching named contract digest. Each run admits at most three tasks.
+
+Admission requires an independent current complete financial check, actual
+availability, no unresolved refund or financial/dispute hold, current recipient
+ownership/transfers/payout readiness, and no unrecovered applicable overpayment.
+Closer commission also requires its exact accepted 14–90 day hold to expire.
+Removed membership does not erase an accepted closer's earned obligations.
+Re-observation under a later actual worker preserves the original worker, POST,
+request ID and operation identity while recording the current worker separately.
+
+Two independent provider balance GETs and current protected liquidity precede
+reservation. Unpaid principal remains a protected liability. If its current
+unpaid share decreases, extra encumbrance preserves the original pending
+principal; the explicit transfer cost reserve is always additional. Retained
+refund funding cannot reuse a share promised to a pending transfer, and a pending
+retained refund blocks a competing transfer. Other creators, taxes, reserves and
+shared commitments remain protected. An audited unsent cancellation requires
+complete absence of a provider journal and invalidates old cash reads. Any
+admitted/uncertain original remains protected. Completion rows are immutable and
+service callers have SELECT only, preventing fabricated accounting completion.
+Existing bound-original journal recovery remains available with new-money gates
+off. Reversal and withdrawal admission remain fenced.
+
+Evidence in the same continuation workspace: `transfer-reservations-integrated.json`
+passed130 across five suites (reservation31, retained funding22, worker refunds19,
+shared unsent29 and shared reconciliation29), 49.277s, exit0. Those fixtures install
+the complete candidate chain through F23. After adding named liquidity-proof
+digest coverage and final-grant rollback, `transfer-reservations-final.json`
+passed the affected33; it overlaps the prior130. Full incremental TypeScript and
+seven-file scoped lint passed, zero lint errors/warnings. Earlier failed receipts
+remain: a PL/pgSQL local variable was disambiguated, a negative fixture tried to
+violate an existing NOT NULL constraint, and a positive expectation named the
+wrong fixture recipient. No financial proof requirement was weakened.
+
+All provider transport is mocked; actual candidate SQL runs on structural PGlite
+parents. The positive matured-commission check uses an explicitly synthetic
+historical timestamp fixture and does not establish historical capture/provider
+acceptance. These checks do not establish full historical/installed-schema
+compatibility, current complete CI/build/browser acceptance, hosted operation,
+actual provider eligibility, LIVE execution or bank payment. A read-only connected
+account inventory reported CreatorNet in test mode; this is not capability,
+balance or financial acceptance evidence. No real financial POST, hosted migration,
+deployment, push, merge, scheduler, environment or account mutation occurred.
