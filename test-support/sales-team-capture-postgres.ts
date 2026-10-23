@@ -17,9 +17,10 @@ export async function teamCaptureDatabase(db:PGlite){
  for(const file of ["20261021215909_sales_team_provider_journal_and_ledger.sql","20261021220845_sales_team_receipt_accounting.sql","20261022223942_sales_team_recipient_onboarding.sql","20261022230849_sales_team_payment_collection.sql","20261022233620_sales_team_verified_capture.sql"])await db.exec(readFileSync(`supabase/migrations/${file}`,"utf8"));
  return db;
 }
-export async function seedTeamCapture(db:PGlite){
+export async function seedTeamCapture(db:PGlite,options:{beforeSetup?:()=>Promise<void>;beforeApproval?:()=>Promise<void>}={}){
  const rpc=<T=Record<string,unknown>>(name:string,args:unknown[]=[])=>captureRpc<T>(db,name,args);
- await enableTeamSalesFixture(db);const offer=await approveTeamOffer(db,[3]),draft=await draftTeamSale(db,offer.options.find(o=>o.kind==="installments")!.id),sale=draft.saleId,buyer=id(10),context=json(draft.source.financialConfig.context);
+ await options.beforeSetup?.();await enableTeamSalesFixture(db);await options.beforeApproval?.();
+ const offer=await approveTeamOffer(db,[3]),draft=await draftTeamSale(db,offer.options.find(o=>o.kind==="installments")!.id),sale=draft.saleId,buyer=id(10),context=json(draft.source.financialConfig.context);
  await rpc("accept_sales_team_sale_v1",[sale,buyer,draft.quote.fingerprint,true]);await db.exec("update sales_team_controls_v1 set payment_collection_enabled=true,receipt_recording_enabled=true");
  const scope=(kind:TeamOperationScope["kind"],scopeKey:string):TeamOperationScope=>({scopeId:sale,saleId:sale,creatorId:id(1),actorId:buyer,kind,scopeKey,workerRunId:null});
  const bind=async(s:TeamOperationScope,request:unknown,providerId:string)=>{const op=teamOperationId(s);await rpc("claim_sales_team_provider_operation_v1",[op,s,context,request]);await rpc("bind_sales_team_provider_operation_v1",[op,providerId,"req_bound",false]);return op;};

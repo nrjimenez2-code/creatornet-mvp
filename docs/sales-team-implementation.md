@@ -34,6 +34,7 @@ This is a new implementation of the October 21 closing-team plan. Its full accep
 | `CREATOR_TEAM_FINANCIAL_SCHEMA_READY` | Discover private financial inspections, balance traces, retry identities and cost adjustments. |
 | `CREATOR_TEAM_FINANCIAL_RECONCILIATION_READY` | Independently reconcile original refund/dispute principal, costs and credits; required before fresh collection. |
 | `CREATOR_TEAM_REFUND_REVIEW_READY` | Admit an audited responsibility decision for an existing independently read successful refund. This does not dispatch a refund. |
+| `CREATOR_TEAM_BOOKED_OFFER_SCHEMA_READY` | Use separate, audited booking/offer associations and the assignment-scoped offer catalog. New associations also require the default-off database control. |
 
 All gates default to false. The database also starts with access, new-sale and settlement controls false. Financial configuration starts without approved context, verified pricing, reserve configuration or approved disclosures. A source change or migration must not mark these accepted.
 
@@ -227,6 +228,47 @@ compatibility. Source inspection confirms the canonical post API rejects
 `product_id` for a book action while the team sale source requires a booked
 post's `product_id`. The canonical path needs a separate, authorized booked-offer
 association; the structural shared fixture does not resolve this conflict.
+
+### Canonical Book compatibility — October 22 continuation
+
+The source conflict above is now resolved locally by a separate booking/offer
+association. Public posts retain their exclusive Book action and null
+`product_id`. Only the creator or an active appointed manager can attach or
+remove an owned active USD offer for a sales-call booking. The operation records
+immutable revisioned history and audit, uses an original request UUID, and
+refuses changes after sale acceptance. A detached/re-attached association changes
+the source revision and invalidates an outstanding buyer review even when its
+price is unchanged. Existing accepted agreements and delivery bindings stay frozen.
+
+Association does not approve a price or create payment choices. The creator or
+manager must separately save the approved offer. The closer's catalog requires
+the current assignment and readiness, exposes only associated offers, and
+returns only creator-approved options. Multiple products are identified by name
+in the checkout selector. Management changes refresh the open offer catalog
+without discarding an original saved price-approval request.
+
+Candidate `20261023010604_sales_team_booked_offer_associations.sql` uses guarded
+patches for the existing approval/source functions and service-only grants/RLS
+for its association history and RPCs. Its source readiness flag and database
+control default off. The unchanged legacy source path remains available for
+eligible historical posts; the public composer and publishing guards were not
+weakened.
+
+Local checks use the actual `guard_published_video_action_v1` source from the
+canonical composer migration. A combined Book/product insert is still rejected.
+The canonical Book path now passes offer approval, buyer acceptance, independently
+constructed capture proof, shared purchase/delivery and Library entitlement in
+PGlite. This reuses the existing capture fixture with optional setup hooks;
+default fixture behavior is retained and its existing receipt checks also pass.
+The first run failed during fixture assignment to a post converted to Buy; the
+fixture now publishes a valid canonical Book post before assigning the booking.
+Latest applicable local receipts cover 64 distinct cases in eight suites: new
+association SQL10/API11/UI3, existing team API9/UI6, sale SQL13, capture SQL9 and
+buyer receipt API3. TypeScript and scoped lint pass with zero lint errors/warnings.
+Receipts are `work/booked-offers-integration.json`, `booked-offers-final.json`,
+`booked-offers-typecheck-final.log` and `booked-offers-lint-final.json` in the
+continuation chat. These are structural/guard/mock checks, not complete historical
+schema installation, hosted contention, real browser/provider or LIVE acceptance.
 
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
 

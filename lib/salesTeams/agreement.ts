@@ -11,7 +11,7 @@ import type { ExactPaymentContext } from "@/lib/installments/paymentContext";
 export type TeamOfferOption={id:string;approvalId:string;creatorId:string;productId:string;kind:"full"|"installments"|"monthly";
  amountCents:number;paymentCount:number;revision:number;sourceSnapshot:Record<string,unknown>};
 export type TeamSaleTerms=ReturnType<typeof buildTeamSaleAgreement>["terms"];
-export type TeamSaleSource={booking:{id:string;buyerId:string;creatorId:string;postId:string};
+export type TeamSaleSource={booking:{id:string;buyerId:string;creatorId:string;postId:string;offerAttachmentRevision?:number};
  assignment:{membershipId:string;closerId:string;actingUserId:string;revision:number};
  commission:{commissionBps:number;holdDays:number;renewals:"initial_commitment"|"every_renewal";revision:number};
  option:TeamOfferOption;product:ConsentProduct;creatorRecipientId:string;closerRecipientId:string;

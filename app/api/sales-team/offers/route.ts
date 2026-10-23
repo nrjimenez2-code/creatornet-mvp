@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { approvedTeamInstallments,teamId,teamSaleSchemaReady,TeamSalesError } from "@/lib/salesTeams/policy";
+import { approvedTeamInstallments,teamId,teamSaleSchemaReady,teamBookedOfferSchemaReady,TeamSalesError } from "@/lib/salesTeams/policy";
 import { requireCloserReady,teamAccess,teamError,teamJson,teamRequest,teamRpc } from "@/lib/salesTeams/server";
 
 export async function GET(req:NextRequest){
@@ -7,6 +7,10 @@ export async function GET(req:NextRequest){
   if(!teamSaleSchemaReady())throw new TeamSalesError("TEAM_SALES_NOT_ENABLED","Approved team offers are not enabled.",404);
   const {admin,user}=await teamRequest(req),creator=teamId(req.nextUrl.searchParams.get("creator_id"));
   const {role,member}=await teamAccess(admin,creator,user.id);const bookingId=req.nextUrl.searchParams.get("booking_id");
+  if(teamBookedOfferSchemaReady()){
+   if(bookingId)teamId(bookingId);
+   return teamJson(await teamRpc(admin,"read_sales_team_offer_catalog_v2",{p_creator_id:creator,p_actor_id:user.id,p_booking_id:bookingId}));
+  }
   let allowedProduct:string|null=null;
   if(role==="closer"||bookingId){
    if(role==="closer")await requireCloserReady(admin,member);teamId(bookingId);

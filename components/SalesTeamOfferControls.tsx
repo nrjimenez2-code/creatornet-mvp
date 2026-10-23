@@ -5,12 +5,12 @@ import { useTeamApi } from "@/lib/salesTeams/client";
 type Offer={id:string;title:string;type:string;amount_cents:number;membership_terms:unknown};
 type Approval={product_id:string;amount_cents:number;revision:number};
 type Option={product_id:string;kind:string;payment_count:number};
-export default function SalesTeamOfferControls({creatorId,enabled}:{creatorId:string;enabled:boolean}){
+export default function SalesTeamOfferControls({creatorId,enabled,refreshToken=0}:{creatorId:string;enabled:boolean;refreshToken?:number}){
  const api=useTeamApi();const [opened,setOpened]=useState(false),[offers,setOffers]=useState<Offer[]>([]),[approvals,setApprovals]=useState<Approval[]>([]),[options,setOptions]=useState<Option[]>([]);
  const [selected,setSelected]=useState(""),[price,setPrice]=useState(""),[counts,setCounts]=useState(""),[error,setError]=useState<string|null>(null),[status,setStatus]=useState<string|null>(null),[busy,setBusy]=useState(false);
  const busyRef=useRef(false),request=useRef<Record<string,unknown>|null>(null);const [saved,setSaved]=useState(false);
  useEffect(()=>{if(!opened)return;const controller=new AbortController();void api(`/api/sales-team/offers?creator_id=${encodeURIComponent(creatorId)}`,undefined,controller.signal)
- .then(data=>{if(!controller.signal.aborted){setOffers(data.offers);setApprovals(data.approvals);setOptions(data.options);}}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>controller.abort();},[api,creatorId,opened]);
+ .then(data=>{if(!controller.signal.aborted){setOffers(data.offers);setApprovals(data.approvals);setOptions(data.options);}}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>controller.abort();},[api,creatorId,opened,refreshToken]);
  const choose=(id:string)=>{
   setSelected(id);const offer=offers.find(o=>o.id===id),approval=approvals.find(a=>a.product_id===id);
   setPrice(String((approval?.amount_cents??offer?.amount_cents??0)/100));

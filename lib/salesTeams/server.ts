@@ -21,6 +21,9 @@ export function teamError(error:unknown) {
     ORIGINAL_ONBOARDING_LINK_NEEDS_REVIEW:"The original setup-link request needs reconciliation before another link can be requested.",
     ONBOARDING_LINK_RATE_LIMITED:"Wait a minute before requesting another setup link.",
     DESTINATION_MEMBER_MISMATCH:"Choose a destination and closer from this creator's team.",MEMBER_ALREADY_EXISTS:"This person is already a member of the team."};
+  Object.assign(known,{TEAM_BOOKED_OFFERS_HELD:"Booked offer changes are currently held.",OWNED_SALES_CALL_REQUIRED:"Choose an available sales-call booking from this creator.",
+    OWNED_ACTIVE_SALES_OFFER_REQUIRED:"Choose an active USD offer from this creator.",BOOKED_OFFER_REVISION_CHANGED:"The booked offer changed. Refresh its settings before making a new change.",
+    ORIGINAL_BOOKED_OFFER_REQUEST_CHANGED:"Resume the original saved offer change.",ACCEPTED_BOOKED_OFFER_FROZEN:"This buyer accepted the sale. Its booked offer is fixed."});
   const match=Object.keys(known).find(key=>code.includes(key));
   if(match)return teamJson({error:known[match],code:match},match==="OWNER_REQUIRED"||match==="TEAM_MANAGER_REQUIRED"?403:409);
   console.error("[sales-team] operation failed",{code:(error as {code?:string})?.code});

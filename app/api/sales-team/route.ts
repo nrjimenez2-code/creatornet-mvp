@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
-import { commissionTerms, teamId, TeamSalesError, teamSalesReady } from "@/lib/salesTeams/policy";
+import { commissionTerms, teamId, TeamSalesError, teamSalesReady,teamBookedOfferSchemaReady } from "@/lib/salesTeams/policy";
 import { teamAccess, teamError, teamJson, teamRequest, teamRpc } from "@/lib/salesTeams/server";
 import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 
@@ -27,7 +27,7 @@ export async function GET(req:NextRequest){
   const settings=access.role!=="closer"?await admin.from("sales_team_creator_settings_v1").select("routing_enabled").eq("creator_id",creator).maybeSingle():{data:null,error:null};
   if(settings.error)throw settings.error;
   await teamAccess(admin,creator,user.id);
-  return teamJson({creatorId:creator,role:access.role,membershipId:access.member?.id||null,members:members.data||[],
+  return teamJson({creatorId:creator,role:access.role,membershipId:access.member?.id||null,members:members.data||[],bookedOffersEnabled:teamBookedOfferSchemaReady(),
     invitations:(invitations.data||[]).map(inv=>({...inv,expired:Date.parse(inv.expires_at)<=Date.now()})),bindings:bindings.data||[],targets:targets.data||[],readiness,routingEnabled:settings.data?.routing_enabled===true,enabled:teamSalesReady()});
  }catch(error){return teamError(error);}
 }

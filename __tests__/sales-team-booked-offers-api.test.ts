@@ -1,0 +1,20 @@
+import {NextRequest} from "next/server";
+import {TeamSalesError} from "@/lib/salesTeams/policy";
+const requestActor=jest.fn(),access=jest.fn(),rpc=jest.fn();
+jest.mock("@/lib/salesTeams/server",()=>({teamRequest:(...a:unknown[])=>requestActor(...a),teamAccess:(...a:unknown[])=>access(...a),teamRpc:(...a:unknown[])=>rpc(...a),teamJson:(v:unknown)=>Response.json(v),teamError:(e:unknown)=>Response.json({error:"held"},{status:e instanceof TeamSalesError?e.status:409})}));
+import {GET,POST} from "@/app/api/sales-team/booking-offers/route";
+import {GET as catalog} from "@/app/api/sales-team/offers/route";
+const env={...process.env},id=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
+const body={creator_id:id(1),booking_id:id(2),product_id:id(3),request_id:id(4),expected_revision:0,attached:true};
+const req=(value:unknown=body)=>new NextRequest(`https://fixture.invalid/api/sales-team/booking-offers?creator_id=${id(1)}&booking_id=${id(2)}`,{method:"POST",headers:{"content-type":"application/json",origin:"https://fixture.invalid"},body:JSON.stringify(value)});
+beforeEach(()=>{jest.clearAllMocks();for(const key of ["CREATOR_SALES_TEAM_SCHEMA_READY","CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY","CREATOR_TEAM_BOOKED_OFFER_SCHEMA_READY"])process.env[key]="true";requestActor.mockResolvedValue({admin:{original:true},user:{id:id(9)}});access.mockResolvedValue({role:"manager"});rpc.mockResolvedValue({offers:[]});});
+afterEach(()=>{process.env={...env};});
+test("new booked-offer source stays unavailable by default",async()=>{delete process.env.CREATOR_TEAM_BOOKED_OFFER_SCHEMA_READY;expect((await GET(req())).status).toBe(404);expect(requestActor).not.toHaveBeenCalled();});
+test("management action binds the verified actor and exact original expected revision",async()=>{expect((await POST(req())).status).toBe(200);expect(requestActor).toHaveBeenCalledWith(expect.anything(),true);expect(rpc).toHaveBeenCalledWith({original:true},"manage_sales_team_booked_offer_v1",{p_creator_id:id(1),p_actor_id:id(9),p_booking_id:id(2),p_product_id:id(3),p_request_id:id(4),p_expected_revision:0,p_attached:true});});
+test.each(["GET","POST"])("closer cannot use %s management controls",async method=>{access.mockResolvedValue({role:"closer"});expect((await (method==="GET"?GET:POST)(req())).status).toBe(403);expect(rpc).not.toHaveBeenCalled();});
+test.each([{actor_id:id(5)},{amount_cents:1},{attached:"true"},{expected_revision:0.5},{product_id:"foreign"}])("forged fields or invalid values cannot reach the database: %o",async extra=>{expect((await POST(req({...body,...extra}))).status).toBe(400);expect(rpc).not.toHaveBeenCalled();});
+test("catalog read is scoped to the verified actor, creator and booking",async()=>{expect((await GET(req())).status).toBe(200);expect(rpc).toHaveBeenCalledWith({original:true},"read_sales_team_booked_offer_choices_v1",{p_creator_id:id(1),p_actor_id:id(9),p_booking_id:id(2)});});
+test("installed association catalog receives only the authenticated actor and booking scope",async()=>{
+ const request=new NextRequest(`https://fixture.invalid/api/sales-team/offers?creator_id=${id(1)}&booking_id=${id(2)}&actor_id=${id(5)}`);
+ expect((await catalog(request)).status).toBe(200);expect(rpc).toHaveBeenCalledWith({original:true},"read_sales_team_offer_catalog_v2",{p_creator_id:id(1),p_actor_id:id(9),p_booking_id:id(2)});
+});
