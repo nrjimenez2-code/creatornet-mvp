@@ -8,20 +8,23 @@ import {teamFixtureId as id} from "@/test-support/sales-team-postgres";
 import {teamOperationId,type TeamOperationScope} from "@/lib/salesTeams/providerOperation";
 import {inspectTeamReceiptFinancials,reviewTeamRefundResponsibility} from "@/lib/salesTeams/financialChecks";
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
-import {reserveTeamAdminRefund,processTeamAdminRefund,previewTeamAdminRefund} from "@/lib/salesTeams/adminRefunds";
+import {reserveTeamAdminRefund,processTeamAdminRefund,previewTeamAdminRefund,cancelUnsentTeamRefund} from "@/lib/salesTeams/adminRefunds";
+import {fundTeamAdminRefund} from "@/lib/salesTeams/cashFunding";
 import {readTeamFinancialSnapshot,observeTeamPaymentEvent} from "@/lib/salesTeams/financialReadback";
+import {installTeamCashFixture,teamCashBalanceFixture,teamCashCandidate} from "@/test-support/sales-team-cash-postgres";
 declare const createLocalPostgres:()=>PGlite;
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,receiptId:string,c:TeamReceiptComposition,raw:jest.Mock,refunds:Record<string,unknown>[],balances:Record<string,unknown>;
 beforeAll(async()=>{
  db=await teamSharedDatabase(createLocalPostgres());await db.exec("alter table profiles add column role text");
  for(const name of ["20261021230016_sales_team_financial_statements.sql","20261023000533_sales_team_payment_events.sql","20261023002620_sales_team_financial_reconciliation.sql","20261023010604_sales_team_booked_offer_associations.sql","20261023012742_sales_team_admin_refund_dispatch.sql"])await db.exec(readFileSync(`supabase/migrations/${name}`,"utf8"));
+ await installTeamCashFixture(db);
 },30000);
 beforeEach(async()=>{
- await db.exec("begin;update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,refund_review_enabled=true,refund_dispatch_enabled=true,fulfillment_enabled=true");
+ await db.exec("begin;update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,refund_review_enabled=true,refund_dispatch_enabled=true,fulfillment_enabled=true,cash_reservations_enabled=true");
  f=await seedTeamCapture(db);await db.query("update profiles set role='admin' where id=$1",[id(29)]);receiptId=String((await f.record()).id);refunds=[];balances={};let sequence=0;
  raw=jest.fn(async(method:string,path:string)=>{
   if(method!=="GET")throw Error("Database financial fixture is GET-only");
-  const value=path==="/v1/payment_intents/pi_original"?f.base.paymentIntent:path==="/v1/charges/ch_original"?f.base.charge:path==="/v1/balance_transactions/txn_original"?f.base.balance:
+  const value=path==="/v1/balance"?teamCashBalanceFixture:path==="/v1/payment_intents/pi_original"?f.base.paymentIntent:path==="/v1/charges/ch_original"?f.base.charge:path==="/v1/balance_transactions/txn_original"?f.base.balance:
    path==="/v1/refunds"?{object:"list",data:refunds,has_more:false}:path==="/v1/disputes"?{object:"list",data:[],has_more:false}:path.startsWith("/v1/refunds/")?refunds.find(r=>r.id===path.split("/").at(-1)):balances[path.split("/").at(-1)!];
   if(!value)throw Error(path);return JSON.parse(JSON.stringify({...value,lastResponse:{requestId:`req_refundDb${++sequence}`}}));
  });
@@ -40,6 +43,7 @@ test("refund request freezes the original separate charge and original provider 
 test("only a fresh completed financial inspection can admit the exact frozen refund operation",async()=>{
  const q=await reserve();expect(await f.rpc("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,c.context,q.request])).toEqual({status:"not_enabled"});
  const checked=await inspect();expect(checked.held).toBe(true);await f.rpc("attach_sales_team_refund_check_v1",[id(29),q.id,checked.checkId]);
+ await fundTeamAdminRefund(c,id(29),q.id);
  expect(await f.rpc("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,c.context,q.request])).toMatchObject({status:"dispatch"});
  await denied(()=>f.rpc("cancel_unsent_sales_team_refund_v1",[id(29),q.id,c.context]),/ORIGINAL_RECOVERY_REQUIRED/);
 });
@@ -90,6 +94,113 @@ test("explicit admin dispatch refunds the frozen separate charge once and accoun
  expect((await db.query("select refunded_subtotal_cents::int refunded,financial_adjustment_cost_cents::int aux from sales_team_receipts_v1")).rows).toEqual([{refunded:1000,aux:40}]);
  await processTeamAdminRefund(c,id(29),q.id,true);expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(1);
 });
+
+test("missing reviewed cash policy stops before reading balances or creating a refund",async()=>{
+ const q=await requestRefund();await db.exec("update sales_team_cash_policy_v1 set refund_cost_reserve_cents=null");
+ await denied(()=>processTeamAdminRefund(c,id(29),q.id,true),/TEAM_CASH_POLICY_REQUIRED/);
+ expect(raw.mock.calls.filter(([method,path])=>method==="POST"||path==="/v1/balance")).toHaveLength(0);
+ expect((await db.query("select count(*)::int n from sales_team_cash_reservations_v1")).rows).toEqual([{n:0}]);
+});
+
+test("shared platform liabilities, every team share and explicit reserves precede a new refund",async()=>{
+ const q=await requestRefund(),original=raw.getMockImplementation()!;await db.exec("update fixture_shared_cash set protected_cents=999000");
+ raw.mockImplementation((...args)=>original(...args));
+ await denied(()=>processTeamAdminRefund(c,id(29),q.id,true),/PROTECTED_PLATFORM_FUNDS_INSUFFICIENT/);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
+ expect((await db.query("select count(*)::int n from sales_team_cash_reservations_v1")).rows).toEqual([{n:0}]);
+});
+
+test("changed available cash or shared liabilities during the two reads cannot reserve or POST",async()=>{
+ const q=await requestRefund(),original=raw.getMockImplementation()!;let calls=0;
+ raw.mockImplementation(async(method,path,...args)=>{const value=await original(method,path,...args);if(path==="/v1/balance"&&++calls===2)value.available[0].amount--;return value;});
+ await denied(()=>processTeamAdminRefund(c,id(29),q.id,true),/Protected platform funds require review/);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
+ calls=0;raw.mockImplementation(async(method,path,...args)=>{if(path==="/v1/balance"&&++calls===2)await db.exec("update fixture_shared_cash set protected_cents=1,revision='changed'");return original(method,path,...args);});
+ await denied(()=>processTeamAdminRefund(c,id(29),q.id,true),/FRESH_PLATFORM_CASH_REQUIRED/);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
+});
+
+test("a changed shared adapter or missing team balance cannot silently report zero liabilities",async()=>{
+ const q=await requestRefund();await db.exec("update sales_team_cash_policy_v1 set shared_adapter_sha256=repeat('0',64)");
+ await denied(()=>processTeamAdminRefund(c,id(29),q.id,true),/TEAM_CASH_POLICY_REQUIRED/);
+ await db.exec("update sales_team_cash_policy_v1 set shared_adapter_sha256=encode(sha256(convert_to(pg_get_functiondef('creatornet_team_private.shared_platform_cash_liabilities_v1(jsonb)'::regprocedure),'UTF8')),'hex');delete from sales_team_commission_balances_v1");
+ await denied(()=>fundTeamAdminRefund(c,id(29),q.id),/COMPLETE_TEAM_CASH_LIABILITIES_REQUIRED/);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
+});
+
+test("an uncertain refund retains the original cash encumbrance through disabled new-money gates",async()=>{
+ const q=await requestRefund();provider("pending",true);await processTeamAdminRefund(c,id(29),q.id,true);
+ await db.exec("update sales_team_controls_v1 set cash_reservations_enabled=false,refund_dispatch_enabled=false");
+ await processTeamAdminRefund(c,id(29),q.id,false);
+ expect((await db.query("select principal_cents::int principal,cost_reserve_cents::int cost from sales_team_cash_reservations_v1")).rows).toEqual([{principal:1000,cost:100}]);
+ expect((await db.query("select count(*)::int n from sales_team_cash_resolutions_v1")).rows).toEqual([{n:0}]);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(1);
+});
+
+test("a verified available original debit releases its reservation once and invalidates older cash reads",async()=>{
+ const q=await requestRefund();provider();await processTeamAdminRefund(c,id(29),q.id,true);
+ expect((await db.query("select count(*)::int n from sales_team_cash_resolutions_v1")).rows).toEqual([{n:0}]);
+ await f.rpc("begin_sales_team_cash_read_v1",[id(87),id(29),c.context]);
+ balances.txn_debit={...(balances.txn_debit as Record<string,unknown>),available_on:Math.floor(Date.now()/1000)};
+ await processTeamAdminRefund(c,id(29),q.id,false);
+ expect((await db.query("select disposition,evidence->>'refundId' refund from sales_team_cash_resolutions_v1")).rows).toEqual([{disposition:"financially_observed",refund:"re_original"}]);
+ const epoch=(await db.query("select epoch::int n from sales_team_cash_epoch_v1")).rows;expect(epoch).toEqual([{n:2}]);
+ await processTeamAdminRefund(c,id(29),q.id,false);expect((await db.query("select epoch::int n from sales_team_cash_epoch_v1")).rows).toEqual(epoch);
+ await denied(()=>f.rpc("complete_sales_team_cash_read_v1",[id(87),id(29),{context:c.context,availableCents:1000000,firstRequestId:"req_first",secondRequestId:"req_second",readStartedAt:Date.now()}]),/FRESH_PLATFORM_CASH_REQUIRED/);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(1);
+});
+
+test("only an audited cancellation before a provider journal exists can free an unstarted reservation",async()=>{
+ const q=await requestRefund(),checked=await inspect();await f.rpc("attach_sales_team_refund_check_v1",[id(29),q.id,checked.checkId]);
+ await fundTeamAdminRefund(c,id(29),q.id);
+ expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:1100}]);
+ await cancelUnsentTeamRefund(c,id(29),q.id);
+ expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:0}]);
+ expect((await db.query("select disposition from sales_team_cash_resolutions_v1")).rows).toEqual([{disposition:"unsent"}]);
+ expect(raw.mock.calls.filter(([method])=>method==="POST")).toHaveLength(0);
+});
+
+test("funding reservations are private immutable history and cannot authorize unrelated transfers",async()=>{
+ const q=await requestRefund(),checked=await inspect();await f.rpc("attach_sales_team_refund_check_v1",[id(29),q.id,checked.checkId]);await fundTeamAdminRefund(c,id(29),q.id);
+ await denied(()=>db.exec("delete from sales_team_cash_reservations_v1"),/immutable/i);
+ expect(await f.rpc("sales_team_operation_admitted_v1",[{...q.scope,kind:"transfer"},c.context])).toBe(false);
+ await db.exec("set role authenticated");await denied(()=>db.exec("select * from sales_team_cash_reservations_v1"),/permission denied/i);
+ await denied(()=>f.rpc("begin_sales_team_cash_read_v1",[id(88),id(29),c.context]),/permission denied/i);await db.exec("reset role");
+});
+
+test("an older high balance cannot override a newer independently observed cash shortage",async()=>{
+ const q=await requestRefund(),checked=await inspect();await f.rpc("attach_sales_team_refund_check_v1",[id(29),q.id,checked.checkId]);await fundTeamAdminRefund(c,id(29),q.id);
+ await f.rpc("begin_sales_team_cash_read_v1",[id(88),id(29),c.context]);
+ await f.rpc("complete_sales_team_cash_read_v1",[id(88),id(29),{context:c.context,availableCents:1,firstRequestId:"req_lowFirst",secondRequestId:"req_lowSecond",readStartedAt:Date.now()}]);
+ expect(await f.rpc("claim_sales_team_provider_operation_v1",[q.operation_id,q.scope,c.context,q.request])).toEqual({status:"not_enabled"});
+ expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int n")).rows).toEqual([{n:1100}]);
+});
+
+async function isolatedBeforeCash(){
+ const isolated=await teamSharedDatabase(createLocalPostgres());await isolated.exec("alter table profiles add column role text");
+ for(const name of ["20261021230016_sales_team_financial_statements.sql","20261023000533_sales_team_payment_events.sql","20261023002620_sales_team_financial_reconciliation.sql","20261023012742_sales_team_admin_refund_dispatch.sql"])await isolated.exec(readFileSync(`supabase/migrations/${name}`,"utf8"));
+ return isolated;
+}
+test("the real candidate refuses absent shared-platform coverage even if its current digest is pinned",async()=>{
+ const isolated=await isolatedBeforeCash();try{
+  await isolated.exec(readFileSync(teamCashCandidate,"utf8"));
+  await isolated.exec("update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,fulfillment_enabled=true");
+  await seedTeamCapture(isolated);await isolated.query("update profiles set role='admin' where id=$1",[id(29)]);
+  expect((await isolated.query("select cash_reservations_enabled from sales_team_controls_v1")).rows).toEqual([{cash_reservations_enabled:false}]);
+  await isolated.exec("update sales_team_controls_v1 set cash_reservations_enabled=true;update sales_team_cash_policy_v1 set reserve_cents=1000,refund_cost_reserve_cents=100,evidence='{\"scope\":\"synthetic refusal test\"}',shared_adapter_sha256=encode(sha256(convert_to(pg_get_functiondef('creatornet_team_private.shared_platform_cash_liabilities_v1(jsonb)'::regprocedure),'UTF8')),'hex')");
+  await expect(isolated.query("select begin_sales_team_cash_read_v1($1,$2,(select context from sales_team_financial_config_v1))",[id(88),id(29)])).rejects.toThrow(/SHARED_PLATFORM_CASH_COVERAGE_REQUIRED/);
+ }finally{await isolated.close();}
+},30000);
+test("a late cash-candidate failure rolls back its tables, readiness gate and all function replacements",async()=>{
+ const isolated=await isolatedBeforeCash();try{
+  const before=(await isolated.query("select pg_get_functiondef('sales_team_refund_operation_admitted_v1(jsonb,jsonb)'::regprocedure) source")).rows;
+  const source=readFileSync(teamCashCandidate,"utf8"),fault=source.replace("grant update on public.sales_team_cash_epoch_v1 to service_role","grant update(unknown_final_column) on public.sales_team_cash_epoch_v1 to service_role");
+  expect(fault).not.toBe(source);await expect(isolated.exec(fault)).rejects.toThrow(/unknown_final_column/);await isolated.exec("rollback");
+  expect((await isolated.query("select to_regclass('sales_team_cash_reservations_v1') reserved,to_regprocedure('sales_team_refund_admitted_before_cash_v1(jsonb,jsonb)')::text wrapper")).rows).toEqual([{reserved:null,wrapper:null}]);
+  expect((await isolated.query("select pg_get_functiondef('sales_team_refund_operation_admitted_v1(jsonb,jsonb)'::regprocedure) source")).rows).toEqual(before);
+  expect((await isolated.query("select count(*)::int n from information_schema.columns where table_name='sales_team_controls_v1' and column_name='cash_reservations_enabled'")).rows).toEqual([{n:0}]);
+ }finally{await isolated.close();}
+},30000);
 test("uncertain POST recovers only through original provider-event idempotency provenance",async()=>{
  const q=await requestRefund("platform");provider("succeeded",true);expect(await processTeamAdminRefund(c,id(29),q.id,true)).toMatchObject({disposition:"reconciliation_required",held:true});
  await db.exec("update sales_team_controls_v1 set refund_dispatch_enabled=false");

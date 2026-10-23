@@ -23,7 +23,9 @@ export const teamFinancialReconciliationReady = (env: TeamEnvironment = process.
 export const teamRefundReviewReady = (env: TeamEnvironment = process.env) => teamFinancialReconciliationReady(env) && env.CREATOR_TEAM_REFUND_REVIEW_READY === "true";
 export const teamBookedOfferSchemaReady = (env: TeamEnvironment = process.env) => teamSaleSchemaReady(env) && env.CREATOR_TEAM_BOOKED_OFFER_SCHEMA_READY === "true";
 export const teamRefundDispatchSchemaReady = (env: TeamEnvironment = process.env) => teamReceiptSchemaReady(env) && env.CREATOR_TEAM_EVENT_SCHEMA_READY === "true" && env.CREATOR_TEAM_FINANCIAL_SCHEMA_READY === "true" && env.CREATOR_TEAM_REFUND_DISPATCH_SCHEMA_READY === "true";
-export const teamRefundDispatchReady = (env: TeamEnvironment = process.env) => teamRefundDispatchSchemaReady(env) && teamRefundReviewReady(env) && env.CREATOR_TEAM_REFUND_DISPATCH_READY === "true";
+export const teamCashSchemaReady = (env: TeamEnvironment = process.env) => teamRefundDispatchSchemaReady(env) && env.CREATOR_TEAM_CASH_SCHEMA_READY === "true";
+export const teamCashFundingReady = (env: TeamEnvironment = process.env) => teamCashSchemaReady(env) && env.CREATOR_TEAM_CASH_FUNDING_READY === "true";
+export const teamRefundDispatchReady = (env: TeamEnvironment = process.env) => teamRefundDispatchSchemaReady(env) && teamRefundReviewReady(env) && teamCashFundingReady(env) && env.CREATOR_TEAM_REFUND_DISPATCH_READY === "true";
 export type TeamRecipientStatus={status:"not_started"|"verification_required"|"setup_required"|"ready";transfersActive:boolean;payoutsReady:boolean;verifiedAt:string|null};
 
 export class TeamSalesError extends Error {

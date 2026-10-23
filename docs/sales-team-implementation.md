@@ -344,6 +344,62 @@ along with the other collection, worker, settlement and bank-payout workstream
 requirements. Full historical schema, CI/build, browser/provider, authorized
 sandbox and separately approved Production/LIVE acceptance remain outstanding.
 
+### Protected cash reservation core — October 22 continuation
+
+Local candidate `20261023024119_sales_team_cash_reservations.sql` adds an
+immutable cash reservation before a fresh team-refund provider operation. The
+server independently reads the platform's available USD card balance twice,
+retains real request IDs and refuses changed, ambiguous or mode-mismatched
+balances. Pending and instant balances do not fund a refund. Negative amounts
+in another USD source cannot be hidden by selecting only its card component.
+
+A global database lock serializes reservations across creators. Funding protects
+all unpaid creator proceeds and commission, taxes, processing/payout reserves,
+an explicitly saved global reserve, an explicitly saved refund-cost reserve,
+and every unresolved outgoing reservation. A newer known cash shortage cannot
+be bypassed with an earlier high balance. Source context, current administrator,
+fresh receipt inspection, cash observation, policy revision and the exact
+shared-liability adapter digest remain required at admission. No reserve or fee
+amount is supplied by default. This first core requires additional free funds
+above outstanding shares; allocating a pending refund's own retained shares is
+not yet implemented and this is not a completed commercial reserve policy.
+
+Unknown or pending provider outcomes retain the original cash encumbrance
+indefinitely. Elapsed time does not release it. Only audited cancellation before
+any provider journal exists, or independently reconciled terminal refund proof
+with the actual available debit/return entries, releases a reservation. Release
+invalidates older balance observations. Recovery remains possible with new-money
+controls disabled and retains the original operation/key. An installed-schema
+marker permits resolution without requiring cash controls on historical schema
+recovery. Transfer, reversal and surplus dispatch remain denied until their own
+funding contracts are completed; existing original reconciliation is preserved.
+
+The required shared-platform adapter currently raises
+`SHARED_PLATFORM_CASH_COVERAGE_REQUIRED`. Its digest must be pinned by an explicit
+reviewed policy, and pinning the refusing implementation does not enable it.
+The core tests substitute a clearly synthetic adapter. **Legacy/shared cash
+coverage, common legacy outflow admission, use of retained refund shares and
+post-transfer same-creator recovery remain unfinished.** Do not call this core
+a complete funding implementation or activate it. Source flags
+`CREATOR_TEAM_CASH_SCHEMA_READY` and `CREATOR_TEAM_CASH_FUNDING_READY`, plus database
+control `cash_reservations_enabled`, default off. Fresh refund readiness requires
+the new source gates; original refund recovery retains its earlier discovery
+boundary.
+
+Latest local evidence covers 45 distinct cases in three suites: refund SQL/runtime35,
+cash readback7 and refund gates3. The final database receipt is
+`work/cash-core-final-database.json` (35 pass); the unchanged cash7/gates3 passed
+in `cash-core-verified.json`, whose aggregate is FAIL because its isolated
+coverage-refusal fixture initially omitted the existing collection execution
+gates. That setup was corrected for the final database run. The earlier
+`cash-core-initial.json` passed42 before three additional cases. Full TypeScript
+passed after a test-only unknown-value typing fix; scoped lint passed with no
+errors or warnings. Coverage includes live candidate installation, a late-grant
+rollback, retained unknown reservations, once-only original debit resolution,
+invalidated old cash reads, missing/changed coverage and immutable private
+history. These are PGlite/mock checks, not real provider, hosted contention,
+commercial reserve approval, CI/build, browser, sandbox or bank-payout proof.
+
 Read-only October 21 catalog queries inspected the actual Production booking router, columns, constraints, policies and grants. The installed router uses `booking_targets` and increments uses without a booking assignment; it does not establish signed-in closer identity. The hosted service role lacks `SELECT` on `auth.users`; the local test fixture now matches that restriction.
 
 Do not repeat the release-controls migration: its reviewed source filename is `20261021010052_controlled_website_releases.sql`, but the existing hosted applied-once receipt is version `20261021020911`. Reconcile that receipt before any proposed migration installation; a filename mismatch is not permission to replay it. Do not repeat old payment operations, consumed provider tests or preserved checkout tests just to reconstruct context. Do not use this branch's code as authority for hosted financial, account, scheduler, migration, deployment or Production/LIVE changes.
