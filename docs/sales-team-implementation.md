@@ -934,3 +934,46 @@ collection/lifecycle, daily protected surplus, bank evidence/alerts and final
 presentation are still separate unfinished outcomes. Transfer completion still
 does not establish bank payout. No hosted migration, push, PR, deployment,
 environment/provider mutation or activation occurred for F27.
+
+## F28 — original transfer-reversal readback (2026-10-24)
+
+`transferReversalReadback.ts` adds a supplied GET-only reader for an already-bound
+original reversal of a completed team transfer. Its frozen projection validates
+both original journals, deterministic operation identity/key, exact request bytes,
+accepted creator/sale/receipt/beneficiary, original destination/charge/group and
+context. It rejects unbound or unknown reversals before transport; metadata does
+not select or adopt an original. It makes six bounded GETs, comparing the original
+transfer, exact reversal and actual Payments-balance return twice with six distinct
+request IDs, a 25-second observation budget, bounded request timeouts, pinned API
+version and zero retries. Reversal chronology cannot precede its transfer.
+
+Actual returned principal, fee details and net are retained, including a fee
+larger than principal. No fee or reporting-category default is invented. The
+source type must be `transfer_refund`, the balance movement must belong to the
+exact reversal, and funds must be available. Actual reporting classification is
+carried to the future consumer rather than used here to grant accounting credit.
+The inline transfer reversal list is not treated as complete provenance; a known
+original is retrieved directly. Expanded IDs are normalized and private provider
+descriptions are omitted.
+
+This is the independent reader only. It reserves nothing, issues no POST, binds
+no original, reduces no debt, releases no accounting and establishes no bank
+payout. A future narrow SQL consumer must enforce actual current worker/token/
+task/source/context/revision authority, original balance ownership, cumulative
+principal limits, actual creator-borne costs, shared accounting and atomic,
+once-only outcomes. New reversal admission/dispatch and original unknown-event
+recovery are still unfinished. Do not use this projection as proof of those gates.
+
+`f28-readback-chronology-final.json` passed 121 tests in two suites, 2.151 seconds,
+exit 0: 63 new reversal-reader cases and the existing 58 transfer-reader cases.
+Full current-tree incremental TypeScript passed after the SDK fixture was given
+its required response headers/status fields (`f28-readback-typecheck-final.log`,
+exit 0); scoped final two-file lint passed without errors/warnings. Earlier
+overlapping passes and the fixture-only typing failure are retained. Provider
+transport is mocked. F28 has no migration, endpoint, scheduler or activation.
+
+API shape was checked against Stripe's [reversal object](https://docs.stripe.com/api/transfer_reversals/object),
+[creation contract](https://docs.stripe.com/api/transfer_reversals/create) and
+[balance transaction types](https://docs.stripe.com/reports/balance-transaction-types).
+Documentation reads are not real provider acceptance. Full current integrated
+release gates and all remaining F27 checkpoint obligations still apply.
