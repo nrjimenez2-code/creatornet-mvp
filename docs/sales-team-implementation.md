@@ -977,3 +977,105 @@ API shape was checked against Stripe's [reversal object](https://docs.stripe.com
 [balance transaction types](https://docs.stripe.com/reports/balance-transaction-types).
 Documentation reads are not real provider acceptance. Full current integrated
 release gates and all remaining F27 checkpoint obligations still apply.
+
+## F29 — account bound original reversal returns (2026-10-24)
+
+The local `20261024210829_sales_team_transfer_reversal_observations.sql` candidate
+adds independently default-off known-original observation and the supplied
+`transferReversalObservations.ts` bridge. A dedicated immutable run marker binds
+an actual settlement worker/token/context to observation-only authority, using
+the existing 15-minute slot and 90-second lease. A run accepts at most three exact
+durable check/task/operation identities. A completed replay reads current holds
+without provider GETs. Outcome-only finish can drain after expiry, but unfinished
+or held selected work cannot make the worker successful. No automatic selector,
+endpoint, provider POST or scheduler is added.
+
+The SQL source reader requires an already-bound original reversal journal and a
+completed original transfer, exact request bytes/key/deterministic operation,
+original worker provenance, original accepted creator/sale/receipt/beneficiary/
+destination and approved context. New money being off or loss of the original
+human's admin role does not substitute that person for the actual observing
+worker. The new run cannot reserve a transfer or acquire another provider POST
+kind through current or older aliases. F23 already denies generic reversal and
+withdrawal admission; that denial remains. New reversal reservation/admission/
+dispatch still needs a separate narrow implementation and explicit default-off
+authority before any external activation.
+
+The consumer revalidates exact current worker/check/task/context, reviewed named
+source digest and receipt revision. It requires six distinct fresh GET request
+IDs and the F28 normalized transfer/reversal/available-balance proof. The transfer
+identity must match its immutable F25 completion; the reversal and actual balance
+return must match the original bound journal, amount, metadata and chronology.
+Every available return is capped cumulatively by the original transferred
+principal and updates only that accepted creator or closer balance. A real return
+never becomes a bank-payout statement.
+
+Completion, returned principal, actual creator-borne fees, financial ledger,
+shared accounting and cash epoch are atomic and once-only. Actual reversal fees
+extend F25's existing cost reader, so recomputation and Library accounting retain
+them without changing saved commission, the separate CreatorNet 12%, original
+processing costs or the legacy accounting branch. Supported actual fees may
+exceed returned principal; their negative net is retained. The explicit nullable
+reversal-cost reserve has no commercial default. Missing or exceeded reserve
+records the actual cost and holds further transfers for review. A known return
+reduces debt only by its actual net effect; unrecovered debt remains held.
+
+Unaccounted additional provider reversal principal is not credited. It opens a
+deduplicated private hold that survives unrelated financial recomputation; new
+transfer shares remain unavailable until actual original evidence resolves it.
+The balance-owner check covers F25 transfer facts, F13 auxiliary entries, F18
+shared entries and original charge balances on receipts. Symmetric triggers on
+those exact owning tables use a per-balance transaction lock so a recorded return
+cannot later be adopted by another owner. No broad catalog scan or historical
+ownership backfill is used. The four new sidecars have RLS, immutable history,
+service SELECT and no ordinary-role or direct service fact-write authority.
+
+`f29-observer-ownership-repair.json` passed 50 SQL-backed cases, 61.807 seconds,
+exit 0. The initial 12-case pass overlaps this. The expanded 41/43 receipt exposed
+the missing receipt-level original-charge ownership check; the receipt check and
+symmetric trigger were added. Its other failure was an empty auxiliary-entry
+fixture, corrected to perform an actual attempted claim. The fixture creates a
+structural already-admitted bound reversal journal, not new reversal admission
+proof. Current full-tree incremental TypeScript and 11-file scoped lint passed
+after correcting the intentionally invalid test payload's narrow TypeScript type.
+Final compatibility and any later focused receipts are recorded in the current
+continuation checkpoint; these earlier passes do not establish that result.
+
+All provider transport is mocked and SQL parents remain structural PGlite
+fixtures. Coherent closer maturity uses the disposable database clock. Actual
+hosted schema/security, real provider contention/acceptance, complete current
+CI/full-suite/build/browser, approved commercial prerequisites, distinct hosted
+sandbox and Production/LIVE scope and confirmed bank acceptance remain open.
+No migration was installed hosted and no external financial or release operation
+was performed for F29.
+
+Final authority review added three measured late-expiry regressions. All three
+failed before repair: a check could be admitted, or transfer/reversal accounting
+could complete, after a fixture trigger expired its actual worker authority.
+F29 now rechecks authority after lock acquisition, after task admission and before
+returning final accounting. A guarded F25 consumer update also rechecks after its
+financial lock and before final completion, because the new owner trigger can
+wait inside that consumer. The original journal and outcome-only dispatch-binding
+contract are retained. `f29-late-authority-after.json` passes the three targeted
+cases; it is not an unfiltered run of the two suites. The final integrated receipt
+supersedes the earlier 394/395-case revisions for these changed consumers.
+
+The owner guard and extended cost-reader definitions are covered by the explicit
+transfer/shared/retained/recovery source-review lists. A source-tamper case checks
+all four digests change and the admitted observer loses active authority. The
+late-rollback fixture now waits until shared fee accounting changed before
+raising its final cash-epoch failure. Indexes support cumulative principal,
+receipt costs and bound original lookup. Final receipts and exact source hashes
+are in the current checkpoint; none is full installed-schema or real-contention
+acceptance.
+
+F29 final authority revision: `f29-integrated-authority-final.json` passed 398
+tests across 13 suites in 155.086 seconds, exit 0: reversal observation 53,
+reversal reader 63, transfer reader 58, automatic settlement 28, endpoint 8,
+limits 4, reservation 33, transfer observation 30, execution 22, retained 22,
+worker refund 19, shared unsent 29 and shared reconciliation 29. All affected
+existing SQL chains install through F29. Full current-tree incremental TypeScript
+passed (`f29-authority-typecheck-final.log`, exit 0); final 11-file ESLint has zero
+errors/warnings (`f29-authority-lint-final.json`). These supersede the narrower and
+overlapping F29 passes above. Hosted/provider, complete CI/build/browser, actual
+contention and bank acceptance remain unproved.
