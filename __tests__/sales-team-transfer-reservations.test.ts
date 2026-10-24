@@ -11,14 +11,16 @@ import {reserveTeamEarnedTransfer,validateTeamTransferRequest,type TeamTransferR
 import {fundTeamAdminRefund} from "@/lib/salesTeams/cashFunding";
 import {teamTransferReservationsReady} from "@/lib/salesTeams/policy";
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
+import {installTeamLocalClock} from "@/test-support/sales-team-local-clock";
 declare const createLocalPostgres:()=>PGlite;
 const candidate="supabase/migrations/20261023180144_sales_team_transfer_reservations.sql";
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,raw:jest.Mock;
+let advanceClock:(milliseconds:number)=>Promise<void>;
 beforeAll(async()=>{
- db=await sharedCashDatabase(createLocalPostgres());
- for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql",candidate,"supabase/migrations/20261023182527_sales_team_transfer_observations.sql","supabase/migrations/20261023184139_sales_team_transfer_execution.sql"])await db.exec(readFileSync(path,"utf8"));
+ db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);
+ for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql",candidate,"supabase/migrations/20261023182527_sales_team_transfer_observations.sql","supabase/migrations/20261023184139_sales_team_transfer_execution.sql","supabase/migrations/20261023190044_sales_team_automatic_settlement.sql"])await db.exec(readFileSync(path,"utf8"));
 },30000);
-beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");});afterAll(async()=>{await db?.close();});
+beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 async function fixture(){
  await db.exec("update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,fulfillment_enabled=true,cash_reservations_enabled=true,settlement_enabled=true,transfer_reservations_enabled=true,transfer_observations_enabled=true,transfer_execution_enabled=true");
  f=await seedTeamCapture(db);f.base.balance.available_on=Math.floor(Date.now()/1000);f.base.balance.status="available";receiptId=String((await f.record()).id);await db.query("update profiles set role='admin' where id=$1",[id(29)]);
@@ -186,10 +188,10 @@ test("financial proof predating the current receipt observation and unavailable 
  await denied(()=>reserve(run),/CURRENT_EARNED_TRANSFER_SOURCE_REQUIRED/);
 });
 
-test("a structural historical fixture reserves only the accepted matured commission and preserves departed-closer obligations",async()=>{
+test("the original saved matured commission preserves departed-closer obligations",async()=>{
  await fixture();
- // Temporal SQL fixture only: this does not prove historical provider/capture acceptance.
- await db.exec("update sales_team_receipts_v1 set paid_at=clock_timestamp()-interval '15 days';update sales_team_commission_balances_v1 b set hold_until=r.paid_at+interval '14 days' from sales_team_receipts_v1 r where r.id=b.receipt_id");
+ const offset=15*86400000,realNow=Date.now.bind(Date);jest.spyOn(Date,"now").mockImplementation(()=>realNow()+offset);await advanceClock(offset);
+ await inspectTeamReceiptFinancials(c,receiptId,id(29));await db.exec("update sales_team_recipients_v1 set verified_at=clock_timestamp()");
  await db.exec("update sales_team_memberships_v1 set status='removed'");
  const run=await claim(),q=await reserve(run,"closer");expect(q.request.params).toMatchObject({destination:f.contract.terms.distribution.closerRecipientId,source_transaction:"ch_original"});
  expect(Number(q.amount_cents)).toBe(Number((await db.query<{n:string}>("select earned_cents n from sales_team_commission_balances_v1")).rows[0].n));

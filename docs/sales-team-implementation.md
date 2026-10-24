@@ -848,3 +848,89 @@ evidence cannot release accounting, and later original observation with new-mone
 off issues no replacement POST. Migration failure restores the prior admission
 function and leaves no partial execution tables. These are local structural and
 mock-provider receipts, not hosted, real provider, CI/build/browser or bank proof.
+
+## F27 — bounded automatic settlement (2026-10-24)
+
+The existing `20261023190044_sales_team_automatic_settlement.sql` candidate now
+supplies durable automatic runs, selected plans, financial links, recipient
+observations and outcome history. All five sidecars are immutable, have RLS,
+deny ordinary-role access and permit service SELECT without direct fact writes.
+Named reviewed function definitions and fixed search paths cover the new entry
+points and the guarded F13/F23/F26 adaptations. The old reservation alias cannot
+be invoked by service callers. A frozen observation-only automatic run cannot
+escalate to new transfer authority through selection, reservation or admission.
+
+`runTeamAutomaticSettlement` composes the existing independent financial,
+recipient, cash, reservation, dispatch and transfer-accounting contracts. It
+permits three durable plans per 15-minute slot and one receipt per run. Two
+original-recovery slots take priority before an earned-share lane; least-recent
+attempts rotate within lanes. A saved 90-second lease and exact token, context,
+plan/check/task identities control active phases. Outcome-only drain preserves
+the original audit after expiry without new provider authority. Incomplete or
+held selected plans cannot make a run successful; private alerts deduplicate by
+receipt and beneficiary.
+
+Current financial proof and saved-recipient readiness are refreshed when stale.
+The shared transport allows at most 40 object GETs and three exact transfer POSTs,
+with a 65-second new-request budget, a 45-second POST cutoff, 10-second POST
+timeout and zero network retries. Expensive refresh and later selection have
+earlier read/time cutoffs. Admitted promises drain before plan/run audit. The
+authenticated `/api/sales-team/settlement` endpoint checks the existing timing-safe
+cron authorization before readiness or composition and returns private/no-store,
+sanitized summaries. Its default-off observation gate is independent of new
+transfer execution. The 15-minute cadence is prepared only: no scheduler or
+feature was activated.
+
+Two measured gaps were repaired. A never-journaled reservation whose derived
+unpaid share shrinks can now be selected even at zero and canceled through F23's
+complete-journal-absence contract. Its immutable original remains; cancellation
+has its own outcome/count and cannot be called a settled transfer. Any journal
+appearing before cancellation keeps the original recovery path and protection.
+Also, F10 saves a conservative hold at independent verification time, whereas
+F23 required exact equality with the provider's payment second plus hold days.
+That equality rejected legitimate matured commissions. The new named hold
+validator retains the original saved hold, bounds it by accepted 14–90 day terms
+and immutable original capture read-start/provenance times, and requires its
+actual maturity. It does not reset or shorten the hold.
+
+The compatibility receipt `f27-through-chain-first.json` passed 219 tests across
+ten suites in 117.903 seconds. All seven affected SQL suites install through F27:
+reservation 33, observation 29, execution 22, retained funding 22, worker refund
+19, shared unsent 29 and shared reconciliation 29; automatic settlement had 24,
+endpoint 8 and limits 4. Later focused additions cover a separately reviewed,
+independently reconciled refund before unsent cancellation, a late financial
+completion rollback and rejection of shortened/extended capture-based holds.
+Their final receipt and typing/lint outcomes are recorded in the continuation
+checkpoint; do not infer their pass from this earlier integrated receipt.
+
+Final `f27-integrated-final.json` passed 223 tests across the same ten suites in
+122.702 seconds, exit 0: automatic settlement is now 28 cases; the other nine
+counts above are unchanged. The final added case also ensures a low refresh
+budget can select cheap shrinking-reservation cleanup without selecting an
+unchanged stale reservation for expensive refresh. The separate 27-case refund/
+rollback receipt overlaps this result. Full current-tree incremental TypeScript
+passed (`f27-final-current-typecheck.log`, exit 0). Fourteen-file scoped ESLint
+and the final expanded-test lint both passed with zero errors or warnings.
+The initial failures remain recorded: a synthetic immutable-check timestamp
+edit was replaced by the disposable clock, aged closer tests exposed the real
+hold-anchor mismatch, and the refund fixture was corrected to inspect the refund
+before responsibility review. Runtime receipt/review proof was preserved.
+
+A disposable in-memory database clock now allows coherent maturation and
+abandoned-check tests while preserving immutable receipt/check history and real
+migration bytes. Its clock functions are installed before fixture schemas and
+never affect a host, hosted database or provider clock. Reservation and observation
+fixtures reuse it instead of rewriting payment/hold timestamps. Other temporal
+selection fixtures remain explicitly structural and are never dispatched.
+F20 recovers an abandoned F27 financial check using its own new proof. Late
+source/grant failures roll the migration back, including wrappers and privileges.
+
+All exercised provider transport is mocked and the parents remain structural
+PGlite fixtures. Full installed/historical schema compatibility, current complete
+CI/full-suite/build/browser gates, actual commercial/provider prerequisites,
+separately authorized hosted sandbox and distinct Production/LIVE acceptance
+remain. Post-transfer recovery within the same creator relationship, later
+collection/lifecycle, daily protected surplus, bank evidence/alerts and final
+presentation are still separate unfinished outcomes. Transfer completion still
+does not establish bank payout. No hosted migration, push, PR, deployment,
+environment/provider mutation or activation occurred for F27.
