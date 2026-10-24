@@ -1,4 +1,4 @@
-import {readTeamBoundTransferReversal,type TeamTransferReversalOriginal} from "@/lib/salesTeams/transferReversalReadback";
+import {readTeamBoundTransferReversal,readTeamOriginalTransferForRecovery,type TeamTransferReversalOriginal} from "@/lib/salesTeams/transferReversalReadback";
 import {TEAM_STRIPE_API_VERSION,teamOperationId,type TeamOperationScope} from "@/lib/salesTeams/providerOperation";
 import type {TeamTransferRequest} from "@/lib/salesTeams/transferReservations";
 const stamp=Math.floor(Date.parse("2026-10-24T20:00:00Z")/1000),id=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
@@ -26,6 +26,22 @@ function fixture(){
  const c={context,observeContext:jest.fn(async()=>context),stripe:{rawRequest:raw}};
  return {q,original,transfer,reversal,balance,raw,c,read:()=>readTeamBoundTransferReversal(c,original)};
 }
+
+test.each([0,500,2000])("two original-root GETs preserve %i aggregate without adopting any reversal",async amount=>{
+ const f=fixture();f.transfer.amount_reversed=amount;f.transfer.reversed=amount===2000;
+ const proof=await readTeamOriginalTransferForRecovery(f.c,f.q);expect(proof.transfer.amountReversedCents).toBe(amount);expect(f.raw).toHaveBeenCalledTimes(2);
+ expect(f.raw.mock.calls.map(([method,path])=>[method,path])).toEqual([["GET","/v1/transfers/tr_original"],["GET","/v1/transfers/tr_original"]]);expect(JSON.stringify(proof)).not.toMatch(/private|idempotency|trr_/);
+});
+test.each(["unknown","uncompleted","canceled","key","context"])("root reader refuses %s original before provider reads",async change=>{
+ const f=fixture();if(change==="unknown")f.q.operation!.status="unknown";if(change==="uncompleted")f.q.completed=false;if(change==="canceled")f.q.canceled=true;if(change==="key")f.q.operation!.idempotency_key="foreign";if(change==="context")f.q.context={...context,mode:"live"};
+ await expect(readTeamOriginalTransferForRecovery(f.c,f.q)).rejects.toThrow(/requires reconciliation/);expect(f.raw).not.toHaveBeenCalled();
+});
+test.each(["changed","duplicate","late","context"])("root reader refuses %s repeated proof",async change=>{
+ const f=fixture(),raw=f.raw.getMockImplementation()!;let n=0;
+ f.c.observeContext.mockImplementation(async()=>f.c.context);
+ f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);n++;if(change==="changed"&&n===2)value.amount_reversed=501;if(change==="duplicate")value.lastResponse.requestId="req_duplicate";if(change==="late")jest.spyOn(Date,"now").mockReturnValue(stamp*1000+25000);if(change==="context")f.c.context={...context,platformAccountId:"acct_foreign"};return value;});
+ await expect(readTeamOriginalTransferForRecovery(f.c,f.q)).rejects.toThrow(/requires reconciliation/);expect(f.raw.mock.calls.length).toBeLessThanOrEqual(2);
+});
 
 test("six independent GETs prove one bound original reversal and its actual returned funds",async()=>{
  const f=fixture(),proof=await f.read();expect(proof).toMatchObject({originalRequestId:"req_reversalPost",transferRequestId:f.q.id,creatorId:f.q.creator_id,

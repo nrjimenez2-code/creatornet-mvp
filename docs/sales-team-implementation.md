@@ -1079,3 +1079,72 @@ passed (`f29-authority-typecheck-final.log`, exit 0); final 11-file ESLint has z
 errors/warnings (`f29-authority-lint-final.json`). These supersede the narrower and
 overlapping F29 passes above. Hosted/provider, complete CI/build/browser, actual
 contention and bank acceptance remain unproved.
+
+### F30: default-off original transfer recovery reservations
+
+`20261024213841_sales_team_transfer_recovery_reservations.sql` adds the reservation
+foundation for post-transfer recovery. It has its own default-off database gate
+and two explicit runtime schema/readiness flags. The actual settlement worker
+retains the existing 15-minute slot and 90-second lease. Its immutable claim
+records whether new reservations are permitted; an observation-only run cannot
+upgrade that authority. Existing F29 observation markers still refuse generic
+provider admission and new transfers. This migration enables no provider POST,
+scheduler or automatic execution.
+
+The database derives recovery from current independently verified debt within the
+same accepted creator, receipt and beneficiary, capped by the original completed
+transfer's unreturned principal. Pending original reservations consume that
+capacity. Accepted recipient IDs, request bytes, API version, deterministic
+operation/key, original worker, amount and approved fee allowance are frozen.
+There is no caller-selected amount or fee default. Other creator relationships
+and a creator deficit beyond released principal do not supply recovery capacity.
+Historical departure does not replace the accepted closer or original recipient.
+
+`reserveTeamTransferRecovery` composes supplied dependencies and actual-worker
+RPCs. A cold source uses the existing exact F27 financial validator, linked to
+the admitted F30 task, without impersonating a human admin. Two bounded GETs
+then re-read the completed original transfer. Only F29-accounted reversed
+principal may already be present; an unexplained aggregate creates a durable
+review hold, with no new reservation or debt credit. Repeated platform balance
+GETs use the existing F23 proof and current shared protection/epoch. The saved
+fee allowance is encumbered once; future returned principal never becomes cash
+available for spending. Transfer/observation tasks share a three-task limit.
+
+Immutable sidecars use RLS and service SELECT-only grants. Only the checked
+definers write them. Active authority is rechecked after locks and at the end
+of mutations; late expiry rolls back task/root/request/cancellation admission.
+Fresh immutable root proof can serve a same-worker retry, but cannot outlive its
+25-second window or receipt revision. A new run preserves a pending original's
+identity, worker, amount, bytes and fee allowance. Complete journal absence and
+fresh verified shrinking debt are required to cancel a never-dispatched original.
+Any unknown, expired or bound journal prevents replacement/cancellation.
+
+F29 independently accounts actual returned principal and creator-borne fees.
+An F30 journal must match its saved request, amount, worker and transfer, and
+must not be canceled, before F29 admits even an original observation check.
+For an F30 original it compares cost to the saved allowance, including after a
+policy edit, and only its once-only completion releases that reservation. The
+extended encumbrance implementation and its saved predecessor are named in all
+four relevant reviewed contract digests. Candidate dependency/late-grant failure
+rolls back the whole migration. Unfinished reservations finish as review_required,
+never a bank payout.
+
+F30's structural already-bound journal fixtures exercise F29 consumption and
+saved-cost behavior; they do not prove admission or dispatch of a new reversal.
+The next required work is narrowly gated current-worker original reversal
+admission/dispatch, followed by original unknown event/key recovery and bounded
+autonomous integration. Fixed/monthly collection, full Stop/cancel/payoff and
+lifecycle work, protected daily surplus, actual bank observations/alerts, final
+UI, complete current CI/build/browser and installed historical/security
+compatibility remain open, as do separately authorized hosted/provider and
+Production/LIVE acceptance. No hosted installation or external operation ran.
+
+F30 final integration (`f30-integrated-original-final.json`) passed456 tests in14
+suites in169.77s, exit0, including46 new database cases and75 reversal-reader cases.
+Nine existing main SQL chains and the new F30 chain install through this candidate.
+The final original-link review first measured all3 mismatch regressions failing,
+then passing with the exact frozen-request guard; those filtered receipts each
+skip43 unrelated F30 cases. The full456-case pass supersedes the earlier453-case
+revision. Current full-tree incremental TypeScript and scoped14-file ESLint pass;
+the only subsequent test edit removes an unused erased type import. These local
+checks do not replace the complete CI/full-suite fallback or external acceptance.

@@ -20,7 +20,7 @@ const predecessors=[sharedCashReconciliationCandidate,"supabase/migrations/20261
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,raw:jest.Mock;
 let values:Record<string,Record<string,unknown>>,events:Record<string,unknown>[],transport:{loseResponse:boolean;hideEvents:boolean};
 let advanceClock:(milliseconds:number)=>Promise<void>;
-beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate,"supabase/migrations/20261024210829_sales_team_transfer_reversal_observations.sql"])await db.exec(readFileSync(path,"utf8"));},30000);
+beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate,"supabase/migrations/20261024210829_sales_team_transfer_reversal_observations.sql","supabase/migrations/20261024213841_sales_team_transfer_recovery_reservations.sql"])await db.exec(readFileSync(path,"utf8"));},30000);
 beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 const denied=async(action:()=>Promise<unknown>,message:RegExp)=>{await db.exec("savepoint denied");try{await expect(action()).rejects.toThrow(message);}finally{await db.exec("rollback to savepoint denied");}};
 async function fixture(){
