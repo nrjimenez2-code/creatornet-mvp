@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { cookies } from "next/headers";
-import { createServerClient } from "@supabase/ssr";
+import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { createServerClient as createAppServerClient } from "@/lib/supabaseServer";
 
 export const runtime = "nodejs";
@@ -19,36 +19,18 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-  if (!isSameOriginRequest(req)) {
-    return NextResponse.json({ ok: false, reason: "bad_origin" }, { status: 403 });
-  }
+    if (!isSameOriginRequest(req)) {
+      return NextResponse.json({ ok: false, reason: "bad_origin" }, { status: 403 });
+    }
     const { event, access_token, refresh_token } = await req.json();
 
     // Important in Next 16.x: await cookies()
     const cookieStore = await cookies();
-
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          get(name: string) {
-            return cookieStore.get(name)?.value;
-          },
-          set(name: string, value: string, options: any) {
-            cookieStore.set(name, value, options);
-          },
-          remove(name: string, options: any) {
-            cookieStore.set(name, "", { ...options, maxAge: 0 });
-          },
-        },
-      }
-    );
+    const key = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0]}-auth-token`;
 
     // If the user signed out, clear server cookies
     if (event === "SIGNED_OUT" || (!access_token && !refresh_token)) {
       // Cookie synchronization must never revoke another device's sessions.
-      const key = `sb-${new URL(process.env.NEXT_PUBLIC_SUPABASE_URL!).hostname.split(".")[0]}-auth-token`;
       for (const cookie of cookieStore.getAll()) {
         if (cookie.name === key || cookie.name.startsWith(key + ".")) {
           cookieStore.set(cookie.name, "", { path: "/", maxAge: 0 });
@@ -60,6 +42,28 @@ export async function POST(req: Request) {
     if (!access_token || !refresh_token) {
       return NextResponse.json({ ok: false, reason: "tokens_missing" }, { status: 400 });
     }
+
+    const sessionCookies = new Map<string, { value: string; options: CookieOptions }>();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() {
+            // This POST hands off explicit credentials. Do not bootstrap an old
+            // cookie refresh alongside setSession; retain names for chunk cleanup.
+            return cookieStore.getAll().map(({ name, value }) => ({
+              name,
+              value: name === key || (name.startsWith(key + ".") && /^(0|[1-9]\d*)$/.test(name.slice(key.length + 1))) ? "" : value,
+            }));
+          },
+          setAll(cookiesToSet) {
+            // Failed incoming credentials must not clear the previous cookies.
+            cookiesToSet.forEach(({ name, value, options }) => sessionCookies.set(name, { value, options }));
+          },
+        },
+      }
+    );
 
     const { error } = await supabase.auth.setSession({
       access_token,
@@ -78,9 +82,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, reason: "invalid_session" }, { status: 401 });
     }
 
+    for (const [name, { value, options }] of sessionCookies) {
+      cookieStore.set(name, value, options);
+    }
     return NextResponse.json({ ok: true }, { status: 200 });
-  } catch (e: any) {
-    console.error("[auth-callback]", e?.message || String(e));
+  } catch (e: unknown) {
+    console.error("[auth-callback]", e instanceof Error ? e.message : String(e));
     return NextResponse.json({ ok: false, reason: "exception" }, { status: 400 });
   }
 }

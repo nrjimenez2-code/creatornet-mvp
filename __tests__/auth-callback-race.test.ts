@@ -7,8 +7,8 @@ const mockStores: Store[] = [];
 let mockDelay: Promise<void>;
 let mockArrival: () => void;
 jest.mock("next/headers", () => ({ cookies: async () => mockStores.shift() }));
-jest.mock("@supabase/ssr", () => ({ createServerClient: (_url: string, _key: string, options: { cookies: Store }) => ({ auth: {
-  setSession: async () => { mockArrival(); await mockDelay; options.cookies.set(cookieKey, "fixture-session", {}); return { error: null }; },
+jest.mock("@supabase/ssr", () => ({ createServerClient: (_url: string, _key: string, options: { cookies: { setAll: (cookies: Array<{ name: string; value: string; options: object }>) => void } }) => ({ auth: {
+  setSession: async () => { mockArrival(); await mockDelay; options.cookies.setAll([{ name: cookieKey, value: "fixture-session", options: {} }]); return { error: null }; },
   getUser: async () => ({ data: { user: { id: "fixture" } }, error: null }),
 } }) }));
 import { POST } from "@/app/auth/callback/route";
