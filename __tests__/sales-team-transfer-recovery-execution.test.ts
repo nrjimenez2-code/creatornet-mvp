@@ -12,7 +12,8 @@ import {reserveTeamEarnedTransfer,type TeamTransferRequest} from "@/lib/salesTea
 import {dispatchTeamEarnedTransfer} from "@/lib/salesTeams/transferExecution";
 import {reserveTeamTransferRecovery,type TeamTransferRecoveryRequest} from "@/lib/salesTeams/transferRecoveryReservations";
 import {dispatchTeamTransferRecovery} from "@/lib/salesTeams/transferRecoveryExecution";
-import {readTeamOriginalTransferForRecovery} from "@/lib/salesTeams/transferReversalReadback";
+import {readTeamOriginalTransferForRecovery,recoverTeamUnknownTransferReversal,type TeamTransferReversalOriginal} from "@/lib/salesTeams/transferReversalReadback";
+import {recoverTeamOriginalTransferReversal} from "@/lib/salesTeams/transferReversalRecovery";
 import {readTeamCashProof} from "@/lib/salesTeams/cashReadback";
 import {observeTeamBoundTransferReversal} from "@/lib/salesTeams/transferReversalObservations";
 import {teamOperationId,type TeamOperationScope} from "@/lib/salesTeams/providerOperation";
@@ -20,15 +21,16 @@ import type Stripe from "stripe";
 
 
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
-import {teamTransferRecoveryExecutionReady} from "@/lib/salesTeams/policy";
+import {teamTransferRecoveryExecutionReady,teamTransferReversalRecoveryReady} from "@/lib/salesTeams/policy";
 declare const createLocalPostgres:()=>PGlite;
 const candidate="supabase/migrations/20261024215948_sales_team_transfer_recovery_execution.sql";
+const recoveryCandidate="supabase/migrations/20261025184802_sales_team_transfer_reversal_recovery.sql";
 const predecessors=[sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql","supabase/migrations/20261023174324_sales_team_no_outbound_shared_recovery.sql","supabase/migrations/20261023180144_sales_team_transfer_reservations.sql","supabase/migrations/20261023182527_sales_team_transfer_observations.sql","supabase/migrations/20261023184139_sales_team_transfer_execution.sql","supabase/migrations/20261023190044_sales_team_automatic_settlement.sql","supabase/migrations/20261024210829_sales_team_transfer_reversal_observations.sql","supabase/migrations/20261024213841_sales_team_transfer_recovery_reservations.sql"];
 type Run={runId:string;leaseToken:string};
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,q:TeamTransferRequest,p:TeamTransferRecoveryRequest,run:Run,raw:jest.Mock;
 let transfer:Record<string,unknown>,reversal:Record<string,unknown>,returned:Record<string,unknown>,values:Record<string,Record<string,unknown>>,advanceClock:(ms:number)=>Promise<void>;
 const realNow=Date.now.bind(Date);let clockOffset=0,taskId=id(102);
-beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate])await db.exec(readFileSync(path,"utf8"));},30000);
+beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate,recoveryCandidate])await db.exec(readFileSync(path,"utf8"));},30000);
 beforeEach(async()=>{clockOffset=0;taskId=id(102);await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 async function advanceBy(ms:number){clockOffset+=ms;jest.spyOn(Date,"now").mockImplementation(()=>realNow()+clockOffset);await advanceClock(clockOffset);}
 const denied=async(action:()=>Promise<unknown>,message:RegExp)=>{await db.exec("savepoint denied");try{await expect(action()).rejects.toThrow(message);}finally{await db.exec("rollback to savepoint denied");}};
@@ -221,4 +223,135 @@ test("an independently verified prior return can cancel the now-shrinking never-
  values[`${p.request.path}/trr_prior`]={...reversal,id:"trr_prior",amount:1,metadata:request.params.metadata,created:stamp,balance_transaction:"txn_prior"};values["/v1/balance_transactions/txn_prior"]={...returned,id:"txn_prior",source:"trr_prior",amount:1,fee:0,net:1,fee_details:[],created:stamp,available_on:stamp};transfer.amount_reversed=1;
  expect(await observeTeamBoundTransferReversal(c,{...run,taskId:id(201),operationId,checkId:id(202)})).toMatchObject({recorded:true,returnedPrincipalCents:1});raw.mockClear();
  expect(await dispatch(true)).toMatchObject({status:"canceled",completed:false,held:false});expect(posts()).toHaveLength(0);expect((await db.query("select count(*)::int n from sales_team_transfer_recovery_cancellations_v1 where request_id=$1",[p.id])).rows).toEqual([{n:1}]);expect((await db.query("select count(*)::int n from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{n:0}]);
+});
+
+async function lostOriginal(beneficiary:"creator"|"closer"="creator",leaveDispatching=false){
+ await fixture(beneficiary);const impl=raw.getMockImplementation()!;let event:Record<string,unknown>={};
+ if(leaveDispatching){const base=c.admin;c={...c,admin:{rpc:async(name:string,args:Record<string,unknown>)=>name==="run_sales_team_transfer_recovery_execution_v1"&&args.p_phase==="unknown"?{data:null,error:Error("synthetic lost unknown RPC")}:base.rpc(name,args)} as unknown as TeamReceiptComposition["admin"]};}
+ raw.mockImplementation(async(...args)=>{const value=await impl(...args);if(args[0]==="POST"){
+  event={object:"event",id:"evt_recoveryOriginal",type:"transfer.reversed",api_version:p.request.apiVersion,created:reversal.created,account:null,context:null,livemode:false,
+   request:{id:"req_recoveryPost",idempotency_key:`cn-team-v1:${p.operation_id}`},data:{object:JSON.parse(JSON.stringify({...transfer,reversals:{object:"list",data:[reversal],has_more:false,total_count:1,url:p.request.path}}))}};
+  values["/v1/events"]={object:"list",data:[event],has_more:false};values["/v1/events/evt_recoveryOriginal"]=event;throw Error("synthetic lost original reversal response");
+ }return value;});
+ expect(await dispatch(true)).toMatchObject({status:"reconciliation_required",completed:false});expect(posts()).toHaveLength(1);raw.mockClear();
+ await db.exec("update sales_team_controls_v1 set transfer_reversal_recovery_enabled=true");
+ return event;
+}
+const recoveryArgs=()=>({...run,taskId:id(300),operationId:p.operation_id,checkId:id(301)});
+const recover=()=>recoverTeamOriginalTransferReversal(c,recoveryArgs());
+const beginRecovery=()=>f.rpc<{original:TeamTransferReversalOriginal;checkId:string}>("begin_sales_team_reversal_recovery_v1",[run.runId,run.leaseToken,c.context,id(300),p.operation_id,id(301)]);
+const completeRecovery=(proof:unknown)=>f.rpc("complete_sales_team_reversal_recovery_v1",[run.runId,run.leaseToken,c.context,id(300),id(301),proof]);
+
+test("original event recovery is independently default off",async()=>{
+ expect((await db.query("select transfer_reversal_recovery_enabled enabled from sales_team_controls_v1")).rows).toEqual([{enabled:false}]);expect(teamTransferReversalRecoveryReady({})).toBe(false);
+ await lostOriginal();await db.exec("update sales_team_controls_v1 set transfer_reversal_recovery_enabled=false");await denied(recover,/ORIGINAL_REVERSAL_RECOVERY_HELD/);expect(raw).not.toHaveBeenCalled();
+});
+test.each(["creator","closer"] as const)("original event recovery binds and accounts the exact %s original once without another POST",async beneficiary=>{
+ await lostOriginal(beneficiary);const originalWorker=run.runId;expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int cents")).rows).toEqual([{cents:30}]);
+ expect(await recover()).toMatchObject({completed:true,recorded:true,recovered:true,eventId:"evt_recoveryOriginal",returnedPrincipalCents:Number(p.amount_cents),actualTransferReversalCostCents:12});
+ expect(raw).toHaveBeenCalledTimes(8);expect(posts()).toHaveLength(0);expect((await db.query("select status,provider_id,provider_request_id,worker_run_id from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{status:"bound",provider_id:"trr_original",provider_request_id:"req_recoveryPost",worker_run_id:originalWorker}]);
+ expect((await db.query("select event_id,reversal_id from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{event_id:"evt_recoveryOriginal",reversal_id:"trr_original"}]);expect((await db.query("select creatornet_team_private.cash_encumbered_v1()::int cents")).rows).toEqual([{cents:0}]);
+ await db.exec("set constraints all immediate");raw.mockClear();expect(await recover()).toMatchObject({completed:true,recorded:false});expect(raw).not.toHaveBeenCalled();expect((await db.query("select count(*)::int n from sales_team_financial_ledger_v1 where entry_kind='transfer_reversal'")).rows).toEqual([{n:1}]);
+});
+test("original event recovery remains available with every new-money control off",async()=>{
+ await lostOriginal();await db.exec("update sales_team_controls_v1 set settlement_enabled=false,transfer_reservations_enabled=false,transfer_execution_enabled=false,transfer_recovery_reservations_enabled=false,transfer_recovery_execution_enabled=false");expect(await recover()).toMatchObject({completed:true,recovered:true});expect(posts()).toHaveLength(0);
+});
+test("original event recovery under a later observation-only worker preserves the original dispatch provenance",async()=>{
+ await lostOriginal();const originalWorker=run.runId;await advanceBy(16*60000);run=await f.rpc<Run>("claim_sales_team_transfer_recovery_run_v1",[id(302),c.context,false]);
+ expect(await recover()).toMatchObject({completed:true,recovered:true});expect((await db.query("select worker_run_id from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{worker_run_id:originalWorker}]);expect((await db.query("select worker_run_id from sales_team_transfer_reversal_checks_v1 where id=$1",[id(301)])).rows).toEqual([{worker_run_id:run.runId}]);expect((await db.query("select count(*)::int n from sales_team_transfer_recovery_execution_runs_v1 where run_id=$1",[run.runId])).rows).toEqual([{n:0}]);expect(posts()).toHaveLength(0);
+});
+test("original event recovery can inspect an expired dispatch lease but cannot steal a live one",async()=>{
+ await lostOriginal("creator",true);await denied(recover,/ASSERTED_UNKNOWN_ORIGINAL_REVERSAL_REQUIRED/);expect(raw).not.toHaveBeenCalled();await advanceBy(31000);expect(await recover()).toMatchObject({completed:true,recovered:true});expect(posts()).toHaveLength(0);
+});
+test("original event recovery cannot adopt an expired journal that never consumed its dispatch assertion",async()=>{
+ await fixture();await fresh(id(150),id(151));await claim();await advanceBy(31000);await db.exec("update sales_team_controls_v1 set transfer_reversal_recovery_enabled=true");raw.mockClear();await denied(recover,/ASSERTED_UNKNOWN_ORIGINAL_REVERSAL_REQUIRED/);expect(raw).not.toHaveBeenCalled();
+});
+test("original event recovery leaves missing key evidence unknown and encumbered",async()=>{
+ const event=await lostOriginal();(event.request as Record<string,unknown>).idempotency_key="foreign";expect(await recover()).toMatchObject({completed:false,recorded:false,held:true});expect(raw).toHaveBeenCalledTimes(1);expect((await db.query("select provider_id,status from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{provider_id:null,status:"unknown"}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{n:0}]);
+});
+test("original event recovery refuses a wrong actual worker token before provider reads",async()=>{
+ await lostOriginal();await denied(()=>recoverTeamOriginalTransferReversal(c,{...recoveryArgs(),leaseToken:id(399)}),/CURRENT_SETTLEMENT_WORKER_REQUIRED/);expect(raw).not.toHaveBeenCalled();
+});
+test("original event recovery rolls binding and its proof back when accounting rejects a foreign balance",async()=>{
+ await lostOriginal();const begun=await beginRecovery(),proof=await recoverTeamUnknownTransferReversal(c,begun.original);expect(proof).not.toBeNull();proof!.balance.sourceId="trr_foreign";
+ await denied(()=>completeRecovery(proof),/EXACT_REVERSAL_BALANCE_RETURN_REQUIRED/);expect((await db.query("select provider_id,status from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{provider_id:null,status:"unknown"}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{n:0}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_completions_v1")).rows).toEqual([{n:0}]);
+});
+test("original event recovery rechecks its control after delegated bound-check admission",async()=>{
+ await fixture();returned.status="pending";expect(await dispatch(true)).toMatchObject({status:"reconciliation_required"});await advanceBy(16*60000);run=await f.rpc<Run>("claim_sales_team_transfer_recovery_run_v1",[id(302),c.context,false]);returned.status="available";
+ await db.exec("update sales_team_controls_v1 set transfer_reversal_recovery_enabled=true;create function public.disable_fixture_reversal_recovery() returns trigger language plpgsql as $$begin update public.sales_team_controls_v1 set transfer_reversal_recovery_enabled=false;return new;end$$;create trigger disable_fixture_reversal_recovery before insert on sales_team_transfer_reversal_checks_v1 for each row execute function public.disable_fixture_reversal_recovery()");raw.mockClear();
+ await expect(recover()).rejects.toThrow(/ORIGINAL_REVERSAL_RECOVERY_HELD/);expect(raw).not.toHaveBeenCalled();expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_checks_v1 where id=$1",[id(301)])).rows).toEqual([{n:0}]);
+});
+test("original event recovery source gates allow observation while new-money readiness stays off",()=>{
+ const env=Object.fromEntries(["CREATOR_SALES_TEAM_SCHEMA_READY","CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY","CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY","CREATOR_TEAM_PAYMENT_SCHEMA_READY","CREATOR_TEAM_RECEIPT_SCHEMA_READY","CREATOR_TEAM_EVENT_SCHEMA_READY","CREATOR_TEAM_FINANCIAL_SCHEMA_READY","CREATOR_TEAM_REFUND_DISPATCH_SCHEMA_READY","CREATOR_TEAM_CASH_SCHEMA_READY","CREATOR_TEAM_TRANSFER_RESERVATIONS_SCHEMA_READY","CREATOR_TEAM_TRANSFER_OBSERVATIONS_SCHEMA_READY","CREATOR_TEAM_TRANSFER_OBSERVATIONS_READY","CREATOR_TEAM_TRANSFER_REVERSAL_OBSERVATIONS_SCHEMA_READY","CREATOR_TEAM_TRANSFER_REVERSAL_OBSERVATIONS_READY","CREATOR_TEAM_TRANSFER_RECOVERY_RESERVATIONS_SCHEMA_READY","CREATOR_TEAM_TRANSFER_RECOVERY_EXECUTION_SCHEMA_READY","CREATOR_TEAM_TRANSFER_REVERSAL_RECOVERY_SCHEMA_READY","CREATOR_TEAM_TRANSFER_REVERSAL_RECOVERY_READY"].map(key=>[key,"true"]));
+ expect(teamTransferReversalRecoveryReady(env)).toBe(true);expect(teamTransferRecoveryExecutionReady(env)).toBe(false);
+ for(const key of ["CREATOR_TEAM_TRANSFER_RECOVERY_RESERVATIONS_SCHEMA_READY","CREATOR_TEAM_TRANSFER_RECOVERY_EXECUTION_SCHEMA_READY","CREATOR_TEAM_TRANSFER_REVERSAL_RECOVERY_SCHEMA_READY","CREATOR_TEAM_TRANSFER_REVERSAL_RECOVERY_READY"])expect(teamTransferReversalRecoveryReady({...env,[key]:"false"})).toBe(false);
+});
+test.each(["anon","authenticated"])("original event recovery is denied to %s",async role=>{
+ await lostOriginal();await db.exec(`set role ${role}`);await denied(recover,/permission denied/i);await denied(()=>db.exec("select * from public.sales_team_transfer_reversal_recovery_proofs_v1"),/permission denied/i);expect(raw).not.toHaveBeenCalled();
+});
+test("original event recovery works for service without granting sidecar writes or generic adoption",async()=>{
+ await lostOriginal();await db.exec("set role service_role");await denied(()=>db.exec("insert into public.sales_team_transfer_reversal_recovery_proofs_v1 default values"),/permission denied/i);await denied(()=>db.exec("delete from public.sales_team_transfer_reversal_recovery_proofs_v1"),/permission denied/i);
+ await denied(()=>f.rpc("bind_sales_team_provider_operation_v1",[p.operation_id,"trr_forged","req_forged",true]),/INDEPENDENT_ORIGINAL_RECOVERY_EVENT_REQUIRED/);expect(await recover()).toMatchObject({completed:true,recovered:true});expect(posts()).toHaveLength(0);
+});
+test.each(["event_id","event_type","api_version","mode","account","event_age","read_age","duplicate_event_reads","post_read_collision","root","amount","metadata","lineage","balance","refund_id"])("original event recovery rejects changed %s evidence without binding",async change=>{
+ await lostOriginal();const begun=await beginRecovery(),proof=await recoverTeamUnknownTransferReversal(c,begun.original);expect(proof).not.toBeNull();const bad=JSON.parse(JSON.stringify(proof)) as Record<string,unknown>,event=bad.recovery as Record<string,unknown>,root=event.eventTransfer as Record<string,unknown>,rev=event.eventReversal as Record<string,unknown>;
+ if(change==="event_id")event.eventId="foreign";if(change==="event_type")event.eventType="transfer.created";if(change==="api_version")event.eventApiVersion="foreign";if(change==="mode")event.livemode=true;if(change==="account")event.account="acct_foreign";if(change==="event_age")event.eventCreated=Number(event.eventCreated)-100;if(change==="read_age")event.readStartedAt=Number(event.readStartedAt)-46000;if(change==="duplicate_event_reads")event.eventRetrieveRequestId=event.eventReadRequestId;if(change==="post_read_collision")event.eventReadRequestId=bad.originalRequestId;if(change==="root")root.destinationId="acct_foreign";if(change==="amount")rev.amountCents=Number(rev.amountCents)+1;if(change==="metadata")rev.metadata={};if(change==="lineage")rev.sourceRefundId="re_foreign";if(change==="balance")rev.balanceId="txn_other";if(change==="refund_id")rev.destinationPaymentRefundId="pyr_other";
+ await denied(()=>completeRecovery(bad),/ORIGINAL_REVERSAL_EVENT_REQUIRED|EXACT_ORIGINAL_REVERSAL_EVENT_REQUIRED|DISTINCT_ORIGINAL_REVERSAL_EVENT_READS_REQUIRED|FINANCIAL_PROOF_SHAPE_REQUIRED/);
+ expect((await db.query("select provider_id,status from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{provider_id:null,status:"unknown"}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{n:0}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_completions_v1")).rows).toEqual([{n:0}]);
+});
+test.each(["stale","receipt_revision","control"])("original event recovery rejects %s current authority or proof",async change=>{
+ await lostOriginal();const begun=await beginRecovery(),proof=await recoverTeamUnknownTransferReversal(c,begun.original);if(change==="stale")await advanceBy(26000);if(change==="receipt_revision")await db.exec("update sales_team_receipts_v1 set observation_revision=observation_revision+1");if(change==="control")await db.exec("update sales_team_controls_v1 set transfer_reversal_recovery_enabled=false");
+ await denied(()=>completeRecovery(proof),/ORIGINAL_REVERSAL_EVENT_REQUIRED|CURRENT_REVERSAL_RECEIPT_REQUIRED|ORIGINAL_REVERSAL_RECOVERY_HELD/);expect((await db.query("select provider_id from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{provider_id:null}]);
+});
+test.each(["begin","proof","completion","recovery_control"])("original event recovery rolls back when authority expires during %s",async change=>{
+ await lostOriginal();const table=change==="begin"?"sales_team_transfer_reversal_checks_v1":change==="completion"?"sales_team_transfer_reversal_completions_v1":"sales_team_transfer_reversal_recovery_proofs_v1";
+ const mutation=change==="recovery_control"?"update public.sales_team_controls_v1 set transfer_reversal_recovery_enabled=false":`update public.sales_team_worker_runs_v1 set lease_until=clock_timestamp()-interval '1 second' where id='${run.runId}'`;
+ await db.exec(`create function public.expire_fixture_original_reversal_recovery() returns trigger language plpgsql as $$begin ${mutation};return new;end$$;create trigger expire_fixture_original_reversal_recovery before insert on ${table} for each row execute function public.expire_fixture_original_reversal_recovery()`);
+ await expect(recover()).rejects.toThrow(/CURRENT_SETTLEMENT_WORKER_REQUIRED|ORIGINAL_REVERSAL_RECOVERY_HELD/);if(change==="begin")expect(raw).not.toHaveBeenCalled();expect(posts()).toHaveLength(0);
+ expect((await db.query("select provider_id,status from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{provider_id:null,status:"unknown"}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{n:0}]);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_completions_v1")).rows).toEqual([{n:0}]);
+});
+test("original event recovery preserves the saved fee allowance after a policy increase",async()=>{
+ await lostOriginal();returned.fee=31;returned.net=Number(p.amount_cents)-31;returned.fee_details=[{amount:31,currency:"usd",application:null,type:"stripe_fee"}];await db.exec("update sales_team_cash_policy_v1 set transfer_reversal_cost_reserve_cents=50");
+ expect(await recover()).toMatchObject({completed:true,recovered:true,held:true,actualTransferReversalCostCents:31});expect((await db.query("select evidence->>'reservedCostCents' reserve from sales_team_financial_alerts_v1 where source_identity=$1",[`transfer-reversal-cost:${p.operation_id}`])).rows).toEqual([{reserve:"30"}]);expect(posts()).toHaveLength(0);
+});
+test("original event recovery preserves a departed closer's accepted transfer and creator obligation",async()=>{
+ await lostOriginal("closer");await db.exec("update sales_team_memberships_v1 set status='removed'");await db.query("update sales_team_recipients_v1 set account_id='acct_replacement' where user_id=$1",[q.beneficiary_user_id]);
+ expect(await recover()).toMatchObject({completed:true,recovered:true});expect((await db.query("select creator_id from sales_team_transfer_reversal_costs_v1 where operation_id=$1",[p.operation_id])).rows).toEqual([{creator_id:q.creator_id}]);expect(posts()).toHaveLength(0);
+});
+test.each(["reversal_recovery_worker_v1(uuid,uuid,jsonb)","unknown_reversal_original_v1(uuid,jsonb)","reversal_recovery_binding_allowed_v1(uuid,text,text)","begin_sales_team_reversal_recovery_v1(uuid,uuid,jsonb,uuid,uuid,uuid)","complete_sales_team_reversal_recovery_v1(uuid,uuid,jsonb,uuid,uuid,jsonb)"])("original event recovery digest includes %s",async name=>{
+ await lostOriginal();const signature=`${name.startsWith("begin_")||name.startsWith("complete_")?"public":"creatornet_team_private"}.${name}`,hashes=()=>db.query("select creatornet_team_private.transfer_contract_digest_v1() transfer,creatornet_team_private.shared_cash_contract_digest_v1() shared,creatornet_team_private.retained_cash_contract_digest_v1() retained,creatornet_team_private.recovery_contract_digest_v1() recovery");const before=(await hashes()).rows[0] as Record<string,string>;
+ const source=(await db.query<{s:string}>("select pg_get_functiondef($1::regprocedure) s",[signature])).rows[0].s;await db.exec(name.startsWith("reversal_recovery_binding")?source.replace("select exists(","select /* synthetic reviewed source drift */ exists("):source.replace(/\bbegin\b/,"begin /* synthetic reviewed source drift */"));const after=(await hashes()).rows[0] as Record<string,string>;for(const key of ["transfer","shared","retained","recovery"])expect(after[key]).not.toBe(before[key]);
+ await expect(recover()).rejects.toThrow(/CURRENT_SETTLEMENT_WORKER_REQUIRED/);expect(raw).not.toHaveBeenCalled();
+});
+test.each(["dependency","late_grant"])("original event recovery migration %s failure rolls back its table, control and bind exception",async change=>{
+ const isolated=await sharedCashDatabase(createLocalPostgres());try{
+  for(const path of [...predecessors,candidate])await isolated.exec(readFileSync(path,"utf8"));
+  if(change==="dependency"){const source=(await isolated.query<{s:string}>("select pg_get_functiondef('public.bind_sales_team_operation_before_transfer_proof_v1(uuid,text,text,boolean)'::regprocedure) s")).rows[0].s;await isolated.exec(source.replace("p_reconciled is distinct from false","p_reconciled /* reviewed dependency drift */ is distinct from false"));}
+  const state=()=>isolated.query("select pg_get_functiondef('public.bind_sales_team_operation_before_transfer_proof_v1(uuid,text,text,boolean)'::regprocedure) binding,creatornet_team_private.transfer_contract_digest_v1() digest,has_function_privilege('service_role','public.bind_sales_team_operation_before_transfer_proof_v1(uuid,text,text,boolean)','execute') alias_allowed");const before=(await state()).rows,source=readFileSync(recoveryCandidate,"utf8");
+  await expect(isolated.exec(change==="late_grant"?source.replace("commit;","grant execute on function public.missing_original_reversal_recovery_grant() to service_role;commit;"):source)).rejects.toThrow(change==="dependency"?/REVERSAL_RECOVERY_BIND_DEPENDENCY_DIFFERS/:/missing_original_reversal_recovery_grant/);await isolated.exec("rollback");expect((await state()).rows).toEqual(before);expect((await isolated.query("select to_regclass('public.sales_team_transfer_reversal_recovery_proofs_v1') relation,to_regprocedure('public.begin_sales_team_reversal_recovery_v1(uuid,uuid,jsonb,uuid,uuid,uuid)') helper")).rows).toEqual([{relation:null,helper:null}]);expect((await isolated.query("select count(*)::int n from information_schema.columns where table_schema='public' and table_name='sales_team_controls_v1' and column_name='transfer_reversal_recovery_enabled'")).rows).toEqual([{n:0}]);
+ }finally{await isolated.close();}
+},30000);
+test("original event recovery shares the existing three-task budget and reuses only its matching original task",async()=>{
+ await lostOriginal();
+ // Structural already-admitted F29 history fills the other observation slots;
+ // these rows establish no additional provider dispatch or returned principal.
+ for(let index=0;index<2;index++){
+  const scope:TeamOperationScope={scopeId:id(350+index),scopeKey:"recovery:v1",kind:"reversal",saleId:q.sale_id,creatorId:q.creator_id,actorId:null,workerRunId:q.original_worker_run_id},operationId=teamOperationId(scope),request={apiVersion:p.request.apiVersion,method:"POST",path:p.request.path,params:{amount:1,metadata:{...(p.request.params.metadata as Record<string,string>),team_recovery_request_id:scope.scopeId,team_provider_operation_id:operationId}}};
+  await db.query("insert into sales_team_provider_operations_v1(id,scope_id,scope_key,kind,sale_id,creator_id,worker_run_id,context,request,idempotency_key,status,first_dispatch_at,provider_id,provider_request_id,bound_at) values($1,$2,'recovery:v1','reversal',$3,$4,$5,$6,$7,$8,'bound',clock_timestamp(),$9,$10,clock_timestamp())",[operationId,scope.scopeId,q.sale_id,q.creator_id,scope.workerRunId,c.context,request,`cn-team-v1:${operationId}`,`trr_structural${index}`,`req_structural${index}`]);
+  await f.rpc("begin_sales_team_reversal_check_v1",[run.runId,run.leaseToken,c.context,id(360+index),operationId,id(370+index)]);
+ }
+ await denied(beginRecovery,/REVERSAL_TASK_LIMIT_REQUIRED/);expect(raw).not.toHaveBeenCalled();
+ await f.rpc("begin_sales_team_reversal_recovery_v1",[run.runId,run.leaseToken,c.context,taskId,p.operation_id,id(301)]);expect((await db.query("select creatornet_team_private.transfer_recovery_task_count_v1($1)::int n",[run.runId])).rows).toEqual([{n:3}]);
+});
+test("original event recovery leaves pending funds unknown and a later worker accounts only the same available original",async()=>{
+ await lostOriginal();returned.status="pending";await expect(recover()).rejects.toThrow(/requires reconciliation/);expect((await db.query("select provider_id,status from sales_team_provider_operations_v1 where id=$1",[p.operation_id])).rows).toEqual([{provider_id:null,status:"unknown"}]);
+ await advanceBy(16*60000);run=await f.rpc<Run>("claim_sales_team_transfer_recovery_run_v1",[id(302),c.context,false]);returned.status="available";expect(await recoverTeamOriginalTransferReversal(c,{...recoveryArgs(),taskId:id(303),checkId:id(304)})).toMatchObject({completed:true,recovered:true});expect(posts()).toHaveLength(0);expect((await db.query("select check_id from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{check_id:id(304)}]);
+});
+test("original event recovery accepts initially null event balance details only with the exact later available return",async()=>{
+ const event=await lostOriginal(),snapshot=(event.data as {object:{reversals:{data:Record<string,unknown>[]}}}).object;snapshot.reversals.data[0].balance_transaction=null;snapshot.reversals.data[0].destination_payment_refund=null;
+ expect(await recover()).toMatchObject({completed:true,recovered:true});expect((await db.query("select balance_id from sales_team_transfer_reversal_completions_v1")).rows).toEqual([{balance_id:"txn_return"}]);expect(posts()).toHaveLength(0);
+});
+test("original event recovery enabled alone cannot unseal either generic binding alias",async()=>{
+ await lostOriginal();for(const name of ["bind_sales_team_provider_operation_v1","bind_sales_team_operation_before_transfer_proof_v1"]){for(const reconciled of [false,true])await denied(()=>f.rpc(name,[p.operation_id,"trr_forged","req_forged",reconciled]),/INDEPENDENT_ORIGINAL_RECOVERY_EVENT_REQUIRED/);}
+ expect(raw).not.toHaveBeenCalled();expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_recovery_proofs_v1")).rows).toEqual([{n:0}]);
 });

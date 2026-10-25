@@ -1279,3 +1279,72 @@ then passed in the final integration after both bounds were tightened. Earlier
 distinct tests. All provider responses are mocked, and the SQL consumers use
 disposable PGlite. This evidence does not establish the unfinished unknown
 binding/accounting consumer, full CI/build/browser or external acceptance.
+
+### F33: checked original reversal event recovery
+
+Local candidate `20261025184802_sales_team_transfer_reversal_recovery.sql` and
+`recoverTeamOriginalTransferReversal` consume the F32 proof under an actual current
+F29 observation worker. The new `transfer_reversal_recovery_enabled` database
+control defaults false. Source readiness requires the recovery schema/readiness
+flags and predecessor schemas, including the F31 execution schema, while new-money
+execution/reservation readiness can remain off. This creates no provider POST,
+new reservation, recipient change, scheduler or activation.
+
+An unknown original must retain its exact F30 request, scope, accepted parent,
+creator, amount, API/key and original reservation worker. Its original F31 actual
+admission and consumed dispatch assertion must still match the sealed provider
+lease. Unasserted journals and live dispatch leases cannot be adopted. A later
+observation-only worker uses its own current token while preserving that original
+dispatch provenance. Departure or a changed mutable recipient does not replace
+the accepted transfer.
+
+The checked begin port admits an existing F29 check before provider reads. It
+retains the combined F30/F29 three-task bound, receipt revision, original task
+identity and current worker checks after locks/writes. The composition then uses
+the GET-only F32 unknown reader, or the existing F29 reader for a bound original.
+Missing/ambiguous event proof leaves the exact unknown operation and fee
+encumbrance held. There is no replacement or repeated POST.
+
+Completion checks original event/request/key, event/current identities, account,
+mode, actual render version, chronology, distinct provider request IDs and both
+freshness windows. One immutable RLS/service-SELECT-only sidecar retains the exact
+recovery proof. A narrow exception in the actual generic binding body permits
+only that current proof's reconciled original identity. Older aliases and
+non-reconciled adoption remain fenced. Explicit named definitions extend the
+four existing reviewed contract digests; dependency and grant changes are
+transactional.
+
+Binding, proof, F29 principal/cost accounting, shared synchronization and saved
+fee release happen in one database transaction. A deferred reference from proof
+to F29 completion prevents committing a recovery proof without accounting.
+Failure or late authority loss rolls back the operation binding and all financial
+facts. F29 retains actual creator-borne costs, the original saved fee allowance
+after policy edits, balance ownership, unexplained-aggregate holds and once-only
+ledger/cash-epoch behavior. Replay returns completed history without another
+provider request. Bound-check delegation also rechecks the recovery control after
+admission.
+
+This local consumer still needs bounded autonomous queue/endpoint integration.
+Full current CI/build/browser, installed/historical/security compatibility and
+separately scoped provider/hosted/Production/confirmed-bank acceptance remain
+required alongside the remaining collection, lifecycle, surplus and UI work.
+
+`f33-integrated-current.json` passed 626 tests across all 15 affected suites in
+518.797 seconds, exit 0. Eleven SQL fixture chains install through F33. The
+execution/lifecycle suite now has 101 cases, including 50 added recovery cases;
+the final four cover the combined task cap, pending-to-available retry under a
+later worker, initially null event details and sealed generic aliases. Current
+full-tree incremental TypeScript passed (`f33-current-typecheck.log`), and scoped
+13-file ESLint has zero errors/warnings (`f33-current-lint.json`). All 14
+executable/test/SQL input hashes were captured before the run and verified again
+before the local checkpoint.
+
+The initial 55-pass/6-failure run exposed ambiguous SQL JSON subtraction; explicit
+grouping repaired it. A focused delegated-bound-check regression measured provider
+reads after a recovery-control change; the post-admission recheck now rolls back
+that check before reads. Its before-fix receipt has 1 failed/61 skipped; the later
+11-pass/51-skipped run is focused proof only. The expanded 97-case pass and earlier
+receipts remain preserved; the 626-case integration supersedes overlapping runs.
+Provider transports are mocked, and SQL uses disposable structural PGlite parents
+and selected real legacy definitions. These checks establish neither complete
+CI/full-suite fallback/build/browser nor installed/provider/Production/bank proof.
