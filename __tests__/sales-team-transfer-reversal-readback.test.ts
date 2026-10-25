@@ -1,4 +1,4 @@
-import {readTeamBoundTransferReversal,readTeamOriginalTransferForRecovery,type TeamTransferReversalOriginal} from "@/lib/salesTeams/transferReversalReadback";
+import {readTeamBoundTransferReversal,readTeamOriginalTransferForRecovery,recoverTeamUnknownTransferReversal,type TeamTransferReversalOriginal} from "@/lib/salesTeams/transferReversalReadback";
 import {TEAM_STRIPE_API_VERSION,teamOperationId,type TeamOperationScope} from "@/lib/salesTeams/providerOperation";
 import type {TeamTransferRequest} from "@/lib/salesTeams/transferReservations";
 const stamp=Math.floor(Date.parse("2026-10-24T20:00:00Z")/1000),id=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
@@ -24,7 +24,7 @@ function fixture(){
  const raw=jest.fn(async(method:string,path:string,params:unknown,options:unknown)=>{if(method!=="GET"||!values[path])throw Error("Only saved original reversal GETs are permitted");void params;void options;
   const value:Record<string,unknown>&{lastResponse:{requestId:string;headers:Record<string,string>;statusCode:number}}={...clone(values[path]),lastResponse:{requestId:`req_reversalRead${++sequence}`,headers:{},statusCode:200}};return value;});
  const c={context,observeContext:jest.fn(async()=>context),stripe:{rawRequest:raw}};
- return {q,original,transfer,reversal,balance,raw,c,read:()=>readTeamBoundTransferReversal(c,original)};
+ return {q,original,transfer,reversal,balance,values,raw,c,read:()=>readTeamBoundTransferReversal(c,original)};
 }
 
 test.each([0,500,2000])("two original-root GETs preserve %i aggregate without adopting any reversal",async amount=>{
@@ -118,4 +118,103 @@ test("the actual reporting classification is carried without inventing an accoun
 test("a purported reversal predating its provider transfer cannot establish returned principal",async()=>{
  const f=fixture();f.original.operation.first_dispatch_at=new Date((stamp-30)*1000).toISOString();f.reversal.created=stamp-26;f.balance.created=stamp-26;
  await expect(f.read()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(2);
+});
+
+function unknownFixture(){
+ const f=fixture();Object.assign(f.original.operation,{status:"unknown",provider_id:null,provider_request_id:null});
+ const snapshot:Record<string,unknown>&{reversals:{object:string;data:Record<string,unknown>[];has_more:boolean;url:string;total_count:number}}={...clone(f.transfer),reversals:{object:"list",data:[clone(f.reversal)],has_more:false,url:"/v1/transfers/tr_original/reversals",total_count:1}};
+ const event={object:"event",id:"evt_originalReversal",type:"transfer.reversed",api_version:TEAM_STRIPE_API_VERSION,created:stamp-5,account:null as string|null,context:null as string|null,livemode:false,
+  request:{id:"req_reversalPost",idempotency_key:f.original.operation.idempotency_key},data:{object:snapshot}};
+ f.values["/v1/events"]={object:"list",data:[event],has_more:false};f.values["/v1/events/evt_originalReversal"]=event;
+ return {...f,event,snapshot,recover:()=>recoverTeamUnknownTransferReversal(f.c,f.original)};
+}
+
+test("unknown reversal proof joins its unique original request event to repeated exact available-return reads without binding",async()=>{
+ const f=unknownFixture(),proof=await f.recover();expect(proof).toMatchObject({originalRequestId:"req_reversalPost",idempotencyKey:f.original.operation.idempotency_key,
+  recovery:{eventId:f.event.id,eventType:"transfer.reversed",eventCreated:stamp-5,eventApiVersion:TEAM_STRIPE_API_VERSION,account:null},reversal:{id:"trr_original",amountCents:500},balance:{feeCents:12,netCents:488}});
+ expect(f.raw.mock.calls.map(([method,path])=>[method,path])).toEqual([["GET","/v1/events"],["GET","/v1/events/evt_originalReversal"],
+  ["GET","/v1/transfers/tr_original"],["GET","/v1/transfers/tr_original/reversals/trr_original"],["GET","/v1/balance_transactions/txn_return"],
+  ["GET","/v1/transfers/tr_original"],["GET","/v1/transfers/tr_original/reversals/trr_original"],["GET","/v1/balance_transactions/txn_return"]]);
+ expect(f.raw.mock.calls[0][2]).toEqual({type:"transfer.reversed",created:{gte:stamp-15},limit:100});
+ expect(f.original.operation).toMatchObject({status:"unknown",provider_id:null,provider_request_id:null});expect(JSON.stringify(proof)).not.toMatch(/private|bank/i);
+ for(const [,,,options] of f.raw.mock.calls)expect(options).toMatchObject({apiVersion:TEAM_STRIPE_API_VERSION,maxNetworkRetries:0,timeout:10000});
+});
+
+test.each(["active","invalid_lease","bound","not_dispatched","request_id_without_object"])("%s journal cannot enter unknown reversal discovery",async change=>{
+ const f=unknownFixture();if(change==="active"||change==="invalid_lease")Object.assign(f.original.operation,{status:"dispatching",lease_until:change==="active"?new Date((stamp+30)*1000).toISOString():"invalid"});
+ if(change==="bound")Object.assign(f.original.operation,{status:"bound",provider_id:"trr_original",provider_request_id:"req_reversalPost"});if(change==="not_dispatched")f.original.operation.status="prepared";if(change==="request_id_without_object")f.original.operation.provider_request_id="req_reversalPost";
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).not.toHaveBeenCalled();
+});
+test("an expired original dispatch lease can supply GET-only unknown reversal proof",async()=>{
+ const f=unknownFixture();Object.assign(f.original.operation,{status:"dispatching",lease_until:new Date((stamp-1)*1000).toISOString()});expect(await f.recover()).toMatchObject({reversal:{id:"trr_original"}});expect(f.original.operation.status).toBe("dispatching");
+});
+test.each(["scope","key","bytes","worker","context","uncompleted_transfer","canceled_transfer"])("unknown reversal %s drift is rejected before provider access",async change=>{
+ const f=unknownFixture();if(change==="scope")f.original.operation.creatorId=id(2);if(change==="key")f.original.operation.idempotency_key="foreign";if(change==="bytes")f.original.operation.request.params.amount=501;if(change==="worker")f.original.originalWorkerRunId=id(3);if(change==="context")f.original.operation.context={...context,platformAccountId:"acct_other"};if(change==="uncompleted_transfer")f.q.completed=false;if(change==="canceled_transfer")f.q.canceled=true;
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).not.toHaveBeenCalled();
+});
+
+test.each(["none","key","duplicate"])("%s original event evidence never adopts matching reversal metadata",async change=>{
+ const f=unknownFixture();if(change==="none")f.values["/v1/events"].data=[];if(change==="key")f.event.request.idempotency_key="foreign";if(change==="duplicate")f.values["/v1/events"].data=[f.event,{...clone(f.event),id:"evt_duplicate"}];
+ expect(await f.recover()).toBeNull();expect(f.raw).toHaveBeenCalledTimes(1);
+});
+test.each(["account","context","mode","request","created","api_version","type","snapshot_destination"])("foreign event %s cannot supply original reversal proof",async change=>{
+ const f=unknownFixture();if(change==="account")f.event.account="acct_other";if(change==="context")f.event.context="acct_other";if(change==="mode")f.event.livemode=true;if(change==="request")f.event.request.id="foreign";if(change==="created")f.event.created=stamp-100;if(change==="api_version")f.event.api_version="foreign";if(change==="type")f.event.type="transfer.updated";if(change==="snapshot_destination")f.snapshot.destination="acct_other";
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(1);
+});
+test.each(["incomplete","absent","duplicate"])("%s reversal event snapshot stays held",async change=>{
+ const f=unknownFixture();if(change==="incomplete")f.snapshot.reversals.has_more=true;if(change==="absent")f.snapshot.reversals.data[0].metadata={};
+ if(change==="duplicate"){f.snapshot.reversals.data.push({...clone(f.reversal),id:"trr_ambiguous"});f.snapshot.reversals.total_count=2;f.snapshot.amount_reversed=1000;}
+ expect(await f.recover()).toBeNull();expect(f.raw).toHaveBeenCalledTimes(1);
+});
+test.each(["count","duplicate_id","total","amount","transfer","currency","created","source_refund"])("inconsistent event reversal %s is rejected",async change=>{
+ const f=unknownFixture(),candidate=f.snapshot.reversals.data[0];if(change==="count")f.snapshot.reversals.total_count=2;if(change==="duplicate_id"){f.snapshot.reversals.data.push(clone(candidate));f.snapshot.reversals.total_count=2;f.snapshot.amount_reversed=1000;}
+ if(change==="total")f.snapshot.amount_reversed=501;if(change==="amount"){candidate.amount=501;f.snapshot.amount_reversed=501;}if(change==="transfer")candidate.transfer="tr_other";if(change==="currency")candidate.currency="eur";if(change==="created")candidate.created=stamp-100;if(change==="source_refund")candidate.source_refund="re_foreign";
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);
+});
+
+test.each(["key","request","id","created","api_version","snapshot"])("independent event retrieval changing %s is rejected",async change=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);if(args[1]===`/v1/events/${f.event.id}`){
+  const event=value as unknown as typeof f.event;if(change==="key")event.request.idempotency_key="foreign";if(change==="request")event.request.id="req_other";if(change==="id")event.id="evt_other";if(change==="created")event.created--;if(change==="api_version")event.api_version="2025-01-01";if(change==="snapshot")event.data.object.reversals.data[0].id="trr_other";
+ }return value;});await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(2);
+});
+test("an immutable event without initial balance/refund details can prove its exact later available return",async()=>{
+ const f=unknownFixture();f.snapshot.reversals.data[0].balance_transaction=null;f.snapshot.reversals.data[0].destination_payment_refund=null;expect(await f.recover()).toMatchObject({reversal:{balanceId:"txn_return",destinationPaymentRefundId:"pyr_original"}});
+});
+test.each(["pending","changed_balance_id","changed_refund_id","changed_created"])("later %s return evidence cannot be substituted for the event original",async change=>{
+ const f=unknownFixture();if(change==="pending")f.balance.status="pending";if(change==="changed_balance_id")f.snapshot.reversals.data[0].balance_transaction="txn_other";if(change==="changed_refund_id")f.snapshot.reversals.data[0].destination_payment_refund="pyr_other";if(change==="changed_created")f.snapshot.reversals.data[0].created=stamp-4;
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.original.operation.provider_id).toBeNull();
+});
+test("a later larger reversed aggregate retains event identity without inventing accounting for its extra return",async()=>{
+ const f=unknownFixture();f.transfer.amount_reversed=1000;expect(await f.recover()).toMatchObject({transfer:{amountReversedCents:1000},reversal:{amountCents:500},recovery:{eventTransfer:{amountReversedCents:500}}});
+});
+test("complete bounded pagination locates the unique original on a later page",async()=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;let pages=0;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);if(args[1]==="/v1/events"&&++pages===1){value.data=[{...clone(f.event),id:"evt_unrelated",request:{id:"req_unrelated",idempotency_key:"foreign"}}];value.has_more=true;}return value;});
+ expect(await f.recover()).toMatchObject({recovery:{eventId:f.event.id}});expect(f.raw.mock.calls[1][2]).toMatchObject({starting_after:"evt_unrelated"});expect(f.raw).toHaveBeenCalledTimes(9);
+});
+test("incomplete event discovery stops after three pages without any reversal or balance adoption",async()=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;let pages=0;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);value.data=[{...clone(f.event),id:`evt_page${++pages}`}];value.has_more=true;return value;});expect(await f.recover()).toBeNull();expect(f.raw).toHaveBeenCalledTimes(3);
+});
+test("duplicate event IDs across pages reject ambiguous discovery",async()=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);value.has_more=true;return value;});await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(2);
+});
+test.each(["missing","duplicate","original"])("%s GET request identity cannot become independent recovery evidence",async change=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);value.lastResponse.requestId=change==="missing"?"":change==="original"?f.event.request.id:"req_duplicate";return value;});await expect(f.recover()).rejects.toThrow(/requires reconciliation/);
+});
+test.each(["context","budget"])("discovery %s drift stops before another GET",async change=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;f.c.observeContext.mockImplementation(async()=>f.c.context);f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);if(change==="context")f.c.context={...context,platformAccountId:"acct_other"};else jest.spyOn(Date,"now").mockReturnValue(stamp*1000+45000);return value;});
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(1);
+});
+test.each([3,4,5,6,7,8])("late return GET %i retains the 25-second freshness bound without starting another",async lateCall=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;let calls=0;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);if(++calls===lateCall)jest.spyOn(Date,"now").mockReturnValue(stamp*1000+25000);return value;});await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(lateCall);
+});
+test("event discovery time remains separate from the fresh six-read window inside the total bound",async()=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);if(args[1]==="/v1/events")jest.spyOn(Date,"now").mockReturnValue(stamp*1000+30000);return value;});expect(await f.recover()).toMatchObject({readStartedAt:stamp*1000+30000,recovery:{readStartedAt:stamp*1000}});
+});
+test.each(["object","oversized","more_type","empty_more","event_id"])("malformed %s event pagination cannot supply a recovery",async change=>{
+ const f=unknownFixture(),list=f.values["/v1/events"];if(change==="object")list.object="foreign";if(change==="oversized")list.data=Array.from({length:101},(_,index)=>({...clone(f.event),id:`evt_item${index}`}));if(change==="more_type")list.has_more="false";if(change==="empty_more"){list.data=[];list.has_more=true;}if(change==="event_id")f.event.id="foreign";
+ await expect(f.recover()).rejects.toThrow(/requires reconciliation/);expect(f.raw).toHaveBeenCalledTimes(1);
+});
+test("an unknown return GET timeout respects the remaining 25-second read window",async()=>{
+ const f=unknownFixture(),raw=f.raw.getMockImplementation()!;let firstRoot=true;f.raw.mockImplementation(async(...args)=>{const value=await raw(...args);if(args[1]==="/v1/transfers/tr_original"&&firstRoot){firstRoot=false;jest.spyOn(Date,"now").mockReturnValue(stamp*1000+20000);}return value;});
+ expect(await f.recover()).toMatchObject({reversal:{id:"trr_original"}});expect(f.raw.mock.calls[3][3]).toMatchObject({timeout:5000});
 });

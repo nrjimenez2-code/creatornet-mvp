@@ -1223,3 +1223,59 @@ installed/historical/security compatibility remain required. Disposable PGlite
 and mocked Stripe evidence is separate from hosted/provider sandbox and
 Production/LIVE/confirmed-bank acceptance. No hosted migration, provider financial
 operation, application setting, deployment or activation occurred.
+
+### F32: original unknown reversal event readback
+
+`recoverTeamUnknownTransferReversal` is a supplied GET-only proof reader. It
+accepts an exact frozen unknown journal or an expired original dispatch lease;
+an active dispatch lease, absent original, changed bytes/key/worker/context or
+incomplete parent transfer cannot start provider reads. It changes no journal,
+database control, accounting fact or bank status.
+
+Discovery scans at most three pages of 100 `transfer.reversed` events. The scan
+must finish and contain exactly one event with the original idempotency key and
+original provider request ID. Platform account/context, mode, chronology and
+event API version are checked. The exact selected event is then independently
+retrieved with a distinct GET request ID and matching normalized event identity.
+The saved request API remains pinned; the event's actual render version is
+carried as evidence rather than replaced with that request version.
+
+The event's complete inline reversal snapshot must identify one exact original
+reversal. Duplicate IDs, inconsistent counts/aggregate, foreign transfer/amount/
+currency/refund lineage and ambiguous or paginated snapshots remain held. A
+matching metadata map alone never chooses an original. No fallback lists,
+replacement operation or repeated POST are introduced for incomplete evidence.
+Actual pinned-provider snapshot behavior remains an external acceptance gate.
+
+Six independent GETs repeat the accepted transfer, exact reversal and available
+Payments-balance return. The return identity must match the original event;
+initially null event balance/refund details may become the verified actual IDs.
+The immutable parent identity must match while a later larger reversed aggregate
+is retained for the accounting consumer's existing review hold. Actual fees/net
+are carried without commercial defaults or private descriptions.
+
+Unknown discovery allows at most ten GETs and 45 seconds total. Its six-read
+return proof retains its own 25-second window, checks before/after every GET,
+and bounds each timeout by the time remaining in both windows. Provider retries
+remain zero. Original POST and all observed GET request IDs are distinct.
+The existing bound-original reader uses the same return validators and retains
+its six-GET/25-second limit.
+
+This foundation does not bind an unknown original or release its reservation.
+The next required change is a current-worker checked database consumer that
+records original event/key proof and binds/accounts atomically through F29,
+followed by bounded autonomous integration. Remaining full-goal and external
+acceptance gates described above still apply.
+
+`f32-reader-integrated-current.json` passed 306 tests across four suites in
+150.002 seconds, exit 0: reversal readback 144, original transfer readback 58,
+reversal SQL consumer 53 and recovery execution 51. Current full-tree incremental
+TypeScript passed (`f32-reader-typecheck-accepted.log`), and scoped two-file ESLint
+has zero errors/warnings (`f32-reader-lint-accepted.json`). The earlier fixture
+index-signature type errors were repaired with a type annotation. Two focused
+timing regressions first measured extra GETs after expiry and an overlong timeout,
+then passed in the final integration after both bounds were tightened. Earlier
+190/104/305 and filtered receipts are preserved and overlap; they are not additional
+distinct tests. All provider responses are mocked, and the SQL consumers use
+disposable PGlite. This evidence does not establish the unfinished unknown
+binding/accounting consumer, full CI/build/browser or external acceptance.

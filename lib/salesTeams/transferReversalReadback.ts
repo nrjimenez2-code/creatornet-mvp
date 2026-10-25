@@ -25,17 +25,18 @@ function completedTransfer(context:Reader["context"],t:TeamTransferRequest){
   Number.isFinite(Date.parse(op.first_dispatch_at))&&Date.parse(op.first_dispatch_at)<=Date.now()+5000);
  return op;
 }
-function original(context:Reader["context"],q:TeamTransferReversalOriginal){
+function original(context:Reader["context"],q:TeamTransferReversalOriginal,unbound=false){
  const t=q.transfer,op=completedTransfer(context,t);teamId(q.id);teamId(q.originalWorkerRunId);
  check(cents(q.amountCents)&&q.amountCents>0&&q.amountCents<=Number(t.amount_cents));
  const scope:TeamOperationScope={scopeId:q.id,scopeKey:"recovery:v1",kind:"reversal",saleId:t.sale_id,creatorId:t.creator_id,actorId:null,workerRunId:q.originalWorkerRunId};
  const operationId=teamOperationId(scope),expected:TeamProviderRequest={apiVersion:TEAM_STRIPE_API_VERSION,method:"POST",path:`/v1/transfers/${op.provider_id}/reversals`,params:{amount:q.amountCents,
   metadata:{team_protocol:"creatornet-team-recovery-v1",team_sale_id:t.sale_id,team_receipt_id:t.receipt_id,team_transfer_request_id:t.id,team_recovery_request_id:q.id,team_provider_operation_id:operationId,team_beneficiary:t.beneficiary}}};
- const saved=q.operation;check(saved.id===operationId&&saved.idempotency_key===`cn-team-v1:${operationId}`&&isDeepStrictEqual(saved.context,context)&&isDeepStrictEqual(saved.request,expected)&&
+ const saved=q.operation;check(saved&&saved.id===operationId&&saved.idempotency_key===`cn-team-v1:${operationId}`&&isDeepStrictEqual(saved.context,context)&&isDeepStrictEqual(saved.request,expected)&&
   isDeepStrictEqual({scopeId:saved.scopeId,scopeKey:saved.scopeKey,kind:saved.kind,saleId:saved.saleId,creatorId:saved.creatorId,actorId:saved.actorId,workerRunId:saved.workerRunId},scope)&&
-  saved.status==="bound"&&/^trr_[A-Za-z0-9]+$/.test(saved.provider_id??"")&&/^req_[A-Za-z0-9]+$/.test(saved.provider_request_id??"")&&
+  (unbound?saved.provider_id===null&&saved.provider_request_id===null&&(saved.status==="unknown"||saved.status==="dispatching"&&Number.isFinite(Date.parse(saved.lease_until??""))&&Date.parse(saved.lease_until!)<=Date.now()):
+   saved.status==="bound"&&/^trr_[A-Za-z0-9]+$/.test(saved.provider_id??"")&&/^req_[A-Za-z0-9]+$/.test(saved.provider_request_id??""))&&
   Number.isFinite(Date.parse(saved.first_dispatch_at))&&Date.parse(saved.first_dispatch_at)>=Date.parse(op.first_dispatch_at)-5000&&Date.parse(saved.first_dispatch_at)<=Date.now()+5000);
- return {transferId:op.provider_id!,reversalId:saved.provider_id!,operationId,expected};
+ return {transferId:op.provider_id!,reversalId:saved.provider_id??"",operationId,expected};
 }
 
 function transfer(saved:TeamTransferRequest,t:Stripe.Transfer,transferId:string,minimumReversed=0){
@@ -53,11 +54,11 @@ function transfer(saved:TeamTransferRequest,t:Stripe.Transfer,transferId:string,
   destinationPaymentId:objectId(t.destination_payment),balanceId:objectId(t.balance_transaction),transferGroup:t.transfer_group,sourceType:t.source_type,created:t.created,livemode:t.livemode,metadata:snapshotProviderJson(t.metadata)};
 }
 
-function reversal(q:TeamTransferReversalOriginal,r:Stripe.TransferReversal,ids:ReturnType<typeof original>){
+function reversal(q:TeamTransferReversalOriginal,r:Stripe.TransferReversal,ids:ReturnType<typeof original>,eventSnapshot=false){
  const now=Math.floor(Date.now()/1000),first=Math.floor(Date.parse(q.operation.first_dispatch_at)/1000);
  check(r.object==="transfer_reversal"&&r.id===ids.reversalId&&objectId(r.transfer)===ids.transferId&&r.amount===q.amountCents&&r.currency==="usd"&&
   Number.isSafeInteger(r.created)&&r.created>=first-5&&r.created<=now+5&&isDeepStrictEqual(snapshotProviderJson(r.metadata),ids.expected.params.metadata)&&
-  /^txn_[A-Za-z0-9]+$/.test(objectId(r.balance_transaction))&&r.source_refund===null&&
+  (eventSnapshot&&r.balance_transaction===null||/^txn_[A-Za-z0-9]+$/.test(objectId(r.balance_transaction)))&&r.source_refund===null&&
   (r.destination_payment_refund===null||/^pyr_[A-Za-z0-9]+$/.test(objectId(r.destination_payment_refund))));
  return {id:r.id,transferId:objectId(r.transfer),amountCents:r.amount,currency:r.currency,balanceId:objectId(r.balance_transaction),created:r.created,
   destinationPaymentRefundId:r.destination_payment_refund===null?null:objectId(r.destination_payment_refund),sourceRefundId:null,metadata:snapshotProviderJson(r.metadata)};
@@ -76,26 +77,82 @@ function balance(q:TeamTransferReversalOriginal,r:ReturnType<typeof reversal>,b:
   created:b.created,availableOn:b.available_on,status:b.status,feeDetails};
 }
 
-/** Six bounded GETs prove repeated original transfer, reversal and actual
- * Payments-balance return. Unknown/unbound reversals require separate original
- * event/key recovery; matching metadata alone never selects one here. */
-export async function readTeamBoundTransferReversal(c:Reader,input:TeamTransferReversalOriginal){
- const q=snapshotProviderJson(input),context=snapshotProviderJson(c.context),ids=original(context,q),started=Date.now(),seen=new Set<string>();let reads=0;
- const bounded=()=>check(Date.now()>=started&&Date.now()-started<25000);
+function transport(c:Reader,milliseconds:number,limit:number){
+ const context=snapshotProviderJson(c.context),started=Date.now(),seen=new Set<string>();let reads=0;
+ const bounded=()=>check(Date.now()>=started&&Date.now()-started<milliseconds);
  const current=async()=>{bounded();check(isDeepStrictEqual(snapshotProviderJson(await c.observeContext()),context));bounded();};
- const get=async<T>(path:string)=>{await current();check(++reads<=6);const value=await c.stripe.rawRequest("GET",path,{},
-  {apiVersion:TEAM_STRIPE_API_VERSION,maxNetworkRetries:0,timeout:Math.min(10000,25000-(Date.now()-started))}) as T;
+ const get=async<T>(path:string,params:Record<string,unknown>={},deadline=started+milliseconds)=>{await current();const timeout=Math.min(10000,started+milliseconds-Date.now(),deadline-Date.now());check(++reads<=limit&&timeout>0);const value=await c.stripe.rawRequest("GET",path,params,
+  {apiVersion:TEAM_STRIPE_API_VERSION,maxNetworkRetries:0,timeout}) as T;
   bounded();const req=requestId(value);check(/^req_[A-Za-z0-9]+$/.test(req)&&!seen.has(req));seen.add(req);await current();return value;};
+ return {get,current,context,started,seen};
+}
+async function readReversal(q:TeamTransferReversalOriginal,ids:ReturnType<typeof original>,originalRequestId:string,reader:ReturnType<typeof transport>){
+ const {current,context}=reader,started=Date.now(),fresh=()=>check(Date.now()>=started&&Date.now()-started<25000);
+ const get=async<T>(path:string)=>{fresh();const value=await reader.get<T>(path,{},started+25000);fresh();return value;};
  const one=await get<Stripe.Transfer>(`/v1/transfers/${ids.transferId}`),root=transfer(q.transfer,one,ids.transferId,q.amountCents);
  const first=await get<Stripe.TransferReversal>(`/v1/transfers/${ids.transferId}/reversals/${ids.reversalId}`),returned=reversal(q,first,ids);
  check(returned.created>=root.created&&Math.floor(Date.parse(q.operation.first_dispatch_at)/1000)>=root.created-5);
  const debit=await get<Stripe.BalanceTransaction>(`/v1/balance_transactions/${returned.balanceId}`),movement=balance(q,returned,debit);
  const two=await get<Stripe.Transfer>(`/v1/transfers/${ids.transferId}`);check(isDeepStrictEqual(root,transfer(q.transfer,two,ids.transferId,q.amountCents)));
  const second=await get<Stripe.TransferReversal>(`/v1/transfers/${ids.transferId}/reversals/${ids.reversalId}`);check(isDeepStrictEqual(returned,reversal(q,second,ids)));
- const repeated=await get<Stripe.BalanceTransaction>(`/v1/balance_transactions/${returned.balanceId}`);check(isDeepStrictEqual(movement,balance(q,returned,repeated)));await current();
+ const repeated=await get<Stripe.BalanceTransaction>(`/v1/balance_transactions/${returned.balanceId}`);check(isDeepStrictEqual(movement,balance(q,returned,repeated)));await current();check(Date.now()>=started&&Date.now()-started<25000);
  return {requestId:q.id,operationId:ids.operationId,transferRequestId:q.transfer.id,receiptId:q.transfer.receipt_id,saleId:q.transfer.sale_id,creatorId:q.transfer.creator_id,beneficiary:q.transfer.beneficiary,
-  context,transfer:root,reversal:returned,balance:movement,originalRequestId:q.operation.provider_request_id!,idempotencyKey:q.operation.idempotency_key,
+  context,transfer:root,reversal:returned,balance:movement,originalRequestId,idempotencyKey:q.operation.idempotency_key,
   transferReadRequestIds:[requestId(one),requestId(two)],reversalReadRequestIds:[requestId(first),requestId(second)],balanceReadRequestIds:[requestId(debit),requestId(repeated)],readStartedAt:started,observedAt:Math.floor(Date.now()/1000)};
+}
+
+/** Six bounded GETs prove repeated original transfer, reversal and actual
+ * Payments-balance return. Matching metadata cannot select an unbound original. */
+export async function readTeamBoundTransferReversal(c:Reader,input:TeamTransferReversalOriginal){
+ const q=snapshotProviderJson(input),context=snapshotProviderJson(c.context),ids=original(context,q);
+ return readReversal(q,ids,q.operation.provider_request_id!,transport({...c,context},25000,6));
+}
+
+/** At most three complete event pages, one independent event retrieval and six
+ * exact return reads. A unique original request key and its event snapshot must
+ * identify the reversal together. Incomplete/ambiguous snapshots stay held.
+ * This supplied GET-only proof cannot bind a journal or release funds. */
+export async function recoverTeamUnknownTransferReversal(c:Reader,input:TeamTransferReversalOriginal){
+ const q=snapshotProviderJson(input),context=snapshotProviderJson(c.context),ids=original(context,q,true),op=q.operation,reader=transport({...c,context},45000,10);
+ const events:Stripe.Event[]=[],eventIds=new Set<string>(),eventRequests=new Map<string,string>();let after:string|undefined,complete=false;
+ for(let page=0;page<3;page++){
+  const list=await reader.get<Stripe.ApiList<Stripe.Event>>("/v1/events",{type:"transfer.reversed",created:{gte:Math.floor(Date.parse(op.first_dispatch_at)/1000)-5},limit:100,...(after?{starting_after:after}:{})});
+  check(list.object==="list"&&Array.isArray(list.data)&&list.data.length<=100&&typeof list.has_more==="boolean");
+  for(const event of list.data){check(event.object==="event"&&/^evt_[A-Za-z0-9]+$/.test(event.id)&&event.type==="transfer.reversed"&&!eventIds.has(event.id));eventIds.add(event.id);events.push(snapshotProviderJson(event));eventRequests.set(event.id,requestId(list));}
+  if(!list.has_more){complete=true;break;}check(list.data.length>0);after=list.data.at(-1)!.id;
+ }
+ if(!complete)return null;
+ const matches=events.filter(event=>event.request?.idempotency_key===op.idempotency_key);if(matches.length!==1)return null;
+ const event=matches[0],originalRequestId=event.request?.id??"";
+ check(event.account==null&&event.context==null&&event.livemode===(context.mode==="live")&&typeof event.api_version==="string"&&/^\d{4}-\d{2}-\d{2}(?:\.[a-z0-9_-]+)?$/.test(event.api_version)&&/^req_[A-Za-z0-9]+$/.test(originalRequestId)&&!reader.seen.has(originalRequestId)&&
+  Number.isSafeInteger(event.created)&&event.created>=Math.floor(Date.parse(op.first_dispatch_at)/1000)-5&&event.created<=Math.floor(Date.now()/1000)+5);
+ reader.seen.add(originalRequestId);
+ const inspectEvent=(value:Stripe.Event)=>{
+  check(value.id===event.id&&value.type===event.type&&value.object==="event"&&value.account==null&&value.context==null&&value.livemode===event.livemode&&value.api_version===event.api_version&&value.created===event.created&&
+   value.request?.id===originalRequestId&&value.request.idempotency_key===op.idempotency_key);
+  const snapshot=value.data.object as Stripe.Transfer,eventTransfer=transfer(q.transfer,snapshot,ids.transferId,q.amountCents);
+  if(snapshot.reversals.has_more)return null;
+  const count=(snapshot.reversals as Stripe.ApiList<Stripe.TransferReversal>&{total_count?:number}).total_count;
+  check(count===undefined||count===snapshot.reversals.data.length);
+  const reversalIds=new Set<string>();let total=0;
+  for(const item of snapshot.reversals.data){check(item.object==="transfer_reversal"&&/^trr_[A-Za-z0-9]+$/.test(item.id)&&!reversalIds.has(item.id)&&objectId(item.transfer)===ids.transferId&&item.currency==="usd"&&cents(item.amount)&&item.amount>0);reversalIds.add(item.id);total+=item.amount;}
+  check(total===eventTransfer.amountReversedCents);
+  const candidates=snapshot.reversals.data.filter(candidate=>candidate.object==="transfer_reversal"&&isDeepStrictEqual(snapshotProviderJson(candidate.metadata),ids.expected.params.metadata));
+  if(candidates.length!==1)return null;
+  const candidate=candidates[0];check(/^trr_[A-Za-z0-9]+$/.test(candidate.id));
+  const eventReversal=reversal(q,candidate,{...ids,reversalId:candidate.id},true);check(eventReversal.created>=eventTransfer.created&&eventReversal.created<=event.created+5);
+  return {eventTransfer,eventReversal};
+ };
+ const snapshot=inspectEvent(event);if(!snapshot)return null;
+ const retrieved=await reader.get<Stripe.Event>(`/v1/events/${event.id}`);check(isDeepStrictEqual(snapshot,inspectEvent(retrieved)));
+ const proof=await readReversal(q,{...ids,reversalId:snapshot.eventReversal.id},originalRequestId,reader),{eventTransfer,eventReversal}=snapshot;
+ const identity=(value:typeof eventReversal)=>{const {balanceId,destinationPaymentRefundId,...rest}=value;void balanceId;void destinationPaymentRefundId;return rest;};
+ const rootIdentity=(value:typeof eventTransfer)=>{const {amountReversedCents,reversed,...rest}=value;void amountReversedCents;void reversed;return rest;};
+ check(isDeepStrictEqual(identity(eventReversal),identity(proof.reversal))&&isDeepStrictEqual(rootIdentity(eventTransfer),rootIdentity(proof.transfer))&&
+  proof.transfer.amountReversedCents>=eventTransfer.amountReversedCents&&(!eventReversal.balanceId||eventReversal.balanceId===proof.reversal.balanceId)&&
+  (eventReversal.destinationPaymentRefundId===null||eventReversal.destinationPaymentRefundId===proof.reversal.destinationPaymentRefundId));
+ return {...proof,recovery:{eventId:event.id,eventType:event.type,eventCreated:event.created,eventApiVersion:event.api_version,livemode:event.livemode,account:null,
+  eventReadRequestId:eventRequests.get(event.id)!,eventRetrieveRequestId:requestId(retrieved),readStartedAt:reader.started,eventTransfer,eventReversal}};
 }
 
 /** Repeated root reads for a supplied completed original. This proves neither
