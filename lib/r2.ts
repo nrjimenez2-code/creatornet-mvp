@@ -3,13 +3,22 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 const accountId = process.env.R2_ACCOUNT_ID!;
 
-export const r2Client = new S3Client({
+const r2Config = {
   region: "auto",
   endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
   credentials: {
     accessKeyId: process.env.R2_ACCESS_KEY_ID!,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
   },
+};
+
+export const r2Client = new S3Client(r2Config);
+
+// The browser supplies the bytes later. A bodyless presign must not calculate
+// CRC32(empty) for those future bytes. Keep normal checksums on server uploads.
+const r2UploadSigningClient = new S3Client({
+  ...r2Config,
+  requestChecksumCalculation: "WHEN_REQUIRED",
 });
 
 export const R2_BUCKET = process.env.R2_BUCKET_NAME ?? "creatornet-media";
@@ -33,7 +42,7 @@ export async function createPresignedUploadUrl(
     ContentLength: size,
     IfNoneMatch: "*",
   });
-  return getSignedUrl(r2Client, cmd, { expiresIn: 3600, signableHeaders: new Set(["content-type", "content-length", "if-none-match"]) });
+  return getSignedUrl(r2UploadSigningClient, cmd, { expiresIn: 3600, signableHeaders: new Set(["content-type", "content-length", "if-none-match"]) });
 }
 
 /** Turns an R2 object key into its public CDN URL. */
