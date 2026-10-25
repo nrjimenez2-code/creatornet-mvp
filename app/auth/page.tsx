@@ -4,11 +4,10 @@ import { routePolicy } from "@/lib/release/policy";
 import { AuthSkeleton } from "@/components/loading/Skeletons";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
-import { authNextPath, prepareSessionNavigation } from "@/lib/browserSession";
+import { authNextPath, prepareSessionNavigation, replaceBrowserDocument } from "@/lib/browserSession";
 import {
   parseAuthErrorFromUrl,
   friendlyAuthError,
@@ -18,7 +17,6 @@ import {
 const supabase = createClient();
 
 export default function AuthPage() {
-  const router = useRouter();
   const { session, loading } = useUser();
 
   // -------- Session redirect on load --------
@@ -55,10 +53,10 @@ export default function AuthPage() {
         const access = await fetch("/api/release/session", { cache: "no-store" }).then(response => response.json());
         const next = authNextPath(window.location.search);
         const recovery = next && ["purchase", "continuation"].includes(routePolicy(new URL(next, window.location.origin).pathname).kind);
-        if (!access.privateAccess && !access.publicFeed && !recovery) { window.location.replace("/private-access"); return; }
+        if (!access.privateAccess && !access.publicFeed && !recovery) { replaceBrowserDocument("/private-access"); return; }
         if (next) {
           // A full navigation avoids reusing a prefetched unauthenticated redirect.
-          window.location.replace(next);
+          replaceBrowserDocument(next);
           return;
         }
         const { data: profile, error } = await supabase
@@ -66,7 +64,8 @@ export default function AuthPage() {
         if (!mounted) return;
         if (error) throw Error("Could not load your profile. Please try again.");
         const interests = Array.isArray(profile?.interests) ? profile.interests : [];
-        router.replace(interests.length ? "/dashboard" : "/onboarding");
+        // The auth page uses the public shell; a fresh document selects the product layout.
+        replaceBrowserDocument(interests.length ? "/dashboard" : "/onboarding");
       } catch (error) {
         if (!mounted) return;
         setChecking(false);
@@ -77,7 +76,7 @@ export default function AuthPage() {
     return () => {
       mounted = false;
     };
-  }, [loading, session, router, sessionRetry]);
+  }, [loading, session, sessionRetry]);
 
   // -------- UI state --------
   const [input, setInput] = useState("");

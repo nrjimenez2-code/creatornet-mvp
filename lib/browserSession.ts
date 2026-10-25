@@ -98,6 +98,11 @@ export async function prepareSessionNavigation(client: SupabaseClient): Promise<
   return false;
 }
 
+/** Rebuild the server-selected public/product layout after sign-in. */
+export function replaceBrowserDocument(destination: string): void {
+  window.location.replace(destination);
+}
+
 export function authNextPath(search: string): string | null {
   const destinations = new URLSearchParams(search).getAll("next");
   if (destinations.length !== 1) return null;
