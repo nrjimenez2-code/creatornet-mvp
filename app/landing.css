@@ -69,7 +69,7 @@
   border: 1px solid var(--cn-site-purple); border-radius: 999px; color: var(--cn-site-white);
   background: var(--cn-site-purple); font-size: 14px; font-weight: 500; white-space: nowrap;
 }
-.cn-site .cn-site-join:hover { border-color: var(--cn-site-purple-up); background: var(--cn-site-purple-up); }
+.cn-site .cn-site-join:hover { border-color: var(--cn-site-purple-up); background: var(--cn-site-purple-up); color: #fff; }
 .cn-site-hero { min-height: 654px; display: flex; align-items: center; padding: 58px 0 92px; }
 .cn-site-hero-copy { max-width: 850px; }
 .cn-site-marketplace {
@@ -97,14 +97,14 @@
 .cn-site .cn-site-action-outline { color: var(--cn-site-white); background: transparent; border: 1px solid rgba(255,255,255,0.34); }
 .cn-site .cn-site-action-outline:hover { border-color: rgba(255,255,255,0.7); }
 .cn-site .cn-site-action-purple { color: var(--cn-site-white); background: var(--cn-site-purple); border: 1px solid var(--cn-site-purple); }
-.cn-site .cn-site-action-purple:hover { background: var(--cn-site-purple-up); border-color: var(--cn-site-purple-up); }
+.cn-site .cn-site-action-purple:hover { background: var(--cn-site-purple-up); border-color: var(--cn-site-purple-up); color: #fff; }
 .cn-site .cn-site-action-light-outline { color: var(--cn-site-dark-text); background: transparent; border: 1px solid #b9b0dd; }
 .cn-site .cn-site-action-light-outline:hover { border-color: var(--cn-site-purple); }
 .cn-site .cn-site-action-white svg, .cn-site .cn-site-action-purple svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 
 /* Trust strip */
 .cn-site-trust { min-height: 136px; display: flex; align-items: center; background: var(--cn-site-light); }
-.cn-site-trust-inner { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 18px 42px; color: #85858c; font-size: 14px; }
+.cn-site-trust-inner { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 18px 42px; color: var(--cn-site-dark-muted); font-size: 14px; }
 .cn-site-trust-label { color: var(--cn-site-dark-text); font-weight: 500; }
 .cn-site-trust-item { display: inline-flex; align-items: center; gap: 9px; }
 .cn-site-trust-item svg { width: 18px; height: 18px; fill: none; stroke: var(--cn-site-purple); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
