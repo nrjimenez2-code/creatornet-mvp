@@ -1148,3 +1148,78 @@ skip43 unrelated F30 cases. The full456-case pass supersedes the earlier453-case
 revision. Current full-tree incremental TypeScript and scoped14-file ESLint pass;
 the only subsequent test edit removes an unused erased type import. These local
 checks do not replace the complete CI/full-suite fallback or external acceptance.
+
+### F31: default-off original transfer recovery execution
+
+`20261024215948_sales_team_transfer_recovery_execution.sql` and
+`dispatchTeamTransferRecovery` admit one frozen F30 reversal through supplied
+clients and an actual execution worker. The database control defaults false;
+`CREATOR_TEAM_TRANSFER_RECOVERY_EXECUTION_SCHEMA_READY` and
+`CREATOR_TEAM_TRANSFER_RECOVERY_EXECUTION_READY` are additional source gates.
+The claim freezes execution permission on a new worker. Observation-only and
+reservation-only workers cannot acquire dispatch permission later.
+
+The dispatcher preserves the original request bytes, operation/key, API version,
+accepted recipient, amount, creator, receipt and original reservation worker.
+Cold financial proof uses F30's existing worker-linked validator. Independent
+original-transfer and protected-cash reads precede claim; distinct fresh reads
+after claim precede a single-use assertion. Current debt, receipt revision,
+shared protection and cash epoch must still match. Future returned principal
+never supplies dispatch cash. Only verified shrinking debt with complete journal
+absence permits unsent cancellation.
+
+The supplied dispatcher allows at most 40 GETs and one POST, with a 65-second
+observation budget, 45-second POST cutoff, 10-second POST timeout, pinned API and
+zero transport retries. Direct response and independent GET identities must
+match, with distinct provider request IDs. Missing balance details can bind an
+original identity but cannot release principal. F29's repeated available-return
+proof owns atomic once-only principal/cost accounting and saved-fee release.
+An overrun records actual creator cost against the original saved allowance and
+retains a review hold, even if mutable policy later increases the allowance.
+
+Seven immutable RLS sidecars retain runs, reads, roots, rechecks, admissions,
+actions and consumed assertions. Service callers have SELECT only; checked
+definers own writes. The private root clone reuses the installed F30 validator
+with checked replacement counts and is not executable by service callers.
+Each task allows two dispatch rechecks. Generic claim, assert, unknown and bind
+bodies, including older aliases, enforce the exact admitted operation and sealed
+outcomes. Authority is checked after locks and mutations; expiry rolls back
+admission, journal and assertion writes. Named definitions extend all four
+relevant reviewed contract digests; failed dependencies or late grants roll back
+the migration completely.
+
+Only bind/unknown outcome ports can drain an already asserted original after
+worker expiry or context drift. They require the original run token, admission,
+consumed assertion and a 90-second assertion age; ordinary binding also retains
+its existing provider lease requirement. This grants no new provider request
+or accounting authority. Bound originals remain observable with new-money gates
+off. An unbound unknown/expired original remains protected without a replacement
+or repeated POST. Independent original event/key recovery is the next required
+implementation; this dispatcher does not yet recover that lost identity.
+
+The Sales Team 8 continuation verified all 14 inherited dirty-file hashes against
+the Sales Team 7 handoff before editing. Current full-tree incremental TypeScript
+passed (`f31-current-typecheck.log`, exit 0), and scoped 13-file ESLint passed with
+zero errors/warnings (`f31-current-lint.json`). Receipts are in the continuation
+workspace's `work/` directory. The current integration
+`f31-integrated-current.json` passed 507 tests across all 15 affected suites in
+303.122 seconds, exit 0. All ten changed predecessor fixture chains install
+through F31. The inherited 51-case lifecycle proof and earlier failures remain
+preserved; the new integration establishes current affected compatibility.
+Local CI selector safeguards passed 11 tests, sandbox safeguards passed 141,
+and media-worker safeguards passed 20 (`f31-ci-selector.log`,
+`f31-ci-sandbox.log`, `f31-ci-media-worker.log`). These checks do not establish
+the complete CI/full-suite fallback or build/browser acceptance.
+The staged whitespace gate caught trailing blank lines in the inherited new
+test and SQL draft. Only those trailing newlines were normalized;
+`f31-eof-normalization.json` records both hashes and identical emitted test
+JavaScript. SQL before the trailing newlines is byte-identical. The 507-test
+receipt therefore retains its executable scope without an unchanged rerun.
+
+No F31 route, autonomous orchestration or scheduler is installed. Later
+collection, full Stop/cancel/payoff/lifecycle, protected daily surplus, bank
+observations/alerts, final UI, complete current CI/build/browser and actual
+installed/historical/security compatibility remain required. Disposable PGlite
+and mocked Stripe evidence is separate from hosted/provider sandbox and
+Production/LIVE/confirmed-bank acceptance. No hosted migration, provider financial
+operation, application setting, deployment or activation occurred.

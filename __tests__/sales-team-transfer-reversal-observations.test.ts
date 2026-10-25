@@ -22,7 +22,7 @@ type Run={runId:string;leaseToken:string};
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,c:TeamReceiptComposition,receiptId:string,q:TeamTransferRequest,operationId:string,run:Run,raw:jest.Mock;
 let transfer:Record<string,unknown>,reversal:Record<string,unknown>,returned:Record<string,unknown>,values:Record<string,Record<string,unknown>>,advanceClock:(ms:number)=>Promise<void>;
 const realNow=Date.now.bind(Date);let clockOffset=0;
-beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate,"supabase/migrations/20261024213841_sales_team_transfer_recovery_reservations.sql"])await db.exec(readFileSync(path,"utf8"));},30000);
+beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate,"supabase/migrations/20261024213841_sales_team_transfer_recovery_reservations.sql","supabase/migrations/20261024215948_sales_team_transfer_recovery_execution.sql"])await db.exec(readFileSync(path,"utf8"));},30000);
 beforeEach(async()=>{clockOffset=0;await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 async function advanceBy(ms:number){clockOffset+=ms;jest.spyOn(Date,"now").mockImplementation(()=>realNow()+clockOffset);await advanceClock(clockOffset);}
 const denied=async(action:()=>Promise<unknown>,message:RegExp)=>{await db.exec("savepoint denied");try{await expect(action()).rejects.toThrow(message);}finally{await db.exec("rollback to savepoint denied");}};
