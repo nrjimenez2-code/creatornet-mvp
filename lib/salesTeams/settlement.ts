@@ -7,37 +7,55 @@ import {reserveTeamEarnedTransfer} from "./transferReservations";
 import {dispatchTeamEarnedTransfer} from "./transferExecution";
 import {readTeamFinancialSnapshot,type TeamEventSource} from "./financialReadback";
 import {observeTeamRecipient,type TeamRecipientSetup} from "./recipientPolicy";
+import {reserveTeamTransferRecovery,type TeamTransferRecoveryRequest} from "./transferRecoveryReservations";
+import {dispatchTeamTransferRecovery} from "./transferRecoveryExecution";
+import {recoverTeamOriginalTransferReversal} from "./transferReversalRecovery";
 import type {TeamReceiptComposition} from "./receipts";
 
-type Plan={id:string;kind:"original"|"earned";receipt_id:string;beneficiary:"creator"|"closer";request_id:string;task_id:string;
- financial_check_id:string;transfer_check_id:string;recipient_source:TeamRecipientSetup|null;source_ready:boolean};
+type Plan={id:string;kind:"original"|"earned"|"recovery";receipt_id:string;beneficiary:"creator"|"closer";request_id:string;task_id:string;
+ financial_check_id:string;transfer_check_id:string;recipient_source:TeamRecipientSetup|null;source_ready:boolean;
+ recovery?:{transferRequestId:string;operationId:string|null;reserved:TeamTransferRecoveryRequest|null}};
 type Claim={status:"claimed"|"held"|"idle"|"busy"|"slot_consumed";runId?:string;leaseToken?:string};
 /** At most three durable plans in one 15-minute slot. Existing originals retain
  * priority; every new share uses current financial/recipient evidence. A run's
  * observation-only authority cannot become fresh transfer authority. */
-export async function runTeamAutomaticSettlement(c:TeamReceiptComposition,options:{admitNew?:boolean;now?:()=>number}={}){
+export async function runTeamAutomaticSettlement(c:TeamReceiptComposition,options:{admitNew?:boolean;recoverTransfers?:boolean;admitRecovery?:boolean;now?:()=>number}={}){
  const now=options.now??Date.now,started=now(),context=snapshotProviderJson(c.context),pending=new Set<Promise<unknown>>();let gets=0,posts=0;
  const bounded=()=>{if(now()<started||now()-started>=65000)throw Error("Settlement observation budget exhausted");};
  const current=async()=>{bounded();if(!isDeepStrictEqual(snapshotProviderJson(await c.observeContext()),context))throw Error("Settlement context changed");bounded();};
  const rpc=async<T>(name:string,args:Record<string,unknown>):Promise<T>=>{const request=c.admin.rpc(name,args);const result=await(typeof request.abortSignal==="function"?request.abortSignal(AbortSignal.timeout(5000)):request);if(result.error)throw result.error;return result.data as T;};
- await current();const claim=await rpc<Claim>("claim_sales_team_automatic_settlement_v1",{p_run_id:randomUUID(),p_context:context,p_new:options.admitNew===true});
+ const combined=options.recoverTransfers===true;
+ await current();const claim=await rpc<Claim>(combined?"claim_sales_team_combined_settlement_v1":"claim_sales_team_automatic_settlement_v1",{p_run_id:randomUUID(),p_context:context,p_new:options.admitNew===true,...(combined?{p_recovery_new:options.admitRecovery===true}:{})});
  if(claim.status!=="claimed")return {status:claim.status,settled:0,held:0};
- const scope={p_run_id:claim.runId!,p_lease_token:claim.leaseToken!,p_context:context};let settled=0,held=0,canceled=0,failed=false;
+ const scope={p_run_id:claim.runId!,p_lease_token:claim.leaseToken!,p_context:context};let settled=0,held=0,canceled=0,failed=false,activePlan:Plan|undefined,finalStatus:string|undefined;
  const reader:TeamReceiptComposition={...c,context,observeContext:async()=>{await current();return context;},observeEvidence:async()=>{bounded();const evidence=await c.observeEvidence();bounded();return evidence;},stripe:{rawRequest:async(method,path,params,providerOptions)=>{
   bounded();if(method==="GET"){if(++gets>40)throw Error("Settlement GET limit reached");}
-  else if(method!=="POST"||path!=="/v1/transfers"||!options.admitNew||++posts>3||now()-started>=45000)throw Error("Settlement write admission held");
-  const request=c.stripe.rawRequest(method,path,params,{...providerOptions,apiVersion:TEAM_STRIPE_API_VERSION,maxNetworkRetries:0,timeout:method==="POST"?10000:Math.min(10000,65000-(now()-started))});
+  else if(method!=="POST"||!(path==="/v1/transfers"&&options.admitNew&&activePlan?.kind==="earned"||combined&&options.admitRecovery&&activePlan?.kind==="recovery"&&/^\/v1\/transfers\/tr_[A-Za-z0-9]+\/reversals$/.test(path))||++posts>3||now()-started>=45000)throw Error("Settlement write admission held");
+  const suppliedTimeout=typeof providerOptions?.timeout==="number"&&providerOptions.timeout>0?providerOptions.timeout:10000;
+  const request=c.stripe.rawRequest(method,path,params,{...providerOptions,apiVersion:TEAM_STRIPE_API_VERSION,maxNetworkRetries:0,timeout:method==="POST"?10000:Math.min(10000,suppliedTimeout,65000-(now()-started))});
   pending.add(request);try{return await request;}finally{pending.delete(request);}
  }}};
  const drain=async()=>{await Promise.allSettled([...pending]);};
  try{
   for(let n=0;n<3&&now()>=started&&now()-started<50000;n++){
-   await current();const allowNew=options.admitNew===true&&gets<=28&&now()-started<25000;
-   const plan=await rpc<Plan|null>("next_sales_team_settlement_plan_v1",{...scope,p_new:allowNew,p_refresh:gets<=10&&now()-started<15000});if(!plan)break;
+   await current();const allowNew=options.admitNew===true&&gets<=28&&now()-started<25000,allowRecovery=combined&&options.admitRecovery===true&&gets<=12&&now()-started<15000;
+   const plan=await rpc<Plan|null>(combined?"next_sales_team_combined_settlement_plan_v1":"next_sales_team_settlement_plan_v1",{...scope,p_new:allowNew,...(combined?{p_recovery_new:allowRecovery}:{}),p_refresh:gets<=10&&now()-started<15000});if(!plan)break;
+   activePlan=snapshotProviderJson(plan);
    let taskHeld=true,recipientAttempted=false,canceledPlan=false;
    const phase=<T>(p_phase:string,p_payload:Record<string,unknown>={})=>rpc<T>("run_sales_team_settlement_plan_v1",{...scope,p_plan_id:plan.id,p_phase,p_payload});
    try{
-    if(plan.kind==="earned"){
+    if(plan.kind==="recovery"){
+     const source=plan.recovery;if(!combined||!source)throw Error("Original recovery plan required");
+     if(source.operationId){
+      const observed=await recoverTeamOriginalTransferReversal(reader,{runId:claim.runId!,leaseToken:claim.leaseToken!,taskId:plan.task_id,operationId:source.operationId,checkId:plan.transfer_check_id});taskHeld=!observed.completed||observed.held;
+     }else{
+      let original=source.reserved;
+      if(!original){if(!allowRecovery)throw Error("New recovery admission held");original=await reserveTeamTransferRecovery(reader,{runId:claim.runId!,leaseToken:claim.leaseToken!,taskId:plan.task_id,transferRequestId:source.transferRequestId});}
+      if(original.id!==plan.request_id)throw Error("Original recovery plan changed");
+      const observed=await dispatchTeamTransferRecovery(reader,{runId:claim.runId!,leaseToken:claim.leaseToken!,taskId:plan.task_id,requestId:original.id,checkId:plan.transfer_check_id},allowRecovery);
+      taskHeld=!observed.completed||observed.held;if(observed.status==="canceled"){canceledPlan=true;taskHeld=false;}
+     }
+    }else if(plan.kind==="earned"){
      if(!allowNew)throw Error("New settlement admission held");
      const unsent=await phase<{canceled:boolean}>("unsent");
      if(unsent.canceled){taskHeld=false;canceledPlan=true;}
@@ -55,7 +73,7 @@ export async function runTeamAutomaticSettlement(c:TeamReceiptComposition,option
      await reserveTeamEarnedTransfer(reader,{runId:claim.runId!,leaseToken:claim.leaseToken!,taskId:plan.task_id,requestId:plan.request_id,receiptId:plan.receipt_id,beneficiary:plan.beneficiary});
      }
     }
-    if(!canceledPlan){
+    if(plan.kind!=="recovery"&&!canceledPlan){
     const result=await dispatchTeamEarnedTransfer(reader,{runId:claim.runId!,leaseToken:claim.leaseToken!,taskId:plan.task_id,requestId:plan.request_id,checkId:plan.transfer_check_id},plan.kind==="earned"&&allowNew);
     taskHeld=!result.completed||result.held;
     }
@@ -64,6 +82,6 @@ export async function runTeamAutomaticSettlement(c:TeamReceiptComposition,option
    }
    await drain();const result=await rpc<{held:boolean;settled:boolean;canceled?:boolean}>("finish_sales_team_settlement_plan_v1",{...scope,p_plan_id:plan.id,p_held:taskHeld});if(result.held)held++;else if(result.canceled)canceled++;else if(result.settled)settled++;
   }
- }catch(error){failed=true;throw error;}finally{await drain();await rpc("finish_sales_team_automatic_settlement_v1",{...scope,p_failed:failed});}
- return {status:held?"review_required":"complete",settled,held,...(canceled?{canceled}:{})};
+ }catch(error){failed=true;throw error;}finally{await drain();if(combined){const audit=await rpc<{status:string}>("finish_sales_team_combined_settlement_v1",{...scope,p_failed:failed});finalStatus=audit.status;}else await rpc("finish_sales_team_automatic_settlement_v1",{...scope,p_failed:failed});}
+ return {status:finalStatus??(held?"review_required":"complete"),settled,held,...(canceled?{canceled}:{})};
 }

@@ -1348,3 +1348,79 @@ receipts remain preserved; the 626-case integration supersedes overlapping runs.
 Provider transports are mocked, and SQL uses disposable structural PGlite parents
 and selected real legacy definitions. These checks establish neither complete
 CI/full-suite fallback/build/browser nor installed/provider/Production/bank proof.
+
+### F34 — combined automatic transfer and recovery settlement (local candidate)
+
+`20261025191826_sales_team_combined_settlement.sql` adds the independently
+default-off `automatic_transfer_recovery_enabled` control. A newly claimed worker
+freezes separate earned-transfer, new-recovery-reservation and recovery-dispatch
+permissions in an immutable sidecar. It reuses F30 and F27 claims under the same
+claim lock, 15-minute slot exclusion, reviewed contract and 90-second lease.
+Existing F27, reservation-only and execution workers cannot upgrade their authority.
+The candidate is not installed, scheduled or activated.
+
+The combined selector reuses F27 plans with a `recovery` kind and an immutable
+link to the accepted transfer and original reversal operation. It admits the
+existing F30 task or F29/F33 original check before returning the plan. Derived
+debt, accepted beneficiary, original worker, amount, request, idempotency key,
+API version and saved cost allowance continue to come from F30/F31. Unknown or
+bound originals can be observed with new-money gates off; no replacement POST
+is introduced. Two original/recovery slots retain priority, while the third can
+advance an earned share. Receipt uniqueness and least-recent recovery attempts
+prevent repeated selection of the same receipt within a run.
+
+One durable three-task count covers F27 plans, F23 transfer tasks, F30 recovery
+tasks and F29 reversal checks. Matching admissions count once. Transfer checks
+cannot borrow a recovery task identity, and recovery/check ports reject transfer
+task identities and mismatched plan subjects. Exact selected earned plans retain
+the narrow F29 observation-only exception needed by the mixed worker; generic
+admission still validates the frozen F26 request and all original cash/source
+checks. Disabling either automatic control blocks new selected recovery phases.
+Already admitted original `unknown`/`bind` outcomes retain their drain path.
+
+The checked finish records actual completion, cancellation or a persistent review
+hold and audits unfinished recovery tasks/checks. An assertion of success cannot
+replace independent accounting. New sidecars use RLS, immutable-history triggers
+and service SELECT-only access; the old finish alias is revoked. Named combined
+authority definitions and guarded existing ports extend all four reviewed
+transfer/shared/retained/recovery digests. Late claim or selection expiry rolls
+back the newly inserted markers, admissions and plans together. Dependency or
+late-grant failure rolls back the whole migration.
+
+`runTeamAutomaticSettlement` preserves the existing default behavior and adds an
+explicit combined mode that composes F30 reservation, F31 dispatch and F33
+observation. Both lanes share three plans, forty GETs, three POSTs, a 65-second
+observation budget and 45-second POST cutoff, with admitted requests drained
+before outcomes. Recovery GETs retain any shorter supplied timeout. Only the
+active earned plan can POST a transfer, and only the active recovery plan with
+separate admission can POST its original reversal. The existing authenticated,
+private/no-store endpoint selects combined mode only after its new schema and
+source readiness checks pass; dispatch readiness remains independent. It retains
+`maxDuration=120` and registers no scheduler.
+
+Full later fixed/monthly collection, Stop/cancel/payoff lifecycle, protected
+daily surplus, actual bank observation/alerts and final UI remain incomplete.
+Required current complete CI/full-suite fallback/build/browser, installed and
+historical-schema/security compatibility, approved commercial/provider inputs,
+separately scoped hosted/provider acceptance, distinct authorized Production/LIVE
+activation and confirmed-bank evidence remain separate gates. A provider transfer,
+reversal or available balance does not establish a bank payout.
+
+`f34-integrated-current.json` passed all 666 tests across the 15 affected suites
+in 434.122 seconds, exit 0. Eleven SQL fixture chains install through F34. The
+automatic-settlement suite now has 55 cases, endpoint 10 and transport limits 15.
+Full-tree incremental TypeScript passed (`f34-current-typecheck.log`); scoped
+16-file ESLint has zero errors/warnings (`f34-current-lint.json`), and staged
+whitespace passed. Nineteen executable/test/SQL input hashes were captured before
+the integration run and verified unchanged afterward. The only subsequent edit
+before checkpoint was documentation of these results.
+
+The task-identity regression first measured admission of an unrelated transfer
+check using a recovery plan's task ID. The current source rejects that cross-kind
+reuse. Two automatic-control regressions first measured a reservation and POST
+after disabling automatic recovery; current phase checks deny both before any
+provider request. Expiry after the original POST preserves its binding and audits
+review-required, while a later observation-only worker accounts the same return
+without another POST. Failed runs, fixture corrections and focused receipts are
+preserved; focused/skipped runs do not replace the final integration. Provider
+transports remain mocked and databases remain disposable structural PGlite.
