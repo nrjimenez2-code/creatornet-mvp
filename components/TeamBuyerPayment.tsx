@@ -5,11 +5,12 @@ import {loadStripe,type Stripe,type StripeElements,type StripeAddressElement,typ
 import {createClient} from "@/lib/supabaseClient";
 import {prepareSessionNavigation} from "@/lib/browserSession";
 import {useTeamApi} from "@/lib/salesTeams/client";
+import TeamBuyerLifecycle from "./TeamBuyerLifecycle";
 
 type Payment={phase:string;amountCents:number;currency:string;saveForFuture:boolean;obligationId?:string;periodNumber?:number;automaticDebitsStopped?:boolean;clientSecret?:string;pendingRequest:{id:string;kind:"token"|"reconfirm"}|null};
 type Pending={id:string;kind:"token"|"reconfirm";token?:string;obligationId?:string};
 type NextPayment={status:"due"|"not_due"|"complete";periodNumber?:number;amountCents?:number;dueAt?:string};
-type PaymentResponse={payment:Payment;collectionEnabled:boolean;nextPayment?:NextPayment;laterCollectionEnabled?:boolean};
+export type PaymentResponse={payment:Payment;collectionEnabled:boolean;nextPayment?:NextPayment;laterCollectionEnabled?:boolean;lifecycleAvailable?:boolean};
 type Elements={stripe:Stripe;elements:StripeElements;payment:StripePaymentElement;address:StripeAddressElement};
 const descriptions:Record<string,string>={not_started:"Prepare your payment to enter card details.",needs_method:"Enter your card and complete US billing address.",requires_action:"Your bank needs to verify this payment.",
  requires_confirmation:"Bank verification is complete. Continue to finish your payment.",processing:"Your original payment is processing. Check its status before taking another action.",
@@ -18,13 +19,14 @@ const descriptions:Record<string,string>={not_started:"Prepare your payment to e
 export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:string}){
  const api=useTeamApi(),[view,setView]=useState<Payment|null>(null),[enabled,setEnabled]=useState(false),[error,setError]=useState<string|null>(null),[busy,setBusy]=useState(false),[ready,setReady]=useState(false),[pending,setPending]=useState<Pending|null>(null);
  const [nextPayment,setNextPayment]=useState<NextPayment|undefined>(),[laterEnabled,setLaterEnabled]=useState(false);
+ const [lifecycleAvailable,setLifecycleAvailable]=useState(false);
  const mounted=useRef(true),busyRef=useRef(false),paymentNode=useRef<HTMLDivElement>(null),addressNode=useRef<HTMLDivElement>(null),provider=useRef<Elements|null>(null);
  const storageKey=`creatornet-team-confirmation-v1:${userId}:${saleId}`,path=`/api/sales-team/sales/${encodeURIComponent(saleId)}/payment`;
- const update=(data:PaymentResponse)=>{if(mounted.current){if(data.payment.phase!==view?.phase||data.payment.amountCents!==view?.amountCents||data.payment.saveForFuture!==view?.saveForFuture||data.payment.obligationId!==view?.obligationId)setReady(false);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);}};
+ const update=(data:PaymentResponse)=>{if(mounted.current){if(data.payment.phase!==view?.phase||data.payment.amountCents!==view?.amountCents||data.payment.saveForFuture!==view?.saveForFuture||data.payment.obligationId!==view?.obligationId)setReady(false);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);setLifecycleAvailable(data.lifecycleAvailable===true);}};
  useEffect(()=>{mounted.current=true;const controller=new AbortController();
   let saved:Pending|null=null,storageError:string|null=null;
   try{const value=JSON.parse(sessionStorage.getItem(storageKey)||"null");if(value&&typeof value.id==="string"&&["token","reconfirm"].includes(value.kind))saved=value;}catch{storageError="The original confirmation needs review before another payment.";}
-  void api(path,undefined,controller.signal).then(data=>{if(!controller.signal.aborted){setPending(saved);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);if(storageError)setError(storageError);}}).catch(e=>{if(!controller.signal.aborted){setPending(saved);setError(e.message);}});
+  void api(path,undefined,controller.signal).then(data=>{if(!controller.signal.aborted){setPending(saved);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);setLifecycleAvailable(data.lifecycleAvailable===true);if(storageError)setError(storageError);}}).catch(e=>{if(!controller.signal.aborted){setPending(saved);setError(e.message);}});
   return()=>{mounted.current=false;controller.abort();};
  },[api,path,storageKey]);
  useEffect(()=>{
@@ -84,7 +86,8 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
   {nextPayment?.status==="not_due"&&nextPayment.dueAt?<p>Payment {nextPayment.periodNumber} is due {new Date(nextPayment.dueAt).toLocaleString()}.</p>:null}
   {nextPayment?.status==="due"&&!unresolved&&!view?.automaticDebitsStopped?<button disabled={busy||!laterEnabled} onClick={()=>void act("prepare_next")}>Prepare payment {nextPayment.periodNumber}</button>:null}
   {nextPayment?.status==="complete"?<p>All payments in your accepted schedule are covered.</p>:null}
-  {view?.saveForFuture&&["paid","captured_pending_receipt","receipt_verified","payment_review"].includes(view.phase)?view.automaticDebitsStopped?<p>Future automatic debits are stopped. Any remaining contractual balance requires review.</p>:<button disabled={busy} onClick={()=>void act("stop")}>Stop future automatic payments</button>:null}
+  {!lifecycleAvailable&&view?.saveForFuture&&["paid","captured_pending_receipt","receipt_verified","payment_review"].includes(view.phase)?view.automaticDebitsStopped?<p>Future automatic debits are stopped. Any remaining contractual balance requires review.</p>:<button disabled={busy} onClick={()=>void act("stop")}>Stop future automatic payments</button>:null}
   {view&&!["paid","stopped","later_stopped","captured_pending_receipt","receipt_verified","payment_review"].includes(view.phase)?<button disabled={busy} onClick={()=>void act("stop")}>Stop this payment</button>:null}
+  {lifecycleAvailable?<TeamBuyerLifecycle saleId={saleId} userId={userId} paymentPhase={view?.phase} onPayment={update}/>:null}
  </section>;
 }

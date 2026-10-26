@@ -27,6 +27,8 @@ This is a new implementation of the October 21 closing-team plan. Its full accep
 | `CREATOR_TEAM_PAYMENT_COLLECTION_READY` | Admit new buyer payment preparation/confirmation separately from review/consent and recovery. |
 | `CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY` | Discover immutable later-period windows and the buyer-owned current-period overview. |
 | `CREATOR_TEAM_LATER_COLLECTION_READY` | Admit buyer-invoked collection of the exact next accepted fixed/monthly period. Requires payment, receipt, fulfillment, event and financial readiness; existing accepted debts do not require new-sale access. |
+| `CREATOR_TEAM_PAYMENT_LIFECYCLE_SCHEMA_READY` | Discover private exit requests, exact monthly payoff acceptance, payoff Stop and verified coverage completion. Read and Stop remain available independently of new-money readiness. |
+| `CREATOR_TEAM_PAYOFF_COLLECTION_READY` | Admit a separately buyer-confirmed one-time payoff of the accepted unpaid monthly minimum. Requires the installed lifecycle, payment, capture, fulfillment, event and financial paths; no new-sale access is required. |
 | `CREATOR_TEAM_RECEIPT_SCHEMA_READY` | Discover original confirmation/capture provenance and independently verified receipts. |
 | `CREATOR_TEAM_RECEIPT_RECORDING_READY` | Admit receipt recording independently of new sales; required before new collection. |
 | `CREATOR_TEAM_FULFILLMENT_SCHEMA_READY` | Read shared team purchase/delivery bindings and timed entitlements after new activity stops. |
@@ -1492,3 +1494,81 @@ against unchanged executable/SQL/test inputs from the integration snapshot.
 Together these scoped receipts cover all 837 cases; this is not a single green
 27-suite run or complete CI. The corrected capture test has separate clean lint
 and current TypeScript evidence. No test, hold or financial safeguard was removed.
+
+### F36 — renewal Stop and separately confirmed minimum payoff (local candidate)
+
+The CLI-generated `20261026185425_sales_team_payment_lifecycle.sql` distinguishes
+renewal Stop from debit revocation. A saved renewal Stop prevents collection
+beyond the accepted monthly minimum while preserving still-due minimum payments.
+It also survives first-payment initialization when recorded before any capture.
+Debit revocation retains the existing immediate Stop fence. Private immutable exit
+requests preserve the buyer, accepted agreement fingerprint and exact action.
+
+The owned exit quote derives covered months, remaining minimum, exact one-time
+amount and UTC paid-through/minimum boundaries from current verified capture
+history. Pending original activity, events/checks, missing shared fulfillment,
+refund/loss/dispute/review holds, expired service terms or amounts exceeding the
+provider limit require review. A quote is read-only; neither card setup nor a
+failed/abandoned payoff creates paid months. Financial debt and debit permission
+remain separate under the accepted purchase policy.
+
+A new payoff needs separate explicit buyer consent to the current quote
+fingerprint and an independently enabled payoff control. Accepted terms, original
+recipient/customer, context and the full original sale remain fixed. The payoff
+has its own obligation, immutable acceptance and window, while conclusively
+unpaid ordinary obligations are stopped without deleting their history. An
+uncertain ordinary intent must be reconciled and independently canceled before
+payoff acceptance. Ordinary periods remain unique; payoff identity does not
+repurpose an original period's financial operation.
+
+The payoff reuses the existing manual intent/token/confirmation/capture protocol
+with `monthly_payoff` authority and no future-use setup. Its own Stop record
+distinguishes cancellation of that explicit one-time payment from prior global
+automatic-debit revocation. Dispatch rechecks its exact accepted payoff and
+window; cancellation needs the payoff-specific Stop. Unknown/bound results retain
+their original-only drain after expiry or collection disable.
+
+A checked capture wrapper retains existing capture checks and seals its raw
+predecessor alias. Full clean verified payoff records one immutable completion,
+advances coverage to the exact accepted minimum, stops renewal, and syncs the
+existing shared purchase. Actual captured money under financial review remains
+accounted without granting extra minimum coverage. Shared receipt/fee/commission
+and entitlement implementations remain authoritative; the original paid purchase
+is preserved. All four reviewed digests bind the named lifecycle definitions.
+New lifecycle records have RLS, immutable-history triggers and service SELECT-only
+access. Migration failures restore old definitions, grants, aliases and ordinary
+period uniqueness transactionally.
+
+The buyer plan screen reads the quote, exposes distinct renewal/debit Stop
+actions, requires a separate payoff checkbox and leaves payment details to the
+existing confirmation screen. The owned same-origin API rejects caller-selected
+amounts, months, dates and customer/actor identities. Original payoff viewing and
+payment recovery remain distinct from fresh payoff admission. Ordinary later
+readiness cannot authorize a saved payoff. React review covers stable hook order,
+abort/unmount handling, renewed session identity, explicit consent, accessible
+controls/statuses and type-only server imports.
+
+Twelve initial focused cases passed after correcting the view's treatment of the
+global Stop; another twelve authority/rollback cases passed. API/UI coverage
+passed 54 cases across four suites before the added payoff-readiness regression.
+These are overlapping focused receipts. The current integrated/static result is
+recorded at the F36 checkpoint. The candidate remains uninstalled and default off.
+
+Automatic off-session collection, saved method authority/recovery, renewal of
+expired or safely canceled original collection/payoff attempts, protected daily
+surplus, bank observations/alerts and final creator/closer views remain required.
+No uncertain original is replaced or silently extended by this candidate. Full
+installed/historical/security/contention and complete CI/build/browser acceptance,
+actual approved provider/commercial prerequisites and separately authorized
+external sandbox, Production/LIVE activation and confirmed BANK evidence remain
+outstanding. No scheduler, external financial mutation or release occurred.
+
+`f36-integrated-a.json` passed all 879 tests in 29 suites, no skips, in 697.768
+seconds, exit 0. The later/lifecycle SQL suite has 77 cases and eleven existing
+financial chains install through F36. Full-tree incremental TypeScript passed
+(`f36-current-typecheck.log`), and 21-file ESLint has zero errors/warnings
+(`f36-current-lint.json`). Selector 11, sandbox 141 and media 20 safeguards pass.
+The executable/SQL/test input hashes captured before the run remained unchanged;
+only this documentation followed. These are disposable structural PGlite/mocked
+provider checks, not complete CI, installed/historical schema, real contention,
+browser/provider or hosted acceptance.

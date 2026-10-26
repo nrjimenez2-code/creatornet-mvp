@@ -92,3 +92,8 @@ test("later refresh, Stop and original confirmation recovery survive new collect
 test.each(["amount_cents","period_number","due_at"])("a later caller cannot supply %s",async key=>{
  later();expect((await POST(request({action:"prepare_next",[key]:1}),context)).status).toBe(400);expect(compose).not.toHaveBeenCalled();
 });
+test("a saved payoff cannot borrow ordinary later-payment readiness",async()=>{
+ later();read.mockResolvedValue({obligation:{id:obligation,payment_kind:"monthly_payoff"}});
+ expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_payoff",obligation_id:obligation}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();
+ process.env.CREATOR_TEAM_PAYMENT_LIFECYCLE_SCHEMA_READY="true";process.env.CREATOR_TEAM_PAYOFF_COLLECTION_READY="true";expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_payoff",obligation_id:obligation}),context)).status).toBe(200);
+});

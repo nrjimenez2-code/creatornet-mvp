@@ -13,10 +13,10 @@ type Composition={admin:SupabaseClient;stripe:Pick<Stripe,"rawRequest">;context:
 type Json=Record<string,unknown>;
 type SavedConfirmation={operation_id:string;operation_status?:string|null;request_id:string;step_number:number;kind:"token"|"reconfirm";token_id:string;token_proof:TeamTokenProof;request:TeamProviderRequest;state_id:string};
 type State={id:string;status:string;payment_intent_id:string;payment_method_id:string|null;proof:Json;observed_at:string};
-export type TeamCollection={collection_expires_at?:string;sale:{id:string;buyer_id:string;creator_id:string;context:ExactPaymentContext;terms:TeamPaymentContract["terms"];fingerprint:string;accepted_at:string};
+export type TeamCollection={collection_expires_at?:string;collection_stop_requested?:boolean;sale:{id:string;buyer_id:string;creator_id:string;context:ExactPaymentContext;terms:TeamPaymentContract["terms"];fingerprint:string;accepted_at:string};
  setup:{customer_operation_id:string;customer_request:TeamProviderRequest;context:ExactPaymentContext;expires_at:string;created_at:string}|null;
  runtime:{customer_id:string|null;stop_requested_at:string|null;canceled_at:string|null;financial_hold:boolean}|null;
- obligation:{id:string;amount_cents:number;period_number:number}|null;attempt:{contract:TeamPaymentContract;intent_operation_id:string;request:TeamProviderRequest}|null;
+ obligation:{id:string;amount_cents:number;period_number:number;payment_kind?:"payment"|"monthly_payoff"}|null;attempt:{contract:TeamPaymentContract;intent_operation_id:string;request:TeamProviderRequest}|null;
  confirmation:SavedConfirmation|null;state:State|null;receipt:{id:string;fulfilled?:boolean;held?:boolean}|null;closed:boolean};
 const rec=(v:unknown):Json=>v&&typeof v==="object"&&!Array.isArray(v)?v as Json:{};
 const requestId=(v:unknown)=>String(rec(rec(v).lastResponse).requestId||"");
@@ -67,9 +67,10 @@ async function observeState(c:Composition,s:TeamCollection,pi:Stripe.PaymentInte
  await assertContext(c,s);await teamRpc(c.admin,"record_sales_team_payment_state_v1",{p_obligation_id:s.attempt.contract.obligationId,p_proof:proof});return proof;
 }
 export function teamCollectionView(s:TeamCollection,pi?:Stripe.PaymentIntent){
- const phase=s.receipt?s.receipt.held?"payment_review":s.receipt.fulfilled?"paid":"receipt_verified":s.closed?"stopped":s.state?.status==="succeeded"?"captured_pending_receipt":s.obligation&&s.obligation.period_number>1&&s.runtime?.stop_requested_at&&s.state?.status==="canceled"?"later_stopped":s.runtime?.stop_requested_at?"stop_pending":!s.attempt?"not_started":
+ const stopped=s.obligation?.payment_kind==="monthly_payoff"?s.collection_stop_requested===true:Boolean(s.runtime?.stop_requested_at);
+ const phase=s.receipt?s.receipt.held?"payment_review":s.receipt.fulfilled?"paid":"receipt_verified":s.closed?"stopped":s.state?.status==="succeeded"?"captured_pending_receipt":s.obligation&&s.obligation.period_number>1&&stopped&&s.state?.status==="canceled"?"later_stopped":stopped?"stop_pending":!s.attempt?"not_started":
   s.state?.status==="requires_payment_method"?"needs_method":s.state?.status??"review_required";
- return {phase,amountCents:s.obligation?.amount_cents??s.sale.terms.payments[0].amountCents,currency:"usd",saveForFuture:s.sale.terms.paymentKind!=="full",
+ return {phase,amountCents:s.obligation?.amount_cents??s.sale.terms.payments[0].amountCents,currency:"usd",saveForFuture:s.sale.terms.paymentKind!=="full"&&s.obligation?.payment_kind!=="monthly_payoff"&&s.attempt?.contract.kind!=="monthly_payoff",
   ...(s.obligation&&s.obligation.period_number>1?{obligationId:s.obligation.id,periodNumber:s.obligation.period_number}:{}),
   automaticDebitsStopped:Boolean(s.runtime?.stop_requested_at),
   ...(phase==="requires_action"&&pi?.status==="requires_action"&&pi.client_secret?{clientSecret:pi.client_secret}:{}),
@@ -107,9 +108,9 @@ export async function prepareTeamCollection(c:Composition,saleId:string,buyerId:
  const intentScope=scope(s,"intent",`intent:${s.obligation.id}`),intentId=teamOperationId(intentScope);
  if(!s.attempt){if(!admitNew)return {saved:s,view:teamCollectionView(s)};
   const contract:TeamPaymentContract={protocol:s.sale.terms.protocol,saleId,obligationId:s.obligation.id,operationId:intentId,terms:s.sale.terms,fingerprint:s.sale.fingerprint,context:c.context,
-   customerId:customer.object.id,periodNumber:s.obligation.period_number,amountCents:s.obligation.amount_cents,acceptedAt:Math.floor(Date.parse(s.sale.accepted_at)/1000),expiresAt:Math.floor(Date.parse(s.collection_expires_at??s.setup!.expires_at)/1000),kind:"payment"};
+   customerId:customer.object.id,periodNumber:s.obligation.period_number,amountCents:s.obligation.amount_cents,acceptedAt:Math.floor(Date.parse(s.sale.accepted_at)/1000),expiresAt:Math.floor(Date.parse(s.collection_expires_at??s.setup!.expires_at)/1000),kind:s.obligation.payment_kind??"payment"};
   const later=s.obligation.period_number>1;
-  await teamRpc(c.admin,later?"reserve_sales_team_period_intent_v1":"reserve_sales_team_intent_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_operation_id:intentId,p_contract:contract,p_request:teamIntentRequest(contract,await c.observeEvidence()),...(later?{p_obligation_id:s.obligation.id}:{})});s=await read();}
+  await teamRpc(c.admin,contract.kind==="monthly_payoff"?"reserve_sales_team_payoff_intent_v1":later?"reserve_sales_team_period_intent_v1":"reserve_sales_team_intent_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_operation_id:intentId,p_contract:contract,p_request:teamIntentRequest(contract,await c.observeEvidence()),...(later?{p_obligation_id:s.obligation.id}:{})});s=await read();}
  check(s.attempt&&s.attempt.intent_operation_id===intentId);if(!admitNew&&!await prior(c,intentId))return {saved:s,view:teamCollectionView(s)};
  const attempt=s.attempt,evidence=await c.observeEvidence();
  const retrieve=async(id:string)=>{const pi=await originalIntent(c,s,id);return {id:pi.id,requestId:requestId(pi),pi};};
@@ -130,6 +131,18 @@ export async function prepareNextTeamCollection(c:Composition,saleId:string,buye
  if(selected.status){const saved=await readTeamCollection(c,saleId,buyerId);return {saved,view:teamCollectionView(saved),next:{status:selected.status,periodNumber:selected.periodNumber,dueAt:selected.dueAt}};}
  check(selected.obligation&&selected.obligation.period_number>1);const result=await prepareTeamCollection(c,saleId,buyerId,true,selected.obligation.id);
  return {...result,next:{status:"ready",obligationId:selected.obligation.id}};
+}
+export type TeamExitQuote={version:"creatornet-team-exit-v1";saleId:string;agreementFingerprint:string;fingerprint:string;paymentKind:string;coveredPeriods:number;minimumMonths:number;remainingMonths:number;payoffAmountCents:number|null;monthlyPriceCents:number|null;paidThrough:string|null;minimumEnd:string|null;reviewReasons:string[];automaticDebitsStopped:boolean;renewalStopped:boolean;canAcceptPayoff:boolean;authorization:string;payoff:{id:string;obligationId:string;fingerprint:string;completed:boolean}|null};
+export async function readTeamExitQuote(c:Pick<Composition,"admin">,saleId:string,buyerId:string){
+ return teamRpc<TeamExitQuote>(c.admin,"read_sales_team_exit_quote_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId)});
+}
+export async function requestTeamExit(c:Pick<Composition,"admin">,saleId:string,buyerId:string,input:{requestId:string;kind:"stop_renewal"|"revoke_debits";accepted:boolean}){
+ return teamRpc<TeamExitQuote>(c.admin,"request_sales_team_exit_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),p_request_id:teamId(input.requestId),p_kind:input.kind,p_accepted:input.accepted});
+}
+export async function prepareTeamPayoff(c:Composition,saleId:string,buyerId:string,input:{requestId:string;fingerprint:string;accepted:boolean}){
+ const original=await readTeamCollection(c,saleId,buyerId);await assertContext(c,original);
+ const selected=await teamRpc<TeamCollection>(c.admin,"accept_sales_team_payoff_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),p_request_id:teamId(input.requestId),p_fingerprint:input.fingerprint,p_accepted:input.accepted,p_context:c.context});
+ check(selected.obligation?.payment_kind==="monthly_payoff");return prepareTeamCollection(c,saleId,buyerId,true,selected.obligation.id);
 }
 
 async function assertReconfirmation(c:Composition,s:TeamCollection,pi:Stripe.PaymentIntent,proof:TeamTokenProof){
@@ -161,7 +174,7 @@ export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:
    request={method:"POST",apiVersion:TEAM_STRIPE_API_VERSION,path:`/v1/payment_intents/${pi.id}/confirm`,params:{use_stripe_sdk:true,return_url:new URL(`/purchase/team/${saleId}`,c.context.siteOrigin).toString()}};
   }
   const later=s.attempt.contract.periodNumber>1;
-  confirmation=await teamRpc<SavedConfirmation>(c.admin,later?"reserve_sales_team_period_confirmation_v1":"reserve_sales_team_confirmation_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_request_id:input.requestId,p_operation_id:operationId,p_kind:input.kind,p_token_proof:proof,p_request:request,...(later?{p_obligation_id:s.attempt.contract.obligationId}:{})});
+  confirmation=await teamRpc<SavedConfirmation>(c.admin,s.attempt.contract.kind==="monthly_payoff"?"reserve_sales_team_payoff_confirmation_v1":later?"reserve_sales_team_period_confirmation_v1":"reserve_sales_team_confirmation_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_request_id:input.requestId,p_operation_id:operationId,p_kind:input.kind,p_token_proof:proof,p_request:request,...(later?{p_obligation_id:s.attempt.contract.obligationId}:{})});
  }
  check(s.attempt&&confirmation);const attempt=s.attempt,saved=confirmation;
  const intentId=String((await prior(c,attempt.intent_operation_id))?.provider_id||"");check(/^pi_[A-Za-z0-9]+$/.test(intentId));
@@ -185,7 +198,8 @@ export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:
 
 export async function stopTeamCollection(c:Composition,saleId:string,buyerId:string,obligationId:string|null=null){
  const read=()=>readTeamCollection(c,saleId,buyerId,obligationId);
- await teamRpc(c.admin,"stop_sales_team_payment_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId)});
+ const selected=obligationId?await read():null,payoff=selected?.obligation?.payment_kind==="monthly_payoff";
+ await teamRpc(c.admin,payoff?"stop_sales_team_payoff_v1":"stop_sales_team_payment_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),...(payoff?{p_obligation_id:obligationId}:{})});
  let s=await read();await assertContext(c,s);if(s.closed||s.receipt)return teamCollectionView(s);
  if(!s.attempt||!await prior(c,s.attempt.intent_operation_id)){
   if(!s.obligation||s.obligation.period_number===1)await teamRpc(c.admin,"close_unpaid_sales_team_payment_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_proof:{noIntentDispatched:true}});return teamCollectionView(await read());

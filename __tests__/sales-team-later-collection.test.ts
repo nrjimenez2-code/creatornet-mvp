@@ -4,11 +4,12 @@ import type {PGlite} from "@electric-sql/pglite";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import {sharedCashDatabase,sharedCashReconciliationCandidate} from "@/test-support/sales-team-shared-cash-postgres";
-import {seedTeamCapture} from "@/test-support/sales-team-capture-postgres";
+import {seedTeamCapture,captureRpc} from "@/test-support/sales-team-capture-postgres";
+import {enableTeamSalesFixture,approveTeamOffer,draftTeamSale} from "@/test-support/sales-team-sale-postgres";
 import {teamFixtureId as id} from "@/test-support/sales-team-postgres";
 import {installTeamLocalClock} from "@/test-support/sales-team-local-clock";
 import {membershipMonthBoundary} from "@/lib/membershipAgreement";
-import {prepareNextTeamCollection,prepareTeamCollection,confirmTeamCollection,stopTeamCollection,readTeamCollection,type TeamCollection} from "@/lib/salesTeams/collection";
+import {prepareNextTeamCollection,prepareTeamCollection,prepareTeamPayoff,readTeamExitQuote,requestTeamExit,confirmTeamCollection,stopTeamCollection,readTeamCollection,type TeamCollection} from "@/lib/salesTeams/collection";
 import {recordTeamCapture} from "@/lib/salesTeams/receipts";
 import {teamPaymentFixture} from "@/test-support/sales-team-payment-fixture";
 import {teamCaptureFixture} from "@/test-support/sales-team-capture-fixture";
@@ -17,10 +18,11 @@ import {teamIntentRequest,type TeamPaymentContract} from "@/lib/salesTeams/payme
 import {teamLaterCollectionReady,teamLaterCollectionSchemaReady} from "@/lib/salesTeams/policy";
 declare const createLocalPostgres:()=>PGlite;
 const candidate="supabase/migrations/20261025195351_sales_team_later_collection.sql";
+const lifecycleCandidate="supabase/migrations/20261026185425_sales_team_payment_lifecycle.sql";
 const predecessors=[sharedCashReconciliationCandidate,...["20261023042321_sales_team_retained_refund_funding.sql","20261023060912_sales_team_automatic_recovery.sql","20261023063905_sales_team_worker_refund_recovery.sql","20261023174324_sales_team_no_outbound_shared_recovery.sql","20261023180144_sales_team_transfer_reservations.sql","20261023182527_sales_team_transfer_observations.sql","20261023184139_sales_team_transfer_execution.sql","20261023190044_sales_team_automatic_settlement.sql","20261024210829_sales_team_transfer_reversal_observations.sql","20261024213841_sales_team_transfer_recovery_reservations.sql","20261024215948_sales_team_transfer_recovery_execution.sql","20261025184802_sales_team_transfer_reversal_recovery.sql","20261025191826_sales_team_combined_settlement.sql"].map(n=>`supabase/migrations/${n}`)];
 let db:PGlite,f:Awaited<ReturnType<typeof seedTeamCapture>>,advanceClock:(ms:number)=>Promise<void>;
 const realNow=Date.now.bind(Date);let offset=0;
-beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate])await db.exec(readFileSync(path,"utf8"));},30000);
+beforeAll(async()=>{db=createLocalPostgres();advanceClock=await installTeamLocalClock(db);await sharedCashDatabase(db);for(const path of [...predecessors,candidate,lifecycleCandidate])await db.exec(readFileSync(path,"utf8"));},30000);
 beforeEach(async()=>{offset=0;await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 const denied=async(action:()=>Promise<unknown>,pattern:RegExp)=>{await db.exec("savepoint denied");try{await expect(action()).rejects.toThrow(pattern);}finally{await db.exec("rollback to savepoint denied");}};
 async function fixture(monthly?:{minimumMonths:number;autoRenew:boolean}){await db.exec("update sales_team_controls_v1 set fulfillment_enabled=true,event_reconciliation_enabled=true,financial_reconciliation_enabled=true");f=await seedTeamCapture(db,monthly?{paymentKind:"monthly",beforeApproval:async()=>{await db.query("update products set type='mentorship',membership_terms=$1",[{version:"monthly-mentorship-v1",...monthly}]);}}:{});const receipt=await f.record();await f.rpc("fulfill_sales_team_receipt_v1",[f.sale,f.buyer,receipt.id]);}
@@ -57,7 +59,7 @@ function collectionHarness(){
    const rows=(await db.query(`select ${columns} from public.${table} where ${Object.keys(filters).map((k,i)=>`${k}=$${i+1}`).join(" and ")}`,Object.values(filters))).rows;
    if(rows.length>1)throw Error("Ambiguous fixture select");return {data:rows[0]?clone(rows[0]):null,error:null};}};return chain;
  }} as unknown as SupabaseClient;
- let requestNumber=0,pi:Stripe.PaymentIntent|null=null,token:Stripe.ConfirmationToken|null=null,capture:ReturnType<typeof teamCaptureFixture>|null=null,timeoutConfirm=false;
+ let requestNumber=0,pi:Stripe.PaymentIntent|null=null,token:Stripe.ConfirmationToken|null=null,capture:ReturnType<typeof teamCaptureFixture>|null=null,timeoutConfirm=false,label="later";
  const response=<T>(value:T):T=>clone({...value,lastResponse:{requestId:`req_later${++requestNumber}`}});
  const provider=jest.fn(async(http:string,path:string,params:Record<string,unknown>={})=>{
   const stamp=Math.floor(Date.now()/1000);
@@ -66,16 +68,17 @@ function collectionHarness(){
   }
   if(http==="POST"&&path==="/v1/payment_intents"){
    const period=(params.metadata as Record<string,string>).period_number;
-   pi={...clone(teamPaymentFixture("installments").pi),...params,id:`pi_later${period}`,created:stamp} as Stripe.PaymentIntent;
-   token={...clone(teamPaymentFixture("installments").token),id:`ctoken_later${period}`,created:stamp,expires_at:stamp+3600} as Stripe.ConfirmationToken;
+   label=(params.metadata as Record<string,string>).payment_kind==="monthly_payoff"?"payoff":"later";
+   pi={...clone(teamPaymentFixture("installments").pi),...params,id:`pi_${label}${period}`,created:stamp,setup_future_usage:params.setup_future_usage??null} as Stripe.PaymentIntent;
+   token={...clone(teamPaymentFixture("installments").token),id:`ctoken_${label}${period}`,created:stamp,expires_at:stamp+3600,setup_future_usage:params.setup_future_usage??null} as Stripe.ConfirmationToken;
    return response(pi);
   }
   if(pi&&token){
    if(http==="POST"&&path===`/v1/payment_intents/${pi.id}/confirm`){
     const obligationId=pi.metadata.team_obligation_id,saved=await readTeamCollection({admin},f.sale,f.buyer,obligationId),contract=saved.attempt!.contract;
-    capture=teamCaptureFixture(contract);capture.paymentIntent={...pi,status:"succeeded",amount_received:pi.amount,payment_method:"pm_original",latest_charge:`ch_later${contract.periodNumber}`};
-    capture.charge={...capture.charge,id:`ch_later${contract.periodNumber}`,payment_intent:pi.id,balance_transaction:`txn_later${contract.periodNumber}`,created:stamp};
-    capture.balance={...capture.balance,id:`txn_later${contract.periodNumber}`,source:capture.charge.id,created:stamp,available_on:stamp+86400};
+    capture=teamCaptureFixture(contract);capture.paymentIntent={...pi,status:"succeeded",amount_received:pi.amount,payment_method:"pm_original",latest_charge:`ch_${label}${contract.periodNumber}`};
+    capture.charge={...capture.charge,id:`ch_${label}${contract.periodNumber}`,payment_intent:pi.id,balance_transaction:`txn_${label}${contract.periodNumber}`,created:stamp};
+    capture.balance={...capture.balance,id:`txn_${label}${contract.periodNumber}`,source:capture.charge.id,created:stamp,available_on:stamp+86400};
     pi=capture.paymentIntent;token.payment_intent=pi.id;token.expires_at=null;
     if(timeoutConfirm){timeoutConfirm=false;throw Error("Uncertain original confirmation");}return response(pi);
    }
@@ -89,7 +92,7 @@ function collectionHarness(){
  });
  const c={admin,stripe:{rawRequest:provider as Stripe["rawRequest"]},context:f.contract.context,observeContext:async()=>f.contract.context,observeEvidence:async()=>f.evidence};
  const posts=()=>provider.mock.calls.filter(([http])=>http==="POST");
- return {c,provider,posts,uncertain:()=>{timeoutConfirm=true;},confirm:async(s:TeamCollection)=>confirmTeamCollection(c,f.sale,f.buyer,{obligationId:s.obligation!.id,requestId:id(70+s.obligation!.period_number),kind:"token",tokenId:`ctoken_later${s.obligation!.period_number}`})};
+ return {c,provider,posts,uncertain:()=>{timeoutConfirm=true;},confirm:async(s:TeamCollection)=>confirmTeamCollection(c,f.sale,f.buyer,{obligationId:s.obligation!.id,requestId:id((s.obligation?.payment_kind==="monthly_payoff"?170:70)+s.obligation!.period_number),kind:"token",tokenId:`ctoken_${s.obligation?.payment_kind==="monthly_payoff"?"payoff":"later"}${s.obligation!.period_number}`})};
 }
 async function paidPeriod(h:ReturnType<typeof collectionHarness>,period:number){
  await ageToPeriod(period);const prepared=await prepareNextTeamCollection(h.c,f.sale,f.buyer);expect(prepared.view.phase).toBe("needs_method");
@@ -200,5 +203,99 @@ test.each(["dependency","late_grant"])("%s failure rolls back the complete F35 c
   const source=readFileSync(candidate,"utf8"),sql=fault==="late_grant"?source.replace("commit;","grant execute on function public.missing_later_final_grant() to service_role;commit;"):source;
   await expect(isolated.exec(sql)).rejects.toThrow(fault==="dependency"?/reserve_sales_team_intent_v1/:/missing_later_final_grant/);await isolated.exec("rollback");expect(await inventory()).toEqual(before);
   expect((await isolated.query("select to_regclass('public.sales_team_later_payment_windows_v1') relation,exists(select 1 from information_schema.columns where table_schema='public' and table_name='sales_team_controls_v1' and column_name='later_collection_enabled') control")).rows).toEqual([{relation:null,control:false}]);
+ }finally{await isolated.close();}
+},30000);
+
+const quote=()=>f.rpc<import("@/lib/salesTeams/collection").TeamExitQuote>("read_sales_team_exit_quote_v1",[f.sale,f.buyer]);
+const acceptPayoff=async(requestId=id(150),fingerprint?:string,accepted=true)=>f.rpc<TeamCollection>("accept_sales_team_payoff_v1",[f.sale,f.buyer,requestId,fingerprint??(await quote()).fingerprint,accepted,f.contract.context]);
+test("monthly payoff is independently default off and a quote cannot collect money",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});const h=collectionHarness(),q=await readTeamExitQuote(h.c,f.sale,f.buyer);expect(q).toMatchObject({coveredPeriods:1,remainingMonths:2,payoffAmountCents:20002,canAcceptPayoff:true});
+ expect((await db.query("select payoff_collection_enabled enabled from sales_team_controls_v1")).rows).toEqual([{enabled:false}]);expect(h.posts()).toHaveLength(0);
+ await denied(()=>acceptPayoff(id(150),q.fingerprint),/TEAM_PAYOFF_COLLECTION_HELD/);expect((await db.query("select count(*)::int n from sales_team_payoff_agreements_v1")).rows).toEqual([{n:0}]);expect((await quote()).automaticDebitsStopped).toBe(false);
+});
+test("stopping renewal during the accepted minimum leaves minimum installments collectible",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});const h=collectionHarness();await db.exec("update sales_team_controls_v1 set later_collection_enabled=true");
+ expect(await requestTeamExit(h.c,f.sale,f.buyer,{requestId:id(151),kind:"stop_renewal",accepted:true})).toMatchObject({renewalStopped:true,automaticDebitsStopped:false,remainingMonths:2});
+ for(const period of [2,3])await paidPeriod(h,period);expect(await next()).toEqual({status:"complete"});expect((await quote()).remainingMonths).toBe(0);
+});
+test("debit revocation survives all collection gates being off without waiving or paying a balance",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set access_enabled=false,new_sales_enabled=false,payment_collection_enabled=false,payoff_collection_enabled=false,later_collection_enabled=false");const h=collectionHarness();
+ const q=await requestTeamExit(h.c,f.sale,f.buyer,{requestId:id(151),kind:"revoke_debits",accepted:true});expect(q).toMatchObject({automaticDebitsStopped:true,coveredPeriods:1,remainingMonths:2,payoffAmountCents:20002});expect(h.posts()).toHaveLength(0);expect((await db.query("select count(*)::int n from sales_team_payoff_completions_v1")).rows).toEqual([{n:0}]);
+});
+test.each(["consent","fingerprint","owner"])("payoff requires current explicit %s",async fault=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true");const q=await quote();
+ await denied(()=>fault==="owner"?f.rpc("accept_sales_team_payoff_v1",[f.sale,id(11),id(150),q.fingerprint,true,f.contract.context]):acceptPayoff(id(150),fault==="fingerprint"?"a".repeat(64):q.fingerprint,fault!=="consent"),fault==="owner"?/OWNED_SALE_REQUIRED/:fault==="consent"?/EXPLICIT_TEAM_PAYOFF_REQUIRED/:/CURRENT_TEAM_PAYOFF_QUOTE_REQUIRED/);
+ expect((await db.query("select count(*)::int n from sales_team_payoff_agreements_v1")).rows).toEqual([{n:0}]);
+});
+test("a separately confirmed payoff covers the exact remaining minimum and shared Library once",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true,new_sales_enabled=false,access_enabled=false;update sales_team_memberships_v1 set status='removed'");const h=collectionHarness(),q=await quote();
+ const prepared=await prepareTeamPayoff(h.c,f.sale,f.buyer,{requestId:id(150),fingerprint:q.fingerprint,accepted:true});expect(prepared.view).toMatchObject({phase:"needs_method",amountCents:20002,saveForFuture:false});expect(h.posts().find(([,path])=>path==="/v1/payment_intents")?.[2]).not.toHaveProperty("setup_future_usage");
+ expect((await acceptPayoff(id(150),q.fingerprint)).obligation?.id).toBe(prepared.saved.obligation!.id);await h.confirm(prepared.saved);
+ const captured=await recordTeamCapture(h.c,f.sale,f.buyer,prepared.saved.obligation!.id);expect(captured.status).toBe("verified");if(!("receiptId" in captured))throw Error("Missing payoff receipt");await f.rpc("fulfill_sales_team_receipt_v1",[f.sale,f.buyer,captured.receiptId]);
+ await recordTeamCapture(h.c,f.sale,f.buyer,prepared.saved.obligation!.id);expect((await quote()).payoff?.completed).toBe(true);expect((await db.query("select covered_periods,canceled_at is not null canceled,renewal_stopped_at is not null stopped from sales_team_payment_runtime_v1")).rows).toEqual([{covered_periods:3,canceled:true,stopped:true}]);
+ expect((await db.query("select count(*)::int n from purchases")).rows).toEqual([{n:1}]);expect((await db.query("select paid_count from purchases")).rows).toEqual([{paid_count:3}]);expect((await db.query("select sum(earned_cents)::int amount from sales_team_commission_balances_v1")).rows).toEqual([{amount:3000}]);
+ expect(await next()).toEqual({status:"complete"});const purchase=(await db.query<{id:string}>("select id from purchases")).rows[0].id;expect((await f.rpc<{allowed:boolean}>("read_sales_team_entitlement_v1",[purchase,f.buyer])).allowed).toBe(true);
+ await ageToPeriod(4);expect((await f.rpc<{allowed:boolean}>("read_sales_team_entitlement_v1",[purchase,f.buyer])).allowed).toBe(false);
+});
+test("an unconfirmed or canceled payoff cannot create paid months or waive the remaining minimum",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true");const h=collectionHarness(),q=await quote(),prepared=await prepareTeamPayoff(h.c,f.sale,f.buyer,{requestId:id(150),fingerprint:q.fingerprint,accepted:true});
+ expect((await db.query("select covered_periods from sales_team_payment_runtime_v1")).rows).toEqual([{covered_periods:1}]);await stopTeamCollection(h.c,f.sale,f.buyer,prepared.saved.obligation!.id);expect((await quote()).payoff?.completed).toBe(false);expect((await quote()).remainingMonths).toBe(2);expect((await db.query("select count(*)::int n from sales_team_payoff_completions_v1")).rows).toEqual([{n:0}]);
+});
+test("unknown captured payoff drains after expiry and disable without another POST",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true");const h=collectionHarness(),q=await quote(),prepared=await prepareTeamPayoff(h.c,f.sale,f.buyer,{requestId:id(150),fingerprint:q.fingerprint,accepted:true});h.uncertain();
+ await expect(h.confirm(prepared.saved)).rejects.toThrow(/reconciliation/i);const posts=h.posts().length;offset+=25*3600000;jest.spyOn(Date,"now").mockImplementation(()=>realNow()+offset);await advanceClock(Math.floor(offset));await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=false,payment_collection_enabled=false,later_collection_enabled=false,new_sales_enabled=false");
+ expect((await recordTeamCapture(h.c,f.sale,f.buyer,prepared.saved.obligation!.id)).status).toBe("verified");expect(h.posts()).toHaveLength(posts);expect((await quote()).payoff?.completed).toBe(true);
+});
+test("a pending ordinary intent must be independently canceled before accepting payoff",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await ageToPeriod(2);await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true,later_collection_enabled=true");const h=collectionHarness(),ordinary=await prepareNextTeamCollection(h.c,f.sale,f.buyer);
+ expect((await quote()).reviewReasons).toContain("ORIGINAL_PAYMENT_RECONCILIATION_REQUIRED");await denied(()=>acceptPayoff(),/CURRENT_TEAM_PAYOFF_QUOTE_REQUIRED/);await stopTeamCollection(h.c,f.sale,f.buyer,ordinary.saved.obligation!.id);
+ const q=await quote();expect(q.canAcceptPayoff).toBe(true);const prepared=await prepareTeamPayoff(h.c,f.sale,f.buyer,{requestId:id(150),fingerprint:q.fingerprint,accepted:true});expect(prepared.saved.obligation?.payment_kind).toBe("monthly_payoff");
+ expect((await f.rpc<{payment:TeamCollection}>("read_sales_team_collection_overview_v1",[f.sale,f.buyer])).payment.obligation?.id).toBe(prepared.saved.obligation!.id);
+ expect((await db.query("select status from sales_team_payment_obligations_v1 where id=$1",[ordinary.saved.obligation!.id])).rows).toEqual([{status:"stopped"}]);
+});
+test.each(["anon","authenticated"])("%s cannot read or write private exit/payoff authority",async role=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec(`set role ${role}`);await denied(quote,/permission denied/i);await denied(()=>f.rpc("request_sales_team_exit_v1",[f.sale,f.buyer,id(151),"revoke_debits",true]),/permission denied/i);await denied(()=>acceptPayoff(id(150),"a".repeat(64)),/permission denied/i);
+});
+
+test("a renewal Stop recorded before the first payment cannot be lost during initialization",async()=>{
+ await enableTeamSalesFixture(db);await db.query("update products set type='mentorship',membership_terms=$1",[{version:"monthly-mentorship-v1",minimumMonths:3,autoRenew:true}]);
+ const offer=await approveTeamOffer(db),draft=await draftTeamSale(db,offer.options.find(o=>o.kind==="monthly")!.id);await captureRpc(db,"accept_sales_team_sale_v1",[draft.saleId,id(10),draft.quote.fingerprint,true]);
+ await captureRpc(db,"request_sales_team_exit_v1",[draft.saleId,id(10),id(151),"stop_renewal",true]);await captureRpc(db,"initialize_sales_team_payment_v1",[draft.saleId,id(10)]);
+ expect((await db.query("select renewal_stopped_at is not null stopped,covered_periods from sales_team_payment_runtime_v1")).rows).toEqual([{stopped:true,covered_periods:0}]);expect((await db.query("select count(*)::int n from sales_team_provider_operations_v1")).rows).toEqual([{n:0}]);
+});
+test("late payoff control loss atomically restores Stop, coverage and obligations",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true;create function public.hold_fixture_payoff() returns trigger language plpgsql as $$begin update public.sales_team_controls_v1 set payoff_collection_enabled=false;return new;end$$;create trigger hold_fixture_payoff after insert on sales_team_later_payment_windows_v1 for each row execute function public.hold_fixture_payoff()");
+ await denied(()=>acceptPayoff(),/TEAM_PAYOFF_COLLECTION_HELD/);expect((await db.query("select stop_requested_at,covered_periods from sales_team_payment_runtime_v1")).rows).toEqual([{stop_requested_at:null,covered_periods:1}]);expect((await db.query("select count(*)::int n from sales_team_payment_obligations_v1")).rows).toEqual([{n:1}]);expect((await db.query("select count(*)::int n from sales_team_payoff_agreements_v1")).rows).toEqual([{n:0}]);
+});
+test("a changed quote cannot reuse a payoff acceptance after a newly paid regular month",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true,later_collection_enabled=true");const q=await quote(),h=collectionHarness();await paidPeriod(h,2);await denied(()=>acceptPayoff(id(150),q.fingerprint),/CURRENT_TEAM_PAYOFF_QUOTE_REQUIRED/);expect((await quote()).payoffAmountCents).toBe(10001);
+});
+test("payoff Stop blocks a fresh confirmation and requires its own cancellation authority",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true");const h=collectionHarness(),q=await quote(),prepared=await prepareTeamPayoff(h.c,f.sale,f.buyer,{requestId:id(150),fingerprint:q.fingerprint,accepted:true}),o=prepared.saved.obligation!;
+ const cancellation={scopeId:f.sale,saleId:f.sale,creatorId:id(1),actorId:f.buyer,kind:"cancellation",scopeKey:`cancel:${o.id}`,workerRunId:null};expect(await f.rpc("sales_team_operation_admitted_v1",[cancellation,f.contract.context])).toBe(false);
+ await stopTeamCollection(h.c,f.sale,f.buyer,o.id);expect(await f.rpc("sales_team_operation_admitted_v1",[cancellation,f.contract.context])).toBe(true);await denied(()=>h.confirm(prepared.saved),/RECONCILIATION|reconciliation/);expect(h.posts().filter(([,path])=>path.endsWith("/confirm"))).toHaveLength(0);
+});
+test("actual refunded payoff principal stays accountable without granting unearned minimum coverage",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true");const h=collectionHarness(),q=await quote(),prepared=await prepareTeamPayoff(h.c,f.sale,f.buyer,{requestId:id(150),fingerprint:q.fingerprint,accepted:true});await h.confirm(prepared.saved);
+ const raw=h.provider.getMockImplementation()!;h.provider.mockImplementation(async(...args)=>{const value=await raw(...args);if(args[0]==="GET"&&args[1].startsWith("/v1/charges/ch_payoff"))return {...value,amount_refunded:1,refunded:false};return value;});
+ expect((await recordTeamCapture(h.c,f.sale,f.buyer,prepared.saved.obligation!.id)).status).toBe("verified_held");expect((await db.query("select covered_periods from sales_team_payment_runtime_v1")).rows).toEqual([{covered_periods:1}]);expect((await db.query("select count(*)::int n from sales_team_receipts_v1")).rows).toEqual([{n:2}]);expect((await db.query("select count(*)::int n from sales_team_payoff_completions_v1")).rows).toEqual([{n:0}]);
+});
+test("private immutable lifecycle records are SELECT-only and the raw capture alias is sealed",async()=>{
+ await fixture({minimumMonths:3,autoRenew:true});await db.exec("update sales_team_controls_v1 set payoff_collection_enabled=true");await acceptPayoff();
+ for(const table of ["sales_team_exit_requests_v1","sales_team_payoff_agreements_v1","sales_team_payoff_completions_v1","sales_team_payoff_stops_v1"]){expect((await db.query<{rls:boolean}>("select relrowsecurity rls from pg_class where oid=$1::regclass",[`public.${table}`])).rows).toEqual([{rls:true}]);}
+ await db.exec("set role service_role");for(const table of ["sales_team_exit_requests_v1","sales_team_payoff_agreements_v1","sales_team_payoff_completions_v1","sales_team_payoff_stops_v1"])await denied(()=>db.exec(`insert into ${table} default values`),/permission denied/i);
+ await denied(()=>f.rpc("record_team_capture_before_lifecycle_v1",[f.sale,f.buyer,f.contract.obligationId,f.confirmationId,f.capture()]),/permission denied/i);expect((await f.record()).id).toBeDefined();
+});
+test.each(["creatornet_team_private.team_exit_quote_v1(uuid)","creatornet_team_private.team_payoff_admitted_v1(uuid,jsonb)","public.accept_sales_team_payoff_v1(uuid,uuid,uuid,text,boolean,jsonb)","public.record_verified_sales_team_capture_v1(uuid,uuid,uuid,uuid,jsonb)"])("all reviewed digests bind lifecycle authority %s",async signature=>{
+ const before=await digests(),source=(await db.query<{s:string}>("select pg_get_functiondef($1::regprocedure) s",[signature])).rows[0].s;await db.exec(source.replace(/AS \$function\$/i,"AS $function$\n-- synthetic lifecycle source mutation\n"));const after=await digests();for(const name of Object.keys(before))expect(after[name]).not.toBe(before[name]);
+});
+test.each(["dependency","late_grant"])("%s failure rolls back the full lifecycle schema, aliases and grants",async fault=>{
+ const isolated=createLocalPostgres();try{
+  await sharedCashDatabase(isolated);for(const path of [...predecessors,candidate])await isolated.exec(readFileSync(path,"utf8"));
+  if(fault==="dependency")await isolated.exec("alter function public.reserve_sales_team_period_intent_v1(uuid,uuid,uuid,jsonb,jsonb,uuid) rename to fixture_missing_payoff_intent_dependency");
+  const signatures=['public.read_sales_team_period_payment_v1(uuid,uuid,uuid)','public.record_verified_sales_team_capture_v1(uuid,uuid,uuid,uuid,jsonb)','public.sales_team_operation_admitted_v1(jsonb,jsonb)','creatornet_team_private.later_payment_schedule_v1(uuid)','creatornet_team_private.transfer_contract_digest_v1()','creatornet_team_private.shared_cash_contract_digest_v1()','creatornet_team_private.retained_cash_contract_digest_v1()','creatornet_team_private.recovery_contract_digest_v1()'];
+  const inventory=async()=>(await isolated.query("select oid::regprocedure::text signature,pg_get_functiondef(oid) body,proacl::text grants from pg_proc where oid=any($1::regprocedure[]) order by oid",[signatures])).rows,before=await inventory(),source=readFileSync(lifecycleCandidate,"utf8"),sql=fault==="late_grant"?source.replace("commit;","grant execute on function public.missing_lifecycle_final_grant() to service_role;commit;"):source;
+  await expect(isolated.exec(sql)).rejects.toThrow(fault==="dependency"?/reserve_sales_team_period_intent_v1/:/missing_lifecycle_final_grant/);await isolated.exec("rollback");expect(await inventory()).toEqual(before);
+  expect((await isolated.query("select to_regclass('public.sales_team_payoff_agreements_v1') payoff,to_regprocedure('public.record_team_capture_before_lifecycle_v1(uuid,uuid,uuid,uuid,jsonb)') alias,exists(select 1 from pg_constraint where conrelid='sales_team_payment_obligations_v1'::regclass and conname='sales_team_payment_obligations_v1_sale_id_period_number_key') original_unique")).rows).toEqual([{payoff:null,alias:null,original_unique:true}]);
  }finally{await isolated.close();}
 },30000);
