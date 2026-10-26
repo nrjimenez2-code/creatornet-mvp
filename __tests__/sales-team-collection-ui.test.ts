@@ -9,17 +9,17 @@ const element=()=>({on:(event:string,fn:()=>void)=>{if(event==="ready")fn();},mo
 jest.mock("@stripe/stripe-js",()=>({loadStripe:async()=>({elements:()=>({create:()=>element(),submit:()=>submit()}),createConfirmationToken:(...args:unknown[])=>token(...args),handleNextAction:(...args:unknown[])=>bank(...args)})}));
 import TeamBuyerPayment from "@/components/TeamBuyerPayment";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
-let root:Root,container:HTMLDivElement;const fetchMock=jest.fn(),originalFetch=global.fetch;let phase:string,enabled:boolean;
+let root:Root,container:HTMLDivElement;const fetchMock=jest.fn(),originalFetch=global.fetch;let phase:string,enabled:boolean,obligationId:string|undefined,periodNumber:number|undefined,nextPayment:Record<string,unknown>|undefined,laterEnabled:boolean;
 const response=(data:unknown,ok=true)=>({ok,json:async()=>data});
-const view=()=>({phase,amountCents:3333,currency:"usd",saveForFuture:true,pendingRequest:null,...(phase==="requires_action"?{clientSecret:"pi_original_secret_owned"}:{})});
+const view=()=>({phase,amountCents:3333,currency:"usd",saveForFuture:true,pendingRequest:null,...(obligationId?{obligationId,periodNumber}:{}),...(phase==="requires_action"?{clientSecret:"pi_original_secret_owned"}:{})});
 const buttons=()=>Array.from(container.querySelectorAll("button"));const button=(text:string)=>buttons().find(b=>b.textContent?.includes(text))!;
 const click=async(text:string)=>{await act(async()=>{button(text).click();await new Promise(r=>setTimeout(r,20));});};
 const mount=async()=>{await act(async()=>{root.render(createElement(TeamBuyerPayment,{saleId:"sale",userId:viewer}));await new Promise(r=>setTimeout(r,20));});await act(async()=>{await new Promise(r=>setTimeout(r,20));});};
 beforeEach(()=>{
- jest.clearAllMocks();viewer="buyer";phase="not_started";enabled=true;sessionStorage.clear();container=document.createElement("div");document.body.append(container);root=createRoot(container);global.fetch=fetchMock;
+ jest.clearAllMocks();viewer="buyer";phase="not_started";enabled=true;obligationId=undefined;periodNumber=undefined;nextPayment=undefined;laterEnabled=false;sessionStorage.clear();container=document.createElement("div");document.body.append(container);root=createRoot(container);global.fetch=fetchMock;
  navigation.mockResolvedValue(true);session.mockImplementation(async()=>({data:{session:{user:{id:viewer}}},error:null}));submit.mockResolvedValue({});billing.mockResolvedValue({complete:true,value:{name:"Buyer",address:{country:"US",line1:"1 Main",city:"Phoenix",state:"AZ",postal_code:"85001"}}});
  token.mockResolvedValue({confirmationToken:{id:"ctoken_original"}});bank.mockResolvedValue({});
- fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{const action=options?.body?JSON.parse(String(options.body)).action:null;if(action==="prepare")phase="needs_method";if(action==="confirm"||action==="reconfirm")phase="captured_pending_receipt";if(action==="stop")phase="stopped";return response({payment:view(),collectionEnabled:enabled});});
+ fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{const action=options?.body?JSON.parse(String(options.body)).action:null;if(action==="prepare")phase="needs_method";if(action==="prepare_next"){phase="needs_method";obligationId="later-owned";periodNumber=2;nextPayment=undefined;enabled=true;}if(action==="confirm"||action==="reconfirm")phase="captured_pending_receipt";if(action==="stop")phase="stopped";return response({payment:view(),collectionEnabled:enabled,nextPayment,laterCollectionEnabled:laterEnabled});});
 });afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
 test("viewing an accepted review never creates a customer, intent or confirmation automatically",async()=>{
  await mount();expect(fetchMock.mock.calls.every(([,o])=>o.method==="GET")).toBe(true);expect(token).not.toHaveBeenCalled();expect(button("Prepare payment").disabled).toBe(false);
@@ -50,4 +50,21 @@ test("a paid plan can stop future automatic debits while retaining the existing 
  fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{if(options?.body&&JSON.parse(String(options.body)).action==="stop")stopped=true;return response({payment:{...view(),automaticDebitsStopped:stopped},collectionEnabled:false});});
  await mount();await click("Stop future automatic payments");expect(container.textContent).toContain("Future automatic debits are stopped");expect(container.textContent).toContain("Any remaining contractual balance requires review");expect(container.querySelector('a[href="/library"]')).not.toBeNull();
  expect(token).not.toHaveBeenCalled();
+});
+
+test("a due later payment needs an explicit buyer action and targets its saved obligation",async()=>{
+ phase="paid";enabled=false;laterEnabled=true;nextPayment={status:"due",periodNumber:2,amountCents:3333};await mount();
+ expect(fetchMock.mock.calls.every(([,o])=>o.method==="GET")).toBe(true);await click("Prepare payment 2");expect(container.textContent).toContain("Payment 2 of your accepted plan");await click("Pay $33.33");
+ const bodies=fetchMock.mock.calls.map(([,o])=>o.body?JSON.parse(o.body):null).filter(Boolean);expect(bodies).toContainEqual({action:"prepare_next"});expect(bodies).toContainEqual({action:"confirm",request_id:expect.any(String),confirmation_token:"ctoken_original",obligation_id:"later-owned"});
+});
+test("later admission stays unavailable when its independent readiness is off",async()=>{
+ phase="paid";nextPayment={status:"due",periodNumber:2};await mount();expect(button("Prepare payment 2").disabled).toBe(true);expect(token).not.toHaveBeenCalled();
+});
+test("reload retains a later uncertain confirmation's exact obligation",async()=>{
+ phase="needs_method";obligationId="later-owned";periodNumber=2;await mount();const original=fetchMock.getMockImplementation()!;fetchMock.mockImplementation((path,o)=>o.body&&JSON.parse(o.body).action==="confirm"?Promise.reject(Error("connection lost")):original(path,o));await click("Pay $33.33");
+ expect(JSON.parse(sessionStorage.getItem("creatornet-team-confirmation-v1:buyer:sale")!)).toMatchObject({obligationId:"later-owned"});await act(async()=>root.unmount());root=createRoot(container);await mount();await click("Check original confirmation");
+ expect(fetchMock.mock.calls.map(([,o])=>o.body?JSON.parse(o.body):null)).toContainEqual({action:"resume",request_id:expect.any(String),confirmation_token:"ctoken_original",obligation_id:"later-owned"});expect(token).toHaveBeenCalledTimes(1);
+});
+test("a safely canceled later payment keeps the earlier Library purchase visible",async()=>{
+ phase="later_stopped";obligationId="later-owned";periodNumber=2;await mount();expect(container.textContent).toContain("earlier paid purchase remains in your Library");expect(container.textContent).not.toContain("safely closed unpaid");expect(container.querySelector('a[href="/library"]')).not.toBeNull();expect(buttons().some(b=>b.textContent==="Stop this payment")).toBe(false);
 });

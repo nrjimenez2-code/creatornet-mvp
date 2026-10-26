@@ -12,7 +12,10 @@ test("verified original capture earns commission once with at least fourteen day
  const receipt=await f.record(),before=(await db.query<Record<string,unknown>>("select * from sales_team_financial_ledger_v1")).rows.length;await f.record();
  expect((await db.query<Record<string,unknown>>("select count(*)::int n from sales_team_receipts_v1")).rows).toEqual([{n:1}]);expect((await db.query<Record<string,unknown>>("select * from sales_team_financial_ledger_v1")).rows).toHaveLength(before);
  const balances=(await db.query<{earned_cents:number;hold_until:string}>("select earned_cents,hold_until from sales_team_commission_balances_v1")).rows[0];expect(Number(balances.earned_cents)).toBe(333);
- expect(Date.parse(balances.hold_until)).toBeGreaterThanOrEqual(Date.parse(String(receipt.observed_at))+14*86400000);
+ // PGlite returns direct timestamptz columns as Date objects. Date.parse coerces
+ // those through Date.toString(), discarding milliseconds; clone the timestamp.
+ expect(new Date(balances.hold_until).getTime()).toBeGreaterThanOrEqual(Date.parse(String(receipt.observed_at))+14*86400000);
+ expect(Number((await db.query<{ms:number}>("select extract(epoch from balance.hold_until-receipt.observed_at)*1000 ms from sales_team_commission_balances_v1 balance join sales_team_receipts_v1 receipt on receipt.id=balance.receipt_id")).rows[0].ms)).toBeGreaterThanOrEqual(14*86400000);
  expect((await db.query<Record<string,unknown>>("select count(*)::int n from sales_team_capture_provenance_v1")).rows).toEqual([{n:1}]);
 });
 test("new receipt recording is independently held, while existing receipt recovery survives disabled activity",async()=>{

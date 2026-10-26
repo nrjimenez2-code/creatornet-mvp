@@ -25,6 +25,8 @@ This is a new implementation of the October 21 closing-team plan. Its full accep
 | `CREATOR_TEAM_RECIPIENT_ONBOARDING_READY` | Admit new recipient/account-link requests, independently of status and verification reads. |
 | `CREATOR_TEAM_PAYMENT_SCHEMA_READY` | Discover saved team customer, intent, confirmation, observation and closure records. |
 | `CREATOR_TEAM_PAYMENT_COLLECTION_READY` | Admit new buyer payment preparation/confirmation separately from review/consent and recovery. |
+| `CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY` | Discover immutable later-period windows and the buyer-owned current-period overview. |
+| `CREATOR_TEAM_LATER_COLLECTION_READY` | Admit buyer-invoked collection of the exact next accepted fixed/monthly period. Requires payment, receipt, fulfillment, event and financial readiness; existing accepted debts do not require new-sale access. |
 | `CREATOR_TEAM_RECEIPT_SCHEMA_READY` | Discover original confirmation/capture provenance and independently verified receipts. |
 | `CREATOR_TEAM_RECEIPT_RECORDING_READY` | Admit receipt recording independently of new sales; required before new collection. |
 | `CREATOR_TEAM_FULFILLMENT_SCHEMA_READY` | Read shared team purchase/delivery bindings and timed entitlements after new activity stops. |
@@ -1424,3 +1426,69 @@ review-required, while a later observation-only worker accounts the same return
 without another POST. Failed runs, fixture corrections and focused receipts are
 preserved; focused/skipped runs do not replace the final integration. Provider
 transports remain mocked and databases remain disposable structural PGlite.
+
+### F35 — explicit buyer-invoked later collection (local candidate)
+
+The preserved `20261025195351_sales_team_later_collection.sql` candidate adds an
+independent default-off `later_collection_enabled` control. Next-period admission
+derives the amount from the immutable accepted fixed schedule or monthly
+commitment/renewal terms. Calendar boundaries retain the original UTC day/time,
+clamping the day only within a shorter month. The anchor is rebound to the first
+verified receipt and its capture provenance; saved customer ownership is rebound
+to the original bound customer operation. Contiguous paid capture history must
+match runtime coverage. Runtime fields alone cannot create schedule authority.
+
+Each new obligation receives one immutable 24-hour collection window with private
+RLS and service SELECT-only access. Admission repeats the accepted amount, due
+date, ownership, context and original capture anchor. Stop, cancellation, financial
+holds, pending signed events/checks, unresolved receipt reviews/disputes or missing
+shared fulfillment block later money. Existing receipt, fulfillment, event and
+financial controls remain required. New-sale access and current closer membership
+are deliberately unnecessary for accepted obligations. Late control loss rolls
+back the new obligation and window together; dispatch assertions recheck actual
+authority after the provider claim.
+
+Explicit period intent/confirmation ports reuse the original manual token flow
+and exact provider journal. First-period readers, confirmations, cancellation
+selection and generic admission keep selecting period one when later attempts
+coexist. A confirmation request cannot borrow a different period's identity.
+Named authority extends all four reviewed financial contract digests. Dependency
+or late-grant failure rolls back the entire migration, including old definitions
+and grants. Original unknown/bound outcomes retain their read/bind drain after
+expiry or new-money disable; an uncertain POST is never repeated.
+
+The buyer API and payment screen expose the read-only owned overview and an
+explicit action to prepare the next due period. Readiness remains separate from
+first checkout and new-sale admission. Browser requests, persisted confirmation
+identity, bank-action refreshes, Stop and independent capture retain the exact
+later obligation. Verified captures reuse existing shared Library fulfillment,
+fee accounting, cumulative commissions and saved holds. A canceled later payment
+preserves the earlier paid purchase and displays remaining-balance review.
+
+F35 is an on-session collection implementation. It does not implement automatic
+off-session collection, renew an expired original window, replace an uncertain
+intent, or complete monthly cancellation/payoff and method-recovery lifecycle.
+These remain required, together with protected daily surplus, actual bank
+observations/alerts and the final creator/closer presentation. No scheduler,
+hosted installation, provider mutation, deployment or activation occurred.
+
+Initial resume TypeScript and three-file ESLint passed. The first repaired
+admission run passed 10 cases and exposed one deferred-trigger fault in the
+unfulfilled-fixture setup; that setup was corrected. A 19-case lifecycle run then
+passed, followed by 69 cases across later collection/API/UI. A focused 21-case
+authority run passed, including actual dispatch rechecks, explicit originals,
+named digests and transactional rollback. These runs overlap and retain skipped
+cases; they are not a combined total or a substitute for integration. Current
+full-tree TypeScript and 20-file ESLint pass. Selector 11, sandbox 141 and media 20
+safeguards pass. The final F35 integration result is recorded at its checkpoint.
+
+`f35-integrated-a.json` completed all 837 tests in 27 suites in 707.625 seconds:
+836 passed and the original capture-hold assertion failed. The failure was the
+test's `Date.parse(Date)` conversion losing milliseconds; the saved SQL hold was
+not shortened. The test now preserves the Date value and also asserts the full
+fourteen-day interval directly in SQL. Its current nine-case capture suite passed
+in 12.275 seconds (`f35-capture-hold-a.json`). The other 26 suites/828 cases passed
+against unchanged executable/SQL/test inputs from the integration snapshot.
+Together these scoped receipts cover all 837 cases; this is not a single green
+27-suite run or complete CI. The corrected capture test has separate clean lint
+and current TypeScript evidence. No test, hold or financial safeguard was removed.

@@ -34,7 +34,7 @@ export async function readTeamCapture(c:TeamReceiptComposition,saleId:string,buy
  if(pi.status!=="succeeded")return null;
  check(source.confirmation);
  if(source.confirmation.operation?.status!=="bound"){
-  await confirmTeamCollection(c,saleId,buyerId,{requestId:source.confirmation.request_id,kind:source.confirmation.kind,tokenId:source.confirmation.token_id,recoveryOnly:true});
+  await confirmTeamCollection(c,saleId,buyerId,{requestId:source.confirmation.request_id,kind:source.confirmation.kind,tokenId:source.confirmation.token_id,recoveryOnly:true,...(source.contract.periodNumber>1?{obligationId:source.contract.obligationId}:{})});
   source=await read();check(source?.confirmation);
  }
  const saved=source,confirmation=saved.confirmation!,operation=confirmation.operation;
