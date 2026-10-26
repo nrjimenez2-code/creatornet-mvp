@@ -1,10 +1,15 @@
 import {NextRequest} from "next/server";
 import {createTeamPaymentContext} from "@/lib/salesTeams/context";
 import {readBuyerTeamSale,requireTeamCheckout} from "@/lib/salesTeams/checkout";
-import {teamId,TeamSalesError,teamPaymentSchemaReady,teamPaymentCollectionReady,teamReceiptRecordingReady,teamFulfillmentReady,teamLaterCollectionSchemaReady,teamLaterCollectionReady,teamPayoffCollectionReady,teamLifecycleSchemaReady} from "@/lib/salesTeams/policy";
+import {teamId,TeamSalesError,teamPaymentSchemaReady,teamPaymentCollectionReady,teamReceiptRecordingReady,teamFulfillmentReady,teamLaterCollectionSchemaReady,teamLaterCollectionReady,teamPayoffCollectionReady,teamLifecycleSchemaReady,teamCollectionRetrySchemaReady,teamCollectionRetryReady} from "@/lib/salesTeams/policy";
 import {teamError,teamJson,teamRpc} from "@/lib/salesTeams/server";
-import {readTeamCollection,readTeamCollectionOverview,teamCollectionView,prepareTeamCollection,prepareNextTeamCollection,confirmTeamCollection,stopTeamCollection} from "@/lib/salesTeams/collection";
+import {readTeamCollection,readTeamCollectionOverview,teamCollectionView,prepareTeamCollection,prepareNextTeamCollection,confirmTeamCollection,stopTeamCollection,type TeamCollection} from "@/lib/salesTeams/collection";
 import {recordTeamCapture} from "@/lib/salesTeams/receipts";
+function collectionReady(saved:TeamCollection){
+ const payoff=saved.obligation?.payment_kind==="monthly_payoff"||saved.attempt?.contract.kind==="monthly_payoff";
+ if(saved.retry_agreement_id)return teamCollectionRetryReady()&&(!payoff||teamPayoffCollectionReady());
+ if(payoff)return teamPayoffCollectionReady();return saved.obligation&&saved.obligation.period_number>1?teamLaterCollectionReady():teamPaymentCollectionReady();
+}
 async function owned(req:NextRequest,params:Promise<{saleId:string}>){
  if(!teamPaymentSchemaReady())throw new TeamSalesError("TEAM_PAYMENT_NOT_ENABLED","This payment path is not enabled.",404);
  const {saleId}=await params,{admin,user,sale}=await readBuyerTeamSale(req,saleId);
@@ -14,7 +19,7 @@ async function owned(req:NextRequest,params:Promise<{saleId:string}>){
 export async function GET(req:NextRequest,{params}:{params:Promise<{saleId:string}>}){
  try{const {saleId,admin,user}=await owned(req,params);
   if(teamLaterCollectionSchemaReady()){
-   const overview=await readTeamCollectionOverview({admin},saleId,user.id);return teamJson({payment:teamCollectionView(overview.payment),collectionEnabled:overview.payment.obligation?.payment_kind==="monthly_payoff"?teamPayoffCollectionReady():overview.payment.obligation&&overview.payment.obligation.period_number>1?teamLaterCollectionReady():teamPaymentCollectionReady(),nextPayment:overview.nextPayment,laterCollectionEnabled:teamLaterCollectionReady(),...(teamLifecycleSchemaReady()?{lifecycleAvailable:true}:{})});
+   const overview=await readTeamCollectionOverview({admin},saleId,user.id);return teamJson({payment:teamCollectionView(overview.payment),collectionEnabled:collectionReady(overview.payment),nextPayment:overview.nextPayment,laterCollectionEnabled:teamLaterCollectionReady(),...(teamLifecycleSchemaReady()?{lifecycleAvailable:true}:{}),...(teamCollectionRetrySchemaReady()?{retryAvailable:true}:{})});
   }
   return teamJson({payment:teamCollectionView(await readTeamCollection({admin},saleId,user.id)),collectionEnabled:teamPaymentCollectionReady()});}
  catch(error){return teamError(error);}
@@ -29,8 +34,9 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
   let obligationId=body.obligation_id===undefined?null:teamId(body.obligation_id);
   const target=():[]|[string]=>obligationId?[obligationId]:[];
   if((obligationId||action==="prepare_next")&&!teamLaterCollectionSchemaReady())throw new TeamSalesError("TEAM_LATER_COLLECTION_NOT_ENABLED","Later payments are not enabled.",404);
-  const selected=obligationId?await readTeamCollection({admin},saleId,user.id,obligationId):null,payoff=selected?.obligation?.payment_kind==="monthly_payoff"||selected?.attempt?.contract.kind==="monthly_payoff";
-  const assertNew=()=>{if(!obligationId&&action!=="prepare_next")requireTeamCheckout();const ready=payoff?teamPayoffCollectionReady():obligationId||action==="prepare_next"?teamLaterCollectionReady():teamPaymentCollectionReady();if(!ready)throw new TeamSalesError("TEAM_PAYMENT_COLLECTION_HELD","New payments are currently held.");};
+  const selected=obligationId?await readTeamCollection({admin},saleId,user.id,obligationId):null;
+  if(obligationId&&selected?.obligation?.id!==obligationId)throw new TeamSalesError("ORIGINAL_TEAM_OBLIGATION_REQUIRED","Refresh the exact owned payment before continuing.");
+  const assertNew=()=>{if(!obligationId&&action!=="prepare_next")requireTeamCheckout();const ready=selected?collectionReady(selected):obligationId||action==="prepare_next"?teamLaterCollectionReady():teamPaymentCollectionReady();if(!ready)throw new TeamSalesError("TEAM_PAYMENT_COLLECTION_HELD","New payments are currently held.");};
   if(["prepare","prepare_next","confirm","reconfirm"].includes(action))assertNew();
   if(["confirm","reconfirm","resume"].includes(action))teamId(body.request_id);
   if(action==="confirm"&&!/^ctoken_[A-Za-z0-9]+$/.test(body.confirmation_token))throw new TeamSalesError("INVALID_CONFIRMATION_TOKEN","Enter payment details before confirming.",400);
@@ -55,6 +61,6 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
    payment=teamCollectionView(await readTeamCollection(composition,saleId,user.id,...target()));
   }
   const overview=teamLaterCollectionSchemaReady()?await readTeamCollectionOverview({admin},saleId,user.id):null;
-  return teamJson({payment,collectionEnabled:payoff?teamPayoffCollectionReady():obligationId?teamLaterCollectionReady():teamPaymentCollectionReady(),...(overview?{nextPayment:overview.nextPayment,laterCollectionEnabled:teamLaterCollectionReady()}:{}),...(teamLifecycleSchemaReady()?{lifecycleAvailable:true}:{})});
+  return teamJson({payment,collectionEnabled:selected?collectionReady(selected):obligationId?teamLaterCollectionReady():teamPaymentCollectionReady(),...(overview?{nextPayment:overview.nextPayment,laterCollectionEnabled:teamLaterCollectionReady()}:{}),...(teamLifecycleSchemaReady()?{lifecycleAvailable:true}:{}),...(teamCollectionRetrySchemaReady()?{retryAvailable:true}:{})});
  }catch(error){return teamError(error);}
 }

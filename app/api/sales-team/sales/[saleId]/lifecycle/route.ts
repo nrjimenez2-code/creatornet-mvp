@@ -1,7 +1,7 @@
 import {NextRequest} from "next/server";
 import {readBuyerTeamSale} from "@/lib/salesTeams/checkout";
 import {createTeamPaymentContext} from "@/lib/salesTeams/context";
-import {teamId,TeamSalesError,teamLifecycleSchemaReady,teamPayoffCollectionReady,teamLaterCollectionReady,teamPaymentCollectionReady} from "@/lib/salesTeams/policy";
+import {teamId,TeamSalesError,teamLifecycleSchemaReady,teamPayoffCollectionReady,teamLaterCollectionReady,teamPaymentCollectionReady,teamCollectionRetrySchemaReady,teamCollectionRetryReady} from "@/lib/salesTeams/policy";
 import {teamError,teamJson} from "@/lib/salesTeams/server";
 import {readTeamExitQuote,requestTeamExit,prepareTeamPayoff,readTeamCollectionOverview,stopTeamCollection,teamCollectionView} from "@/lib/salesTeams/collection";
 async function owned(req:NextRequest,params:Promise<{saleId:string}>){
@@ -23,12 +23,12 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
    if(!teamPayoffCollectionReady())throw new TeamSalesError("TEAM_PAYOFF_COLLECTION_HELD","New payoff payments are currently held.");
    if(!/^[a-f0-9]{64}$/.test(body.fingerprint))throw new TeamSalesError("CURRENT_TEAM_PAYOFF_QUOTE_REQUIRED","Refresh and review the current payoff quote.",400);
    const prepared=await prepareTeamPayoff(createTeamPaymentContext(),saleId,user.id,{requestId:body.request_id,fingerprint:body.fingerprint,accepted:true});
-   return teamJson({payment:prepared.view,collectionEnabled:teamPayoffCollectionReady(),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,quote:await readTeamExitQuote({admin},saleId,user.id)});
+   return teamJson({payment:prepared.view,collectionEnabled:teamPayoffCollectionReady(),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,...(teamCollectionRetrySchemaReady()?{retryAvailable:true}:{}),quote:await readTeamExitQuote({admin},saleId,user.id)});
   }
   const quote=await requestTeamExit({admin},saleId,user.id,{requestId:body.request_id,kind:body.action,accepted:true}),overview=await readTeamCollectionOverview({admin},saleId,user.id),saved=overview.payment;
   const cancelOriginal=body.action==="revoke_debits"||body.action==="stop_renewal"&&saved.obligation&&saved.obligation.period_number>quote.minimumMonths;
   const payment=cancelOriginal&&!saved.receipt?await stopTeamCollection(createTeamPaymentContext(),saleId,user.id,saved.obligation?.id??null):teamCollectionView(saved);
   const payoff=saved.obligation?.payment_kind==="monthly_payoff";
-  return teamJson({quote:await readTeamExitQuote({admin},saleId,user.id),payment,collectionEnabled:payoff?teamPayoffCollectionReady():saved.obligation&&saved.obligation.period_number>1?teamLaterCollectionReady():teamPaymentCollectionReady(),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true});
+  return teamJson({quote:await readTeamExitQuote({admin},saleId,user.id),payment,collectionEnabled:saved.retry_agreement_id?teamCollectionRetryReady()&&(!payoff||teamPayoffCollectionReady()):payoff?teamPayoffCollectionReady():saved.obligation&&saved.obligation.period_number>1?teamLaterCollectionReady():teamPaymentCollectionReady(),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,...(teamCollectionRetrySchemaReady()?{retryAvailable:true}:{})});
  }catch(error){return teamError(error);}
 }

@@ -13,7 +13,7 @@ type Composition={admin:SupabaseClient;stripe:Pick<Stripe,"rawRequest">;context:
 type Json=Record<string,unknown>;
 type SavedConfirmation={operation_id:string;operation_status?:string|null;request_id:string;step_number:number;kind:"token"|"reconfirm";token_id:string;token_proof:TeamTokenProof;request:TeamProviderRequest;state_id:string};
 type State={id:string;status:string;payment_intent_id:string;payment_method_id:string|null;proof:Json;observed_at:string};
-export type TeamCollection={collection_expires_at?:string;collection_stop_requested?:boolean;sale:{id:string;buyer_id:string;creator_id:string;context:ExactPaymentContext;terms:TeamPaymentContract["terms"];fingerprint:string;accepted_at:string};
+export type TeamCollection={collection_expires_at?:string;collection_stop_requested?:boolean;retry_agreement_id?:string;sale:{id:string;buyer_id:string;creator_id:string;context:ExactPaymentContext;terms:TeamPaymentContract["terms"];fingerprint:string;accepted_at:string};
  setup:{customer_operation_id:string;customer_request:TeamProviderRequest;context:ExactPaymentContext;expires_at:string;created_at:string}|null;
  runtime:{customer_id:string|null;stop_requested_at:string|null;canceled_at:string|null;financial_hold:boolean}|null;
  obligation:{id:string;amount_cents:number;period_number:number;payment_kind?:"payment"|"monthly_payoff"}|null;attempt:{contract:TeamPaymentContract;intent_operation_id:string;request:TeamProviderRequest}|null;
@@ -67,11 +67,12 @@ async function observeState(c:Composition,s:TeamCollection,pi:Stripe.PaymentInte
  await assertContext(c,s);await teamRpc(c.admin,"record_sales_team_payment_state_v1",{p_obligation_id:s.attempt.contract.obligationId,p_proof:proof});return proof;
 }
 export function teamCollectionView(s:TeamCollection,pi?:Stripe.PaymentIntent){
- const stopped=s.obligation?.payment_kind==="monthly_payoff"?s.collection_stop_requested===true:Boolean(s.runtime?.stop_requested_at);
+ const stopped=s.retry_agreement_id||s.obligation?.payment_kind==="monthly_payoff"?s.collection_stop_requested===true:Boolean(s.runtime?.stop_requested_at);
  const phase=s.receipt?s.receipt.held?"payment_review":s.receipt.fulfilled?"paid":"receipt_verified":s.closed?"stopped":s.state?.status==="succeeded"?"captured_pending_receipt":s.obligation&&s.obligation.period_number>1&&stopped&&s.state?.status==="canceled"?"later_stopped":stopped?"stop_pending":!s.attempt?"not_started":
   s.state?.status==="requires_payment_method"?"needs_method":s.state?.status??"review_required";
  return {phase,amountCents:s.obligation?.amount_cents??s.sale.terms.payments[0].amountCents,currency:"usd",saveForFuture:s.sale.terms.paymentKind!=="full"&&s.obligation?.payment_kind!=="monthly_payoff"&&s.attempt?.contract.kind!=="monthly_payoff",
   ...(s.obligation&&s.obligation.period_number>1?{obligationId:s.obligation.id,periodNumber:s.obligation.period_number}:{}),
+  ...(s.retry_agreement_id?{retryAttempt:true}:{}),
   automaticDebitsStopped:Boolean(s.runtime?.stop_requested_at),
   ...(phase==="requires_action"&&pi?.status==="requires_action"&&pi.client_secret?{clientSecret:pi.client_secret}:{}),
   pendingRequest:s.confirmation&&s.confirmation.operation_status!=="bound"?{id:s.confirmation.request_id,kind:s.confirmation.kind}:null};
@@ -144,6 +145,15 @@ export async function prepareTeamPayoff(c:Composition,saleId:string,buyerId:stri
  const selected=await teamRpc<TeamCollection>(c.admin,"accept_sales_team_payoff_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),p_request_id:teamId(input.requestId),p_fingerprint:input.fingerprint,p_accepted:input.accepted,p_context:c.context});
  check(selected.obligation?.payment_kind==="monthly_payoff");return prepareTeamCollection(c,saleId,buyerId,true,selected.obligation.id);
 }
+export type TeamRetryQuote={version:"creatornet-team-manual-retry-v1";saleId:string;originalObligationId:string|null;periodNumber:number;amountCents:number;currency:"usd";paymentKind:"payment"|"monthly_payoff";dueAt:string;periodEnd:string|null;windowSeconds:number;authorization:string;fingerprint:string};
+export async function readTeamRetryQuote(c:Pick<Composition,"admin">,saleId:string,buyerId:string,originalObligationId:string|null=null){
+ return teamRpc<{status:"ready"|"review_required";quote?:TeamRetryQuote}>(c.admin,"read_sales_team_retry_quote_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),p_original_obligation_id:originalObligationId?teamId(originalObligationId):null});
+}
+export async function prepareTeamCollectionRetry(c:Composition,saleId:string,buyerId:string,input:{requestId:string;originalObligationId:string|null;fingerprint:string;accepted:boolean}){
+ const original=await readTeamCollection(c,saleId,buyerId);await assertContext(c,original);
+ const selected=await teamRpc<TeamCollection>(c.admin,"accept_sales_team_collection_retry_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),p_request_id:teamId(input.requestId),p_original_obligation_id:input.originalObligationId?teamId(input.originalObligationId):null,p_fingerprint:input.fingerprint,p_accepted:input.accepted,p_context:c.context});
+ check(selected.retry_agreement_id&&selected.obligation);return prepareTeamCollection(c,saleId,buyerId,true,selected.obligation.id);
+}
 
 async function assertReconfirmation(c:Composition,s:TeamCollection,pi:Stripe.PaymentIntent,proof:TeamTokenProof){
  check(s.attempt&&pi.status==="requires_confirmation"&&objectId(pi.payment_method)===s.state?.payment_method_id);
@@ -198,18 +208,19 @@ export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:
 
 export async function stopTeamCollection(c:Composition,saleId:string,buyerId:string,obligationId:string|null=null){
  const read=()=>readTeamCollection(c,saleId,buyerId,obligationId);
- const selected=obligationId?await read():null,payoff=selected?.obligation?.payment_kind==="monthly_payoff";
- await teamRpc(c.admin,payoff?"stop_sales_team_payoff_v1":"stop_sales_team_payment_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),...(payoff?{p_obligation_id:obligationId}:{})});
+ const selected=obligationId?await read():null,payoff=selected?.obligation?.payment_kind==="monthly_payoff",retry=Boolean(selected?.retry_agreement_id);
+ await teamRpc(c.admin,retry?"stop_sales_team_collection_retry_v1":payoff?"stop_sales_team_payoff_v1":"stop_sales_team_payment_v1",{p_sale_id:teamId(saleId),p_buyer_id:teamId(buyerId),...(payoff||retry?{p_obligation_id:obligationId}:{})});
  let s=await read();await assertContext(c,s);if(s.closed||s.receipt)return teamCollectionView(s);
  if(!s.attempt||!await prior(c,s.attempt.intent_operation_id)){
   if(!s.obligation||s.obligation.period_number===1)await teamRpc(c.admin,"close_unpaid_sales_team_payment_v1",{p_sale_id:saleId,p_buyer_id:buyerId,p_proof:{noIntentDispatched:true}});return teamCollectionView(await read());
  }
  const original=await prepareTeamCollection(c,saleId,buyerId,false,obligationId);s=original.saved;check(s.attempt&&original.pi);let pi=original.pi;
  if(pi.status==="succeeded"||pi.status==="processing")return teamCollectionView(s,pi);
- if(pi.status!=="canceled"){
+ const cancellationScope=scope(s,"cancellation",`cancel:${s.attempt.contract.obligationId}`),cancellation=await prior(c,teamOperationId(cancellationScope));
+ if(pi.status!=="canceled"||cancellation&&cancellation.status!=="bound"){
   const request:TeamProviderRequest={method:"POST",apiVersion:TEAM_STRIPE_API_VERSION,path:`/v1/payment_intents/${pi.id}/cancel`,params:{cancellation_reason:"requested_by_customer"}};
   const retrieve=async()=>{const value=await originalIntent(c,s,pi.id);return {id:value.id,requestId:requestId(value),pi:value};},evidence=await c.observeEvidence();
-  const result=await runTeamProviderOperation({admin:c.admin,scope:scope(s,"cancellation",`cancel:${s.attempt.contract.obligationId}`),context:c.context,observeContext:c.observeContext,request,
+  const result=await runTeamProviderOperation({admin:c.admin,scope:cancellationScope,context:c.context,observeContext:c.observeContext,request,
    assertSource:async()=>{const fresh=await read();check(fresh.runtime?.stop_requested_at);},
    create:async(r,o)=>{const value=await c.stripe.rawRequest(r.method,r.path,r.params,o) as unknown as Stripe.PaymentIntent;return {id:value.id,requestId:requestId(value),pi:value};},retrieve,
    reconcileUnknown:async()=>{const value=await retrieve();return ["canceled","succeeded"].includes(value.pi.status)?value:null;},

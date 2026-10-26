@@ -62,7 +62,7 @@ test("foreign origins and unaccepted reviews cannot reach provider access",async
 });
 
 const obligation="00000000-0000-4000-8000-000000000092";
-const later=()=>{enabled();delete process.env.CREATOR_SALES_TEAM_READY;delete process.env.CREATOR_TEAM_SALES_CHECKOUT_READY;process.env.CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY="true";process.env.CREATOR_TEAM_LATER_COLLECTION_READY="true";};
+const later=()=>{enabled();delete process.env.CREATOR_SALES_TEAM_READY;delete process.env.CREATOR_TEAM_SALES_CHECKOUT_READY;process.env.CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY="true";process.env.CREATOR_TEAM_LATER_COLLECTION_READY="true";read.mockResolvedValue({view,obligation:{id:obligation,period_number:2,payment_kind:"payment"}});};
 test("later collection is independently default off before provider composition",async()=>{
  enabled();expect((await POST(request({action:"prepare_next"}),context)).status).toBe(404);expect(compose).not.toHaveBeenCalled();
  process.env.CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY="true";expect((await POST(request({action:"prepare_next"}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();
@@ -96,4 +96,10 @@ test("a saved payoff cannot borrow ordinary later-payment readiness",async()=>{
  later();read.mockResolvedValue({obligation:{id:obligation,payment_kind:"monthly_payoff"}});
  expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_payoff",obligation_id:obligation}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();
  process.env.CREATOR_TEAM_PAYMENT_LIFECYCLE_SCHEMA_READY="true";process.env.CREATOR_TEAM_PAYOFF_COLLECTION_READY="true";expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_payoff",obligation_id:obligation}),context)).status).toBe(200);
+});
+test("an explicit obligation cannot borrow a different owned read or ordinary readiness",async()=>{
+ later();read.mockResolvedValue({view,obligation:{id:sale,period_number:1,payment_kind:"payment"}});expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_other",obligation_id:obligation}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();
+});
+test("a manual retry keeps its independent readiness even when ordinary later collection is ready",async()=>{
+ later();read.mockResolvedValue({view,retry_agreement_id:requestId,obligation:{id:obligation,period_number:2,payment_kind:"payment"}});expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_retry",obligation_id:obligation}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();process.env.CREATOR_TEAM_PAYMENT_LIFECYCLE_SCHEMA_READY="true";process.env.CREATOR_TEAM_COLLECTION_RETRY_SCHEMA_READY="true";process.env.CREATOR_TEAM_COLLECTION_RETRY_READY="true";expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_retry",obligation_id:obligation}),context)).status).toBe(200);
 });

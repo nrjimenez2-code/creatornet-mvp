@@ -68,3 +68,9 @@ test("reload retains a later uncertain confirmation's exact obligation",async()=
 test("a safely canceled later payment keeps the earlier Library purchase visible",async()=>{
  phase="later_stopped";obligationId="later-owned";periodNumber=2;await mount();expect(container.textContent).toContain("earlier paid purchase remains in your Library");expect(container.textContent).not.toContain("safely closed unpaid");expect(container.querySelector('a[href="/library"]')).not.toBeNull();expect(buttons().some(b=>b.textContent==="Stop this payment")).toBe(false);
 });
+test("a server-admitted new retry clears only the older closed browser confirmation",async()=>{
+ phase="needs_method";obligationId="new-retry";periodNumber=2;sessionStorage.setItem("creatornet-team-confirmation-v1:buyer:sale",JSON.stringify({id:"old-request",kind:"token",token:"ctoken_old",obligationId:"closed-original"}));fetchMock.mockResolvedValue(response({payment:{...view(),retryAttempt:true},collectionEnabled:true}));await mount();expect(sessionStorage.getItem("creatornet-team-confirmation-v1:buyer:sale")).toBeNull();expect(buttons().some(b=>b.textContent?.startsWith("Pay $"))).toBe(true);expect(token).not.toHaveBeenCalled();
+});
+test("a retry's own uncertain confirmation remains preserved on reload",async()=>{
+ phase="needs_method";obligationId="same-retry";periodNumber=2;sessionStorage.setItem("creatornet-team-confirmation-v1:buyer:sale",JSON.stringify({id:"current-request",kind:"token",token:"ctoken_current",obligationId:"same-retry"}));fetchMock.mockResolvedValue(response({payment:{...view(),retryAttempt:true},collectionEnabled:true}));await mount();expect(sessionStorage.getItem("creatornet-team-confirmation-v1:buyer:sale")).toContain("current-request");expect(buttons().some(b=>b.textContent?.startsWith("Pay $"))).toBe(false);expect(button("Check original confirmation")).toBeDefined();
+});

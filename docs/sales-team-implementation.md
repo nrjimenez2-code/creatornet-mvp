@@ -1572,3 +1572,65 @@ The executable/SQL/test input hashes captured before the run remained unchanged;
 only this documentation followed. These are disposable structural PGlite/mocked
 provider checks, not complete CI, installed/historical schema, real contention,
 browser/provider or hosted acceptance.
+
+### F37 — explicit manual retry after conclusive original closure (local candidate)
+
+The CLI-generated `20261026193046_sales_team_expired_collection_retry.sql` adds
+independently default-off manual retry authority. It never extends an original
+window or changes an original request, operation, idempotency key or provider
+identity. A new owned quote derives the exact accepted unpaid period, amount,
+customer, capture anchor, coverage and context. The buyer must explicitly accept
+its current fingerprint. Global automatic-debit Stop remains saved throughout.
+
+A prior payment must be conclusively never journaled or independently canceled
+and unpaid, with every original confirmation/cancellation journal reconciled.
+Processing, captured or unknown activity blocks replacement. Frozen closure
+proof retains the original attempt, terminal provider journal and observed state;
+subsequent reads may refresh the canceled state without rewriting that proof.
+Fresh operations on replaced ancestors are denied. Each retry requires its own
+Stop before another retry, even if its intent was never dispatched. Single-child
+lineage and active-period uniqueness prevent competing attempts. Replayed
+acceptance returns its exact saved obligation and rejects identity changes.
+
+Manual regular payments can continue the accepted fixed or monthly schedule
+while debit permission remains stopped. A new never-prepared due period has no
+parent but cannot bypass an existing original. Monthly authority ends at its
+original service boundary; a one-time minimum-payoff retry retains the original
+payoff acceptance and minimum end. An existing payoff prevents ordinary debt
+from being collected alongside it. Each new window lasts at most 24 hours and
+never extends a service boundary. A bounded retry count requires review after
+24 attempts in the same period. Historical agreements are not backfilled.
+
+Dispatch repeats financial controls, current coverage/customer/terms, original
+closure, review/receipt/event/check guards, per-attempt Stop and window expiry.
+Late control loss rolls back the new obligation, authority and window together.
+Already dispatched unknown/bound outcomes keep their original-only read/bind
+recovery after expiry or new-money disable. An uncertain cancellation drains its
+existing journal even if an independent read already shows the intent canceled;
+it does not issue another cancellation POST.
+
+The three new private history tables have RLS, immutable records and service
+SELECT-only access. Named definitions extend all four financial digests, and
+the raw predecessor payoff-acceptance alias is sealed. Dependency or final-grant
+failure restores tables, indexes, foreign keys, definitions, aliases and grants
+transactionally. Existing shared capture, Library, commission and financial
+recovery implementations remain authoritative.
+
+The same-origin owned API rejects caller-selected amounts, dates, kinds and
+actors. Retry and payoff readiness are separate. The buyer screen reads a quote
+without creating money, requires an explicit checkbox, refreshes session identity
+before preparing and then uses the existing manual confirmation screen. A lost
+preparation acknowledgement is recovered by viewing the current original.
+Server-attested replacement clears only an older closed browser confirmation;
+the current retry's own uncertain confirmation remains preserved and blocks
+another card submission. React review covers hooks, unmount/abort handling,
+explicit consent, accessible controls and type-only server imports.
+
+The final executable input hashes and integrated/static results are recorded at
+the F37 checkpoint. This candidate is local, uninstalled and default off. It does
+not implement automatic off-session collection or reusable saved-method consent.
+Those, method/SCA recovery, protected daily surplus, bank observations/alerts and
+final creator/closer views remain required. Full installed/historical/security/
+contention and complete CI/build/browser gates, actual approved provider and
+commercial prerequisites, separately authorized external sandbox and distinct
+Production/LIVE activation with confirmed BANK evidence remain outstanding.
