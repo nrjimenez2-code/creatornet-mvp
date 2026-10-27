@@ -4,6 +4,7 @@ import {createTeamPaymentContext} from "@/lib/salesTeams/context";
 import {teamId,TeamSalesError,teamLifecycleSchemaReady,teamPayoffCollectionReady,teamLaterCollectionReady,teamPaymentCollectionReady,teamCollectionRetrySchemaReady,teamCollectionRetryReady} from "@/lib/salesTeams/policy";
 import {teamError,teamJson} from "@/lib/salesTeams/server";
 import {readTeamExitQuote,requestTeamExit,prepareTeamPayoff,readTeamCollectionOverview,stopTeamCollection,teamCollectionView} from "@/lib/salesTeams/collection";
+import {savedMethodPaymentResponse} from "@/lib/salesTeams/savedMethod";
 async function owned(req:NextRequest,params:Promise<{saleId:string}>){
  if(!teamLifecycleSchemaReady())throw new TeamSalesError("TEAM_LIFECYCLE_NOT_ENABLED","Payment plan management is not enabled.",404);
  const {saleId}=await params,{admin,user,sale}=await readBuyerTeamSale(req,saleId);
@@ -29,6 +30,6 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
   const cancelOriginal=body.action==="revoke_debits"||body.action==="stop_renewal"&&saved.obligation&&saved.obligation.period_number>quote.minimumMonths;
   const payment=cancelOriginal&&!saved.receipt?await stopTeamCollection(createTeamPaymentContext(),saleId,user.id,saved.obligation?.id??null):teamCollectionView(saved);
   const payoff=saved.obligation?.payment_kind==="monthly_payoff";
-  return teamJson({quote:await readTeamExitQuote({admin},saleId,user.id),payment,collectionEnabled:saved.retry_agreement_id?teamCollectionRetryReady()&&(!payoff||teamPayoffCollectionReady()):payoff?teamPayoffCollectionReady():saved.obligation&&saved.obligation.period_number>1?teamLaterCollectionReady():teamPaymentCollectionReady(),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,...(teamCollectionRetrySchemaReady()?{retryAvailable:true}:{})});
+  return teamJson({quote:await readTeamExitQuote({admin},saleId,user.id),payment,collectionEnabled:saved.retry_agreement_id?teamCollectionRetryReady()&&(!payoff||teamPayoffCollectionReady()):payoff?teamPayoffCollectionReady():saved.obligation&&saved.obligation.period_number>1?teamLaterCollectionReady():teamPaymentCollectionReady(),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,...(teamCollectionRetrySchemaReady()?{retryAvailable:true}:{}),...await savedMethodPaymentResponse(admin,saleId,user.id,payment)});
  }catch(error){return teamError(error);}
 }

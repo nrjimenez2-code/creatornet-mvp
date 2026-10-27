@@ -7,11 +7,12 @@ import {prepareSessionNavigation} from "@/lib/browserSession";
 import {useTeamApi} from "@/lib/salesTeams/client";
 import TeamBuyerLifecycle from "./TeamBuyerLifecycle";
 import TeamBuyerRetry from "./TeamBuyerRetry";
+import type {TeamSavedMethodQuote,TeamSavedMethodAcceptance} from "@/lib/salesTeams/savedMethod";
 
 type Payment={phase:string;amountCents:number;currency:string;saveForFuture:boolean;obligationId?:string;periodNumber?:number;retryAttempt?:boolean;automaticDebitsStopped?:boolean;clientSecret?:string;pendingRequest:{id:string;kind:"token"|"reconfirm"}|null};
-type Pending={id:string;kind:"token"|"reconfirm";token?:string;obligationId?:string};
+type Pending={id:string;kind:"token"|"reconfirm";token?:string;obligationId?:string;savedMethodConsent?:TeamSavedMethodAcceptance};
 type NextPayment={status:"due"|"not_due"|"complete";periodNumber?:number;amountCents?:number;dueAt?:string};
-export type PaymentResponse={payment:Payment;collectionEnabled:boolean;nextPayment?:NextPayment;laterCollectionEnabled?:boolean;lifecycleAvailable?:boolean;retryAvailable?:boolean};
+export type PaymentResponse={payment:Payment;collectionEnabled:boolean;nextPayment?:NextPayment;laterCollectionEnabled?:boolean;lifecycleAvailable?:boolean;retryAvailable?:boolean;savedMethodConsentRequired?:boolean;savedMethodConsentEnabled?:boolean;savedMethodConsent?:TeamSavedMethodQuote|null;savedMethodStatus?:string};
 type Elements={stripe:Stripe;elements:StripeElements;payment:StripePaymentElement;address:StripeAddressElement};
 const descriptions:Record<string,string>={not_started:"Prepare your payment to enter card details.",needs_method:"Enter your card and complete US billing address.",requires_action:"Your bank needs to verify this payment.",
  requires_confirmation:"Bank verification is complete. Continue to finish your payment.",processing:"Your original payment is processing. Check its status before taking another action.",
@@ -22,13 +23,15 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
  const [nextPayment,setNextPayment]=useState<NextPayment|undefined>(),[laterEnabled,setLaterEnabled]=useState(false);
  const [lifecycleAvailable,setLifecycleAvailable]=useState(false);
  const [retryAvailable,setRetryAvailable]=useState(false),[planRevision,setPlanRevision]=useState(0);
+ const [consent,setConsent]=useState<TeamSavedMethodQuote|null>(null),[consentRequired,setConsentRequired]=useState(false),[consentEnabled,setConsentEnabled]=useState(false),[consentAccepted,setConsentAccepted]=useState(false),[savedMethodStatus,setSavedMethodStatus]=useState<string|undefined>();
  const mounted=useRef(true),busyRef=useRef(false),paymentNode=useRef<HTMLDivElement>(null),addressNode=useRef<HTMLDivElement>(null),provider=useRef<Elements|null>(null);
  const storageKey=`creatornet-team-confirmation-v1:${userId}:${saleId}`,path=`/api/sales-team/sales/${encodeURIComponent(saleId)}/payment`;
- const update=(data:PaymentResponse)=>{if(mounted.current){if(data.payment.retryAttempt&&data.payment.obligationId&&pending&&pending.obligationId!==data.payment.obligationId){sessionStorage.removeItem(storageKey);setPending(null);}if(data.payment.phase!==view?.phase||data.payment.amountCents!==view?.amountCents||data.payment.saveForFuture!==view?.saveForFuture||data.payment.obligationId!==view?.obligationId)setReady(false);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);setLifecycleAvailable(data.lifecycleAvailable===true);setRetryAvailable(data.retryAvailable===true);setPlanRevision(n=>n+1);}};
+ const applyConsent=(data:PaymentResponse)=>{if(data.savedMethodConsent?.fingerprint!==consent?.fingerprint)setConsentAccepted(false);setConsent(data.savedMethodConsent??null);setConsentRequired(data.savedMethodConsentRequired===true);setConsentEnabled(data.savedMethodConsentEnabled===true);setSavedMethodStatus(data.savedMethodStatus);};
+ const update=(data:PaymentResponse)=>{if(mounted.current){applyConsent(data);if(data.payment.retryAttempt&&data.payment.obligationId&&pending&&pending.obligationId!==data.payment.obligationId){sessionStorage.removeItem(storageKey);setPending(null);}if(data.payment.phase!==view?.phase||data.payment.amountCents!==view?.amountCents||data.payment.saveForFuture!==view?.saveForFuture||data.payment.obligationId!==view?.obligationId)setReady(false);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);setLifecycleAvailable(data.lifecycleAvailable===true);setRetryAvailable(data.retryAvailable===true);setPlanRevision(n=>n+1);}};
  useEffect(()=>{mounted.current=true;const controller=new AbortController();
   let saved:Pending|null=null,storageError:string|null=null;
   try{const value=JSON.parse(sessionStorage.getItem(storageKey)||"null");if(value&&typeof value.id==="string"&&["token","reconfirm"].includes(value.kind))saved=value;}catch{storageError="The original confirmation needs review before another payment.";}
-  void api(path,undefined,controller.signal).then(data=>{if(!controller.signal.aborted){if(data.payment.retryAttempt&&data.payment.obligationId&&saved&&saved.obligationId!==data.payment.obligationId){sessionStorage.removeItem(storageKey);saved=null;}setPending(saved);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);setLifecycleAvailable(data.lifecycleAvailable===true);setRetryAvailable(data.retryAvailable===true);if(storageError)setError(storageError);}}).catch(e=>{if(!controller.signal.aborted){setPending(saved);setError(e.message);}});
+  void api(path,undefined,controller.signal).then(data=>{if(!controller.signal.aborted){setConsentAccepted(false);setConsent(data.savedMethodConsent??null);setConsentRequired(data.savedMethodConsentRequired===true);setConsentEnabled(data.savedMethodConsentEnabled===true);setSavedMethodStatus(data.savedMethodStatus);if(data.payment.retryAttempt&&data.payment.obligationId&&saved&&saved.obligationId!==data.payment.obligationId){sessionStorage.removeItem(storageKey);saved=null;}setPending(saved);setView(data.payment);setEnabled(data.collectionEnabled);setNextPayment(data.nextPayment);setLaterEnabled(data.laterCollectionEnabled===true);setLifecycleAvailable(data.lifecycleAvailable===true);setRetryAvailable(data.retryAvailable===true);if(storageError)setError(storageError);}}).catch(e=>{if(!controller.signal.aborted){setPending(saved);setError(e.message);}});
   return()=>{mounted.current=false;controller.abort();};
  },[api,path,storageKey]);
  useEffect(()=>{
@@ -55,16 +58,18 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
    if(["prepare","prepare_next","pay","authenticate","reconfirm"].includes(action))await freshSession();
    if(action==="pay"){
     if(pending||view?.pendingRequest)throw Error("Check the original confirmation before entering another payment.");
+    if(consentRequired&&(!consentEnabled||!consent||!consentAccepted))throw Error("Review and accept the saved-card terms before continuing.");
     const p=provider.current;if(!p||!ready)throw Error("Wait for payment details to load.");const submitted=await p.elements.submit();if(submitted.error)throw Error(submitted.error.message||"Review your payment details.");
     const billing=await p.address.getValue();if(!billing.complete||billing.value.address.country!=="US")throw Error("Enter a complete US billing address.");
     const token=await p.stripe.createConfirmationToken({elements:p.elements,params:{payment_method_data:{billing_details:{name:billing.value.name,address:billing.value.address}},return_url:new URL(`/purchase/team/${saleId}`,window.location.origin).toString()}});
     if(token.error||!token.confirmationToken)throw Error(token.error?.message||"Payment details need review.");await freshSession();
-    const request={id:crypto.randomUUID(),kind:"token" as const,token:token.confirmationToken.id,...(view?.obligationId?{obligationId:view.obligationId}:{})};save(request);body={action:"confirm",request_id:request.id,confirmation_token:request.token,...selected};
+    const acceptance=consentRequired&&consent?{savedMethodConsent:{accepted:true as const,fingerprint:consent.fingerprint}}:{};
+    const request={id:crypto.randomUUID(),kind:"token" as const,token:token.confirmationToken.id,...(view?.obligationId?{obligationId:view.obligationId}:{}),...acceptance};save(request);body={action:"confirm",request_id:request.id,confirmation_token:request.token,...selected,...(request.savedMethodConsent?{saved_method_consent:request.savedMethodConsent}:{})};
    }else if(action==="reconfirm"){
     const request={id:crypto.randomUUID(),kind:"reconfirm" as const,...(view?.obligationId?{obligationId:view.obligationId}:{})};save(request);body={action:"reconfirm",request_id:request.id,...selected};
    }else if(action==="resume"){
     const request=pending??view?.pendingRequest;if(!request)throw Error("Refresh this payment to locate its original confirmation.");
-    body={action:"resume",request_id:request.id,...(pending?.token?{confirmation_token:pending.token}:{}),...(pending?pending.obligationId?{obligation_id:pending.obligationId}:{}:selected)};
+    body={action:"resume",request_id:request.id,...(pending?.token?{confirmation_token:pending.token}:{}),...(pending?pending.obligationId?{obligation_id:pending.obligationId}:{}:selected),...(pending?.savedMethodConsent?{saved_method_consent:pending.savedMethodConsent}:{})};
    }else if(action==="authenticate"){
     if(!view?.clientSecret){update(await api(path,{action:"refresh",...selected}));return;}
     const stripe=await loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY||"");if(!stripe)throw Error("Bank verification could not load.");
@@ -78,8 +83,13 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
   <h2>Payment</h2>{error?<p role="alert">{error}</p>:null}<p role="status">{view?descriptions[view.phase]??descriptions.review_required:"Loading your payment…"}</p>
   {view?.periodNumber?<p>Payment {view.periodNumber} of your accepted plan.</p>:null}
   {view?.phase==="needs_method"?<><div ref={paymentNode}/><div ref={addressNode}/></>:null}
+  {view?.phase==="needs_method"&&consentRequired?<fieldset disabled={busy||!consentEnabled||!!unresolved} className="space-y-2"><legend>Saved card permission</legend>
+   {consent?<><p>{consent.authorization}</p><p>{consent.paymentKind==="installments"?`Accepted payments: ${consent.payments.map(p=>new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(p.amountCents/100)).join(", ")}.`:`${new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(consent.monthlyAmountCents/100)} monthly; minimum ${consent.minimumMonths} months.${consent.autoRenew?" Renews monthly after the minimum until renewal is stopped.":" Ends after the accepted minimum."}`}</p><p>{consent.acceptedBilling}</p>
+    <label><input type="checkbox" checked={consentAccepted} onChange={event=>setConsentAccepted(event.target.checked)}/>{consent.automaticAuthorized?"I agree to the saved-card and automatic-payment terms above.":"I agree to save this card for manual payments only."}</label></>:<p>Refresh this payment to review its saved-card terms.</p>}
+  </fieldset>:null}
+  {savedMethodStatus==="review_required"?<p role="status">Your payment receipt is separate from saved-card permission. The saved card needs review before automatic payments can use it.</p>:null}
   {view?.phase==="not_started"?<button disabled={busy||!enabled} onClick={()=>void act("prepare")}>Prepare payment</button>:null}
-  {view?.phase==="needs_method"&&!unresolved?<button disabled={busy||!enabled||!ready} onClick={()=>void act("pay")}>Pay {new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(view.amountCents/100)}</button>:null}
+  {view?.phase==="needs_method"&&!unresolved?<button disabled={busy||!enabled||!ready||consentRequired&&(!consentEnabled||!consent||!consentAccepted)} onClick={()=>void act("pay")}>Pay {new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(view.amountCents/100)}</button>:null}
   {view?.phase==="requires_action"?<button disabled={busy} onClick={()=>void act("authenticate")}>Verify with your bank</button>:null}
   {view?.phase==="requires_confirmation"&&!unresolved?<button disabled={busy||!enabled} onClick={()=>void act("reconfirm")}>Complete payment</button>:null}
   {unresolved?<button disabled={busy} onClick={()=>void act("resume")}>Check original confirmation</button>:null}

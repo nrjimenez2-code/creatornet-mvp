@@ -4,6 +4,7 @@ import {createTeamPaymentContext} from "@/lib/salesTeams/context";
 import {teamId,TeamSalesError,teamCollectionRetrySchemaReady,teamCollectionRetryReady,teamPayoffCollectionReady,teamLaterCollectionReady} from "@/lib/salesTeams/policy";
 import {teamError,teamJson} from "@/lib/salesTeams/server";
 import {readTeamRetryQuote,prepareTeamCollectionRetry} from "@/lib/salesTeams/collection";
+import {savedMethodPaymentResponse} from "@/lib/salesTeams/savedMethod";
 async function owned(req:NextRequest,params:Promise<{saleId:string}>){
  if(!teamCollectionRetrySchemaReady())throw new TeamSalesError("TEAM_RETRY_NOT_ENABLED","Manual payment review is not enabled.",404);
  const {saleId}=await params,{admin,user,sale}=await readBuyerTeamSale(req,saleId);if(sale.status!=="accepted")throw new TeamSalesError("ACCEPT_CURRENT_TERMS","An accepted purchase is required.");return {saleId,admin,user};
@@ -27,6 +28,6 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
   else{const current=await readTeamRetryQuote({admin},saleId,user.id,original);if(current.status!=="ready"||!current.quote||current.quote.fingerprint!==body.fingerprint||current.quote.originalObligationId!==original)throw new TeamSalesError("CURRENT_TEAM_RETRY_QUOTE_REQUIRED","Refresh the original payment and review its current manual quote.");kind=current.quote.paymentKind;}
   if(kind==="monthly_payoff"&&!teamPayoffCollectionReady())throw new TeamSalesError("TEAM_PAYOFF_COLLECTION_HELD","New payoff payment attempts are currently held.");
   const prepared=await prepareTeamCollectionRetry(createTeamPaymentContext(),saleId,user.id,{requestId,originalObligationId:original,fingerprint:body.fingerprint,accepted:true});
-  return teamJson({payment:prepared.view,collectionEnabled:teamCollectionRetryReady()&&(kind!=="monthly_payoff"||teamPayoffCollectionReady()),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,retryAvailable:true});
+  return teamJson({payment:prepared.view,collectionEnabled:teamCollectionRetryReady()&&(kind!=="monthly_payoff"||teamPayoffCollectionReady()),laterCollectionEnabled:teamLaterCollectionReady(),lifecycleAvailable:true,retryAvailable:true,...await savedMethodPaymentResponse(admin,saleId,user.id,prepared.view)});
  }catch(error){return teamError(error);}
 }

@@ -1634,3 +1634,58 @@ final creator/closer views remain required. Full installed/historical/security/
 contention and complete CI/build/browser gates, actual approved provider and
 commercial prerequisites, separately authorized external sandbox and distinct
 Production/LIVE activation with confirmed BANK evidence remain outstanding.
+
+### F38 — written saved-card consent and verified ownership (local candidate)
+
+The CLI-generated `20261027021620_sales_team_saved_method_authority.sql`
+adds independently default-off `saved_method_enabled` plus source schema and
+readiness gates. It records a buyer's new, explicit written agreement for the
+exact accepted sale and current obligation before its card confirmation. The
+server derives the purpose, fixed cents or monthly amount/minimum/renewal terms,
+original UTC monthly schedule and Stop/cancellation disclosure. Browser input
+contains only acceptance and the current quote fingerprint; customer, payment
+identity, amounts, due dates, accepted terms and token proof stay server-owned.
+No historical agreement is enrolled or backfilled.
+
+The immutable consent binds the owned buyer, obligation, terms/context, original
+token preview proof and confirmation request ID. Confirmation insertion and
+post-claim provider dispatch enforce the saved consent when enabled. A changed
+quote, Stop or lost control prevents fresh dispatch, including reconfirmation;
+bound/unknown originals keep their existing read/reconciliation path with new
+money off. Exact acknowledgement replay retains its original authority.
+
+After independent capture and shared fulfillment, `savedMethod.ts` uses GET-only
+reads of the original intent, its used token and exact attached PaymentMethod.
+It checks the original customer and mode/context, US billing, the token preview's
+card fingerprint and expiry, fresh request IDs and unchanged owning source. The
+immutable saved-method record references the exact receipt, consent and bound
+confirmation. This reader never attaches, changes, confirms or charges a card.
+Current mutable card data does not gate captured-money accounting. A failed card
+proof leaves the verified Library payment intact and reports separate review.
+
+The owned buyer screen shows an unchecked saved-card permission checkbox and
+the actual accepted amounts. A changed quote clears acceptance; renewed session
+identity, busy/pending guards and persisted exact request/token/consent identity
+prevent another submission after an uncertain acknowledgement. Retry/lifecycle
+responses preserve the same requirement for regular manual payments. A new
+quote under saved global debit Stop permits manual use only; Stop is never
+cleared. Recording method evidence alone cannot authorize an automatic payment.
+
+Both new history tables have RLS, service SELECT-only access and immutable
+triggers. All four reviewed financial digests bind the named changed authority.
+Dependency and final-grant failures restore tables, control, aliases, definitions
+and grants transactionally. Twelve established financial/later-collection SQL
+chains now include F38; earlier candidates and legacy paths are preserved.
+
+The current receipts and exact source hashes are recorded at the F38 checkpoint.
+This candidate remains local, uninstalled and default off. It implements the
+written-consent/checked-card prerequisite; accepted automatic/off-session
+charging and method/SCA recovery still need their separate implementation.
+Protected daily surplus, independent bank observations/alerts, final views,
+installed/historical/security/contention and complete CI/full-suite/build/browser
+acceptance remain required. Approved actual commercial/provider inputs, scoped
+external sandbox acceptance and distinct Production/LIVE activation/confirmed
+BANK evidence remain separate gates. No hosted query, provider operation,
+deployment, scheduler registration or activation occurred in this stage.
+
+F38 current integrated receipt: 976/976 tests in 32 suites, no skips, 552.097 seconds, exit 0. All 152 captured executable/test/SQL hashes matched after completion. Full-tree incremental TypeScript passed; 24 changed/new TS/TSX/test files passed lint with zero errors/warnings. Selector 11, sandbox 141 and media 20 safeguards passed. These checks use disposable structural PGlite parents and mocked provider transport; they do not replace complete CI/full-suite/build/browser, installed/historical schema, real contention or external acceptance.

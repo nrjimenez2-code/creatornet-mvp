@@ -24,6 +24,7 @@ export function teamError(error:unknown) {
   Object.assign(known,{TEAM_BOOKED_OFFERS_HELD:"Booked offer changes are currently held.",OWNED_SALES_CALL_REQUIRED:"Choose an available sales-call booking from this creator.",
     OWNED_ACTIVE_SALES_OFFER_REQUIRED:"Choose an active USD offer from this creator.",BOOKED_OFFER_REVISION_CHANGED:"The booked offer changed. Refresh its settings before making a new change.",
     ORIGINAL_BOOKED_OFFER_REQUEST_CHANGED:"Resume the original saved offer change.",ACCEPTED_BOOKED_OFFER_FROZEN:"This buyer accepted the sale. Its booked offer is fixed."});
+  Object.assign(known,{EXPLICIT_TEAM_SAVED_METHOD_CONSENT_REQUIRED:"Review and accept this sale's saved-card terms before paying.",CURRENT_TEAM_SAVED_METHOD_CONSENT_REQUIRED:"Refresh this payment and review its current saved-card terms.",ORIGINAL_TEAM_SAVED_METHOD_CONSENT_REQUIRED:"Resume the original saved-card acknowledgement.",VERIFIED_TEAM_SAVED_METHOD_REQUIRED:"Your captured payment is separate from saved-card permission. The saved card needs review."});
   const match=Object.keys(known).find(key=>code.includes(key));
   if(match)return teamJson({error:known[match],code:match},match==="OWNER_REQUIRED"||match==="TEAM_MANAGER_REQUIRED"?403:409);
   console.error("[sales-team] operation failed",{code:(error as {code?:string})?.code});

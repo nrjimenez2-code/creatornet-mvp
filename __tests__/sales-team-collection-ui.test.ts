@@ -10,19 +10,37 @@ jest.mock("@stripe/stripe-js",()=>({loadStripe:async()=>({elements:()=>({create:
 import TeamBuyerPayment from "@/components/TeamBuyerPayment";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let root:Root,container:HTMLDivElement;const fetchMock=jest.fn(),originalFetch=global.fetch;let phase:string,enabled:boolean,obligationId:string|undefined,periodNumber:number|undefined,nextPayment:Record<string,unknown>|undefined,laterEnabled:boolean;
+let consentResponse:Record<string,unknown>;
 const response=(data:unknown,ok=true)=>({ok,json:async()=>data});
 const view=()=>({phase,amountCents:3333,currency:"usd",saveForFuture:true,pendingRequest:null,...(obligationId?{obligationId,periodNumber}:{}),...(phase==="requires_action"?{clientSecret:"pi_original_secret_owned"}:{})});
 const buttons=()=>Array.from(container.querySelectorAll("button"));const button=(text:string)=>buttons().find(b=>b.textContent?.includes(text))!;
 const click=async(text:string)=>{await act(async()=>{button(text).click();await new Promise(r=>setTimeout(r,20));});};
 const mount=async()=>{await act(async()=>{root.render(createElement(TeamBuyerPayment,{saleId:"sale",userId:viewer}));await new Promise(r=>setTimeout(r,20));});await act(async()=>{await new Promise(r=>setTimeout(r,20));});};
+const savedConsent=(fingerprint="a".repeat(64),automaticAuthorized=true)=>({savedMethodConsentRequired:true,savedMethodConsentEnabled:true,savedMethodConsent:{fingerprint,authorization:automaticAuthorized?"I authorize the exact accepted monthly payments for this sale.":"Future automatic debits remain stopped.",paymentKind:"installments",payments:[{number:1,amountCents:3333},{number:2,amountCents:3333},{number:3,amountCents:3335}],automaticAuthorized,acceptedBilling:"Payments stop after the agreed total."}});
+const checkConsent=async()=>{await act(async()=>{container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click();});};
 beforeEach(()=>{
  jest.clearAllMocks();viewer="buyer";phase="not_started";enabled=true;obligationId=undefined;periodNumber=undefined;nextPayment=undefined;laterEnabled=false;sessionStorage.clear();container=document.createElement("div");document.body.append(container);root=createRoot(container);global.fetch=fetchMock;
+ consentResponse={};
  navigation.mockResolvedValue(true);session.mockImplementation(async()=>({data:{session:{user:{id:viewer}}},error:null}));submit.mockResolvedValue({});billing.mockResolvedValue({complete:true,value:{name:"Buyer",address:{country:"US",line1:"1 Main",city:"Phoenix",state:"AZ",postal_code:"85001"}}});
  token.mockResolvedValue({confirmationToken:{id:"ctoken_original"}});bank.mockResolvedValue({});
- fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{const action=options?.body?JSON.parse(String(options.body)).action:null;if(action==="prepare")phase="needs_method";if(action==="prepare_next"){phase="needs_method";obligationId="later-owned";periodNumber=2;nextPayment=undefined;enabled=true;}if(action==="confirm"||action==="reconfirm")phase="captured_pending_receipt";if(action==="stop")phase="stopped";return response({payment:view(),collectionEnabled:enabled,nextPayment,laterCollectionEnabled:laterEnabled});});
+ fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{const action=options?.body?JSON.parse(String(options.body)).action:null;if(action==="prepare")phase="needs_method";if(action==="prepare_next"){phase="needs_method";obligationId="later-owned";periodNumber=2;nextPayment=undefined;enabled=true;}if(action==="confirm"||action==="reconfirm")phase="captured_pending_receipt";if(action==="stop")phase="stopped";return response({payment:view(),collectionEnabled:enabled,nextPayment,laterCollectionEnabled:laterEnabled,...consentResponse});});
 });afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
 test("viewing an accepted review never creates a customer, intent or confirmation automatically",async()=>{
  await mount();expect(fetchMock.mock.calls.every(([,o])=>o.method==="GET")).toBe(true);expect(token).not.toHaveBeenCalled();expect(button("Prepare payment").disabled).toBe(false);
+});
+test("saved-card permission starts unchecked and prevents token submission until explicitly accepted",async()=>{
+ phase="needs_method";consentResponse=savedConsent();await mount();expect(button("Pay $33.33").disabled).toBe(true);await click("Pay $33.33");expect(token).not.toHaveBeenCalled();expect(container.textContent).toContain("$33.35");
+ await checkConsent();await click("Pay $33.33");expect(token).toHaveBeenCalledTimes(1);expect(fetchMock.mock.calls.map(([,o])=>o.body?JSON.parse(o.body):null)).toContainEqual(expect.objectContaining({action:"confirm",saved_method_consent:{accepted:true,fingerprint:"a".repeat(64)}}));
+});
+test("a changed saved-card quote clears the earlier checkbox acceptance",async()=>{
+ phase="needs_method";consentResponse=savedConsent();await mount();await checkConsent();expect(button("Pay $33.33").disabled).toBe(false);consentResponse=savedConsent("b".repeat(64));await click("Refresh payment status");expect(button("Pay $33.33").disabled).toBe(true);expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);expect(token).not.toHaveBeenCalled();
+});
+test("uncertain acknowledgement retains the exact saved-card consent without creating another token",async()=>{
+ phase="needs_method";consentResponse=savedConsent();await mount();await checkConsent();const original=fetchMock.getMockImplementation()!;fetchMock.mockImplementation((path,o)=>o.body&&JSON.parse(o.body).action==="confirm"?Promise.reject(Error("lost acknowledgement")):original(path,o));await click("Pay $33.33");
+ await act(async()=>root.unmount());root=createRoot(container);await mount();await click("Check original confirmation");expect(token).toHaveBeenCalledTimes(1);expect(fetchMock.mock.calls.map(([,o])=>o.body?JSON.parse(o.body):null)).toContainEqual(expect.objectContaining({action:"resume",saved_method_consent:{accepted:true,fingerprint:"a".repeat(64)}}));
+});
+test("a manual card change preserves the saved automatic-debit Stop in its consent text",async()=>{
+ phase="needs_method";consentResponse=savedConsent("a".repeat(64),false);await mount();expect(container.textContent).toContain("Future automatic debits remain stopped");expect(container.textContent).toContain("manual payments only");expect(button("Pay $33.33").disabled).toBe(true);
 });
 test("Payment Element creates one token, saves original identity and sends no client-selected amounts",async()=>{
  await mount();await click("Prepare payment");await click("Pay $33.33");const post=fetchMock.mock.calls.map(([,o])=>o.body?JSON.parse(o.body):null).find(b=>b?.action==="confirm");

@@ -4,7 +4,8 @@ import type Stripe from "stripe";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import type {ExactPaymentContext,ExactPaymentContextEvidence} from "@/lib/installments/paymentContext";
 import {assertMembershipUsBilling} from "@/lib/membershipBillingEligibility";
-import {teamId,TeamSalesError} from "./policy";
+import {teamId,TeamSalesError,teamSavedMethodSchemaReady,teamSavedMethodReady} from "./policy";
+import {acceptTeamSavedMethod,type TeamSavedMethodAcceptance} from "./savedMethod";
 import {teamRpc} from "./server";
 import {runTeamProviderOperation,teamOperationId,TEAM_STRIPE_API_VERSION,type TeamOperationScope,type TeamProviderRequest} from "./providerOperation";
 import {inspectTeamConfirmationToken,inspectTeamPaymentIntent,teamConfirmationRequest,teamIntentRequest,type TeamPaymentContract,type TeamTokenProof} from "./paymentProtocol";
@@ -165,7 +166,7 @@ async function assertReconfirmation(c:Composition,s:TeamCollection,pi:Stripe.Pay
   card?.fingerprint&&method.card.fingerprint===card.fingerprint&&method.card.exp_month===card.exp_month&&method.card.exp_year===card.exp_year);
  assertMembershipUsBilling(method);const date=new Date();check(method.card.exp_year>date.getUTCFullYear()||method.card.exp_year===date.getUTCFullYear()&&method.card.exp_month>=date.getUTCMonth()+1);
 }
-export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:string,input:{requestId:string;kind:"token"|"reconfirm";tokenId?:string;recoveryOnly?:boolean;obligationId?:string}){
+export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:string,input:{requestId:string;kind:"token"|"reconfirm";tokenId?:string;recoveryOnly?:boolean;obligationId?:string;savedMethodConsent?:TeamSavedMethodAcceptance}){
  const read=()=>readTeamCollection(c,saleId,buyerId,input.obligationId??null);
  teamId(input.requestId);let s=await read();await assertContext(c,s);check(s.attempt);
  const confirmationScope=scope(s,"confirmation",`confirm:${input.requestId}`),operationId=teamOperationId(confirmationScope);
@@ -179,6 +180,9 @@ export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:
   if(input.kind==="token"){
    check(/^ctoken_[A-Za-z0-9]+$/.test(input.tokenId||""));const token=await get<Stripe.ConfirmationToken>(c,`/v1/confirmation_tokens/${input.tokenId}`);
    proof=inspectTeamConfirmationToken(s.attempt.contract,await c.observeEvidence(),token,input.tokenId!,now());request=teamConfirmationRequest(s.attempt.contract,await c.observeEvidence(),pi.id,proof,now());
+   if((teamSavedMethodSchemaReady()||input.savedMethodConsent)&&s.attempt.contract.terms.paymentKind!=="full"&&s.attempt.contract.kind==="payment"){
+    check(teamSavedMethodReady()&&input.savedMethodConsent);await acceptTeamSavedMethod(c,s.attempt.contract,input.requestId,input.savedMethodConsent,proof);
+   }
   }else{
    check(s.confirmation);proof=s.confirmation.token_proof;await assertReconfirmation(c,s,pi,proof);
    request={method:"POST",apiVersion:TEAM_STRIPE_API_VERSION,path:`/v1/payment_intents/${pi.id}/confirm`,params:{use_stripe_sdk:true,return_url:new URL(`/purchase/team/${saleId}`,c.context.siteOrigin).toString()}};
@@ -193,7 +197,7 @@ export async function confirmTeamCollection(c:Composition,saleId:string,buyerId:
  // for this operation; the journal re-observes it before and after every read.
  const evidence=await c.observeEvidence();
  const outcome=await runTeamProviderOperation({admin:c.admin,scope:confirmationScope,context:c.context,observeContext:c.observeContext,request:saved.request,
-  assertSource:async()=>{const pi=await originalIntent(c,s,intentId);if(saved.kind==="reconfirm")await assertReconfirmation(c,s,pi,saved.token_proof);
+  assertSource:async()=>{if(teamSavedMethodSchemaReady()&&attempt.contract.terms.paymentKind!=="full"&&attempt.contract.kind==="payment")check(teamSavedMethodReady());const pi=await originalIntent(c,s,intentId);if(saved.kind==="reconfirm")await assertReconfirmation(c,s,pi,saved.token_proof);
    else{const token=await get<Stripe.ConfirmationToken>(c,`/v1/confirmation_tokens/${saved.token_id}`);const proof=inspectTeamConfirmationToken(attempt.contract,await c.observeEvidence(),token,saved.token_id,now());check(isDeepStrictEqual(proof,saved.token_proof)&&pi.status==="requires_payment_method");}},
   create:async(r,o)=>{const pi=await c.stripe.rawRequest(r.method,r.path,r.params,o) as unknown as Stripe.PaymentIntent;const token=await get<Stripe.ConfirmationToken>(c,`/v1/confirmation_tokens/${saved.token_id}`);return {id:pi.id,requestId:requestId(pi),pi,token};},retrieve,
   reconcileUnknown:async()=>{const o=await retrieve();if(o.pi.status==="canceled")return o;

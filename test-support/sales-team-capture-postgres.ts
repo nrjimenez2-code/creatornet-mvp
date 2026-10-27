@@ -3,7 +3,7 @@ import {readFileSync} from "node:fs";
 import {salesTeamSaleDatabase,enableTeamSalesFixture,approveTeamOffer,draftTeamSale} from "./sales-team-sale-postgres";
 import {teamFixtureId as id} from "./sales-team-postgres";
 import {teamOperationId,type TeamOperationScope} from "@/lib/salesTeams/providerOperation";
-import {teamIntentRequest,type TeamPaymentContract} from "@/lib/salesTeams/paymentProtocol";
+import {teamIntentRequest,type TeamPaymentContract,type TeamTokenProof} from "@/lib/salesTeams/paymentProtocol";
 import {inspectTeamReceipt} from "@/lib/salesTeams/receiptPolicy";
 import {teamCaptureFixture} from "./sales-team-capture-fixture";
 import type {TeamCollection} from "@/lib/salesTeams/collection";
@@ -17,7 +17,7 @@ export async function teamCaptureDatabase(db:PGlite){
  for(const file of ["20261021215909_sales_team_provider_journal_and_ledger.sql","20261021220845_sales_team_receipt_accounting.sql","20261022223942_sales_team_recipient_onboarding.sql","20261022230849_sales_team_payment_collection.sql","20261022233620_sales_team_verified_capture.sql"])await db.exec(readFileSync(`supabase/migrations/${file}`,"utf8"));
  return db;
 }
-export async function seedTeamCapture(db:PGlite,options:{beforeSetup?:()=>Promise<void>;beforeApproval?:()=>Promise<void>;paymentKind?:"installments"|"monthly"}={}){
+export async function seedTeamCapture(db:PGlite,options:{beforeSetup?:()=>Promise<void>;beforeApproval?:()=>Promise<void>;beforeConfirmation?:(contract:TeamPaymentContract,proof:TeamTokenProof)=>Promise<TeamTokenProof>;paymentKind?:"installments"|"monthly"}={}){
  const rpc=<T=Record<string,unknown>>(name:string,args:unknown[]=[])=>captureRpc<T>(db,name,args);
  await options.beforeSetup?.();await enableTeamSalesFixture(db);await options.beforeApproval?.();
  const paymentKind=options.paymentKind??"installments";
@@ -38,6 +38,7 @@ export async function seedTeamCapture(db:PGlite,options:{beforeSetup?:()=>Promis
   providerRequestId:"req_unpaidRead",observedAt:stamp,readStartedAt:Date.now()}]);
  const confirmationScope=scope("confirmation",`confirm:${id(70)}`),confirmationId=teamOperationId(confirmationScope),base=teamCaptureFixture(contract);
  base.confirmation={...base.confirmation,operationId:confirmationId,firstDispatchAt:stamp,lastDispatchAt:stamp,tokenProof:{...base.confirmation.tokenProof,createdAt:stamp,expiresAt:stamp+600}};
+ if(options.beforeConfirmation)base.confirmation.tokenProof=await options.beforeConfirmation(contract,base.confirmation.tokenProof);
  await rpc("reserve_sales_team_confirmation_v1",[sale,buyer,id(70),confirmationId,"token",base.confirmation.tokenProof,base.confirmation.request]);await bind(confirmationScope,base.confirmation.request,"pi_original");
  base.paymentIntent.created=stamp;base.charge.created=stamp;base.balance.created=stamp;base.balance.available_on=stamp+86400;base.evidence=evidence;base.nowSeconds=stamp;
  const proof=()=>inspectTeamReceipt({...base,financialInspection:true}),capture=()=>({receipt:proof(),readback:{intentRequestId:"req_intentRead",chargeRequestId:"req_chargeRead",balanceRequestId:base.balance?"req_balanceRead":null,readStartedAt:Date.now(),observedAt:Math.floor(Date.now()/1000)}});

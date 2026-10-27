@@ -1,6 +1,8 @@
 import {NextRequest} from "next/server";
 import {TeamSalesError} from "@/lib/salesTeams/policy";
 const owned=jest.fn(),compose=jest.fn(),read=jest.fn(),prepare=jest.fn(),confirm=jest.fn(),stop=jest.fn(),checkout=jest.fn(),overview=jest.fn(),prepareNext=jest.fn(),capture=jest.fn(),fulfill=jest.fn();
+const savedQuote=jest.fn(),savedRecord=jest.fn();
+jest.mock("@/lib/salesTeams/savedMethod",()=>({savedMethodPaymentResponse:(...a:unknown[])=>savedQuote(...a),recordTeamSavedMethod:(...a:unknown[])=>savedRecord(...a)}));
 jest.mock("@/lib/salesTeams/checkout",()=>({readBuyerTeamSale:(...a:unknown[])=>owned(...a),requireTeamCheckout:()=>checkout()}));
 jest.mock("@/lib/salesTeams/context",()=>({createTeamPaymentContext:()=>compose()}));
 jest.mock("@/lib/salesTeams/collection",()=>({readTeamCollection:(...a:unknown[])=>read(...a),readTeamCollectionOverview:(...a:unknown[])=>overview(...a),prepareNextTeamCollection:(...a:unknown[])=>prepareNext(...a),teamCollectionView:(s:{view:unknown})=>s.view,prepareTeamCollection:(...a:unknown[])=>prepare(...a),confirmTeamCollection:(...a:unknown[])=>confirm(...a),stopTeamCollection:(...a:unknown[])=>stop(...a)}));
@@ -16,6 +18,7 @@ beforeEach(()=>{
  for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY","CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY","CREATOR_TEAM_LATER_COLLECTION_READY"])delete process.env[key];
  admin={kind:"scoped-admin"};owned.mockResolvedValue({admin,user:{id:buyer},sale:{status:"accepted"}});read.mockResolvedValue({view});compose.mockReturnValue(composition);prepare.mockResolvedValue({view});confirm.mockResolvedValue(view);stop.mockResolvedValue(view);
  overview.mockResolvedValue({payment:{view}});capture.mockResolvedValue({status:"awaiting_capture"});
+ savedQuote.mockResolvedValue({});savedRecord.mockResolvedValue({status:"verified"});
 });afterEach(()=>{process.env={...env};});
 const enabled=()=>{for(const key of ["CREATOR_SALES_TEAM_READY","CREATOR_TEAM_SALES_CHECKOUT_READY","CREATOR_TEAM_PAYMENT_COLLECTION_READY","CREATOR_TEAM_RECEIPT_SCHEMA_READY","CREATOR_TEAM_RECEIPT_RECORDING_READY","CREATOR_TEAM_FULFILLMENT_SCHEMA_READY","CREATOR_TEAM_FULFILLMENT_READY","CREATOR_TEAM_EVENT_SCHEMA_READY","CREATOR_TEAM_EVENT_RECONCILIATION_READY","CREATOR_TEAM_FINANCIAL_SCHEMA_READY","CREATOR_TEAM_FINANCIAL_RECONCILIATION_READY"])process.env[key]="true";};
 test("status is buyer-owned and available while new collection is held",async()=>{
@@ -63,6 +66,19 @@ test("foreign origins and unaccepted reviews cannot reach provider access",async
 
 const obligation="00000000-0000-4000-8000-000000000092";
 const later=()=>{enabled();delete process.env.CREATOR_SALES_TEAM_READY;delete process.env.CREATOR_TEAM_SALES_CHECKOUT_READY;process.env.CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY="true";process.env.CREATOR_TEAM_LATER_COLLECTION_READY="true";read.mockResolvedValue({view,obligation:{id:obligation,period_number:2,payment_kind:"payment"}});};
+test.each([{accepted:false,fingerprint:"a".repeat(64)},{accepted:true,fingerprint:"bad"},{accepted:true,fingerprint:"a".repeat(64),amount:50}])("unaccepted or caller-modified saved-card consent cannot reach provider composition",async saved_method_consent=>{
+ enabled();expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_original",saved_method_consent}),context)).status).toBe(400);expect(compose).not.toHaveBeenCalled();
+});
+test("written consent passes only its acknowledgement and server quote fingerprint to the original confirmation",async()=>{
+ enabled();const saved_method_consent={accepted:true,fingerprint:"a".repeat(64)};expect((await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_original",saved_method_consent}),context)).status).toBe(200);
+ expect(confirm).toHaveBeenCalledWith(composition,sale,buyer,{requestId,kind:"token",tokenId:"ctoken_original",savedMethodConsent:saved_method_consent});
+});
+test("a saved-card proof failure does not turn a verified paid Library purchase into an unpaid result",async()=>{
+ later();process.env.CREATOR_TEAM_PAYMENT_LIFECYCLE_SCHEMA_READY="true";process.env.CREATOR_TEAM_COLLECTION_RETRY_SCHEMA_READY="true";process.env.CREATOR_TEAM_SAVED_METHOD_SCHEMA_READY="true";
+ compose.mockReturnValue({...composition,admin});confirm.mockResolvedValue({phase:"captured_pending_receipt"});capture.mockResolvedValue({status:"verified",receiptId:"receipt-owned"});read.mockResolvedValue({view:{phase:"paid"},obligation:{id:obligation,period_number:2}});savedRecord.mockRejectedValue(Error("Card ownership needs review"));
+ const response=await POST(request({action:"confirm",request_id:requestId,confirmation_token:"ctoken_original",obligation_id:obligation}),context);
+ expect(response.status).toBe(200);expect(await response.json()).toMatchObject({payment:{phase:"paid"},savedMethodStatus:"review_required"});expect(fulfill).toHaveBeenCalledWith(admin,"fulfill_sales_team_receipt_v1",{p_sale_id:sale,p_buyer_id:buyer,p_receipt_id:"receipt-owned"});
+});
 test("later collection is independently default off before provider composition",async()=>{
  enabled();expect((await POST(request({action:"prepare_next"}),context)).status).toBe(404);expect(compose).not.toHaveBeenCalled();
  process.env.CREATOR_TEAM_LATER_COLLECTION_SCHEMA_READY="true";expect((await POST(request({action:"prepare_next"}),context)).status).toBe(409);expect(compose).not.toHaveBeenCalled();
