@@ -60,3 +60,36 @@ channel. Do not use old unique deployment URLs as the reusable bookmark, or
 repair shared Staging through unreviewed migrations. Record the candidate SHA,
 deployment, alias verification, owner/browser checks, runtime findings and
 before/after privacy checks for each change. Preserve prior one-time receipts.
+
+## Private Apple sign-in capability (default off)
+
+`PRIVATE_APPLE_SIGN_IN_ENABLED` is a server-only UI switch. Only the exact value
+`true` allows `/api/release/session` to include `privateAppleSignInEnabled: true`,
+and only when valid release settings are available and public registration is
+closed. Otherwise the response retains its original three fields. Responses
+remain private and uncached. The browser accepts only literal boolean `true`
+from a successful response and starts with this capability disabled.
+
+This exposes the existing Apple OAuth button while keeping Google and public
+registration messaging gated by registration. It grants no product access and
+does not prevent Supabase from creating users or automatically linking identities.
+Manual identity linking being disabled does not establish that automatic linking
+is disabled. Keep this switch absent or disabled until the gates below are met.
+Never use a `NEXT_PUBLIC_` variable or a client assertion as signup prevention.
+
+Before any activation, record the exact deployment and obtain separately scoped
+authorization for provider settings, negative acceptance and the private release.
+Verify current server signup prevention and its effects on existing integrations.
+Use an explicitly approved negative identity to prove no new user or unintended
+identity link is created; do not assume an existing-owner success proves this.
+Then have the human complete Apple sign-in using the already-linked owner through
+the normal UI. Authentication dialogs, credentials and codes remain human controlled.
+Verify the same owner, private access and normal profile-based destination; bare
+`next=/dashboard` is not an allowed return, and onboarding alone is not a failure.
+Google requires its own approved test identity and acceptance scope.
+
+Do not open registration, change live Auth settings, enable this switch, deploy,
+or move the reserved alias merely to test the local change. The required CI gates
+and private release review precede activation. Removing or disabling the switch
+and updating the affected deployment hides private Apple again; that UI rollback
+does not undo provider changes, user creation, identity links or existing sessions.
