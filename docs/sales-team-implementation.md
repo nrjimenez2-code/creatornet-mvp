@@ -1689,3 +1689,74 @@ BANK evidence remain separate gates. No hosted query, provider operation,
 deployment, scheduler registration or activation occurred in this stage.
 
 F38 current integrated receipt: 976/976 tests in 32 suites, no skips, 552.097 seconds, exit 0. All 152 captured executable/test/SQL hashes matched after completion. Full-tree incremental TypeScript passed; 24 changed/new TS/TSX/test files passed lint with zero errors/warnings. Selector 11, sandbox 141 and media 20 safeguards passed. These checks use disposable structural PGlite parents and mocked provider transport; they do not replace complete CI/full-suite/build/browser, installed/historical schema, real contention or external acceptance.
+
+### F39 — accepted automatic collection and same-intent card recovery (local candidate)
+
+The existing CLI-generated `20261027024721_sales_team_automatic_collection.sql`
+adds independently default-off automatic collection authority. A due regular
+period is derived from contiguous verified payments, accepted terms, the original
+UTC anchor and the latest paid card's checked written consent. It cannot adopt
+an existing manual obligation, backfill consent, bypass a payoff, clear saved
+debit Stop or collect after accepted renewal Stop ends the minimum. Closer
+departure does not erase accepted obligations. The immutable collection window
+lasts at most 24 hours and monthly windows end at their service boundary.
+
+An authenticated, private/no-store collection endpoint runs one 15-minute slot
+with a 90-second lease and at most three durable tasks. Frozen admission keeps
+original observation separate from fresh debit. The worker caps payment-object
+transport at 40 GETs and three POSTs, with a 65-second observation budget,
+45-second POST cutoff and 25-second fresh-phase cutoff. Independently timed
+current-context probes retain their existing limits. RPC builders receive a
+five-second abort signal when supported; ordinary table builders retain the
+existing client behavior. Admitted in-flight object reads drain before outcomes
+are recorded. No scheduler is registered or enabled by this candidate.
+
+Fresh debit checks the exact attached customer/card, US billing, fingerprint and
+expiry, then creates an unconfirmed intent and explicitly confirms the saved
+method off session. The original core journal freezes the originating worker
+identity, request and key. A lost confirmation response permits only independent
+original-event reconciliation: at most three complete event-list pages, followed
+by exact event retrieval, must bind the request key/ID, intent, context, timing,
+shape and coherent event type/status. Empty, incomplete or ambiguous evidence
+remains unknown. A database trigger prevents binding that bypasses this proof.
+
+Authentication-required declines and bank/SCA action return the buyer to the
+same intent using explicit on-session confirmation. A conclusively unpaid or
+never-journaled original can explicitly hand over to manual card recovery without
+changing its intent, customer, request identities or window. An uncertain,
+processing or captured original cannot be bypassed. A newly entered card needs
+new written consent and independent saved-method verification before future
+automatic use. The old ConfirmationToken is never treated as consumed by an
+automatic intent. Captured-money observation uses immutable accepted authority
+even if the current card has changed or fresh-debit controls are off.
+
+Capture and receipt inspection explicitly recognize the saved confirmation kinds
+and reuse the existing shared Library, cumulative commission, hold, refund,
+dispute, cash and recovery owners. Seven private immutable history tables have
+RLS and service SELECT-only access. Named functions and trigger ACLs extend all
+four financial digests; the raw predecessor capture writer is sealed. Dependency
+and final-grant failures are tested for transactional restoration. Thirteen
+existing financial/later/saved-method fixture chains now install this candidate.
+
+The continuation first reproduced a SQL parser failure in the final event-status
+condition and test-fixture TypeScript errors. Parenthesizing the CASE expression
+and correcting fixture types resolved those failures. Current focused proof is
+102 tests across five suites, plus 15 separate worker transport/limit tests.
+Provider transport is mocked and SQL runs against disposable structural PGlite
+parents. Whole-tree TypeScript and changed-file lint are recorded separately.
+The current 35-suite integration passed 1,027/1,027 tests with no skips in
+798.280 seconds, exit 0; all 163 captured executable/test/SQL input hashes matched
+after completion. The separate worker-limit suite passed 15/15 in 1.835 seconds.
+Full-tree incremental TypeScript passed, and all 30 changed/new TypeScript files
+passed lint with zero errors/warnings. Exact sources and receipts are recorded in
+the Sales Team 11 F39 checkpoint. The focused 102-test run overlaps integration
+and must not be added to its count. The inherited selector, sandbox and media
+safeguard implementations remain unchanged; complete current CI is still required.
+
+This remains a local, uninstalled, default-off candidate. Protected daily surplus,
+independent bank observations/alerts, final views, actual installed/historical/
+shared/security compatibility, real multi-session contention, complete current
+CI/full-suite fallback/build/browser and approved commercial/provider inputs
+remain required. Separately approved hosted/provider sandbox acceptance and
+distinct Production/LIVE activation with confirmed BANK evidence remain open.
+No external account query, migration, payment, deployment or activation occurred.

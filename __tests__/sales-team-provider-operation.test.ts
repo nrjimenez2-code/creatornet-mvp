@@ -3,9 +3,9 @@ const scope:TeamOperationScope={scopeId:"00000000-0000-4000-8000-000000000001",s
 const context={version:"exact-payment-context-v1" as const,mode:"test" as const,platformAccountId:"acct_platform",supabaseProjectRef:"abcdefghijklmnopqrst",siteOrigin:"https://fixture.vercel.app"};
 const request:TeamProviderRequest={method:"POST",apiVersion:TEAM_STRIPE_API_VERSION,path:"/v1/payment_intents",params:{amount:10001,currency:"usd",confirm:false}};
 const now=Date.parse("2026-10-21T20:00:00Z");
-function fixture(){
+function fixture(workerRunId:string|null=null){
  const operationId=teamOperationId(scope);let state="dispatch";let bound:string|null=null;const object={id:"pi_original",requestId:"req_original"};
- const op=()=>({...scope,id:operationId,request,context,provider_id:bound,idempotency_key:`cn-team-v1:${operationId}`,lease_token:"00000000-0000-4000-8000-000000000004",
+ const op=()=>({...scope,workerRunId,id:operationId,request,context,provider_id:bound,idempotency_key:`cn-team-v1:${operationId}`,lease_token:"00000000-0000-4000-8000-000000000004",
   lease_until:new Date(now+30000).toISOString(),first_dispatch_at:new Date(now).toISOString(),status:"dispatching"});
  const rpc=jest.fn(async(name:string,args:Record<string,unknown>)=>{
   if(name==="claim_sales_team_provider_operation_v1")return {data:{status:state,operation:op()},error:null};
@@ -39,4 +39,7 @@ test("context changes, source revocation and invalid provider proof stop dispatc
 test("stable operation identity includes the sale, kind and period but no arbitrary retry salt",()=>{
  expect(teamOperationId(scope)).toBe(teamOperationId({...scope}));expect(teamOperationId({...scope,scopeKey:"intent:2"})).not.toBe(teamOperationId(scope));
  expect(teamOperationId({...scope,kind:"confirmation"})).not.toBe(teamOperationId(scope));
+});
+test("an original journal cannot be reopened under another worker identity",async()=>{
+ const f=fixture("00000000-0000-4000-8000-000000000099");await expect(f.run()).rejects.toThrow();expect(f.create).not.toHaveBeenCalled();expect(f.retrieve).not.toHaveBeenCalled();
 });

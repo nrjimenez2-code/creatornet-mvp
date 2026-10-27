@@ -35,7 +35,7 @@ export async function runTeamProviderOperation<T extends ProviderResult>(args:{
  const parse=(raw:unknown)=>{
   const op=raw as TeamOperation;check(op&&op.id===operationId&&isDeepStrictEqual(op.context,context)&&isDeepStrictEqual(op.request,request)&&
    op.scopeId===scope.scopeId&&op.scopeKey===scope.scopeKey&&op.kind===scope.kind&&op.saleId===scope.saleId&&op.creatorId===scope.creatorId&&
-   op.actorId===scope.actorId&&op.idempotency_key===`cn-team-v1:${operationId}`);return op;
+   op.actorId===scope.actorId&&(op.workerRunId??null)===(scope.workerRunId??null)&&op.idempotency_key===`cn-team-v1:${operationId}`);return op;
  };
  const validate=async(object:T)=>{args.validate(object);check(typeof object.id==="string"&&object.id.length>0);await observe();return object;};
  await observe();

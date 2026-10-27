@@ -9,10 +9,11 @@ import {teamRpc} from "./server";
 import {TEAM_STRIPE_API_VERSION,type TeamProviderRequest} from "./providerOperation";
 import {teamIntentRequest,type TeamPaymentContract,type TeamTokenProof} from "./paymentProtocol";
 import {inspectTeamReceipt,type TeamCaptureConfirmation} from "./receiptPolicy";
+import type {TeamSavedAuthority} from "./savedCollectionProtocol";
 export type TeamReceiptComposition={admin:SupabaseClient;stripe:Pick<Stripe,"rawRequest">;context:ExactPaymentContext;observeContext:()=>Promise<ExactPaymentContext>;observeEvidence:()=>Promise<ExactPaymentContextEvidence>};
 type Operation={id:string;kind:string;status:string;provider_id:string|null;request:TeamProviderRequest;context:ExactPaymentContext;sale_id:string;creator_id:string;actor_id:string;first_dispatch_at:string};
 export type TeamCaptureSource={contract:TeamPaymentContract;intent:Operation;firstConfirmationDispatchAt:string;
- confirmation:{operation_id:string;request_id:string;kind:"token"|"reconfirm";token_id:string;token_proof:TeamTokenProof;request:TeamProviderRequest;operation:Operation|null}|null;
+ confirmation:{operation_id:string;request_id:string;kind:"token"|"reconfirm"|"saved_method"|"saved_reconfirm";token_id:string;token_proof:TeamTokenProof;request:TeamProviderRequest;operation:Operation|null;savedMethod?:TeamSavedAuthority}|null;
  receipt:{id:string;observation_revision:number;payment_intent_id:string;charge_id:string;refunded_subtotal_cents:number;processing_cost_cents:number|null;balance_transaction_id:string|null;available_on:string|null}|null};
 const check:(v:unknown)=>asserts v=v=>{if(!v)throw new TeamSalesError("TEAM_CAPTURE_REVIEW_REQUIRED","The original captured payment needs receipt reconciliation.");};
 const id=(v:unknown)=>typeof v==="string"?v:(v as {id?:string}|null)?.id??"";
@@ -42,7 +43,9 @@ export async function readTeamCapture(c:TeamReceiptComposition,saleId:string,buy
   operation.sale_id===saleId&&operation.actor_id===buyerId&&operation.creator_id===saved.contract.terms.creatorId&&isDeepStrictEqual(operation.context,c.context)&&
   isDeepStrictEqual(operation.request,confirmation.request));
  const binding:TeamCaptureConfirmation={operationId:operation.id,paymentIntentId:pi.id,firstDispatchAt:Math.floor(Date.parse(saved.firstConfirmationDispatchAt)/1000),
-  lastDispatchAt:Math.floor(Date.parse(operation.first_dispatch_at)/1000),request:confirmation.request,tokenProof:confirmation.token_proof};
+  lastDispatchAt:Math.floor(Date.parse(operation.first_dispatch_at)/1000),request:confirmation.request,tokenProof:confirmation.token_proof,
+  ...(confirmation.kind==="saved_method"||confirmation.kind==="saved_reconfirm"?{savedMethod:confirmation.savedMethod,savedMethodKind:confirmation.kind}:{})};
+ if(confirmation.kind==="saved_method"||confirmation.kind==="saved_reconfirm")check(binding.savedMethod);
  const chargeId=id(pi.latest_charge);check(/^ch_[A-Za-z0-9]+$/.test(chargeId));let charge=await get<Stripe.Charge>(`/v1/charges/${chargeId}`);
  const balanceId=id(charge.balance_transaction);check(!balanceId||/^txn_[A-Za-z0-9]+$/.test(balanceId));
  const balance=balanceId?await get<Stripe.BalanceTransaction>(`/v1/balance_transactions/${balanceId}`):null;

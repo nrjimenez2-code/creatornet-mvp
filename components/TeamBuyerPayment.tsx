@@ -9,12 +9,12 @@ import TeamBuyerLifecycle from "./TeamBuyerLifecycle";
 import TeamBuyerRetry from "./TeamBuyerRetry";
 import type {TeamSavedMethodQuote,TeamSavedMethodAcceptance} from "@/lib/salesTeams/savedMethod";
 
-type Payment={phase:string;amountCents:number;currency:string;saveForFuture:boolean;obligationId?:string;periodNumber?:number;retryAttempt?:boolean;automaticDebitsStopped?:boolean;clientSecret?:string;pendingRequest:{id:string;kind:"token"|"reconfirm"}|null};
+type Payment={phase:string;amountCents:number;currency:string;saveForFuture:boolean;obligationId?:string;periodNumber?:number;retryAttempt?:boolean;automaticAttempt?:boolean;automaticDebitsStopped?:boolean;clientSecret?:string;pendingRequest:{id:string;kind:"token"|"reconfirm"|"saved_method"|"saved_reconfirm"}|null};
 type Pending={id:string;kind:"token"|"reconfirm";token?:string;obligationId?:string;savedMethodConsent?:TeamSavedMethodAcceptance};
 type NextPayment={status:"due"|"not_due"|"complete";periodNumber?:number;amountCents?:number;dueAt?:string};
 export type PaymentResponse={payment:Payment;collectionEnabled:boolean;nextPayment?:NextPayment;laterCollectionEnabled?:boolean;lifecycleAvailable?:boolean;retryAvailable?:boolean;savedMethodConsentRequired?:boolean;savedMethodConsentEnabled?:boolean;savedMethodConsent?:TeamSavedMethodQuote|null;savedMethodStatus?:string};
 type Elements={stripe:Stripe;elements:StripeElements;payment:StripePaymentElement;address:StripeAddressElement};
-const descriptions:Record<string,string>={not_started:"Prepare your payment to enter card details.",needs_method:"Enter your card and complete US billing address.",requires_action:"Your bank needs to verify this payment.",
+const descriptions:Record<string,string>={not_started:"Prepare your payment to enter card details.",needs_method:"Enter your card and complete US billing address.",authentication_required:"Your bank needs you to verify the saved card for this original payment.",requires_action:"Your bank needs to verify this payment.",
  requires_confirmation:"Bank verification is complete. Continue to finish your payment.",processing:"Your original payment is processing. Check its status before taking another action.",
  captured_pending_receipt:"Stripe reports this payment captured. CreatorNet is verifying the receipt before access is delivered.",receipt_verified:"Your payment receipt is verified. Delivery is being prepared.",payment_review:"Your captured payment is under financial review. Check its status for an update.",paid:"Your payment receipt is verified. Your purchase is in your Library.",
  stop_pending:"Stop is saved. The original payment must be reconciled before it can be safely closed.",stopped:"This payment is safely closed unpaid. Ask your closer for a new review to choose another approved option.",later_stopped:"This later payment was canceled and future automatic debits are stopped. Your earlier paid purchase remains in your Library; any remaining contractual balance requires review.",canceled:"The original payment was canceled. Choose Stop to close this unpaid purchase.",review_required:"Check the original payment before continuing."};
@@ -91,6 +91,8 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
   {view?.phase==="not_started"?<button disabled={busy||!enabled} onClick={()=>void act("prepare")}>Prepare payment</button>:null}
   {view?.phase==="needs_method"&&!unresolved?<button disabled={busy||!enabled||!ready||consentRequired&&(!consentEnabled||!consent||!consentAccepted)} onClick={()=>void act("pay")}>Pay {new Intl.NumberFormat("en-US",{style:"currency",currency:"USD"}).format(view.amountCents/100)}</button>:null}
   {view?.phase==="requires_action"?<button disabled={busy} onClick={()=>void act("authenticate")}>Verify with your bank</button>:null}
+  {view?.phase==="authentication_required"&&!unresolved?<button disabled={busy||!enabled} onClick={()=>void act("reconfirm")}>Verify saved card</button>:null}
+  {view?.phase==="authentication_required"&&view.automaticAttempt&&!unresolved?<button disabled={busy||!enabled} onClick={()=>void act("prepare")}>Use another card</button>:null}
   {view?.phase==="requires_confirmation"&&!unresolved?<button disabled={busy||!enabled} onClick={()=>void act("reconfirm")}>Complete payment</button>:null}
   {unresolved?<button disabled={busy} onClick={()=>void act("resume")}>Check original confirmation</button>:null}
   <button disabled={busy} onClick={()=>void act("refresh")}>Refresh payment status</button>

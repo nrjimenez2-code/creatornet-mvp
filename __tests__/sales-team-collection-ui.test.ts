@@ -63,6 +63,9 @@ test("bank action uses only the owned client secret and refreshes independent se
  phase="requires_action";await mount();await click("Verify with your bank");expect(bank).toHaveBeenCalledWith({clientSecret:"pi_original_secret_owned"});
  expect(fetchMock.mock.calls.some(([,o])=>o.body&&JSON.parse(o.body).action==="refresh")).toBe(true);expect(sessionStorage.length).toBe(0);
 });
+test("an off-session authentication decline asks for explicit verification on the same original without a new token",async()=>{
+ phase="authentication_required";await mount();expect(button("Verify saved card").disabled).toBe(false);await click("Verify saved card");expect(token).not.toHaveBeenCalled();expect(fetchMock.mock.calls.map(([,o])=>o.body?JSON.parse(o.body):null)).toContainEqual({action:"reconfirm",request_id:expect.any(String)});expect(navigation).toHaveBeenCalled();
+});
 test("a paid plan can stop future automatic debits while retaining the existing paid purchase",async()=>{
  phase="paid";enabled=false;let stopped=false;
  fetchMock.mockImplementation(async(_path:string,options?:RequestInit)=>{if(options?.body&&JSON.parse(String(options.body)).action==="stop")stopped=true;return response({payment:{...view(),automaticDebitsStopped:stopped},collectionEnabled:false});});

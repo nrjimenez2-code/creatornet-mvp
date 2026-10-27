@@ -7,6 +7,7 @@ import {readTeamCollection,readTeamCollectionOverview,teamCollectionView,prepare
 import {recordTeamCapture} from "@/lib/salesTeams/receipts";
 import {teamSavedMethodSchemaReady} from "@/lib/salesTeams/policy";
 import {savedMethodPaymentResponse as savedMethodResponse,recordTeamSavedMethod} from "@/lib/salesTeams/savedMethod";
+import {prepareTeamManualCollection} from "@/lib/salesTeams/savedCollection";
 function collectionReady(saved:TeamCollection){
  const payoff=saved.obligation?.payment_kind==="monthly_payoff"||saved.attempt?.contract.kind==="monthly_payoff";
  if(saved.retry_agreement_id)return teamCollectionRetryReady()&&(!payoff||teamPayoffCollectionReady());
@@ -47,6 +48,7 @@ export async function POST(req:NextRequest,{params}:{params:Promise<{saleId:stri
   if(action==="confirm"&&!/^ctoken_[A-Za-z0-9]+$/.test(body.confirmation_token))throw new TeamSalesError("INVALID_CONFIRMATION_TOKEN","Enter payment details before confirming.",400);
   const composition=createTeamPaymentContext();let payment;
   if(action==="prepare_next"){const prepared=await prepareNextTeamCollection(composition,saleId,user.id);payment=prepared.view;if(prepared.saved.obligation&&prepared.saved.obligation.period_number>1)obligationId=prepared.saved.obligation.id;}
+  else if(action==="prepare"&&selected?.automatic_worker_run_id&&obligationId)payment=(await prepareTeamManualCollection(composition,saleId,user.id,obligationId)).view;
   else if(action==="prepare"||action==="refresh")payment=(await prepareTeamCollection(composition,saleId,user.id,action==="prepare",...target())).view;
   else if(action==="stop")payment=await stopTeamCollection(composition,saleId,user.id,...target());
   else if(action==="resume"){

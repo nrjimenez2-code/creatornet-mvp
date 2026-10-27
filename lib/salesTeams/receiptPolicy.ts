@@ -7,9 +7,10 @@ import type {ExactPaymentContextEvidence} from "@/lib/installments/paymentContex
 import {teamId} from "@/lib/salesTeams/policy";
 import {TEAM_STRIPE_API_VERSION,type TeamProviderRequest} from "@/lib/salesTeams/providerOperation";
 import {inspectTeamSuccessfulCharge,type TeamPaymentContract,type TeamTokenProof} from "@/lib/salesTeams/paymentProtocol";
+import {assertTeamSavedAuthority,teamSavedConfirmationRequest,type TeamSavedAuthority} from "./savedCollectionProtocol";
 const check:(v:unknown)=>asserts v=v=>{if(!v)throw Error("Original team capture needs reconciliation");};
 const id=(v:string|{id:string}|null|undefined)=>typeof v==="string"?v:v?.id??null;
-export type TeamCaptureConfirmation={operationId:string;paymentIntentId:string;firstDispatchAt:number;lastDispatchAt:number;request:TeamProviderRequest;tokenProof:TeamTokenProof};
+export type TeamCaptureConfirmation={operationId:string;paymentIntentId:string;firstDispatchAt:number;lastDispatchAt:number;request:TeamProviderRequest;tokenProof:TeamTokenProof;savedMethod?:TeamSavedAuthority;savedMethodKind?:"saved_method"|"saved_reconfirm"};
 /** The caller must load the owned immutable contract and bound original
  * confirmation from service-only storage, then independently retrieve these
  * objects. Event metadata or browser SDK results cannot supply this authority.
@@ -21,10 +22,12 @@ export function inspectTeamReceipt(args:{contract:TeamPaymentContract;evidence:E
   Number.isSafeInteger(op.firstDispatchAt)&&op.firstDispatchAt>=c.acceptedAt&&op.firstDispatchAt<c.expiresAt&&op.firstDispatchAt<=args.nowSeconds&&
   Number.isSafeInteger(op.lastDispatchAt)&&op.lastDispatchAt>=op.firstDispatchAt&&op.lastDispatchAt<c.expiresAt&&op.lastDispatchAt<=args.nowSeconds&&
   op.paymentIntentId===pi.id&&op.request.method==="POST"&&op.request.apiVersion===TEAM_STRIPE_API_VERSION&&
-  op.request.path===`/v1/payment_intents/${pi.id}/confirm`&&op.request.params.use_stripe_sdk===true&&
-  op.request.params.return_url===new URL(`/purchase/team/${c.saleId}`,c.context.siteOrigin).toString()&&
+  op.request.path===`/v1/payment_intents/${pi.id}/confirm`&&
   /^ctoken_[A-Za-z0-9]+$/.test(op.tokenProof.tokenId)&&op.tokenProof.country==="US"&&/^[a-f0-9]{64}$/.test(op.tokenProof.previewHash)&&
-  Number.isSafeInteger(op.tokenProof.createdAt)&&op.tokenProof.createdAt>=c.acceptedAt&&op.tokenProof.createdAt<=op.lastDispatchAt&&
+  Number.isSafeInteger(op.tokenProof.createdAt)&&op.tokenProof.createdAt>=c.acceptedAt&&op.tokenProof.createdAt<=op.lastDispatchAt);
+ if(op.savedMethod){assertTeamSavedAuthority(c,op.savedMethod);check((op.savedMethodKind==="saved_method"||op.savedMethodKind==="saved_reconfirm")&&isDeepStrictEqual(op.tokenProof,op.savedMethod.tokenProof)&&
+  id(pi.payment_method)===op.savedMethod.paymentMethodId&&isDeepStrictEqual(op.request,teamSavedConfirmationRequest(c,op.savedMethod,pi.id,op.savedMethodKind==="saved_reconfirm",op.request.params.payment_method!==undefined)));}
+ else check(op.savedMethodKind===undefined&&op.request.params.use_stripe_sdk===true&&op.request.params.return_url===new URL(`/purchase/team/${c.saleId}`,c.context.siteOrigin).toString()&&
   isDeepStrictEqual(op.request.params,{...(op.request.params.confirmation_token===undefined?{}:{confirmation_token:op.tokenProof.tokenId}),use_stripe_sdk:true,return_url:new URL(`/purchase/team/${c.saleId}`,c.context.siteOrigin).toString()}));
  check(/^req_[A-Za-z0-9]+$/.test((ch as Stripe.Response<Stripe.Charge>).lastResponse?.requestId||""));
  const capture=inspectTeamSuccessfulCharge(c,args.evidence,pi,ch,op.paymentIntentId);
