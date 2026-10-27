@@ -1760,3 +1760,69 @@ CI/full-suite fallback/build/browser and approved commercial/provider inputs
 remain required. Separately approved hosted/provider sandbox acceptance and
 distinct Production/LIVE activation with confirmed BANK evidence remain open.
 No external account query, migration, payment, deployment or activation occurred.
+
+### F40 — protected daily surplus reservations (local candidate)
+
+The CLI-generated `20261027232440_sales_team_protected_daily_surplus.sql`
+adds an independently default-off reservation gate and an unapproved, empty
+surplus policy. The policy requires an exact context and bank destination,
+explicit minimum/maximum, cost reserve, prerequisite review, evidence and current
+contract digest. No bank destination, reserve amount or provider configuration is
+chosen by this candidate. Its schema/readiness flags are separate from fresh
+collection permission and payout execution.
+
+One UTC daily slot freezes a short lease, context, contract and `allow_new`.
+Original unresolved requests take priority and retain their originating worker,
+request, key, bank, principal and cost identities. New reservations use the
+existing platform cash lock, receipt-based team/shared liability calculation, safety
+reserve, all outstanding encumbrances and the lowest current matching-epoch cash
+observation. Two independent identical USD/card balance GETs precede admission.
+The database derives the exact remaining cents and applies the reviewed minimum
+and maximum; the caller cannot supply an amount or bank destination. Policy
+changes, stale cash, control loss, lease/context mismatch and unsupported cents
+prevent new reservation.
+
+The frozen request specifies a standard USD/card payout to that approved bank,
+with exact owned request/operation metadata. `surplusReservations.ts` validates
+those bytes and performs only balance GETs and named database admission. It
+cannot call the Payouts API, complete a journal, release a reservation or confirm
+bank receipt. The core withdrawal journal remains denied. Principal plus cost
+stays encumbered after lease expiry, new-money disable and the next day's
+original-only run. A later independent debit/return consumer is required before
+the new service-SELECT-only resolution history can be written.
+
+Five new policy/history tables have RLS and service SELECT-only access. Run,
+request, task and resolution histories are immutable. Named helper/function ACLs
+include the replacement cash wrappers. All four existing financial digests bind
+the added cash authority; the surplus contract also binds their complete current
+digests so inherited liability changes cannot silently authorize withdrawal.
+Dependency and final-grant failures restore tables, cash columns, aliases,
+definitions and permissions transactionally. Fourteen existing main financial,
+saved-method, later-payment and automatic-collection fixtures now install F40;
+their isolated historical rollback scopes remain unchanged.
+
+Current focused proof is 43 tests in two suites, using disposable structural
+PGlite parents and mocked balance transport. Full-tree incremental TypeScript
+passes, and all 18 changed/new TypeScript files pass lint with no warnings/errors.
+The current 38-suite integration passed 1,085/1,085 tests with no skips in
+1,219.404 seconds, exit 0. All 168 captured executable/test/SQL input hashes
+matched after completion. Exact sources and receipts are saved in the Sales
+Team 11 F40 local checkpoint. Earlier numeric-input assertions
+were corrected to recognize rejection by the existing canonical integer guard.
+No guard was weakened. The initial fixture gate omission was also corrected.
+
+F40 implements reservations only. Independently verified payout prerequisites,
+actual payout execution/debit/return recovery, bank observations/alerts and final
+presentation still need their owning implementations. No application HTTP route
+or scheduler is registered or activated here. Real bank/provider/commercial inputs, actual
+installed/historical/shared/security compatibility, real multi-session contention,
+complete current CI/full-suite fallback/build/browser, separately approved sandbox
+and distinct Production/LIVE/confirmed-bank acceptance remain required.
+
+Before payout execution, the next owner must also demonstrate protection for a
+provider confirmation that may have captured money while its verified/shared
+receipt is still missing. The inherited cash total derives its team balances
+from recorded receipts; that total alone is not proof of complete unsettled
+collection coverage. Reproduce that case and reserve its potential principal or
+hold new surplus until conclusive original reconciliation. F40 cannot dispatch
+a payout and does not claim this execution gate is complete.
