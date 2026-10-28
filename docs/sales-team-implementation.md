@@ -1904,3 +1904,40 @@ their owning continuation. Final presentation, actual installed/historical/share
 security compatibility, real multi-session contention, complete current CI/full
 suite/build/browser, approved commercial/provider inputs, separately authorized
 external sandbox and distinct Production/LIVE/confirmed-BANK acceptance remain.
+
+## F42: exact original surplus event recovery (local candidate)
+
+`20261028222238_sales_team_surplus_recovery.sql` adds original-only recovery;
+`surplusRecoveryReadback.ts` discovers at most three 100-event pages in a fixed
+creation-time interval, with exact pagination and a complete final page. Exactly
+one original idempotency-key match must survive independent retrieval of its
+exact event ID on both sides of the existing payout/debit/return reader. The
+original request ID, supported event API version, platform context, mode,
+immutable payout amount/bank/metadata/created/debit identity must agree. The
+current payout may legitimately have progressed since its creation snapshot.
+The reader allows nine GETs and 60 seconds, zero POSTs/retries, and drains
+admitted requests. Empty, ambiguous, incomplete or older-than-30-day discovery
+remains held; no event list proves an unsent payout. Unsupported event schemas
+remain held. Stripe's documented event retention does not establish universal
+historical recoverability.
+
+`surplusRecovery.ts` uses service-only named admission/completion functions.
+The database requires the actual original dispatch journal/action, rechecks the
+complete discovery and exact event/request/key proof, then binds through the
+existing guarded journal and consumes money through the F41 validator in one
+transaction. A money-validation failure rolls the outcome binding back. Pending
+money can bind identity while preserving the reservation. Distinct overlapping
+recoveries cannot own the same event or book its money twice. New-money controls,
+current bank eligibility and a running worker lease do not authorize or erase
+original outcomes. Every result retains `bankConfirmed=false`.
+
+The two new histories have RLS, immutable rows, service SELECT-only table grants,
+and named function ACLs. All five financial/surplus digests include both recovery
+functions. Sixteen main financial fixture chains include F42; isolated historical
+rollback parents remain unchanged. Current focused, integrated and static check
+results are recorded in the Sales Team 12 checkpoint, not implied by this source.
+
+This remains a local candidate with fake transports and disposable SQL fixtures.
+Signed surplus ingress, daily orchestration, beneficiary bank observations and
+final views remain separate owners. No scheduler, provider setting, bank approval,
+new-money activation or external rollout is installed by this migration.
