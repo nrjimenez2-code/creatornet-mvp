@@ -21,14 +21,18 @@ export default function AuthPage() {
 
   // -------- Session redirect on load --------
   const [registrationOpen, setRegistrationOpen] = useState(false);
+  const [privateAppleSignInEnabled, setPrivateAppleSignInEnabled] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     void (async () => {
       try {
         const response = await fetch("/api/release/session", { cache: "no-store", signal: controller.signal });
+        if (!response.ok) return;
         const result = await response.json();
-        if (!controller.signal.aborted) setRegistrationOpen(result.registrationOpen === true);
-      } catch { /* registration remains closed */ }
+        if (controller.signal.aborted || !result || typeof result !== "object" || Array.isArray(result)) return;
+        setRegistrationOpen(result.registrationOpen === true);
+        setPrivateAppleSignInEnabled(result.privateAppleSignInEnabled === true);
+      } catch { /* registration and private Apple remain closed */ }
     })();
     return () => controller.abort();
   }, []);
@@ -391,7 +395,7 @@ export default function AuthPage() {
           Continue with email
         </button>
 
-        {registrationOpen && <>
+        {(registrationOpen || privateAppleSignInEnabled) && <>
         <div className="relative my-4">
           <div className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-200" />
@@ -415,7 +419,7 @@ export default function AuthPage() {
           </span>
         </button>
 
-        <button
+        {registrationOpen && <button
           onClick={() => oauth("google")}
           disabled={oauthPending !== null}
           aria-busy={oauthPending === "google"}
@@ -425,9 +429,9 @@ export default function AuthPage() {
           <span className="font-medium text-gray-800 text-[14.5px]">
             {oauthPending === "google" ? "Opening Google…" : "Continue with Google"}
           </span>
-        </button>
+        </button>}
 
-        {oauthError && (
+        {registrationOpen && oauthError && (
           <p className="mt-2 text-xs text-red-600" role="alert">
             {oauthError}
           </p>

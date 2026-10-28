@@ -7,5 +7,11 @@ export async function GET(req: NextRequest) {
   let privateAccess = false;
   const settings = await loadReleaseSettings();
   try { privateAccess = await hasPrivateAccess(await getAuthenticatedUser(req), settings); } catch { /* deny */ }
-  return NextResponse.json({ privateAccess, publicFeed: featureOpen(settings, "feed"), registrationOpen: featureOpen(settings, "registration") }, { headers: { "Cache-Control": "private, no-store" } });
+  const registrationOpen = featureOpen(settings, "registration");
+  // UI capability only; upstream signup/linking safety must be verified before enabling.
+  const privateAppleSignInEnabled = settings !== null && !registrationOpen && process.env.PRIVATE_APPLE_SIGN_IN_ENABLED === "true";
+  return NextResponse.json({
+    privateAccess, publicFeed: featureOpen(settings, "feed"), registrationOpen,
+    ...(privateAppleSignInEnabled ? { privateAppleSignInEnabled: true } : {}),
+  }, { headers: { "Cache-Control": "private, no-store" } });
 }
