@@ -20,7 +20,7 @@
  */
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
-process.env.SUPABASE_SERVICE_ROLE_KEY = "service_role_fake";
+process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-key-for-discover-tests";
 
 import { createMockClient, type MockClient } from "./__mocks__/supabaseQueryMock";
 

@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     return Response.json({ error: "Sign-in is temporarily unavailable." }, { status: 503, headers: { "Cache-Control": "no-store, private" } });
   }
   return handleEmailCode(req, {
-    secret: process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+    secret: process.env.EMAIL_CODE_HMAC_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
     clientIp: ip,
     async existingAccount(email) {
       const { data, error } = await supabaseAdmin.rpc("website_existing_email_v1", { p_email: email });

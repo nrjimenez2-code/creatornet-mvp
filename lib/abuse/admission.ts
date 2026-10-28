@@ -9,11 +9,12 @@ export type AbuseAction = "feed_page" | "feed_session" | "search" | "search_sugg
 export class AdmissionError extends Error {
   constructor(public readonly status: 429 | 503, public readonly retryAfter = 30) { super(status === 429 ? "Please wait before trying again." : "Temporarily unavailable. Please try again shortly."); }
 }
-// Domain separation reuses a server-only key without a new credential. Rotation
-// changes privacy hashes/counter identities; retain old reservation keys during
-// planned rotations if in-flight upload recovery must span that rotation.
+// Keep admission identities independent of API credentials during a planned
+// rotation. The legacy fallback preserves existing hashes until provisioned.
+// Rotating this HMAC key separately still requires draining upload reservations
+// and quota state; never retry admission with a second key or debit twice.
 export function abuseHash(domain: string, value: string): string {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const key = process.env.ABUSE_HMAC_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!key || key.length < 32) throw new AdmissionError(503);
   return createHmac("sha256", key).update(`CreatorNetAbuse:v1:${domain}:${value}`).digest("hex");
 }

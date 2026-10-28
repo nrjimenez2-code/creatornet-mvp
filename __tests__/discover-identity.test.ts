@@ -32,11 +32,13 @@ jest.mock("@/lib/supabaseServer", () => ({
 }));
 import { discoverIdentity, discoverEventIdentity } from "@/lib/discoverServer";
 const anonymous = "11111111-1111-4111-8111-111111111111";
-const savedKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const token = () =>
+const legacyKey = "synthetic-legacy-discover-identity-key";
+const dedicatedKey = "synthetic-dedicated-discover-actor-key";
+let envReplacement: ReturnType<typeof jest.replaceProperty>;
+const token = (key = legacyKey) =>
   anonymous +
   "." +
-  createHmac("sha256", "identity-test-key")
+  createHmac("sha256", key)
     .update("discover-actor:" + anonymous)
     .digest("hex");
 const request = (value: string) =>
@@ -44,7 +46,8 @@ const request = (value: string) =>
     headers: { cookie: "cn_discover_actor=" + value },
   });
 beforeEach(() => {
-  process.env.SUPABASE_SERVICE_ROLE_KEY = "identity-test-key";
+  envReplacement = jest.replaceProperty(process, "env", { ...process.env, SUPABASE_SERVICE_ROLE_KEY: legacyKey });
+  delete process.env.DISCOVER_ACTOR_HMAC_KEY;
   user = "viewer";
   claimed = false;
   authError = null;
@@ -53,10 +56,7 @@ beforeEach(() => {
   authRead.mockClear();
   rpc.mockClear();
 });
-afterEach(() => { delete process.env.DISCOVER_EVENT_CONTEXT_ENABLED; });
-afterAll(() => {
-  process.env.SUPABASE_SERVICE_ROLE_KEY = savedKey;
-});
+afterEach(() => { envReplacement.restore(); });
 test("sign-in links only a valid signed anonymous identity to the verified account", async () => {
   const signedIn=await discoverIdentity(request(token()));
   expect(signedIn.actor).toBe("user:viewer");
@@ -108,4 +108,62 @@ test('event candidates still verify auth, reject forged tokens and preserve sign
   expect(linkRead).not.toHaveBeenCalled();
   authError={name:'AuthRetryableFetchError'};
   await expect(discoverEventIdentity(request(token()))).rejects.toThrow('Could not verify feed identity');
+});
+
+test("unset HMAC setting accepts the exact legacy signature", async () => {
+  user = null;
+  expect(token()).toBe(anonymous + ".c0d2bd7104f1461d5089222ab228a60bc9a02a042c6abbab421cd93212f74eaa");
+  expect((await discoverIdentity(request(token()))).actor).toBe("anon:" + anonymous);
+});
+
+test("API-key rotation keeps existing cookies and actor headers valid with a fixed HMAC key", async () => {
+  user = null;
+  process.env.DISCOVER_ACTOR_HMAC_KEY = legacyKey;
+  expect((await discoverIdentity(request(token()))).actor).toBe("anon:" + anonymous);
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_synthetic-replacement-api-key";
+  process.env.ABUSE_HMAC_KEY = "unrelated-abuse-hmac-key-for-isolation-test";
+  process.env.EMAIL_CODE_HMAC_KEY = "unrelated-email-code-hmac-key-for-isolation-test";
+  const header = new NextRequest("https://example.test/api/feed", { headers: { "x-cn-discover-actor": token() } });
+  expect(await discoverIdentity(header)).toMatchObject({ actor: "anon:" + anonymous, newAnonymous: false, cookie: null, token: token() });
+  expect(authRead).toHaveBeenCalledTimes(2);
+  expect(linkRead).toHaveBeenCalledTimes(2);
+  expect(rpc).not.toHaveBeenCalled();
+});
+
+test("a fresh HMAC key rejects legacy signatures and signs the new actor without legacy acceptance", async () => {
+  user = null;
+  process.env.DISCOVER_ACTOR_HMAC_KEY = dedicatedKey;
+  const rotated = await discoverIdentity(request(token()));
+  expect(rotated.actor).not.toBe("anon:" + anonymous);
+  expect(rotated.newAnonymous).toBe(true);
+  const [id, signature] = rotated.token!.split(".");
+  expect(signature).toBe(createHmac("sha256", dedicatedKey).update("discover-actor:" + id).digest("hex"));
+  expect(signature).not.toBe(createHmac("sha256", legacyKey).update("discover-actor:" + id).digest("hex"));
+  expect(linkRead).not.toHaveBeenCalled();
+  expect(rpc).not.toHaveBeenCalled();
+  expect((await discoverIdentity(request(token(dedicatedKey)))).actor).toBe("anon:" + anonymous);
+});
+
+test("dedicated HMAC bytes preserve authenticated history linking", async () => {
+  process.env.DISCOVER_ACTOR_HMAC_KEY = ` ${dedicatedKey} `;
+  expect((await discoverIdentity(request(token(` ${dedicatedKey} `)))).actor).toBe("user:viewer");
+  expect(rpc).toHaveBeenCalledTimes(1);
+  expect(rpc).toHaveBeenCalledWith("link_discover_identity_v1", { p_anonymous: anonymous, p_user: "viewer" });
+});
+
+test.each(["", "short", "x".repeat(31)])("invalid explicit HMAC key fails closed despite a valid API-key fallback: %p", async key => {
+  user = null;
+  process.env.DISCOVER_ACTOR_HMAC_KEY = key;
+  await expect(discoverIdentity(request(token()))).rejects.toThrow("Discover identity is temporarily unavailable");
+  expect(linkRead).not.toHaveBeenCalled();
+  expect(rpc).not.toHaveBeenCalled();
+});
+
+test("missing or short legacy configuration also fails closed", async () => {
+  user = null;
+  delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  await expect(discoverIdentity(request(token()))).rejects.toThrow("Discover identity is temporarily unavailable");
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "short";
+  await expect(discoverIdentity(request(token()))).rejects.toThrow("Discover identity is temporarily unavailable");
+  expect(rpc).not.toHaveBeenCalled();
 });
