@@ -45,3 +45,44 @@ test("upload recovery requires a durable resource and preserves its exact identi
  mockRpc.mockResolvedValueOnce({data:{allowed:true},error:null});
  await expect(admitRequest(request(),"public_upload","user:verified",upload)).rejects.toMatchObject({status:503});
 });
+
+const upload = {operation:"stable-operation",contract:"size-and-mime",resource:"new-resource",bytes:100};
+const legacyHashes = {
+ p_actor:"51bf96bc65b3181ae98a9e3ff204fbae80d5fb85df7771f9ac238a8f742e5873",
+ p_ip:"a41a4de259f0070e458b656ed00b421a44a1c4edf55beb5ca93f1c551ef9d582",
+ p_operation:"3212a31745277e3f5af60e90b261fd19c476c20951b3e5843330a6400e31949a",
+ p_contract:"0816e7db820c9589b6e4133ec1c2f7a026ae998217c5c729c1b0cb3adca8db77",
+};
+test("unset HMAC setting preserves exact legacy upload identities and RPC shape",async()=>{
+ mockRpc.mockResolvedValue({data:{allowed:true,reused:true,resource:"original-resource"},error:null});
+ await admitRequest(request(),"public_upload","user:verified",upload);
+ expect(mockRpc).toHaveBeenCalledTimes(1);
+ expect(mockRpc).toHaveBeenCalledWith("abuse_admit_v1",{
+  p_action:"public_upload",...legacyHashes,p_resource:"new-resource",p_bytes:100,p_seconds:0,
+ });
+});
+test("API-key rotation with a fixed HMAC key preserves all reservation identities and original recovery resource",async()=>{
+ process.env.ABUSE_HMAC_KEY=process.env.SUPABASE_SERVICE_ROLE_KEY;
+ mockRpc.mockResolvedValue({data:{allowed:true,reused:true,resource:"original-resource"},error:null});
+ expect(await admitRequest(request(),"public_upload","user:verified",upload)).toEqual({resource:"original-resource",reused:true});
+ process.env.SUPABASE_SERVICE_ROLE_KEY="sb_secret_synthetic-replacement-api-key";
+ process.env.EMAIL_CODE_HMAC_KEY="unrelated-email-code-hmac-key-for-test";
+ process.env.DISCOVER_ACTOR_HMAC_KEY="unrelated-discover-actor-hmac-key-for-test";
+ expect(await admitRequest(request(),"public_upload","user:verified",upload)).toEqual({resource:"original-resource",reused:true});
+ expect(mockRpc).toHaveBeenCalledTimes(2);
+ expect(mockRpc.mock.calls[1]).toEqual(mockRpc.mock.calls[0]);
+ expect(mockRpc.mock.calls[1][1]).toMatchObject(legacyHashes);
+});
+test("independent HMAC material replaces legacy identity derivation with one admission",async()=>{
+ process.env.ABUSE_HMAC_KEY="synthetic-independent-abuse-hmac-key";
+ mockRpc.mockResolvedValue({data:{allowed:true,reused:false,resource:"new-resource"},error:null});
+ await admitRequest(request(),"public_upload","user:verified",upload);
+ expect(mockRpc).toHaveBeenCalledTimes(1);
+ for(const field of Object.keys(legacyHashes)) expect(mockRpc.mock.calls[0][1][field]).not.toBe(legacyHashes[field as keyof typeof legacyHashes]);
+ expect(JSON.stringify(mockRpc.mock.calls[0][1])).not.toContain(process.env.ABUSE_HMAC_KEY);
+});
+test.each(["","short","x".repeat(31)])("invalid explicit HMAC setting fails closed without falling back: %p",async key=>{
+ process.env.ABUSE_HMAC_KEY=key;
+ await expect(admitRequest(request(),"public_upload","user:verified",upload)).rejects.toMatchObject({status:503});
+ expect(mockRpc).not.toHaveBeenCalled();
+});
