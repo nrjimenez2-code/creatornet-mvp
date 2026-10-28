@@ -1826,3 +1826,81 @@ from recorded receipts; that total alone is not proof of complete unsettled
 collection coverage. Reproduce that case and reserve its potential principal or
 hold new surplus until conclusive original reconciliation. F40 cannot dispatch
 a payout and does not claim this execution gate is complete.
+
+### F41 — original surplus execution and independent money observations (local candidate)
+
+The CLI-generated `20261028000209_sales_team_surplus_execution.sql` keeps
+execution independently default off. Its source readiness/schema flags are
+separate from F40 reservation permission. No application route, scheduler,
+provider setting, bank approval or external account connection is installed.
+
+Before withdrawal, the cash owner now protects a confirmation's full potential
+principal while its independently verified receipt is missing. Bound and unknown
+originals remain covered; only the canonical conclusive unpaid closure or the
+verified receipt owner can remove that potential amount. Receipt arrival replaces
+it with the existing recorded liabilities, without counting both. The source
+revision changes with the original evidence and invalidates an older cash basis.
+The local regression reproduced the previously missing 3,333 cents before the fix.
+
+`surplusExecution.ts` accepts one actual reserved task and uses the existing
+provider journal through a narrow named port. A fresh approved bank/manual-payout
+settings proof and two matching available USD/card balance GETs precede claim.
+Independent destination/cash reads repeat after claim. Assertion and the final
+dispatch check require the current task/lease, frozen new-money capability,
+unchanged policy/context, current financial contract and sufficient protected
+cash including the request's own principal/cost reservation. A table trigger
+also fences withdrawal identity and outcome binding through old journal wrappers.
+No generic withdrawal or new destination can be manufactured by the adapter.
+
+At most one frozen standard payout POST can be attempted, with the original
+operation/key/worker/bank/amount metadata. API pin and zero retries are enforced.
+The adapter admits at most 24 payment-object GETs, one POST, a 45-second POST
+cutoff and 65-second overall transport window; inherited context/evidence probes
+retain their separate existing bounds. Admitted requests drain before return.
+Original response binding can finish after its provider lease expires without
+obtaining fresh dispatch authority. A missing/uncertain response never authorizes
+a second POST. Unknown creation remains reserved for the subsequent original-event
+recovery owner; this stage does not adopt metadata-only matches or claim recovery
+from an empty event list. Cancellation requires true journal absence under both
+the platform-cash and original journal locks and advances the cash epoch.
+
+`surplusPayoutReadback.ts` reads the exact bound original payout, its referenced
+payments-balance debit and any failure/cancellation return, then rereads the
+payout. Currency, original principal, source, destination, manual standard method,
+mode, metadata, timestamps, transaction types, reporting categories, no conversion,
+net/actual fee details and distinct request IDs must agree. Bank details are not
+stored: eligibility stores an owned ID and fingerprint hash, and trace references
+are hashed. Current bank eligibility never gates money that already moved.
+
+`surplusObservations.ts` remains usable after the worker finishes and all
+new-money switches are off. The SQL consumer derives completeness and disposition
+again from the proof. Available debit/return entries are immutable and globally
+unique within the payout ledger, and existing team financial transaction ownership
+is checked. A late failed return appends a separate entry without rewriting the
+first resolution or posting money twice. Each newly recognized monetary fact or
+reservation release advances the existing cash epoch, so an earlier high balance
+cannot become spendable. Pending or missing return evidence retains an unresolved
+reservation. Actual fee excess is recorded and creates an alert that holds new
+surplus; a fee credit requiring review is also explicit.
+
+Six new histories have RLS and service SELECT-only table access. Named private
+and public function ACLs, immutable histories, all five financial/surplus digests,
+and transactional dependency/final-grant rollback are covered. Fifteen existing
+main financial fixture chains now install F41; isolated historical rollback
+parents remain unchanged. Focused local checks passed 87 tests in three suites
+using disposable PGlite parents and mocked transports. Broader current integration
+and final static receipts must be recorded at the local checkpoint.
+
+Every provider observation still reports `bankConfirmed=false`. For first LIVE
+acceptance, the current recommendation is an authorized person's review of a
+matched bank deposit receipt/statement, with charging/commission/payout processing
+automated in the completed journey. No bank-feed method or connection has been
+approved or provisioned. Stripe's `payout.paid` event means expected availability
+and can be followed by `payout.failed`; neither supplies actual bank receipt proof.
+
+Original unknown-create event recovery, narrow signed-payout webhook ingress,
+bounded daily orchestration and beneficiary bank observations/alerts still need
+their owning continuation. Final presentation, actual installed/historical/shared
+security compatibility, real multi-session contention, complete current CI/full
+suite/build/browser, approved commercial/provider inputs, separately authorized
+external sandbox and distinct Production/LIVE/confirmed-BANK acceptance remain.
