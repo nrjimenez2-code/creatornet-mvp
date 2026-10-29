@@ -1891,12 +1891,13 @@ parents remain unchanged. Focused local checks passed 87 tests in three suites
 using disposable PGlite parents and mocked transports. Broader current integration
 and final static receipts must be recorded at the local checkpoint.
 
-Every provider observation still reports `bankConfirmed=false`. For first LIVE
-acceptance, the current recommendation is an authorized person's review of a
-matched bank deposit receipt/statement, with charging/commission/payout processing
-automated in the completed journey. No bank-feed method or connection has been
-approved or provisioned. Stripe's `payout.paid` event means expected availability
-and can be followed by `payout.failed`; neither supplies actual bank receipt proof.
+Every provider observation still reports `bankConfirmed=false`. The historical
+F41 recommendation was reviewed bank statements for first LIVE acceptance. The
+user superseded that recommendation on 2026-10-29: automatic bank confirmation
+plus exception review is required for launch, with Stripe Financial Connections
+evaluated first (see F45). No actual bank connection has been provisioned.
+Stripe's `payout.paid` can be followed by `payout.failed`; neither supplies actual
+bank receipt proof.
 
 Original unknown-create event recovery, narrow signed-payout webhook ingress,
 bounded daily orchestration and beneficiary bank observations/alerts still need
@@ -2034,3 +2035,50 @@ they do not establish installed historical compatibility, multi-session PostgreS
 contention, hosted/provider acceptance or bank receipt. Exact checks and source
 hashes belong to the Sales Team 13 checkpoint. Beneficiary bank observations/alerts,
 final views, complete CI/build/browser and separately approved external gates remain.
+
+## F45: beneficiary payout and bank connection readers (local candidates)
+
+`beneficiaryPayoutReadback.ts` starts from a service-resolved original transfer
+request and its immutable F27 completion. It independently rereads that transfer
+and platform debit, fences retained request IDs, and reads the candidate payout
+in the original connected account. Only standard automatic USD bank payouts with
+completed reconciliation qualify. Two complete payout-filtered balance lists
+(at most three pages of 100 each) must agree, include exactly one original
+destination-payment credit, and sum to the payout. Independent credit, payout
+debit and optional return reads must agree with those identities. Manual,
+instant, incomplete, changing or ambiguous observations remain unresolved.
+The read admits at most 15 payment-object GETs within a checked 65-second window,
+uses zero retries, and reserves 30 seconds before its own context probes.
+
+`bankConnectionReadback.ts` reads the exact Financial Connections account twice
+under the saved connected-account scope. Account holder, mode, permission set,
+subscription and refresh observations must agree. It distinguishes disconnected,
+reconnect required, unsupported account, missing permission/subscription,
+missing/pending/failed refresh, stale and ready states. The 36-hour freshness
+threshold is an engineering candidate, not an approved live service promise.
+Refresh time is `lastAttemptedAt`; a failed attempt is not a successful sync.
+Two GETs use a checked 45-second window with a full 30-second allowance reserved
+before each context probe. Platform-owned bank connections are outside this reader.
+
+Both readers retain the existing Stripe API pin, use at most ten-second provider
+timeouts and await admitted work. Their minimized output excludes bank numbers,
+last four digits, institution/owner names, descriptions, trace text and unrelated
+payout members. They perform no provider write, release no accounting and always
+return `bankConfirmed=false`. A healthy connection does not prove that it is the
+payout destination or that a deposit arrived.
+
+These unused service-layer candidates have no route, schema migration, durable
+admission/acceptance owner or activation switch. They do not implement consent,
+destination mapping, transaction ingestion/matching, reconnect/revocation,
+authorized reviewed exceptions or alerts. Those owners and final scoped views
+remain required for the selected automatic-bank-confirmation launch. Matching
+only on last four digits, amount or date is insufficient. Exact provider/account
+compatibility, destination linkage and stable deposit references remain external
+acceptance gates; original banks/accounts must be preserved.
+
+Sales Team 13's readback-d receipt covers 166 passing mock-provider tests at its
+recorded bytes. The only later runtime-source edit was a TypeScript assertion
+through `unknown`; Sales Team 14's typecheck-c and lint-c close that static gap.
+Exact source/evidence hashes belong to the Sales Team 14 checkpoint. These checks
+do not establish hosted/provider capability, installed shared-schema security,
+complete current CI/build/browser acceptance, Production behavior or BANK receipt.
