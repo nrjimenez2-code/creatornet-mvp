@@ -4,7 +4,7 @@ import {useRouter,useSearchParams} from "next/navigation";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {useUser} from "@/lib/useUser";
 import {useTeamApi} from "@/lib/salesTeams/client";
-import {teamMoney,teamStatementStatus,type TeamStatement} from "@/lib/salesTeams/statements";
+import {teamMoney,teamStatementStatus,teamPayoutObservationStatus,type TeamStatement} from "@/lib/salesTeams/statements";
 import styles from "../app/dashboard/closers/bookings.module.css";
 type Relationship={creator_id:string;role:string;status:string};
 export default function SalesTeamStatements(){
@@ -35,16 +35,25 @@ export default function SalesTeamStatements(){
   <Link href="/dashboard/closers/payouts">Your payout setup</Link><label>Creator relationship<select value={creator} disabled={loading} onChange={event=>router.push(`/dashboard/closers/earnings?creator_id=${encodeURIComponent(event.target.value)}`)}>
    <option value={userId}>Your creator account</option>{relationships.filter(r=>r.creator_id!==userId).map(r=><option key={r.creator_id} value={r.creator_id}>{r.creator_id} · {r.status}</option>)}
   </select></label>
-  <p>Statements show recorded commission obligations. Transfer completion and bank receipt are separate; bank-payout evidence is not yet recorded here.</p>
+  <p>Statements show recorded commission obligations. Transfer completion, Stripe payout status and confirmed bank receipt are separate. Bank receipt is unconfirmed.</p>
   {error?<p role="alert">{error}</p>:null}<button disabled={loading} onClick={refresh}>Refresh statement</button>
   {data?<>{data.membershipStatus==="removed"?<p>Team access was removed. Your existing commission agreements and this statement remain available.</p>:null}
    <section className={styles.panel}><h2>{data.scope==="creator"?"Team commission totals":"Your commission totals"}</h2>
     <p>Earned: {teamMoney(data.totals.earnedCents)} · Unpaid: {teamMoney(data.totals.unpaidCents)} · Recovery due: {teamMoney(data.totals.recoveryCents)}</p>
     <p>Transfers recorded: {teamMoney(data.totals.releasedCents)} · Transfer reversals: {teamMoney(data.totals.reversedCents)}</p>
+    {data.payoutEvidenceAsOf?<p>Statement read at {new Date(data.payoutEvidenceAsOf).toLocaleString()}. Each payout observation has its own recorded time; refreshing the statement does not check Stripe or your bank.</p>:<p>Additional bank-payout evidence is not yet recorded here.</p>}
    </section>
    {data.entries.length?data.entries.map(entry=><article key={entry.receiptId} className={styles.panel}><h2>{entry.title} · Payment {entry.periodNumber}</h2>
     <p>{teamStatementStatus[entry.status]||"Review required"} · Hold until {new Date(entry.holdUntil).toLocaleString()}</p>
     <p>Earned {teamMoney(entry.earnedCents)} · Unpaid {teamMoney(entry.unpaidCents)} · Recovery {teamMoney(entry.recoveryCents)}</p>
+    {entry.payoutEvidence?<section aria-label="Recorded payout observations"><h3>Recorded payout observations</h3>
+     {entry.payoutEvidence.length?entry.payoutEvidence.map((evidence,index)=><div key={`${evidence.beneficiary}:${evidence.transferredAt}:${index}`}>
+      <p>{evidence.beneficiary==="creator"?"Creator":"Closer"} transfer recorded: {teamMoney(evidence.transferredCents)} · {new Date(evidence.transferredAt).toLocaleString()}</p>
+      <p>Stripe payout: {teamPayoutObservationStatus[evidence.payoutStatus]||"Review required"}{evidence.observedAt?` · Observed ${new Date(evidence.observedAt).toLocaleString()}`:""}. Bank receipt unconfirmed.</p>
+      {evidence.reversedCents!=="0"?<p>Transfer reversals recorded: {teamMoney(evidence.reversedCents)}. The payout observation is historical and does not establish remaining funds.</p>:null}
+     </div>):<p>No completed transfer evidence recorded for this receipt.</p>}
+     {entry.hasMorePayoutEvidence?<p>Only the latest 20 completed transfers are shown for this receipt. Older transfer evidence is omitted; commission totals above include all recorded entries.</p>:null}
+    </section>:null}
     {data.scope==="creator"&&entry.creatorAccounting?<details><summary>Creator accounting</summary>
      <p>Sale subtotal {teamMoney(entry.creatorAccounting.saleSubtotalCents)} · Creator proceeds {teamMoney(entry.creatorAccounting.creatorProceedsCents)} · Platform revenue {teamMoney(entry.creatorAccounting.platformRevenueCents)}</p>
      <p>Recorded processing cost {teamMoney(entry.creatorAccounting.actualProcessingCostCents)} · Processing reserve {teamMoney(entry.creatorAccounting.processingReserveCents)} · Payout-cost reserve {teamMoney(entry.creatorAccounting.payoutCostReserveCents)}</p>

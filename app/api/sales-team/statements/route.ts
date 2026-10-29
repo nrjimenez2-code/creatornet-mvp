@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { teamId,teamLedgerSchemaReady,TeamSalesError } from "@/lib/salesTeams/policy";
+import { teamId,teamLedgerSchemaReady,teamPayoutStatementsSchemaReady,TeamSalesError } from "@/lib/salesTeams/policy";
 import { teamError,teamJson,teamRequest,teamRpc } from "@/lib/salesTeams/server";
 
 export async function GET(req:NextRequest){
@@ -11,6 +11,6 @@ export async function GET(req:NextRequest){
    if(rows.error)throw rows.error;return teamJson({relationships:rows.data||[]});
   }
   const cursor=req.nextUrl.searchParams.get("cursor");
-  return teamJson(await teamRpc(admin,"read_sales_team_statement_v1",{p_creator_id:teamId(creator),p_actor_id:user.id,p_cursor:cursor?teamId(cursor):null,p_limit:20}));
+  return teamJson(await teamRpc(admin,teamPayoutStatementsSchemaReady()?"read_sales_team_payout_statement_v1":"read_sales_team_statement_v1",{p_creator_id:teamId(creator),p_actor_id:user.id,p_cursor:cursor?teamId(cursor):null,p_limit:20}));
  }catch(error){return teamError(error);}
 }

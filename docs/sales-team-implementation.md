@@ -2135,3 +2135,31 @@ health persistence, transaction ingestion/matching, reconnect/revocation,
 authorized exception review, alerts and final views remain required. Provider
 configuration and identifier inspection is evidence for capability evaluation,
 not permission to change accounts or proof that a bank deposit arrived.
+
+## F47: scoped statement payout observations (local candidate)
+
+`20261029233544_sales_team_payout_statements.sql` adds the service-only, fixed-search-path
+SECURITY INVOKER `read_sales_team_payout_statement_v1`. It first calls the existing
+statement owner for actor authorization, accessible receipt pagination, cumulative
+commission totals and all later accounting fields. Its existing function and financial
+contract bodies/ACLs are preserved. Owners and active appointed managers retain creator
+scope. Closers, including removed members, see only their own closer originals under
+the already-authorized receipt, sale and creator. Historical reads need no new-money
+control enabled.
+
+Each visible receipt adds up to 20 latest completed transfer observations, with an
+explicit overflow indicator. The projection includes only beneficiary role, that
+transfer's amount/time, original reversal total, latest recorded payout status/time,
+and bankConfirmed=false. It exposes no provider IDs, bank details, payout batch amount,
+other members, raw evidence or lease. It reads immutable F27/F29/F46 owners without
+provider calls or financial writes. The statement read time is distinct from each
+provider observation time; refreshing this screen does not check Stripe or the bank.
+Paid, failed, missing, historical and reversed evidence never becomes confirmed BANK.
+
+The statements route selects this projection only when the complete beneficiary
+schema chain and `CREATOR_TEAM_PAYOUT_STATEMENTS_SCHEMA_READY === "true"` are present.
+Otherwise it keeps the existing statement RPC. New controls remain default off.
+Consent, exact bank mapping/deposit association, bank-health persistence, authorized
+exception/alert owners and actual bank acceptance remain separate required work.
+Local structural/mock checks do not establish installed/shared, hosted/provider,
+Production/LIVE or BANK acceptance. The final CI full-suite fallback still applies.

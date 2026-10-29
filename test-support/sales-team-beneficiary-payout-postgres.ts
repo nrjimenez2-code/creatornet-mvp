@@ -11,9 +11,9 @@ import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
 
 /** Structural shared schema and fake provider only; creates an original through
  * the retained capture, reservation, journal and F27 completion owners. */
-export async function seedCompletedBeneficiary(db:PGlite){
+export async function seedCompletedBeneficiary(db:PGlite,beneficiary:"creator"|"closer"="creator",beforeFinancialCheck?:()=>Promise<void>){
  await db.exec("update sales_team_controls_v1 set event_reconciliation_enabled=true,financial_reconciliation_enabled=true,fulfillment_enabled=true,cash_reservations_enabled=true,settlement_enabled=true,transfer_reservations_enabled=true,transfer_observations_enabled=true,transfer_execution_enabled=true");
- const f=await seedTeamCapture(db),stamp=Math.floor(Date.now()/1000);f.base.balance.available_on=stamp;f.base.balance.status="available";
+ const f=await seedTeamCapture(db);let stamp=Math.floor(Date.now()/1000);f.base.balance.available_on=stamp;f.base.balance.status="available";
  const receiptId=String((await f.record()).id);await db.query("update profiles set role='admin' where id=$1",[id(29)]);
  await db.exec("update sales_team_cash_policy_v1 set reserve_cents=1000,refund_cost_reserve_cents=100,legacy_refund_cost_reserve_cents=100,tip_restoration_cost_reserve_cents=50,transfer_cost_reserve_cents=30,evidence='{\"scope\":\"synthetic beneficiary fixture\"}',shared_adapter_sha256=encode(sha256(convert_to(pg_get_functiondef('creatornet_team_private.shared_platform_cash_liabilities_v1(jsonb)'::regprocedure),'UTF8')),'hex'),shared_contract_sha256=creatornet_team_private.shared_cash_contract_digest_v1(),retained_contract_sha256=creatornet_team_private.retained_cash_contract_digest_v1(),transfer_contract_sha256=creatornet_team_private.transfer_contract_digest_v1()");
  const values:Record<string,Record<string,unknown>>={"/v1/balance":teamCashBalanceFixture,"/v1/payment_intents/pi_original":f.base.paymentIntent as unknown as Record<string,unknown>,
@@ -30,12 +30,14 @@ export async function seedCompletedBeneficiary(db:PGlite){
  });
  const c={admin:{rpc},context:f.contract.context,observeContext:async()=>f.contract.context,observeEvidence:async()=>f.evidence,stripe:{rawRequest:raw}} as unknown as TeamReceiptComposition;
  const invoke=async<T=unknown>(name:string,args:Record<string,unknown>):Promise<T>=>{const result=await rpc(name,args);if(result.error)throw result.error;return result.data as T;};
+ if(beforeFinancialCheck)await beforeFinancialCheck();
  await inspectTeamReceiptFinancials(c,receiptId,id(29));
  const run=await f.rpc<{runId:string;leaseToken:string}>("claim_sales_team_settlement_run_v1",[id(80),c.context]);
- const q=await reserveTeamEarnedTransfer(c,{...run,taskId:id(82),requestId:id(81),receiptId,beneficiary:"creator"});
+ const q=await reserveTeamEarnedTransfer(c,{...run,taskId:id(82),requestId:id(81),receiptId,beneficiary});
  const journal=await f.rpc<{operation:{lease_token:string}}>("run_sales_team_transfer_execution_v1",[run.runId,run.leaseToken,c.context,id(82),"claim",{operationId:q.operation_id,scope:q.scope,request:q.request}]);
  await f.rpc("run_sales_team_transfer_execution_v1",[run.runId,run.leaseToken,c.context,id(82),"assert",{operationId:q.operation_id,leaseToken:journal.operation.lease_token}]);
  await f.rpc("bind_sales_team_provider_operation_v1",[q.operation_id,"tr_original","req_originalPost",false]);
+ stamp=Math.floor(Date.now()/1000);
  const amount=Number(q.amount_cents),transfer={id:"tr_original",object:"transfer",amount,amount_reversed:0,balance_transaction:"txn_transfer",created:stamp,currency:"usd",destination:q.destination_id,destination_payment:"py_destination",livemode:false,metadata:q.request.params.metadata,reversed:false,reversals:{object:"list",data:[],has_more:false,url:"/v1/transfers/tr_original/reversals"},source_transaction:"ch_original",source_type:"card",transfer_group:`cn_team_${q.sale_id}`};
  const balance={id:"txn_transfer",object:"balance_transaction",source:"tr_original",type:"transfer",reporting_category:"transfer",balance_type:"payments",currency:"usd",amount:-amount,fee:0,net:-amount,exchange_rate:null,created:stamp,available_on:stamp,status:"available",fee_details:[]};
  values["/v1/transfers/tr_original"]=transfer;values["/v1/balance_transactions/txn_transfer"]=balance;

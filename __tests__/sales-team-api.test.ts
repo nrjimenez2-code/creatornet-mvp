@@ -66,3 +66,12 @@ test("financial statements bind the current user and remain readable with new ac
  expect((await statement(req)).status).toBe(200);
  expect(mockRpc).toHaveBeenCalledWith("read_sales_team_statement_v1",{p_creator_id:creator,p_actor_id:actor,p_cursor:null,p_limit:20});
 });
+test("payout statements require the complete schema chain and bind the verified actor",async()=>{
+ process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY="true";process.env.CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY="true";
+ process.env.CREATOR_TEAM_PAYOUT_STATEMENTS_SCHEMA_READY="true";
+ const req=new NextRequest(`https://creatornet.example/api/sales-team/statements?creator_id=${creator}&actor_id=${creator}&cursor=${target}`,{headers:{authorization:"Bearer verified"}});
+ expect((await statement(req)).status).toBe(200);expect(mockRpc).toHaveBeenLastCalledWith("read_sales_team_statement_v1",expect.anything());
+ for(const key of ["PAYMENT","LATER_COLLECTION","PAYMENT_LIFECYCLE","COLLECTION_RETRY","SAVED_METHOD","AUTOMATIC_COLLECTION","RECEIPT","EVENT","FINANCIAL","REFUND_DISPATCH","CASH","COMBINED_SETTLEMENT","SURPLUS_RESERVATIONS","SURPLUS_EXECUTION","SURPLUS_RECOVERY","SURPLUS_EVENTS","SURPLUS_DAILY","BENEFICIARY_PAYOUT"])process.env[`CREATOR_TEAM_${key}_SCHEMA_READY`]="true";
+ delete process.env.CREATOR_SALES_TEAM_READY;expect((await statement(req)).status).toBe(200);
+ expect(mockRpc).toHaveBeenLastCalledWith("read_sales_team_payout_statement_v1",{p_creator_id:creator,p_actor_id:actor,p_cursor:target,p_limit:20});
+});
