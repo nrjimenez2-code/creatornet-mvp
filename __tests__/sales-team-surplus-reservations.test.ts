@@ -21,7 +21,7 @@ beforeAll(async()=>{
  const columns=await db.query<{column_name:string}>("select column_name from information_schema.columns where table_schema='public' and table_name='sales_team_cash_reads_v1'");
  expect(columns.rows.map(r=>r.column_name)).toContain("settlement_worker_run_id");
  await db.exec(readFileSync(candidate,"utf8"));await db.exec(readFileSync("supabase/migrations/20261028000209_sales_team_surplus_execution.sql","utf8"));await db.exec(readFileSync("supabase/migrations/20261028222238_sales_team_surplus_recovery.sql","utf8"));
-await installSignedSurplusEventsFixture(db);},30000);
+await installSignedSurplusEventsFixture(db);await db.exec(readFileSync("supabase/migrations/20261029171329_sales_team_daily_surplus.sql","utf8"));},30000);
 beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 
 async function fixture(available=1000000){

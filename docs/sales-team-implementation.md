@@ -1989,3 +1989,48 @@ actual installed/historical/shared security compatibility or real multi-session
 PostgreSQL contention. Complete current CI/full-suite/build/browser and external
 provider/BANK gates remain separate. Daily orchestration, beneficiary bank
 observations/alerts and final views still require their owning implementation.
+
+## F44: bounded daily surplus application (local candidate)
+
+`GET /api/sales-team/surplus` uses the existing constant-time cron bearer check
+before composing provider access. `CREATOR_TEAM_SURPLUS_DAILY_SCHEMA_READY`
+defaults off and requires the F43 schema chain. Fresh payout authority still
+requires the existing reservation and execution switches plus database controls;
+the daily schema switch alone only permits recovery of existing originals.
+Responses are private/no-store. No scheduler is registered or activated here.
+
+`dailySurplus.ts` claims one existing UTC daily slot and one original task with
+the inherited 90-second lease. F40 owns protected cash and reservation identity;
+F41 alone dispatches a genuinely new reserved payout. The outer adapter permits
+at most one exact-original POST before 25 seconds, 32 payment-object GETs,
+60 regular RPCs and a 65-second admission window. Provider transport uses the
+fixed API pin, zero retries and at most ten seconds; RPCs use at most five seconds.
+Existing independent context/evidence probes require 30 seconds remaining when
+admitted. Already-started transport drains normally. Up to three owned event
+claim releases and the original worker finish use bounded cleanup RPCs. The route
+retains a 120-second ceiling; database lease expiry still fences new operations.
+
+An original with a journal can only use F41 observation or F42 exact creation-event
+recovery, even when new payout authority is enabled. Only an original whose journal
+is absent can use F41's guarded unsent cancellation. Unknown or incomplete outcomes
+stay reserved. A late signed event after an immutable debit resolution still
+selects that original and prevents a fresh payout.
+
+`20261029171329_sales_team_daily_surplus.sql` adds one service-only pending-event
+reader, restricted to the current worker lease/context and exact assigned request.
+It returns at most three immutable F43 admissions. The application acquires their
+actual shared Stripe claims, retaining null tokens only for completed duplicates,
+then reuses the stored admission and fresh independent original money proof.
+Busy/reclaimed claims retain their owner and hold. Extra pending events keep the
+run in review. No signed payload or bank receipt is invented. Every outcome still
+says `bankConfirmed=false`.
+
+The reader uses a fixed search path and is included in all five financial contract
+digests. Eighteen existing main financial fixture chains include F44; isolated
+historical rollback parents remain unchanged. Dependency, digest and late-grant
+installation failures roll back. The
+local fixture checks use structural shared-schema bases and mocked transport;
+they do not establish installed historical compatibility, multi-session PostgreSQL
+contention, hosted/provider acceptance or bank receipt. Exact checks and source
+hashes belong to the Sales Team 13 checkpoint. Beneficiary bank observations/alerts,
+final views, complete CI/build/browser and separately approved external gates remain.

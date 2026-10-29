@@ -26,7 +26,7 @@ declare const createLocalPostgres:()=>PGlite;
 let db:PGlite,h:Awaited<ReturnType<typeof seedSignedSurplus>>,POST:(req:NextRequest)=>Promise<Response>,advance:(ms:number)=>Promise<void>;
 const env={...process.env};
 beforeAll(async()=>{
- db=createLocalPostgres();advance=await installTeamLocalClock(db);await signedSurplusDatabase(db);
+ db=createLocalPostgres();advance=await installTeamLocalClock(db);await signedSurplusDatabase(db);await db.exec(readFileSync("supabase/migrations/20261029171329_sales_team_daily_surplus.sql","utf8"));
  const base=teamSupabaseFixture(db);admin={...base,rpc:(name:string,args:Record<string,unknown>)=>h.rpc(name,args)} as unknown as SupabaseClient;
  Object.assign(process.env,{VERCEL_ENV:"preview",STRIPE_SECRET_KEY:"sk_test_SyntheticNoNetwork",STRIPE_WEBHOOK_SECRET:secret,STRIPE_CONNECT_WEBHOOK_SECRET:"",NEXT_PUBLIC_SUPABASE_URL:"https://fixture.invalid",SUPABASE_SERVICE_ROLE_KEY:"synthetic"});
  POST=(await import("@/app/api/stripe/webhook/route")).POST;
