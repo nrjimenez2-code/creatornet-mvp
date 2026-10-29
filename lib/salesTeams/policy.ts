@@ -30,6 +30,7 @@ export const teamSurplusExecutionSchemaReady = (env: TeamEnvironment = process.e
 export const teamSurplusRecoverySchemaReady = (env: TeamEnvironment = process.env) => teamSurplusExecutionSchemaReady(env) && env.CREATOR_TEAM_SURPLUS_RECOVERY_SCHEMA_READY === "true";
 export const teamSurplusEventsSchemaReady = (env: TeamEnvironment = process.env) => teamSurplusRecoverySchemaReady(env) && env.CREATOR_TEAM_SURPLUS_EVENTS_SCHEMA_READY === "true";
 export const teamSurplusDailySchemaReady = (env: TeamEnvironment = process.env) => teamSurplusEventsSchemaReady(env) && env.CREATOR_TEAM_SURPLUS_DAILY_SCHEMA_READY === "true";
+export const teamBeneficiaryPayoutSchemaReady = (env: TeamEnvironment = process.env) => teamSurplusDailySchemaReady(env) && env.CREATOR_TEAM_BENEFICIARY_PAYOUT_SCHEMA_READY === "true";
 export const teamSurplusExecutionReady = (env: TeamEnvironment = process.env) => teamSurplusExecutionSchemaReady(env) && teamSurplusReservationsReady(env) && env.CREATOR_TEAM_SURPLUS_EXECUTION_READY === "true";
 export const teamReceiptSchemaReady = (env: TeamEnvironment = process.env) => teamPaymentSchemaReady(env) && env.CREATOR_TEAM_RECEIPT_SCHEMA_READY === "true";
 export const teamReceiptRecordingReady = (env: TeamEnvironment = process.env) => teamReceiptSchemaReady(env) && env.CREATOR_TEAM_RECEIPT_RECORDING_READY === "true";

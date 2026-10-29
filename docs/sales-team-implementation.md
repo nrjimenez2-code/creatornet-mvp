@@ -2082,3 +2082,56 @@ through `unknown`; Sales Team 14's typecheck-c and lint-c close that static gap.
 Exact source/evidence hashes belong to the Sales Team 14 checkpoint. These checks
 do not establish hosted/provider capability, installed shared-schema security,
 complete current CI/build/browser acceptance, Production behavior or BANK receipt.
+
+## F46: durable beneficiary payout observations (local candidate)
+
+`20261029182136_sales_team_beneficiary_payout_observations.sql` adds a disabled
+observation policy and immutable check, observation and provider-read histories.
+The service-only admission resolves an existing completed F27 transfer and its
+original provider journal. A client-supplied original or beneficiary is never
+accepted. One 90-second check lease can own a transfer at a time. Reusing a check
+ID returns consumed without revealing its token; a lost admission must expire
+before a new attempt. Completion requires the exact token/context, unchanged
+original source, current policy/contract, and fresh proof read after admission.
+
+The SQL consumer validates the minimized F45 shape, original identities and
+amount, automatic payout, exact destination-payment credit/debit/return, bounded
+membership summary and distinct provider request IDs. Retained original reads,
+POST IDs and IDs consumed by another observation cannot be reused. A duplicate
+completion is idempotent only for byte-equivalent JSON evidence. Late failures
+append observations; previous evidence is immutable. A previously associated
+payout or external bank cannot silently be replaced. Known transfer reversals
+prevent fresh unreversed evidence and require the remaining exception owner.
+
+This owner does not move money or change existing accounting, financial digests,
+recipient identities, payout schedules or statement status. New-money controls
+may remain off. Its separate contract digest includes its function bodies/ACLs
+and the existing transfer contract. Both admission and completion require a
+matching explicitly configured policy. Authority is checked again after inserts,
+so loss of authority rolls back the observation and consumed request IDs.
+
+RLS is enabled on all four new tables. Anonymous/authenticated roles have no
+access; service has SELECT-only table access and two named definer entry points
+with fixed search paths. Private helpers have no service execution grants.
+No user route, scheduler or bank-confirmed projection is added. The default-off
+`CREATOR_TEAM_BENEFICIARY_PAYOUT_SCHEMA_READY` requires the F44 schema chain.
+`beneficiaryPayoutObservations.ts` resolves originals through admission, freezes
+its composition references, bounds RPCs to five seconds, reserves context-probe
+allowances, and awaits transport within an 85-second checked post-admission
+window. It has no retry or provider POST path and always returns bankConfirmed=false.
+
+Sales Team 14 records 59 passing structural SQL/mock-provider cases, including
+permission denial, forged/replayed/stale evidence, lost authority, immutable late
+failure history and transactional installation rollback. Two native PostgreSQL
+17.11 cases use three independent sessions each and observe actual lock waits
+for admission and duplicate completion. The native run clones the preserved
+F44 structural template and installs this migration only in new test databases.
+Exact receipts/source hashes and static results belong to its checkpoint.
+Installed historical/shared-schema compatibility, full current CI/build/browser,
+provider sandbox, Production/LIVE and real BANK acceptance remain separate gates.
+
+Consent/provenance, exact external-bank-to-Financial-Connections mapping, bank
+health persistence, transaction ingestion/matching, reconnect/revocation,
+authorized exception review, alerts and final views remain required. Provider
+configuration and identifier inspection is evidence for capability evaluation,
+not permission to change accounts or proof that a bank deposit arrived.
