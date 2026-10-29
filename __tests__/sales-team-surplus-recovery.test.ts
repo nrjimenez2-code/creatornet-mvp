@@ -1,4 +1,5 @@
 /** @jest-environment ./test-support/pglite-environment.cjs */
+import {installSignedSurplusEventsFixture} from "@/test-support/sales-team-surplus-events-schema";
 import {readFileSync} from "node:fs";
 import type {PGlite} from "@electric-sql/pglite";
 import type Stripe from "stripe";
@@ -17,7 +18,7 @@ import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
 declare const createLocalPostgres:()=>PGlite;
 const candidate="supabase/migrations/20261028222238_sales_team_surplus_recovery.sql",execution="supabase/migrations/20261028000209_sales_team_surplus_execution.sql";
 let db:PGlite,advance:(ms:number)=>Promise<void>;
-beforeAll(async()=>{db=createLocalPostgres();advance=await installTeamLocalClock(db);await surplusDatabase(db);await db.exec(readFileSync(execution,"utf8"));await db.exec(readFileSync(candidate,"utf8"));},30000);
+beforeAll(async()=>{db=createLocalPostgres();advance=await installTeamLocalClock(db);await surplusDatabase(db);await db.exec(readFileSync(execution,"utf8"));await db.exec(readFileSync(candidate,"utf8"));await installSignedSurplusEventsFixture(db);},30000);
 beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 async function fixture(){
  const h=await seedTeamSurplusCash(db,{maximumCents:5000}),run=await h.claim(),prepared=await reserveTeamDailySurplus(h.c,{...run,requestId:id(201)});

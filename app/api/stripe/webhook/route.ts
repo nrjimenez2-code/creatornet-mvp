@@ -1464,7 +1464,8 @@ export async function POST(req: NextRequest) {
     if (event.type !== "account.updated") return jerr("provider-context", "Unsupported connected-account event", 400);
     const account = event.data.object as Stripe.Account;
     if (!event.account || account.id !== event.account) return jerr("provider-context", "Connected account identity differs", 400);
-  } else if (event.account != null || event.type === "account.updated") {
+  } else if (event.account != null || event.type === "account.updated" ||
+      (event.type.startsWith("payout.") && event.context != null)) {
     return jerr("provider-context", "Event requires the connected-account destination", 400);
   }
 
@@ -1494,6 +1495,10 @@ export async function POST(req: NextRequest) {
   const claim = await claimStripeEvent(claimKey, event.type);
   if (claim.status === "duplicate") {
     try {
+      const { handoffTeamSurplusWebhook } = await import("@/lib/salesTeams/surplusWebhook");
+      if (await handoffTeamSurplusWebhook({ event, admin, env: process.env, claimToken: null })) {
+        return NextResponse.json({ ok: true, duplicate: true });
+      }
       const { locateTeamPaymentEvent } = await import("@/lib/salesTeams/webhook");
       if (await locateTeamPaymentEvent({ event, admin, stripe: getStripe() })) {
         return NextResponse.json({ ok: true, duplicate: true });
@@ -1531,6 +1536,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    const { handoffTeamSurplusWebhook } = await import("@/lib/salesTeams/surplusWebhook");
+    if (await handoffTeamSurplusWebhook({ event, admin, env: process.env, claimToken: claim.claimToken })) {
+      await completeStripeEvent(claimKey, claim.claimToken);
+      return NextResponse.json({ ok: true });
+    }
     const { handoffTeamPaymentWebhook } = await import("@/lib/salesTeams/webhook");
     if (await handoffTeamPaymentWebhook({ event, admin, stripe: getStripe(), env: process.env })) {
       await completeStripeEvent(claimKey, claim.claimToken);

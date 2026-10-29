@@ -1941,3 +1941,51 @@ This remains a local candidate with fake transports and disposable SQL fixtures.
 Signed surplus ingress, daily orchestration, beneficiary bank observations and
 final views remain separate owners. No scheduler, provider setting, bank approval,
 new-money activation or external rollout is installed by this migration.
+
+## F43: signed original surplus ingress (local candidate)
+
+`surplusWebhook.ts` runs before payment classification in both the newly claimed
+and completed-duplicate branches of the canonical webhook. Real signature and
+mode/source guards still precede the shared claim. Organization-scoped payout
+events are rejected before claiming. Metadata only locates or fences an original;
+the durable dispatched surplus request and provider journal own the payout.
+Saved payout bindings also route when payload metadata is absent. Missing schema,
+changed ownership, stale tokens and suspicious marked objects never fall through
+to legacy payment effects. Non-payout traffic avoids surplus database lookup.
+
+`20261028224405_sales_team_signed_surplus_events.sql` requires the shared token
+claim functions/table at installation. Event admission locks and verifies the
+actual `stripe:<eventId>` claim row, including type, status, token and freshness.
+A null token is accepted only for an already completed shared delivery. Immutable
+event admission advances the cash epoch once. A completed shared delivery without
+a surplus result must still reconcile the original before acknowledgment.
+
+Only F41 bound-original observations or F42 independent creation-event recovery
+supply money proof. Completion requires a check admitted after event admission,
+current complete independent money, the exact payout/context and
+`bankConfirmed=false`. A failed/canceled event requires an independently read
+return. Pending or unavailable money leaves the event durable and unacknowledged.
+There is no webhook POST, replacement payout, unsent inference or bank-receipt
+claim. The added handler uses a 45-second admission window, up to nine payout/event
+GETs, zero retries, bounded RPCs and a 30-second admission allowance for each
+existing context probe. Admitted work is awaited; exhausted budgets remain held.
+The shared claim/completion prelude retains its existing owner and limits.
+
+Unresolved signed events hold fresh surplus and extend the existing claim,
+prepare and finish predicates even after the original immutable debit resolution.
+A late failure therefore selects the original next UTC daily slot. Its eventual
+return appends the existing money leg without rewriting the original resolution.
+Another event's result cannot clear this hold. Histories have RLS, service
+SELECT-only access, named function ACLs, immutable rows and five financial digest
+owners. Dependency, shared-claim, predicate and final-grant failures roll back
+installation transactionally.
+
+The signed tests use Stripe's real signature verifier with synthetic payloads,
+actual shared SQL claim functions over a structural base table, and mocked
+provider transport. Seventeen current main financial fixture chains now include
+F43; isolated historical rollback parents remain unchanged. Exact checks and
+source hashes belong to the Sales Team 13 checkpoint. These fixtures do not prove
+actual installed/historical/shared security compatibility or real multi-session
+PostgreSQL contention. Complete current CI/full-suite/build/browser and external
+provider/BANK gates remain separate. Daily orchestration, beneficiary bank
+observations/alerts and final views still require their owning implementation.

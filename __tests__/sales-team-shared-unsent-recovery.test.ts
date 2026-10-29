@@ -1,4 +1,5 @@
 /** @jest-environment ./test-support/pglite-environment.cjs */
+import {installSignedSurplusEventsFixture} from "@/test-support/sales-team-surplus-events-schema";
 import {readFileSync} from "node:fs";
 import type {PGlite} from "@electric-sql/pglite";
 import {sharedCashDatabase,sharedCashReconciliationCandidate} from "@/test-support/sales-team-shared-cash-postgres";
@@ -20,7 +21,7 @@ let c:TeamReceiptComposition,values:Record<string,Record<string,unknown>>,raw:je
 beforeAll(async()=>{
  db=await sharedCashDatabase(createLocalPostgres());
  for(const path of [sharedCashReconciliationCandidate,"supabase/migrations/20261023042321_sales_team_retained_refund_funding.sql","supabase/migrations/20261023060912_sales_team_automatic_recovery.sql","supabase/migrations/20261023063905_sales_team_worker_refund_recovery.sql",candidate,"supabase/migrations/20261023180144_sales_team_transfer_reservations.sql","supabase/migrations/20261023182527_sales_team_transfer_observations.sql","supabase/migrations/20261023184139_sales_team_transfer_execution.sql","supabase/migrations/20261023190044_sales_team_automatic_settlement.sql","supabase/migrations/20261024210829_sales_team_transfer_reversal_observations.sql","supabase/migrations/20261024213841_sales_team_transfer_recovery_reservations.sql","supabase/migrations/20261024215948_sales_team_transfer_recovery_execution.sql","supabase/migrations/20261025184802_sales_team_transfer_reversal_recovery.sql","supabase/migrations/20261025191826_sales_team_combined_settlement.sql","supabase/migrations/20261025195351_sales_team_later_collection.sql","supabase/migrations/20261026185425_sales_team_payment_lifecycle.sql","supabase/migrations/20261026193046_sales_team_expired_collection_retry.sql","supabase/migrations/20261027021620_sales_team_saved_method_authority.sql","supabase/migrations/20261027024721_sales_team_automatic_collection.sql","supabase/migrations/20261027232440_sales_team_protected_daily_surplus.sql","supabase/migrations/20261028000209_sales_team_surplus_execution.sql","supabase/migrations/20261028222238_sales_team_surplus_recovery.sql"])await db.exec(readFileSync(path,"utf8"));
-},30000);
+await installSignedSurplusEventsFixture(db);},30000);
 beforeEach(async()=>{await db.exec("begin");});
 afterEach(async()=>{await db.exec("rollback;reset role");});
 afterAll(async()=>{await db?.close();});

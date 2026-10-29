@@ -1,10 +1,12 @@
 import Stripe from "stripe";
+import {NextRequest} from "next/server";
 import {createMockClient} from "./__mocks__/supabaseQueryMock";
 const verifier=new Stripe("sk_test_synthetic_no_network"),secret="synthetic-lifecycle-signature";
 const claim=jest.fn(),complete=jest.fn(),release=jest.fn(),observe=jest.fn(),capture=jest.fn(),boundary=jest.fn();
 const id=(n:number)=>`10000000-0000-4000-8000-${String(n).padStart(12,"0")}`;
 const owner={buyerId:id(1),requestId:id(2),reservationId:id(3),customerId:"cus_owned",objectId:"pi_owned"};
-const db=createMockClient(()=>({data:{attempt_id:id(4),payment_intent_id:"pi_owned",bound_at:"2026-01-01T00:00:00Z"},error:null}));
+const db=createMockClient(op=>op.kind==="rpc"&&op.table==="locate_sales_team_payment_event_v1"?{data:null,error:null}:
+ {data:{attempt_id:id(4),payment_intent_id:"pi_owned",bound_at:"2026-01-01T00:00:00Z"},error:null});
 jest.mock("@supabase/supabase-js",()=>({createClient:()=>db}));
 jest.mock("@/lib/stripeClient",()=>({getStripe:()=>({webhooks:verifier.webhooks})}));
 jest.mock("@/lib/stripeEvents",()=>({claimStripeEvent:(...a:unknown[])=>claim(...a),completeStripeEvent:(...a:unknown[])=>complete(...a),releaseStripeEvent:(...a:unknown[])=>release(...a)}));
@@ -32,12 +34,15 @@ afterEach(()=>jest.restoreAllMocks());afterAll(()=>{process.env=previous;});
 async function deliver(type="payment_intent.canceled",key=secret){const payload=JSON.stringify({id:"evt_owned",object:"event",type,created:Math.floor(Date.now()/1000),livemode:false,
  api_version:"2025-10-29.clover",data:{object:{id:"pi_owned",object:"payment_intent",customer:"cus_owned",livemode:false}}});
  const signature=verifier.webhooks.generateTestHeaderString({payload,secret:key});const {POST}=await import("@/app/api/stripe/webhook/route");
- return POST(new Request("https://example.invalid/api/stripe/webhook",{method:"POST",headers:{"stripe-signature":signature},body:payload}) as any);
+ return POST(new NextRequest("https://example.invalid/api/stripe/webhook",{method:"POST",headers:{"stripe-signature":signature},body:payload}));
 }
 test.each(["payment_intent.processing","payment_intent.payment_failed","payment_intent.canceled","payment_intent.requires_action"])("signed %s reaches original observation before claim completion",async type=>{
  expect((await deliver(type)).status).toBe(200);expect(observe).toHaveBeenCalledTimes(1);expect(complete).toHaveBeenCalledTimes(1);
  expect(claim.mock.invocationCallOrder[0]).toBeLessThan(observe.mock.invocationCallOrder[0]);expect(observe.mock.invocationCallOrder[0]).toBeLessThan(complete.mock.invocationCallOrder[0]);
  expect(boundary).not.toHaveBeenCalled();expect(capture).not.toHaveBeenCalled();expect(release).not.toHaveBeenCalled();
+ expect(db.ops.filter(op=>op.kind==="rpc"&&op.table==="locate_sales_team_payment_event_v1")).toMatchObject([
+  {payload:{p_payment_intent_id:"pi_owned",p_charge_id:null}},
+ ]);
 });
 test("uncertainty releases the event claim for retry without marking completion",async()=>{
  observe.mockRejectedValue(Error("unknown original phase"));expect((await deliver()).status).toBe(500);expect(release).toHaveBeenCalledTimes(1);expect(complete).not.toHaveBeenCalled();

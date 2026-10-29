@@ -1,4 +1,5 @@
 /** @jest-environment ./test-support/pglite-environment.cjs */
+import {installSignedSurplusEventsFixture} from "@/test-support/sales-team-surplus-events-schema";
 import type {PGlite} from "@electric-sql/pglite";
 import {readFileSync} from "node:fs";
 import {surplusDatabase,seedTeamSurplusCash} from "@/test-support/sales-team-surplus-postgres";
@@ -12,7 +13,7 @@ import {teamSurplusExecutionReady,teamSurplusExecutionSchemaReady} from "@/lib/s
 import type {TeamReceiptComposition} from "@/lib/salesTeams/receipts";
 declare const createLocalPostgres:()=>PGlite;
 let db:PGlite,advance:(ms:number)=>Promise<void>;
-beforeAll(async()=>{db=createLocalPostgres();advance=await installTeamLocalClock(db);await surplusDatabase(db);await db.exec(readFileSync("supabase/migrations/20261028000209_sales_team_surplus_execution.sql","utf8"));await db.exec(readFileSync("supabase/migrations/20261028222238_sales_team_surplus_recovery.sql","utf8"));},30000);
+beforeAll(async()=>{db=createLocalPostgres();advance=await installTeamLocalClock(db);await surplusDatabase(db);await db.exec(readFileSync("supabase/migrations/20261028000209_sales_team_surplus_execution.sql","utf8"));await db.exec(readFileSync("supabase/migrations/20261028222238_sales_team_surplus_recovery.sql","utf8"));await installSignedSurplusEventsFixture(db);},30000);
 beforeEach(async()=>{await db.exec("begin");});afterEach(async()=>{await db.exec("rollback;reset role");jest.restoreAllMocks();});afterAll(async()=>{await db?.close();});
 
 test("available cash cannot make an original captured confirmation without a verified receipt withdrawable",async()=>{
