@@ -118,3 +118,6 @@ export function approvedTeamInstallments(value: unknown, totalCents: number, mon
   }
   return [...value];
 }
+
+export const teamBankReviewSchemaReady = (env: TeamEnvironment = process.env) => teamPayoutStatementsSchemaReady(env) && env.CREATOR_TEAM_BANK_REVIEW_SCHEMA_READY === "true";
+export const teamBankReviewReady = (env: TeamEnvironment = process.env) => teamBankReviewSchemaReady(env) && env.CREATOR_TEAM_BANK_REVIEW_READY === "true";

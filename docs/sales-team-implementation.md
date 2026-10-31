@@ -2163,3 +2163,97 @@ Consent, exact bank mapping/deposit association, bank-health persistence, author
 exception/alert owners and actual bank acceptance remain separate required work.
 Local structural/mock checks do not establish installed/shared, hosted/provider,
 Production/LIVE or BANK acceptance. The final CI full-suite fallback still applies.
+
+## F48: cumulative purchase earnings range (local candidate)
+
+The hosted catalog receipt observed purchases.amount_cents and
+purchases.earnings_credited_cents as integer, whereas the structural fixture uses
+bigint. A normal accepted integer-price purchase and its duplicate fulfillment
+were compatible. Cumulative creator earnings have a different range: an accepted
+99,999,999-cent auto-renewing monthly contract produced a synthetic observed net
+of 75,099,969 cents for its first capture. Repeating that net 29 times projects
+2,177,899,101 cents, above the signed integer limit. Native PostgreSQL rejects that
+projection when converting it to the integer purchase field (SQLSTATE22003).
+This was a column-domain counterexample, not ingestion of 29 elapsed renewals or a
+claim that the full accounting synchronization ran over 29 original receipts.
+
+20261031195130_sales_team_purchase_earnings_range.sql widens only cumulative
+purchases.earnings_credited_cents from plain integer to bigint, preserving values;
+an existing bigint is a no-op. Single-purchase amount_cents remains unchanged.
+The migration requires the existing shared-accounting and F47 statement owners,
+rejects missing/generated/identity/unreviewed column types, and uses a five-second
+lock timeout and 60-second statement timeout. Dependency or lock failure rolls
+back. It changes no routine, accepted terms, financial identity, permission,
+feature control, accounting balance, provider object or money operation.
+
+Sales Team 16 recorded eight PGlite schema tests and six native PostgreSQL17.11
+migration checks, including sentinel values, retained function/security inventory,
+already-bigint behavior, unsupported type, missing parent, dependent-view rollback
+and an observed real lock wait that times out at five seconds. Six further native
+assertion groups preserve old once-only credit/reversal behavior and prove that
+five retained legacy entry points still reject team purchases/ledgers before a
+legacy integer conversion; all test-local financial mutations roll back.
+The underlying template is structural, with actual F46/F47 local migrations.
+Schema-only unit fixtures use named parent stubs to test presence gates only.
+
+Actual hosted constraints are available only as prior catalog digests, not their
+expressions; installed/history/dependency equivalence is unverified. Widening an
+actual integer column may rewrite its table and needs a bounded installation plan,
+approved target history/security compatibility and separate hosted authorization.
+These local checks do not establish that operational lock duration, provider,
+Production/LIVE or BANK acceptance. The required complete final CI fallback and
+other financial journey gates remain in force.
+
+
+## F49: immutable BANK exception review history (local candidate)
+
+20261031201235_sales_team_bank_exception_reviews.sql adds default-off review
+policy and append-only acknowledgement/escalation history for a completed original
+transfer. The state snapshot reuses its existing beneficiary, immutable F46 payout
+observation and reversal history. Missing observations, provider payout statuses
+(including paid), and later reversals all leave the exception outstanding with
+bankConfirmed=false. A review never releases accounting, confirms BANK, closes or
+hides the exception, changes provider objects, or dispatches an alert/recheck.
+This is one component of the required automatic confirmation and exception flow.
+
+The service-only record function acquires the retained creator authorization lock,
+requires the current owner or appointed active manager, and validates an exact
+current state digest. A review ID is immutable and idempotent only for its original
+actor/action/request/state. Permission and policy authority are checked again after
+insert; loss of either rolls back. Even exact replay requires current authority.
+Changing observations or reversals leaves older reviews visible but no longer
+applicable to the current state. Snapshot timestamps use canonical UTC independent
+of connection timezone. Read history reuses the existing statement scope: owners
+and active managers have creator scope; removed closers retain only their own
+original financial history. History has bounded cursor pagination and exposes no
+provider/bank identifiers, raw evidence, lease, buyer details or reviewer user IDs.
+RLS is on, users have no direct grants, service has SELECT-only table access and
+two named fixed-search-path definer entry points. Financial contract owners and
+retained routine bodies/ACLs are not changed.
+
+GET/POST /api/sales-team/bank-review uses the retained verified-user authority.
+Only that verified user supplies the SQL actor; a caller-supplied actor is rejected.
+GET requires the complete retained schema chain plus
+CREATOR_TEAM_BANK_REVIEW_SCHEMA_READY=true. POST additionally requires
+CREATOR_TEAM_BANK_REVIEW_READY=true, same origin and a bounded exact-field JSON
+intent. Historical review does not require new-sales admission. Database write
+policy also remains disabled until its exact current review contract is explicitly
+configured. No route/control was enabled by this local source change.
+
+Sales Team 16 records 19 structural SQL cases, 23 API admission cases and six native
+PostgreSQL17.11 cases across nine sessions/eight contenders. Native tests observe
+actual advisory waits, once-only duplicate reviews, changed-intent rejection,
+committed manager removal, MVCC observation visibility, cross-session UTC/Phoenix/
+Tokyo digest equality, service privileges and unchanged retained financial rows.
+An explicit timezone regression failed on the first draft and passes after UTC
+canonicalization. Structural fixture triggers initially omitted public schema
+qualification; those fixture failures are preserved separately. Native servers
+completed smart shutdown with exit0, and the root suite inputs were unchanged.
+
+The SQL base is structural, not actual installed/historical/shared-schema proof.
+Final user views and queue discovery, consent/provenance, exact bank and posted-
+deposit association, durable bank health/refresh/revocation, scoped alert delivery
+and complete reviewed exception resolution remain required. No manual confirmation
+fallback is added. Current complete CI/build/browser, separately approved hosted/
+provider sandbox, distinct LIVE rollout/activation and actual BANK acceptance remain
+separate gates. Source/evidence hashes belong to the Sales Team 16 checkpoint.
