@@ -2,6 +2,7 @@ import { AdminDataProvider } from "@/components/admin/AdminDataContext";
 import { ContentPageClient } from "./ContentPageClient";
 import { fetchContentInitialData } from "./data";
 import { fetchAdminReportsPage } from "@/lib/admin/reports";
+import { requireAdminPage } from "@/lib/admin/server";
 
 // Live moderation data — never prerender or cache.
 export const dynamic = "force-dynamic";
@@ -16,6 +17,7 @@ export const dynamic = "force-dynamic";
  * ToastProvider above still serves the toasts.
  */
 export default async function ContentPage() {
+  await requireAdminPage();
   const [initialData, initialReports] = await Promise.all([fetchContentInitialData(), fetchAdminReportsPage("open", 0)]);
   return (
     <AdminDataProvider key={initialData.asOf} initialData={initialData}>

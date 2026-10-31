@@ -7,6 +7,7 @@ import { adminClient } from "@/lib/admin/server";
 import { createServerClient } from "@/lib/supabaseServer";
 import { paymentModeFromKey } from "@/lib/admin/display-context";
 import { AdminFrameSkeleton } from "@/components/loading/Skeletons";
+import { MfaRequiredError, requireAdminMfa } from "@/lib/adminMfa";
 
 export const metadata: Metadata = {
   title: "CreatorNet Admin",
@@ -25,7 +26,7 @@ export default async function AdminLayout({
 }: {
   children: ReactNode;
 }) {
-  const supabase = createServerClient();
+  const supabase = createServerClient({ readOnlyAuthCookies: true });
   const {
     data: { user },
     error,
@@ -36,11 +37,16 @@ export default async function AdminLayout({
 
   const { data: profile } = await adminClient()
     .from("profiles")
-    .select("role, username, full_name")
+    .select("role, username, full_name,banned_at")
     .eq("id", user.id)
-    .maybeSingle<{ role: string; username: string | null; full_name: string | null }>();
-  if (profile?.role !== "admin") {
+    .maybeSingle<{ role: string; username: string | null; full_name: string | null; banned_at: string | null }>();
+  if (profile?.role !== "admin" || profile.banned_at) {
     redirect("/");
+  }
+  try { await requireAdminMfa(user.id); }
+  catch (error) {
+    if (error instanceof MfaRequiredError) redirect("/account/security");
+    throw error;
   }
 
   return <Suspense fallback={<AdminFrameSkeleton />}><AdminDataShell

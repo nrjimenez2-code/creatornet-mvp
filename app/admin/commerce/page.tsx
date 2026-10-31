@@ -3,10 +3,11 @@ import { fetchCommerceInitialData } from "@/lib/admin/commerce-data";
 import { CommercePageClient } from "./CommercePageClient";
 import { exactAdminEnabled } from "@/lib/installments/adminActions";
 import Link from "next/link";
+import { requireAdminPage } from "@/lib/admin/server";
 import { membershipAdminReady } from "@/lib/membershipAdmin";
 import { buyerMentorshipAdminReady } from "@/lib/mentorshipInstallmentAdmin";
 import { fullRefundReviewAdminReady } from "@/lib/fullRefundReviewAdmin";
-import { teamFinancialReconciliationReady,teamRefundDispatchSchemaReady } from "@/lib/salesTeams/policy";
+import { teamFinancialReconciliationReady, teamRefundDispatchSchemaReady } from "@/lib/salesTeams/policy";
 
 // Money data must never come from a stale cache.
 export const dynamic = "force-dynamic";
@@ -18,10 +19,11 @@ export const dynamic = "force-dynamic";
  * page's client tree reads these rows instead of the layout's demo seed).
  */
 export default async function CommercePage() {
+  await requireAdminPage();
   const initialData = await fetchCommerceInitialData();
   return (
     <AdminDataProvider initialData={initialData}>
-      {(teamFinancialReconciliationReady()||teamRefundDispatchSchemaReady()) && <Link href="/admin/commerce/sales-team"
+      {(teamFinancialReconciliationReady() || teamRefundDispatchSchemaReady()) && <Link href="/admin/commerce/sales-team"
         className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review team payment costs →</Link>}
       {fullRefundReviewAdminReady() && <Link href="/admin/commerce/full-refunds"
         className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review full-payment refunds →</Link>}

@@ -15,7 +15,7 @@ jest.mock("@/lib/discoverServer", () => ({
   createDiscoverSession: async () => "fixture-feed-session",
   readDiscoverPage: async () => ({items:[],hasMore:false,nextOffset:0}),
 }));
-jest.mock("@/lib/supabaseAdmin", () => ({ supabaseAdmin: {} }));
+jest.mock("@/lib/supabaseAdmin", () => ({ supabaseAdmin: {rpc:async()=>({data:[],error:null})} }));
 import { GET } from "@/app/api/feed/route";
 import { POST } from "@/app/auth/callback/route";
 import { createServerClient } from "@/lib/supabaseServer";
@@ -108,3 +108,8 @@ test("normal server clients still synchronize refreshed cookies", async () => {
   expect(refreshes).toBe(1);
   expect(writes.some(write => write.name === cookieKey && !write.clear)).toBe(true);
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

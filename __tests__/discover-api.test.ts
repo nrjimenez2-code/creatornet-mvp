@@ -246,3 +246,8 @@ test('batched inventory preserves pagination and fresh moderation without direct
   expect((await (await GET(request('offset=0&limit=2'))).json()).items).toEqual([]);
  } finally {delete process.env.DISCOVER_BATCH_INVENTORY_ENABLED;}
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

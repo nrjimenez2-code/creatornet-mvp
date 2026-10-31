@@ -16,7 +16,7 @@ import { GET, POST } from "@/app/api/admin/reports/[reportId]/route";
 const id = "22222222-2222-4222-8222-222222222222";
 const params = { params: Promise.resolve({ reportId: id }) };
 const request = (method: string, body?: unknown) => new NextRequest(`http://localhost/api/admin/reports/${id}`, {
-  method, ...(body ? { body: JSON.stringify(body) } : {}),
+  method, headers: { origin: "http://localhost", host: "localhost" }, ...(body ? { body: JSON.stringify(body) } : {}),
 });
 
 beforeEach(() => {

@@ -18,7 +18,7 @@ In addition to the core `profiles`, `posts`, `products`, `bookings`, etc., the t
 | Area | Objects |
 | --- | --- |
 | Commerce & bookings | `booking_payments` table with enums `booking_payment_plan` (`full`, `installment`) and `booking_payment_status` (`pending`, `link_sent`, `completed`, `canceled`, `refunded`) |
-| Follow/feeds | `follows` table, RPCs `get_feed_discover(uuid, integer)` and `get_feed_following(uuid, integer)` returning `is_following` |
+| Follow/feeds | `follows` table; application clients use `get_feed_v3(text, integer, integer)`. Legacy `get_feed_discover(integer, uuid)`, `get_feed_following(uuid, integer)` and `get_feed_v1(uuid, integer)` are restricted to trusted service execution. |
 | Ratings | RPCs `set_profile_rating(profile_id, reviewer_id, rating)` and `get_profile_rating(profile_id)` plus `profiles.review_rating` & `profiles.review_count` columns |
 | Misc | Storage bucket `avatars` (public), policies that allow signed-in users to read/write their own profile & avatar |
 

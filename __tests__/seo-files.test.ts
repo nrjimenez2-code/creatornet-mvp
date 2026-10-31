@@ -6,21 +6,33 @@
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import robots from "@/app/robots";
+import sitemap from "@/app/sitemap";
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { loadReleaseSettings } from "@/lib/release/server";
 import { closedFeatures, SETTINGS_ID, type ReleaseSettings } from "@/lib/release/policy";
 
 jest.mock("@/lib/release/server", () => ({ loadReleaseSettings: jest.fn() }));
-const settings = (hidden: boolean): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden, features: { ...closedFeatures(), feed: true, profiles: true, search: true }, discord_invite: null, revision: 0, updated_at: "now" });
+jest.mock("@/lib/supabaseAdmin", () => ({ supabaseAdmin: { from: jest.fn() } }));
+const settings = (hidden: boolean): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden, features: { ...closedFeatures(), feed: true, profiles: true, search: true }, public_page: "coming-soon", discord_invite: null, revision: 0, updated_at: "now" });
 
 const ROOT = join(__dirname, "..");
 const read = (p: string) => readFileSync(join(ROOT, p), "utf8");
 
 describe("crawler plumbing", () => {
-  test.each([null, settings(true)])("hidden or unavailable settings deny all product crawling", async (state) => {
+  test("Coming Soon retains the existing limited crawl policy", async () => {
+    const state = settings(true);
     jest.mocked(loadReleaseSettings).mockResolvedValue(state);
     const result = await robots();
     expect(result.rules).toEqual([{ userAgent: "*", disallow: "/", allow: ["/$", "/legal/"] }]);
     expect(result.sitemap).toMatch(/\/sitemap\.xml$/);
+  });
+
+  test.each([null, { ...settings(true), public_page: "blank" as const }])("blank or unavailable settings expose no sitemap links and let crawlers see noindex", async state => {
+    jest.mocked(loadReleaseSettings).mockResolvedValue(state);
+    jest.mocked(supabaseAdmin.from).mockClear();
+    expect((await robots()).rules).toEqual([{ userAgent: "*", allow: "/" }]);
+    expect(await sitemap()).toEqual([]);
+    expect(supabaseAdmin.from).not.toHaveBeenCalled();
   });
 
   test("released discovery surfaces are exact exceptions to the private path deny", async () => {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -22,6 +22,9 @@ const tabs = [
 ] as const;
 
 type MobileTab = (typeof tabs)[number]["id"];
+const subscribeToHydration = () => () => {};
+const clientHydrationSnapshot = () => true;
+const serverHydrationSnapshot = () => false;
 
 export function currentMobileTab(pathname: string, tab: string | null): MobileTab | null {
   if (pathname === "/dashboard") return tab === "following" ? "following" : "discover";
@@ -35,6 +38,8 @@ export default function MobileTabNav() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { userId, loading } = useUser();
+  // Auth may settle in the parent before this Suspense boundary hydrates.
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientHydrationSnapshot, serverHydrationSnapshot);
   const supabase = useMemo(() => createClient(), []);
   const [avatar, setAvatar] = useState<{ userId: string; url: string | null } | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -55,7 +60,7 @@ export default function MobileTabNav() {
     return () => { cancelled = true; };
   }, [supabase, userId, isTopLevel]);
 
-  if (loading || !userId || !activeTab) return null;
+  if (!hydrated || loading || !userId || !activeTab) return null;
 
   return (
     <>

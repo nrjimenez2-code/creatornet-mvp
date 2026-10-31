@@ -38,3 +38,8 @@ test('unavailable-session responses do not reflect mutable exception fields', as
   error:'This feed needs to be refreshed.', code:'DISCOVER_SESSION_UNAVAILABLE',
  });
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

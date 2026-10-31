@@ -1,6 +1,7 @@
 import { fetchAdminUsers } from "@/lib/admin/users-data";
 import type { AdminInitialData } from "@/types/admin";
 import { UsersPageClient } from "./UsersPageClient";
+import { requireAdminPage } from "@/lib/admin/server";
 
 // Moderation data must never be served stale from a build-time render.
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
  * seed empty until their own pages/layout wire them up.
  */
 export default async function AdminUsersPage() {
+  await requireAdminPage();
   const users = await fetchAdminUsers();
   const initialData: AdminInitialData = {
     asOf: new Date().toISOString(),

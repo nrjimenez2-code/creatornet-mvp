@@ -133,11 +133,14 @@ type AuthChangeCallback = (event: string, session: Session | null) => void;
 
 const mockUnsubscribe = jest.fn();
 const mockGetSession = jest.fn<Promise<{ data: { session: Session | null } }>, []>();
-const mockOnAuthStateChange = jest.fn((callback: AuthChangeCallback) => ({
-  data: { subscription: { unsubscribe: mockUnsubscribe } },
-}));
+const mockOnAuthStateChange = jest.fn((callback: AuthChangeCallback) => {
+  void callback;
+  return { data: { subscription: { unsubscribe: mockUnsubscribe } } };
+});
+const mockCurrentMfaSession = jest.fn().mockReturnValue(true);
 
 jest.mock("@/lib/supabaseClient", () => ({
+  isCurrentBrowserMfaSession: (...args: unknown[]) => mockCurrentMfaSession(...args),
   createClient: () => ({
     auth: {
       getSession: mockGetSession,
@@ -270,6 +273,19 @@ describe("UserProvider", () => {
       expect.objectContaining({ userId: null, session: null, loading: false }),
     );
     expect(mockReset).toHaveBeenCalled();
+  });
+
+  test("delayed MFA event cannot resurrect a newer signed-out or replaced identity", async () => {
+    mockGetSession.mockResolvedValue({ data: { session: null } });
+    await renderProvider();
+    await fireAuthEvent("SIGNED_IN", makeSession("replacement", "new-token"));
+    mockCurrentMfaSession.mockReturnValueOnce(false);
+    await fireAuthEvent("MFA_CHALLENGE_VERIFIED", makeSession("old-owner", "old-mfa-token"));
+    expect(observed?.userId).toBe("replacement");
+    await fireAuthEvent("SIGNED_OUT", null);
+    mockCurrentMfaSession.mockReturnValueOnce(false);
+    await fireAuthEvent("MFA_CHALLENGE_VERIFIED", makeSession("old-owner", "old-mfa-token"));
+    expect(observed?.session).toBeNull();
   });
 
   test("TOKEN_REFRESHED swaps in the new session for the same user", async () => {

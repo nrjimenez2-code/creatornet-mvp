@@ -3,14 +3,15 @@ import type { NextRequest } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { adminClient, AdminAuthError } from "@/lib/admin/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
-import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, type ReleaseSettings } from "./policy";
-import { teamSaleSchemaReady,teamRecipientSchemaReady } from "@/lib/salesTeams/policy";
+import { requireAdminMfa } from "@/lib/adminMfa";
+import { teamSaleSchemaReady, teamRecipientSchemaReady } from "@/lib/salesTeams/policy";
+import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, validPublicPage, type ReleaseSettings } from "./policy";
 
 export async function loadReleaseSettings(): Promise<ReleaseSettings | null> {
   try {
     const { data, error } = await adminClient().from("website_release_settings_v1").select("*").eq("id", SETTINGS_ID).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
     if (error || !data || typeof data.hidden !== "boolean" || !validFlags(data.features) || !dependenciesMet(data.features) || !Number.isSafeInteger(data.revision)) return null;
-    if (data.discord_invite !== null && !validDiscordInvite(data.discord_invite)) return null;
+    if ((data.discord_invite !== null && !validDiscordInvite(data.discord_invite)) || !validPublicPage(data.public_page)) return null;
     return data as ReleaseSettings;
   } catch { return null; }
 }
@@ -27,10 +28,11 @@ export async function hasPrivateAccess(user: User | null, settings: ReleaseSetti
   } catch { return false; }
 }
 export async function requireReleaseOwner(req?: NextRequest) {
-  const user = await getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req, { readOnlyAuthCookies: true });
   if (!verifiedIdentity(user)) throw new AdminAuthError(401, "Sign in required");
   const settings = await loadReleaseSettings();
   if (settings?.owner_id !== user.id || !(await hasPrivateAccess(user, settings))) throw new AdminAuthError(403, "Release owner required");
+  await requireAdminMfa(user.id, req);
   return { user, settings, db: adminClient() };
 }
 /** A saved buyer-owned operation admits only its existing fulfillment route. Handlers recheck entitlement/readiness. */
@@ -38,19 +40,19 @@ export async function hasOwnedContinuation(req: NextRequest, user: User | null):
   if (!verifiedIdentity(user)) return false;
   try {
     const db = adminClient();
-    if(["/dashboard/closers/payouts","/api/sales-team/recipient"].includes(req.nextUrl.pathname)){
-      if(!teamRecipientSchemaReady())return false;
-      const original=await db.rpc("sales_team_recipient_continuation_v1",{p_actor_id:user.id});
-      return !original.error&&original.data===true;
+    if (["/dashboard/closers/payouts", "/api/sales-team/recipient"].includes(req.nextUrl.pathname)) {
+      if (!teamRecipientSchemaReady()) return false;
+      const original = await db.rpc("sales_team_recipient_continuation_v1", { p_actor_id: user.id });
+      return !original.error && original.data === true;
     }
-    const teamSale=/^\/purchase\/team\/([a-f0-9-]{36})$|^\/api\/sales-team\/sales\/([a-f0-9-]{36})(?:\/payment)?$/i.exec(req.nextUrl.pathname);
-    if((req.nextUrl.pathname.startsWith("/purchase/team/")||req.nextUrl.pathname.startsWith("/api/sales-team/sales/"))&&!teamSale)return false;
-    if(teamSale){
-      if(!teamSaleSchemaReady())return false;
-      // A draft or a team invitation is not an admitted payment continuation.
-      // Query only the exact path's immutable, buyer-accepted agreement.
-      const agreement=await db.from("sales_team_sale_agreements_v1").select("id").eq("id",teamSale[1]??teamSale[2]).eq("buyer_id",user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
-      return !agreement.error&&Boolean(agreement.data);
+    const teamSale = /^\/purchase\/team\/([a-f0-9-]{36})$|^\/api\/sales-team\/sales\/([a-f0-9-]{36})(?:\/payment)?$/i.exec(req.nextUrl.pathname);
+    if ((req.nextUrl.pathname.startsWith("/purchase/team/") || req.nextUrl.pathname.startsWith("/api/sales-team/sales/")) && !teamSale) return false;
+    if (teamSale) {
+      if (!teamSaleSchemaReady()) return false;
+      // A draft or invitation is not an admitted payment continuation. Keep
+      // the exact accepted agreement and authenticated buyer as authority.
+      const agreement = await db.from("sales_team_sale_agreements_v1").select("id").eq("id", teamSale[1] ?? teamSale[2]).eq("buyer_id", user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
+      return !agreement.error && Boolean(agreement.data);
     }
     if (req.nextUrl.pathname.startsWith("/api/checkout-link/")) {
       const row = await db.from("discover_checkout_links_v1").select("id").eq("id", req.nextUrl.pathname.split("/").pop()).eq("buyer_id", user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();

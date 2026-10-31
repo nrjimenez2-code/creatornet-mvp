@@ -2,7 +2,7 @@ import { closedFeatures, dependenciesMet, featureOpen, routePolicy, validDiscord
 import { launchHtml } from "@/lib/release/launch";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-const settings = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden: true, features: closedFeatures(), discord_invite: "https://discord.gg/bKC8q4z6B", revision: 0, updated_at: "now" });
+const settings = (): ReleaseSettings => ({ id: SETTINGS_ID, owner_id: "owner", hidden: true, features: closedFeatures(), public_page: "coming-soon", discord_invite: "https://discord.gg/bKC8q4z6B", revision: 0, updated_at: "now" });
 test("initial state closes every public capability; hide retains feature choices", () => {
   const state = settings(); expect(Object.values(state.features).every(value => value === false)).toBe(true);
   state.features.feed = true; expect(featureOpen(state, "feed")).toBe(false);
@@ -44,6 +44,11 @@ test("existing setup callbacks can finish without opening new setup or unknown p
   }
   for (const path of ["/api/stripe/connect/onboard", "/api/scheduling/oauth/start", "/api/scheduling/oauth/callback/unknown"]) expect(routePolicy(path).kind).toBe("product");
 });
+test("launch HTML contains legal/private access and only a validated Discord destination", () => {
+  const html = launchHtml("https://discord.gg/bKC8q4z6B"); expect(html).toContain("Coming soon."); expect(html).toContain("Join our Discord"); expect(html).toContain("/auth?next=%2Fprivate-access");
+  expect(html).not.toMatch(/<script|\/dashboard|\/api\/|video_url|post_id/); expect(html).toContain('/legal/support');
+  expect(validDiscordInvite('https://discord.gg/x" onclick="evil')).toBe(false); expect(launchHtml("javascript:alert(1)")).not.toContain("javascript:");
+});
 
 test("historical team statements keep authenticated read access without opening team writes",()=>{
  expect(routePolicy("/dashboard/closers/earnings","GET").kind).toBe("purchase");
@@ -54,8 +59,10 @@ test("historical team statements keep authenticated read access without opening 
  expect(routePolicy("/api/sales-team/statements","POST").kind).toBe("product");
  expect(routePolicy("/api/sales-team","POST").kind).toBe("product");
 });
-test("launch HTML contains legal/private access and only a validated Discord destination", () => {
-  const html = launchHtml("https://discord.gg/bKC8q4z6B"); expect(html).toContain("Coming soon."); expect(html).toContain("Join our Discord"); expect(html).toContain("/auth?next=%2Fprivate-access");
-  expect(html).not.toMatch(/<script|\/dashboard|\/api\/|video_url|post_id/); expect(html).toContain('/legal/support');
-  expect(validDiscordInvite('https://discord.gg/x" onclick="evil')).toBe(false); expect(launchHtml("javascript:alert(1)")).not.toContain("javascript:");
+
+// Exact routes are reachable; their handlers retain cron auth and readiness.
+test.each(["/api/sales-team/settlement", "/api/sales-team/surplus"])("team cron %s has only an exact GET exception", endpoint => {
+  expect(routePolicy(endpoint, "GET").kind).toBe("operation");
+  for (const method of ["POST", "HEAD", "PUT", "DELETE"]) expect(routePolicy(endpoint, method).kind).not.toBe("operation");
+  expect(routePolicy(endpoint + "/extra", "GET").kind).toBe("product");
 });

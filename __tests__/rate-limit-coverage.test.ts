@@ -148,3 +148,8 @@ describe("/api/tag/[hashtag] is rate limited", () => {
     expect((await call("7.7.7.3")).status).not.toBe(429);
   });
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

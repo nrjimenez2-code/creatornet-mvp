@@ -7,24 +7,32 @@ jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: "creator" }) }));
 import PostComposer from "@/components/PostComposer";
 let root: Root, container: HTMLDivElement, mockFetch: jest.Mock;
 let generationFails = false, uploadFails = false;
+let uploadStatuses:number[] = [], verificationFails = false;
+let uploadHeaders: Array<[string, string]> = [];
 const originalFetch = globalThis.fetch, originalXHR = globalThis.XMLHttpRequest;
 const originalCreateURL = URL.createObjectURL, originalRevokeURL = URL.revokeObjectURL;
 let createSpy: jest.SpyInstance, canvasSpy: jest.SpyInstance, blobSpy: jest.SpyInstance;
 beforeEach(async () => {
   generationFails = false; uploadFails = false;
+  uploadStatuses=[];verificationFails=false;
+  uploadHeaders = [];
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
   mockFetch = jest.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/stripe/connect/status") return { ok: true, json: async () => ({ onboarding_complete: true, tipping_enabled: true }) };
     if (url === "/api/products") return { ok: true, json: async () => ({ items: [] }) };
-    if (url === "/api/upload/presign") return { ok: !uploadFails, json: async () => uploadFails ? { error: "Upload refused" } : { uploadUrl: "https://upload.test", publicUrl: `https://cdn.test/${JSON.parse(String(init?.body)).folder}/asset` } };
+    if (url === "/api/upload/presign") {
+      const body=JSON.parse(String(init?.body)),publicUrl=`https://cdn.test/${body.folder}/asset`;
+      if(body.verifyExisting)return {ok:!verificationFails,json:async()=>verificationFails?{error:"Upload verification refused"}:{alreadyUploaded:true,publicUrl}};
+      return { ok: !uploadFails, json: async () => uploadFails ? { error: "Upload refused" } : { uploadUrl: "https://upload.test", publicUrl } };
+    }
     if (url === "/api/posts") return { ok: true, json: async () => ({ success: true }) };
     throw new Error("Unexpected request " + url);
   });
   globalThis.fetch = mockFetch;
   globalThis.XMLHttpRequest = class {
     status = 200; upload = {}; onload?: () => void;
-    open() {} setRequestHeader() {} abort() {}
-    send() { queueMicrotask(() => this.onload?.()); }
+    open() {} setRequestHeader(name: string, value: string) { uploadHeaders.push([name, value]); } abort() {}
+    send() { this.status=uploadStatuses.shift()??200;queueMicrotask(() => this.onload?.()); }
   } as unknown as typeof XMLHttpRequest;
   URL.createObjectURL = () => "blob:test"; URL.revokeObjectURL = jest.fn();
   const create = document.createElement.bind(document);
@@ -44,9 +52,9 @@ afterEach(async () => {
 });
 const button = () => Array.from(container.querySelectorAll("button")).find(node => node.textContent === "Post")!;
 const submit = async () => { await act(async () => button().click()); };
-const pick = async (label = "Public video") => {
+const pick = async (label = "Public video", type = "video/mp4") => {
   const input = container.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
-  Object.defineProperty(input, "files", { configurable: true, value: [new File(["video"], "test.mp4", { type: "video/mp4" })] });
+  Object.defineProperty(input, "files", { configurable: true, value: [new File(["video"], "test.mp4", { type })] });
   await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
 };
 const postRequest = () => mockFetch.mock.calls.find(([url]) => url === "/api/posts");
@@ -63,8 +71,35 @@ test("a public video can publish with empty title/caption and an automatically u
   const body = JSON.parse(String(postRequest()![1].body));
   expect(body).toMatchObject({ title: null, content: "", classification_version: 1, poster_url: "https://cdn.test/thumbnails/asset", hashtags: [] });
   expect(body).not.toHaveProperty("interests"); expect(body).not.toHaveProperty("topics");
+  const presigns = mockFetch.mock.calls.filter(([url]) => url === "/api/upload/presign").map(([, init]) => JSON.parse(String(init.body)));
+  expect(presigns).toEqual([
+    expect.objectContaining({ folder: "videos", contentType: "video/mp4", size: 5 }),
+    expect.objectContaining({ folder: "thumbnails", contentType: "image/jpeg", size: 6 }),
+  ]);
+  expect(uploadHeaders).toEqual([["Content-Type", "video/mp4"], ["If-None-Match", "*"], ["Content-Type", "image/jpeg"], ["If-None-Match", "*"]]);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test");
 });
+test("an unknown browser MIME uses the same fallback for signing and upload", async () => {
+  await pick("Public video", ""); await submit();
+  const presign = mockFetch.mock.calls.find(([url]) => url === "/api/upload/presign");
+  expect(JSON.parse(String(presign![1].body))).toMatchObject({ contentType: "video/mp4", size: 5 });
+  expect(uploadHeaders[0]).toEqual(["Content-Type", "video/mp4"]);
+  expect(uploadHeaders.some(([name]) => name.toLowerCase() === "content-length")).toBe(false);
+});
+
+test("conditional PUT conflicts recover only the same stable upload operation",async()=>{
+  uploadStatuses=[412,200];await pick();await submit();
+  const calls=mockFetch.mock.calls.filter(([url])=>url==="/api/upload/presign").map(([,init])=>JSON.parse(String(init.body)));
+  expect(calls[0]).toMatchObject({uploadContract:"create-only-v1",operationId:expect.any(String)});
+  expect(calls[1]).toEqual({...calls[0],verifyExisting:true});
+  expect(postRequest()).toBeDefined();expect(uploadHeaders.filter(([name])=>name==="If-None-Match")).toHaveLength(2);
+});
+test("an unverified 412 never publishes or creates a replacement upload",async()=>{
+  uploadStatuses=[412];verificationFails=true;await pick();await submit();
+  expect(postRequest()).toBeUndefined();expect(container.textContent).toContain("Upload verification refused");
+  expect(uploadHeaders.filter(([name])=>name==="If-None-Match")).toHaveLength(1);
+});
+
 test("caption hashtags and character counts remain visible and reach the automatic submission", async () => {
   const caption = container.querySelector("textarea")!;
   await act(async () => {

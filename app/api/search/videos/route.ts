@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { admitRequest, admissionResponse } from "@/lib/abuse/admission";
 import { isSafeId } from "@/lib/ids";
 import { allowRequest, clientKey, tooManyRequests } from "@/lib/rateLimit";
 import { isSellReadyProfile, SELL_READY_COLUMNS } from "@/lib/sellReady";
@@ -21,6 +22,7 @@ export async function POST(req: Request) {
   const ids = [...new Set(requested as string[])];
 
   try {
+    await admitRequest(req,"search");
     const { data: posts, error: postsError } = await onlyVisiblePosts(supabaseAdmin.from("posts")
       .select("id,creator_id,product_id,price_cents,title,content,video_url,poster_url,interests,hashtags,created_at,likes_count,comments_count,shares_count,allow_booking,booking_url,tips_enabled")
       .in("id", ids)
@@ -52,6 +54,7 @@ export async function POST(req: Request) {
       };
     }) }, { headers });
   } catch (error) {
+    const admission=admissionResponse(error);if(admission)return admission;
     console.error("[search/videos] public video details failed", error);
     return NextResponse.json({ error: "Could not load videos." }, { status: 503, headers });
   }

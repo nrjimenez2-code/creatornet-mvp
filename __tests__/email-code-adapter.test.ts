@@ -16,6 +16,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   process.env = { ...oldEnv, VERCEL: "1", RESEND_API_KEY: "synthetic-resend", EMAIL_CODE_FROM: "CreatorNet <login@example.test>", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_synthetic-existing-server-key", NEXT_PUBLIC_SUPABASE_URL: "https://example.invalid" };
   delete process.env.SUPABASE_AUTH_SECRET_KEY;
+  delete process.env.EMAIL_CODE_HMAC_KEY;
   handler.mockResolvedValue(Response.json({ ok: true }));
   jest.mocked(supabaseAdmin.rpc).mockResolvedValue({ data: accountId, error: null } as never);
   jest.mocked(loadReleaseSettings).mockResolvedValue(null);

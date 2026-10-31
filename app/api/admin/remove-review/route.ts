@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { adminAuthErrorResponse, requireAdmin } from "@/lib/admin/server";
+import { isSameOriginRequest } from "@/lib/sameOrigin";
 
 export const runtime = "nodejs";
 
@@ -38,6 +39,7 @@ function parseBody(body: unknown): ParsedBody {
  * complete.
  */
 export async function POST(req: NextRequest) {
+  if (!isSameOriginRequest(req)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
   let actorId: string;
   let admin: Awaited<ReturnType<typeof requireAdmin>>["admin"];
   try {

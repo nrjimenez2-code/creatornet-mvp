@@ -10,26 +10,36 @@ import type { PostAction } from "@/lib/productDelivery";
 import { premiumPostingReady, premiumSchemaReady } from "@/lib/premiumReadiness";
 import { isOwnPremiumPath } from "@/lib/premiumPath";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
-import { headR2Object, deleteR2Object, r2KeyFromPublicUrl, readR2ObjectPrefix } from "@/lib/r2";
+import { headR2Object, r2KeyFromPublicUrl, readR2ObjectPrefix } from "@/lib/r2";
 import { isAllowedUpload, maxBytesFor, bytesAllowedForFolder, SNIFF_BYTES, type UploadFolder } from "@/lib/uploadPolicy";
 
-/** Returns an error message if the object at `url` (if it is ours) is too big, the wrong declared type, or not actually that format; null if fine. */
+/** Reject noncanonical R2 uploads before any storage access. */
+function uploadOwnershipError(url: string | null, folder: UploadFolder, userId: string): string | null {
+  if (!url) return null;
+  const key = r2KeyFromPublicUrl(url);
+  if (key === null) return null; // Legacy external media remains supported.
+  // New uploads use a single filename below the authenticated creator's folder.
+  const prefix = `${folder}/${userId}/`;
+  if (!key.startsWith(prefix) || !/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]{1,8}$/.test(key.slice(prefix.length)) ||
+      url.includes("?") || url.includes("#")) return "Upload must belong to your account and the correct media folder.";
+  return null;
+}
+
+/** Verify the landed object without mutating storage. */
 async function enforceUploadSize(url: string | null, folder: UploadFolder): Promise<string | null> {
   if (!url) return null;
   const key = r2KeyFromPublicUrl(url);
   if (!key) return null; // not in our bucket (legacy/external URL); nothing to check
   const head = await headR2Object(key);
-  if (!head) return null; // cannot verify; do not block the creator on an R2 hiccup
+  if (!head || !Number.isSafeInteger(head.size) || head.size < 1) return "Upload could not be verified. Please try again.";
   const max = maxBytesFor(folder);
   if (head.size > max) {
-    await deleteR2Object(key);
     const mb = Math.round(max / (1024 * 1024));
     return folder === "videos"
       ? `Video is too large. The limit is ${mb} MB.`
       : `Thumbnail is too large. The limit is ${mb} MB.`;
   }
-  if (head.contentType && !isAllowedUpload(folder, head.contentType)) {
-    await deleteR2Object(key);
+  if (!isAllowedUpload(folder, head.contentType)) {
     return folder === "videos" ? "Uploaded file is not a video." : "Uploaded file is not an image.";
   }
   // Everything above trusts a Content-Type the UPLOADER chose. Uploads go
@@ -38,10 +48,10 @@ async function enforceUploadSize(url: string | null, folder: UploadFolder): Prom
   // sniffs the real format, not the header: a HEIC or AVIF sent as image/jpeg
   // lands under media.creatornet.net/thumbnails, which is exactly the
   // remotePatterns entry /_next/image will fetch and decode.
-  // Reads 16 bytes, not the file. Fails open on an R2 hiccup, like the HEAD above.
+  // Reads 16 bytes, not the file. An unavailable read cannot verify an upload.
   const prefix = await readR2ObjectPrefix(key, SNIFF_BYTES);
-  if (prefix && !bytesAllowedForFolder(folder, prefix)) {
-    await deleteR2Object(key);
+  if (!prefix || prefix.length < Math.min(head.size, SNIFF_BYTES)) return "Upload could not be verified. Please try again.";
+  if (!bytesAllowedForFolder(folder, prefix)) {
     return folder === "videos"
       ? "That file is not a video. Please upload an MP4."
       : "That image is not a JPG or PNG. Please re-export it and try again.";
@@ -146,10 +156,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "video_url is required" }, { status: 400 });
     }
 
-    // Size cap for files that went to our R2 bucket. The presigned PUT cannot
-    // enforce a length (the browser never tells us the size up front), so the
-    // check runs here, after upload and before a post points at the file.
-    // Anything over the cap is deleted and the post is refused.
+    // Check both paths before any storage access, including when one is valid.
+    const ownershipProblem = uploadOwnershipError(video_url, "videos", user.id) || uploadOwnershipError(poster_url, "thumbnails", user.id);
+    if (ownershipProblem) return NextResponse.json({ success: false, error: ownershipProblem }, { status: 400 });
+    // Verify landed objects as well as the signed upload contract. Validation
+    // never deletes objects: another existing post may still reference them.
     const [videoProblem, posterProblem] = await Promise.all([
       enforceUploadSize(video_url, "videos"),
       enforceUploadSize(poster_url, "thumbnails"),

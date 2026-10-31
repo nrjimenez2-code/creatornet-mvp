@@ -31,7 +31,7 @@ jobs:
     env:
       NEXT_PUBLIC_SUPABASE_URL: https://example.invalid
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-not-a-real-key
-      SUPABASE_SERVICE_ROLE_KEY: ci-not-a-real-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-not-a-real-key-only-for-synthetic-builds
       STRIPE_SECRET_KEY: sk_test_ci_not_a_real_key
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_ci_not_a_real_key
       STRIPE_WEBHOOK_SECRET: whsec_ci_not_a_real_key

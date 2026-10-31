@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "node:crypto";
+import { admitRequest, admissionResponse } from "@/lib/abuse/admission";
 import { publicMessage } from "@/lib/apiError";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import { isSameOriginRequest } from "@/lib/sameOrigin";
 import { allowRequest, tooManyRequests } from "@/lib/rateLimit";
 import { premiumPostingReady, premiumSchemaReady } from "@/lib/premiumReadiness";
-import { readPremiumUpload } from "@/lib/productDelivery";
+import { readPremiumUpload, reservedVideoSeconds } from "@/lib/productDelivery";
 import { createPrivateStreamUpload, PrivateUploadRejected } from "@/lib/privateVideoProvider";
 export const runtime="nodejs";
 export const maxDuration=60;
@@ -35,7 +36,21 @@ export async function POST(req:NextRequest){
   if(existing.data.status==="canceling") return NextResponse.json({error:"Finish canceling this upload before retrying."},{status:409,headers});
   return NextResponse.json({asset_id:existing.data.id,status:existing.data.status,upload_url:existing.data.upload_url,expires_at:existing.data.upload_expires_at},{status:existing.data.status==="creating"?202:200,headers});
  }
- const assetId=randomUUID(),expiresAt=new Date(Date.now()+6*3600000).toISOString();
+ // Terminal generations permit intentionally re-uploading a canceled file,
+ // while concurrent/retried attempts for the same generation share an asset ID.
+ const terminal=await admin.from("private_video_assets").select("id").eq("creator_id",user.id).eq("fingerprint",input.fingerprint)
+  .in("status",["failed","canceled"]).order("created_at",{ascending:false}).order("id",{ascending:false}).limit(1).maybeSingle();
+ if(terminal.error)return NextResponse.json({error:"Upload recovery unavailable."},{status:503});
+ let assetId:string=randomUUID();const expiresAt=new Date(Date.now()+6*3600000).toISOString();
+ try {
+  const admission=await admitRequest(req,"premium_upload",`user:${user.id}`,{
+   operation:`premium:${user.id}:${input.fingerprint}:${terminal.data?.id??"initial"}`,
+   contract:JSON.stringify({size:input.size,duration:input.duration,fingerprint:input.fingerprint}),
+   resource:assetId,bytes:input.size,seconds:reservedVideoSeconds(input.duration),
+  });
+  if(!admission.resource || !/^[a-f0-9-]{36}$/.test(admission.resource))throw Error("Invalid reserved asset");
+  assetId=admission.resource;
+ }catch(error){return admissionResponse(error)??NextResponse.json({error:"Upload recovery unavailable."},{status:503});}
  const claim=await admin.from("private_video_assets").insert({id:assetId,creator_id:user.id,provider:"stream",status:"creating",name:input.name,
   size_bytes:input.size,duration_seconds:input.duration,fingerprint:input.fingerprint,upload_expires_at:expiresAt});
  if(claim.error) return NextResponse.json({error:"An upload may already be starting. Retry to recover it."},{status:409});

@@ -7,6 +7,8 @@ import {
   type User,
 } from "@supabase/supabase-js";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
+import { MfaRequiredError, requireAdminMfa } from "@/lib/adminMfa";
+import { redirect } from "next/navigation";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -45,6 +47,7 @@ export class AdminAuthError extends Error {
  * runModerationAction call this instead of hand-rolling the catch.
  */
 export function adminAuthErrorResponse(err: unknown, action: string): NextResponse {
+  if (err instanceof MfaRequiredError) return NextResponse.json({ error: err.message, code: err.code, securityUrl: err.securityUrl }, { status: 403, headers: { "Cache-Control": "private, no-store" } });
   if (err instanceof AdminAuthError) {
     return NextResponse.json({ error: err.message }, { status: err.status });
   }
@@ -65,7 +68,7 @@ export interface AdminContext {
  * error is a plain Error the route should surface as a 500.
  */
 export async function requireAdmin(req?: NextRequest): Promise<AdminContext> {
-  const user = await getAuthenticatedUser(req);
+  const user = await getAuthenticatedUser(req, { readOnlyAuthCookies: true });
   if (!user) {
     throw new AdminAuthError(401, "Not signed in");
   }
@@ -73,16 +76,28 @@ export async function requireAdmin(req?: NextRequest): Promise<AdminContext> {
   const admin = adminClient();
   const { data: profile, error } = await admin
     .from("profiles")
-    .select("role")
+    .select("role,banned_at")
     .eq("id", user.id)
-    .maybeSingle<{ role: string }>();
+    .maybeSingle<{ role: string; banned_at: string | null }>();
 
   if (error) {
     throw new Error(`Admin role lookup failed: ${error.message}`);
   }
-  if (profile?.role !== "admin") {
+  if (profile?.role !== "admin" || profile.banned_at) {
     throw new AdminAuthError(403, "Admin role required");
   }
 
+  await requireAdminMfa(user.id, req);
   return { user, admin };
+}
+
+/** Pages may render in parallel with their layout. Gate before each service
+ * read and keep the enrollment destination outside the gated layout. */
+export async function requireAdminPage(): Promise<AdminContext> {
+  try { return await requireAdmin(); }
+  catch (error) {
+    if (error instanceof MfaRequiredError) redirect("/account/security");
+    if (error instanceof AdminAuthError) redirect(error.status === 401 ? "/auth?next=%2Faccount%2Fsecurity" : "/");
+    throw error;
+  }
 }

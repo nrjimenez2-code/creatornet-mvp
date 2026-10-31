@@ -53,3 +53,8 @@ test('temporary production timing goes only to logs and leaves the feed response
   else process.env.DISCOVER_TIMING_LOG_UNTIL=previous;
  }
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

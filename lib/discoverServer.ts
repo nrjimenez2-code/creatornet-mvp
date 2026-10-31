@@ -22,7 +22,9 @@ const rankingEvidenceRead = inFlightRead<DiscoverEvidence[]>();
 export const discoverEnabled = () => process.env.DISCOVER_V4_ENABLED === "true";
 const COOKIE = "cn_discover_actor";
 function sign(value: string) {
-  return createHmac("sha256", process.env.SUPABASE_SERVICE_ROLE_KEY!)
+  const key = process.env.DISCOVER_ACTOR_HMAC_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key || key.length < 32) throw new Error("Discover identity is temporarily unavailable");
+  return createHmac("sha256", key)
     .update("discover-actor:" + value)
     .digest("hex");
 }

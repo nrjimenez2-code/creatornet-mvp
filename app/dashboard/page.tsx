@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import FeedList from "@/components/FeedList";
@@ -8,16 +8,31 @@ import { DashboardSkeleton } from "@/components/loading/Skeletons";
 import { useUser } from "@/lib/useUser";
 
 type Tab = "following" | "discover";
+const subscribeToHydration = () => () => {};
+const clientHydrationSnapshot = () => true;
+const serverHydrationSnapshot = () => false;
 
 function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPostId: string | null; setHighlightPostId: (id: string | null) => void }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { userId, loading: authLoading } = useUser();
+  // Keep this boundary's first render identical even if parent auth is ready.
+  const hydrated = useSyncExternalStore(subscribeToHydration, clientHydrationSnapshot, serverHydrationSnapshot);
   const activeTab: Tab = searchParams?.get("tab") === "following" ? "following" : "discover";
   // Bumped after a successful post: remounts FeedList so the new post shows up.
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
-  const [openTipPostId, setOpenTipPostId] = useState<string | null>(null);
-  const [resumeTipId, setResumeTipId] = useState<string | null>(null);
+  const returnedPostId = searchParams?.get("postId") || null;
+  const returnedTipId = searchParams?.get("tipId") || null;
+  const tipReturnKey = returnedPostId && (searchParams?.get("tip") === "1" || returnedTipId)
+    ? JSON.stringify([returnedPostId, returnedTipId]) : null;
+  const [tipReturn, setTipReturn] = useState<{ key: string | null; postId: string | null; tipId: string | null }>({ key: null, postId: null, tipId: null });
+  // Remember an arriving return before rendering the feed. Cleaning its URL
+  // rearms an identical future return while keeping the current modal open.
+  if (tipReturn.key !== tipReturnKey) {
+    setTipReturn({ key: tipReturnKey,
+      postId: tipReturnKey ? returnedPostId : tipReturn.postId,
+      tipId: tipReturnKey ? returnedTipId : tipReturn.tipId });
+  }
 
   function setActiveTab(tab: Tab) {
     if (tab === activeTab) return;
@@ -36,11 +51,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
     const postId = searchParams?.get("postId");
     if (postId) {
       setHighlightPostId(postId);
-      const returnedTipId = searchParams?.get("tipId");
-      if (searchParams?.get("tip") === "1" || returnedTipId) {
-        setOpenTipPostId(postId);
-        setResumeTipId(returnedTipId);
-      }
       // Remove postId from URL after setting it
       const url = new URL(window.location.href);
       url.searchParams.delete("postId");
@@ -79,9 +89,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={openTipPostId} resumeTipId={resumeTipId} onTipReturnClosed={() => {
-              setOpenTipPostId(null);
-              setResumeTipId(null);
+            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={tipReturn.postId} resumeTipId={tipReturn.tipId} onTipReturnClosed={() => {
+              setTipReturn((current) => ({ ...current, postId: null, tipId: null }));
             }} />
           </div>
         </div>
@@ -89,7 +98,7 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
 
       {/* Signed-out visitors keep the join CTA. The shared signed-in bar lives
           in the root layout; wait for auth to settle before showing this CTA. */}
-      {authLoading ? null : !userId ? (
+      {!hydrated || authLoading ? null : !userId ? (
         <div className="dashboard-feed-nav lg:hidden fixed bottom-0 inset-x-0 z-40 border-t border-white/10 bg-black/85 backdrop-blur supports-[padding:max(0px)]:pb-[max(env(safe-area-inset-bottom),0.5rem)]">
           <div className="flex h-[52px] items-center justify-between gap-3 px-4">
             <p className="min-w-0 truncate text-xs text-white/70">

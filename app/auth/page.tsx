@@ -4,11 +4,10 @@ import { routePolicy } from "@/lib/release/policy";
 import { AuthSkeleton } from "@/components/loading/Skeletons";
 
 import { useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabaseClient";
 import { useUser } from "@/lib/useUser";
 import { trackEvent } from "@/lib/posthog";
-import { authNextPath, prepareSessionNavigation } from "@/lib/browserSession";
+import { authNextPath, prepareSessionNavigation, replaceBrowserDocument } from "@/lib/browserSession";
 import {
   parseAuthErrorFromUrl,
   friendlyAuthError,
@@ -18,7 +17,6 @@ import {
 const supabase = createClient();
 
 export default function AuthPage() {
-  const router = useRouter();
   const { session, loading } = useUser();
 
   // -------- Session redirect on load --------
@@ -55,10 +53,10 @@ export default function AuthPage() {
         const access = await fetch("/api/release/session", { cache: "no-store" }).then(response => response.json());
         const next = authNextPath(window.location.search);
         const recovery = next && ["purchase", "continuation"].includes(routePolicy(new URL(next, window.location.origin).pathname).kind);
-        if (!access.privateAccess && !access.publicFeed && !recovery) { window.location.replace("/private-access"); return; }
+        if (!access.privateAccess && !access.publicFeed && !recovery) { replaceBrowserDocument("/private-access"); return; }
         if (next) {
           // A full navigation avoids reusing a prefetched unauthenticated redirect.
-          window.location.replace(next);
+          replaceBrowserDocument(next);
           return;
         }
         const { data: profile, error } = await supabase
@@ -66,7 +64,8 @@ export default function AuthPage() {
         if (!mounted) return;
         if (error) throw Error("Could not load your profile. Please try again.");
         const interests = Array.isArray(profile?.interests) ? profile.interests : [];
-        router.replace(interests.length ? "/dashboard" : "/onboarding");
+        // The auth page uses the public shell; a fresh document selects the product layout.
+        replaceBrowserDocument(interests.length ? "/dashboard" : "/onboarding");
       } catch (error) {
         if (!mounted) return;
         setChecking(false);
@@ -77,7 +76,7 @@ export default function AuthPage() {
     return () => {
       mounted = false;
     };
-  }, [loading, session, router, sessionRetry]);
+  }, [loading, session, sessionRetry]);
 
   // -------- UI state --------
   const [input, setInput] = useState("");
@@ -98,14 +97,9 @@ export default function AuthPage() {
   // -------- Surface a sign-in that failed --------
   //
   // A failed OAuth round-trip comes back to this page with the reason in the
-  // URL. lib/supabaseClient.ts uses the implicit flow, so that reason lands in
-  // the hash fragment. Nothing in the app read it, so a failed sign-in rendered
-  // an ordinary, error-free sign-in page — indistinguishable from "I clicked it
-  // and nothing happened", which is how this was reported to us.
-  //
-  // Verified against production before writing this: the hash is still intact
-  // seconds after load, so reading it from an effect is reliable and needs no
-  // race-avoiding tricks.
+  // URL. Read both PKCE query errors and legacy hash errors so unsuccessful
+  // provider redirects have a visible explanation. Token-bearing implicit
+  // redirects are rejected by the PKCE client before they can set a session.
   useEffect(() => {
     if (typeof window === "undefined") return;
     const parsed = parseAuthErrorFromUrl(window.location.search, window.location.hash);

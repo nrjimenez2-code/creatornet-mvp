@@ -17,12 +17,17 @@ export const FEATURES = {
 } as const;
 export type Feature = keyof typeof FEATURES;
 export type FeatureFlags = Record<Feature, boolean>;
+export type PublicPage = "blank" | "coming-soon";
+export const validPublicPage = (value: unknown): value is PublicPage => value === "blank" || value === "coming-soon";
 export const closedFeatures = (): FeatureFlags => Object.fromEntries(Object.keys(FEATURES).map(key => [key, false])) as FeatureFlags;
 export const SETTINGS_ID = "00000000-0000-4000-8000-000000000001";
 export type ReleaseSettings = {
   id: string; owner_id: string | null; hidden: boolean; features: FeatureFlags;
-  discord_invite: string | null; revision: number; updated_at: string;
+  discord_invite: string | null; public_page: PublicPage; revision: number; updated_at: string;
 };
+/** Missing configuration stays neutral; feature releases retain their existing behavior. */
+export const blankPublicPage = (settings: ReleaseSettings | null): boolean => !settings || (settings.hidden && settings.public_page === "blank");
+export const isLegalPage = (path: string): boolean => /^\/legal\/(terms|privacy|cookies|refunds|delivery|creators|support|purchase-agreement)$/.test(path);
 
 export function validDiscordInvite(value: unknown): value is string {
   return typeof value === "string" && /^https:\/\/(discord\.gg\/[A-Za-z0-9-]+|discord\.com\/invite\/[A-Za-z0-9-]+)$/.test(value);
@@ -41,13 +46,16 @@ export function featureOpen(settings: ReleaseSettings | null, feature: Feature |
 export type RoutePolicy = { kind: "public" | "operation" | "purchase" | "continuation" | "owner" | "product"; feature?: Feature };
 const operationMethods: Record<string, string> = {
   "/api/stripe/webhook": "POST", "/api/webhook": "POST",
+  // These handlers independently require cron authorization and default-off
+  // readiness. Classification does not register a scheduler or admit new money.
+  "/api/sales-team/settlement": "GET", "/api/sales-team/surplus": "GET",
   "/api/search/enrich": "GET",
   "/api/installments/collect": "GET", "/api/memberships/collect": "GET", "/api/memberships/recover-exits": "GET",
   "/api/scheduling/google/jobs": "GET", "/api/scheduling/google/sync": "GET", "/api/scheduling/google/maintenance": "GET",
   "/api/scheduling/google/notifications": "POST",
 };
 const purchaseRules: Array<[RegExp, string[]]> = [
-  [/^\/dashboard\/closers\/earnings$/, ["GET","HEAD"]],
+  [/^\/dashboard\/closers\/earnings$/, ["GET", "HEAD"]],
   [/^\/api\/sales-team\/statements$/, ["GET"]],
   [/^\/(library(?:\/[^/]+\/[^/]+)?|access\/[^/]+|success|cancel|payments\/recovery\/[^/]+)$/, ["GET", "HEAD"]],
   [/^\/memberships\/(complete|recovery|renewal-recovery|renewal-retry|payoff)$/, ["GET", "HEAD"]],
@@ -83,20 +91,20 @@ export function routePolicy(path: string, method = "GET"): RoutePolicy {
   if (operationMethods[path] === method) return { kind: "operation" };
   if (path === "/admin/releases" || path === "/api/admin/releases" || path === "/api/admin/releases/testers") return { kind: "owner" };
   if (["/auth", "/auth/callback", "/api/auth/callback", "/api/auth/email-code", "/private-access", "/api/release/session"].includes(path)) return { kind: "public" };
-  if (/^\/legal\/(terms|privacy|cookies|refunds|delivery|creators|support|purchase-agreement)$/.test(path) && ["GET", "HEAD"].includes(method)) return { kind: "public" };
+  if (isLegalPage(path) && ["GET", "HEAD"].includes(method)) return { kind: "public" };
   if (purchaseRules.some(([pattern, methods]) => pattern.test(path) && methods.includes(method))) return { kind: "purchase" };
-  if(path==="/dashboard/closers/payouts"&&["GET","HEAD"].includes(method)||path==="/api/sales-team/recipient"&&["GET","POST"].includes(method))
-    return {kind:"continuation",feature:"creatorTools"};
-  if (/^\/purchase\/team\/[a-f0-9-]{36}$/i.test(path) && ["GET","HEAD"].includes(method) ||
-      /^\/api\/sales-team\/sales\/[a-f0-9-]{36}(?:\/payment)?$/i.test(path) && ["GET","POST"].includes(method))
-    return {kind:"continuation",feature:"checkout"};
-  if(path==="/api/book"&&method==="GET")return {kind:"continuation",feature:"scheduling"};
+  if (path === "/dashboard/closers/payouts" && ["GET", "HEAD"].includes(method) || path === "/api/sales-team/recipient" && ["GET", "POST"].includes(method))
+    return { kind: "continuation", feature: "creatorTools" };
+  if (/^\/purchase\/team\/[a-f0-9-]{36}$/i.test(path) && ["GET", "HEAD"].includes(method) ||
+      /^\/api\/sales-team\/sales\/[a-f0-9-]{36}(?:\/payment)?$/i.test(path) && ["GET", "POST"].includes(method))
+    return { kind: "continuation", feature: "checkout" };
+  if (path === "/api/book" && method === "GET") return { kind: "continuation", feature: "scheduling" };
   if (/^\/(scheduling\/book|api\/scheduling\/google\/book)\/[^/]+$/.test(path) && ["GET", "HEAD", "POST"].includes(method)) return { kind: "continuation", feature: "scheduling" };
   if (/^\/api\/checkout-link\/[^/]+$/.test(path) && method === "GET") return { kind: "continuation", feature: "checkout" };
   if (path === "/api/posts/view-counts" && method === "POST") return { kind: "continuation", feature: "feed" };
   if (path === "/admin" || path.startsWith("/admin/") || path.startsWith("/api/admin/")) return { kind: "owner" };
   const rules: Array<[RegExp, Feature]> = [
-    [/^\/dashboard\/closers\/team$|^\/api\/sales-team(?:\/|$)/,"creatorTools"],
+    [/^\/dashboard\/closers\/team$|^\/api\/sales-team(?:\/|$)/, "creatorTools"],
     [/^\/profile\/edit$/, "creatorTools"],
     [/^\/dashboard\/(analytics|earnings)$/, "analytics"],
     [/^\/api\/(video-insights(?:\/|$)|posts\/[^/]+\/insights$)/, "analytics"],

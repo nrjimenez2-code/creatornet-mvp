@@ -18,7 +18,7 @@
 
 process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fake.supabase.co";
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon_fake";
-process.env.SUPABASE_SERVICE_ROLE_KEY = "service_role_fake";
+process.env.SUPABASE_SERVICE_ROLE_KEY = "synthetic-service-role-key-for-discover-tests";
 
 import type { NextRequest } from "next/server";
 import { createMockClient, type MockClient, type Op } from "./__mocks__/supabaseQueryMock";
@@ -174,3 +174,8 @@ describe("the helper itself", () => {
     ]);
   });
 });
+// Admission behavior is covered by durable-abuse-* tests; keep this suite's domain fixtures.
+jest.mock("@/lib/abuse/admission", () => ({
+  admitRequest: jest.fn(async (...args: unknown[]) => ({resource:(args[3] as {resource?:string}|undefined)?.resource??null,reused:false})),
+  admissionResponse: () => null,
+}));

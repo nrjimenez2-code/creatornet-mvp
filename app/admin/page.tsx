@@ -1,6 +1,7 @@
 import { OverviewPage } from "@/components/admin/OverviewPage";
 import { buildRecentActivity, fetchAdminInitialData } from "@/lib/admin/data";
 import { paymentModeFromKey } from "@/lib/admin/display-context";
+import { requireAdminPage } from "@/lib/admin/server";
 
 // Live Supabase reads on every request — never prerender with stale (or
 // build-time fake-env) data.
@@ -12,6 +13,7 @@ export const dynamic = "force-dynamic";
  * per-request dedupe hit, not a second round trip.
  */
 export default async function AdminOverviewRoute() {
+  await requireAdminPage();
   const initialData = await fetchAdminInitialData();
   return <OverviewPage activity={buildRecentActivity(initialData)} paymentMode={paymentModeFromKey(process.env.STRIPE_SECRET_KEY)} />;
 }
