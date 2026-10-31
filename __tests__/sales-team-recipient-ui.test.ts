@@ -22,6 +22,7 @@ beforeEach(()=>{
 afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
 test("loading payout setup only reads eligibility and separates transfers from bank delivery",async()=>{
  await mount();expect(fetchMock.mock.calls.some(([,options])=>options?.method==="POST")).toBe(false);
+ expect(mockNavigation).not.toHaveBeenCalled();expect(mockSession).not.toHaveBeenCalled();
  expect(container.textContent).toContain("Transfers: eligible · Bank payouts: held");expect(container.textContent).toContain("does not confirm a bank deposit");expect(container.textContent).not.toContain("acct_");
 });
 test("paused onboarding preserves independent current-account verification",async()=>{

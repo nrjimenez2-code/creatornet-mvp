@@ -4,6 +4,7 @@ import {useCallback,useEffect,useRef,useState} from "react";
 import {useUser} from "@/lib/useUser";
 import {useTeamApi} from "@/lib/salesTeams/client";
 import {createClient} from "@/lib/supabaseClient";
+import {getActionSession} from "@/lib/actionSession";
 import {prepareSessionNavigation} from "@/lib/browserSession";
 import type {TeamRecipientStatus} from "@/lib/salesTeams/policy";
 import styles from "../app/dashboard/closers/bookings.module.css";
@@ -33,7 +34,7 @@ function PayoutSetup({userId}:{userId:string}){
    if(onboard){
     const client=createClient();
     if(!await prepareSessionNavigation(client))throw Error("Sign in again before continuing payout setup.");
-    const current=await client.auth.getSession();
+    const current=await getActionSession();
     if(current.error||current.data.session?.user.id!==userId||!mounted.current)throw Error("Your signed-in account changed. Reload payout setup before continuing.");
     const previous=view?.onboarding,expired=previous?.status==="bound"&&Date.parse(previous.expires_at||"")<=Date.now();
     requestId=requestIdentity.current||(!expired?previous?.id:null)||window.sessionStorage.getItem(storageKey);

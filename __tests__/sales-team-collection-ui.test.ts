@@ -27,6 +27,7 @@ beforeEach(()=>{
 });afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
 test("viewing an accepted review never creates a customer, intent or confirmation automatically",async()=>{
  await mount();expect(fetchMock.mock.calls.every(([,o])=>o.method==="GET")).toBe(true);expect(token).not.toHaveBeenCalled();expect(button("Prepare payment").disabled).toBe(false);
+ expect(session).not.toHaveBeenCalled();expect(navigation).not.toHaveBeenCalled();
 });
 test("saved-card permission starts unchecked and prevents token submission until explicitly accepted",async()=>{
  phase="needs_method";consentResponse=savedConsent();await mount();expect(button("Pay $33.33").disabled).toBe(true);await click("Pay $33.33");expect(token).not.toHaveBeenCalled();expect(container.textContent).toContain("$33.35");
@@ -50,6 +51,10 @@ test("Payment Element creates one token, saves original identity and sends no cl
 test.each(["cookies","identity"])("failed %s handoff prevents payment creation",async failure=>{
  await mount();if(failure==="cookies")navigation.mockResolvedValue(false);else session.mockResolvedValue({data:{session:{user:{id:"someone-else"}}},error:null});await click("Prepare payment");
  expect(fetchMock.mock.calls.some(([,o])=>o.method==="POST")).toBe(false);expect(container.querySelector('[role="alert"]')).not.toBeNull();
+});
+test("sign-out while card details are tokenized prevents confirmation and stores no new request",async()=>{
+ phase="needs_method";await mount();token.mockImplementationOnce(async()=>{session.mockResolvedValue({data:{session:null},error:null});return {confirmationToken:{id:"ctoken_original"}};});
+ await click("Pay $33.33");expect(token).toHaveBeenCalledTimes(1);expect(fetchMock.mock.calls.some(([,o])=>o.method==="POST")).toBe(false);expect(sessionStorage.length).toBe(0);expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });
 test("an uncertain confirmation preserves its original identity and blocks new card submission",async()=>{
  await mount();await click("Prepare payment");const original=fetchMock.getMockImplementation()!;fetchMock.mockImplementation((path,o)=>o.body&&JSON.parse(o.body).action==="confirm"?Promise.reject(Error("connection lost")):original(path,o));

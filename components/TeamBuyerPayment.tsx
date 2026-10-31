@@ -3,6 +3,7 @@ import Link from "next/link";
 import {useEffect,useRef,useState} from "react";
 import {loadStripe,type Stripe,type StripeElements,type StripeAddressElement,type StripePaymentElement} from "@stripe/stripe-js";
 import {createClient} from "@/lib/supabaseClient";
+import {getActionSession} from "@/lib/actionSession";
 import {prepareSessionNavigation} from "@/lib/browserSession";
 import {useTeamApi} from "@/lib/salesTeams/client";
 import TeamBuyerLifecycle from "./TeamBuyerLifecycle";
@@ -46,7 +47,7 @@ export default function TeamBuyerPayment({saleId,userId}:{saleId:string;userId:s
   return()=>{disposed=true;provider.current?.payment.destroy();provider.current?.address.destroy();provider.current=null;};
  },[view?.phase,view?.amountCents,view?.saveForFuture,view?.obligationId]);
  const freshSession=async()=>{
-  const client=createClient();if(!await prepareSessionNavigation(client))throw Error("Sign in again before continuing payment.");const session=await client.auth.getSession();
+  const client=createClient();if(!await prepareSessionNavigation(client))throw Error("Sign in again before continuing payment.");const session=await getActionSession();
   if(session.error||session.data.session?.user.id!==userId||!mounted.current)throw Error("Your signed-in account changed. Reload this purchase before continuing.");
  };
  const save=(value:Pending|null)=>{if(value)sessionStorage.setItem(storageKey,JSON.stringify(value));else sessionStorage.removeItem(storageKey);if(mounted.current)setPending(value);};

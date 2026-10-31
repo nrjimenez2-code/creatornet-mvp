@@ -19,6 +19,7 @@ beforeEach(()=>{
 });afterEach(async()=>{await act(async()=>root.unmount());container.remove();global.fetch=originalFetch;});
 test("a payoff quote never accepts terms or starts payment on mount",async()=>{
  await mount();expect(fetchMock.mock.calls.every(([,o])=>o.method==="GET")).toBe(true);expect(button("Prepare one-time payoff").disabled).toBe(true);expect(container.textContent).toContain("$200.02");expect(container.textContent).toContain("remaining 2 month");expect(onPayment).not.toHaveBeenCalled();
+ expect(session).not.toHaveBeenCalled();expect(navigation).not.toHaveBeenCalled();
 });
 test("separate checkbox consent sends only the exact quote fingerprint and request identity",async()=>{
  await mount();await act(async()=>container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());await click("Prepare one-time payoff");
@@ -28,8 +29,8 @@ test("debit Stop and minimum renewal Stop remain available while payoff collecti
  enabled=false;await mount();expect(button("Prepare one-time payoff").disabled).toBe(true);await click("Stop future automatic debits");await click("Stop renewal after the minimum");
  expect(fetchMock.mock.calls.filter(([,o])=>o.method==="POST").map(([,o])=>JSON.parse(o.body).action)).toEqual(["revoke_debits","stop_renewal"]);expect(container.textContent).not.toContain("balance waived");
 });
-test("changed signed-in identity prevents a payoff or exit request",async()=>{
- await mount();session.mockResolvedValue({data:{session:{user:{id:"different-buyer"}}},error:null});await click("Stop future automatic debits");expect(fetchMock.mock.calls.some(([,o])=>o.method==="POST")).toBe(false);expect(container.querySelector('[role="alert"]')).not.toBeNull();
+test.each(["identity","signed_out","error"])("%s session prevents a payoff or exit request",async fault=>{
+ await mount();session.mockResolvedValue({data:{session:fault==="signed_out"?null:{user:{id:fault==="identity"?"different-buyer":"buyer"}}},error:fault==="error"?Error("Session unavailable"):null});await click("Stop future automatic debits");expect(fetchMock.mock.calls.some(([,o])=>o.method==="POST")).toBe(false);expect(container.querySelector('[role="alert"]')).not.toBeNull();
 });
 test("an existing accepted payoff opens its original payment without another acceptance",async()=>{
  fetchMock.mockResolvedValue({ok:true,json:async()=>({quote:{...q,canAcceptPayoff:false,payoff:{id:"original",obligationId:"obligation",completed:false}},payoffCollectionEnabled:false,payment:{phase:"stop_pending"},collectionEnabled:false})});await mount();await click("View original payoff");

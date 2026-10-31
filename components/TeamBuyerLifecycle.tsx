@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import {createClient} from "@/lib/supabaseClient";
+import {getActionSession} from "@/lib/actionSession";
 import {prepareSessionNavigation} from "@/lib/browserSession";
 import {useTeamApi} from "@/lib/salesTeams/client";
 import type {TeamExitQuote} from "@/lib/salesTeams/collection";
@@ -10,7 +11,7 @@ export default function TeamBuyerLifecycle({saleId,userId,paymentPhase,refreshKe
  const api=useTeamApi(),[quote,setQuote]=useState<TeamExitQuote|null>(null),[enabled,setEnabled]=useState(false),[accepted,setAccepted]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState<string|null>(null),[refresh,setRefresh]=useState(0);
  const mounted=useRef(true),busyRef=useRef(false),path=`/api/sales-team/sales/${encodeURIComponent(saleId)}/lifecycle`;
  useEffect(()=>{mounted.current=true;const controller=new AbortController();void api(path,undefined,controller.signal).then(data=>{if(!controller.signal.aborted){setQuote(data.quote);setEnabled(data.payoffCollectionEnabled===true);setAccepted(false);setError(null);}}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>{mounted.current=false;controller.abort();};},[api,path,refresh,paymentPhase,refreshKey]);
- const freshSession=async()=>{const client=createClient();if(!await prepareSessionNavigation(client))throw Error("Sign in again before managing this payment plan.");const session=await client.auth.getSession();if(session.error||session.data.session?.user.id!==userId||!mounted.current)throw Error("Your signed-in account changed. Reload this purchase.");};
+ const freshSession=async()=>{const client=createClient();if(!await prepareSessionNavigation(client))throw Error("Sign in again before managing this payment plan.");const session=await getActionSession();if(session.error||session.data.session?.user.id!==userId||!mounted.current)throw Error("Your signed-in account changed. Reload this purchase.");};
  const act=async(action:"stop_renewal"|"revoke_debits"|"prepare_payoff")=>{
   if(busyRef.current||!quote)return;busyRef.current=true;setBusy(true);setError(null);
   try{await freshSession();if(action==="prepare_payoff"&&!accepted)throw Error("Review and confirm this one-time payoff first.");

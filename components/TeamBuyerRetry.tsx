@@ -1,6 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import {createClient} from "@/lib/supabaseClient";
+import {getActionSession} from "@/lib/actionSession";
 import {prepareSessionNavigation} from "@/lib/browserSession";
 import {useTeamApi} from "@/lib/salesTeams/client";
 import type {TeamRetryQuote} from "@/lib/salesTeams/collection";
@@ -11,7 +12,7 @@ export default function TeamBuyerRetry({saleId,userId,originalObligationId,refre
  useEffect(()=>{mounted.current=true;const controller=new AbortController();void api(path+query,undefined,controller.signal).then(data=>{if(!controller.signal.aborted){setQuote(data.status==="ready"?data.quote:null);setEnabled(data.collectionEnabled===true);setAccepted(false);setError(null);}}).catch(e=>{if(!controller.signal.aborted)setError(e.message);});return()=>{mounted.current=false;controller.abort();};},[api,path,query,refresh,refreshKey]);
  const prepare=async()=>{
   if(busyRef.current||!quote||!accepted)return;busyRef.current=true;setBusy(true);setError(null);
-  try{const client=createClient();if(!await prepareSessionNavigation(client))throw Error("Sign in again before preparing a manual payment.");const session=await client.auth.getSession();if(session.error||session.data.session?.user.id!==userId||!mounted.current)throw Error("Your signed-in account changed. Reload this purchase.");
+  try{const client=createClient();if(!await prepareSessionNavigation(client))throw Error("Sign in again before preparing a manual payment.");const session=await getActionSession();if(session.error||session.data.session?.user.id!==userId||!mounted.current)throw Error("Your signed-in account changed. Reload this purchase.");
    const data=await api(path,{action:"prepare_retry",request_id:crypto.randomUUID(),original_obligation_id:quote.originalObligationId,fingerprint:quote.fingerprint,accepted:true});if(mounted.current){setAccepted(false);onPayment(data);}
   }catch(e){if(mounted.current){setError(e instanceof Error?e.message:"The original manual attempt needs review.");setAccepted(false);}}finally{busyRef.current=false;if(mounted.current)setBusy(false);}
  };
