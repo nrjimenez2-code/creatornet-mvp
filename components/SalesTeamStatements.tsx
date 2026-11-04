@@ -38,6 +38,7 @@ export default function SalesTeamStatements(){
   <p>Statements show recorded commission obligations. Transfer completion, Stripe payout status and confirmed bank receipt are separate. Bank receipt is unconfirmed.</p>
   {error?<p role="alert">{error}</p>:null}<button disabled={loading} onClick={refresh}>Refresh statement</button>
   {data?<>{data.membershipStatus==="removed"?<p>Team access was removed. Your existing commission agreements and this statement remain available.</p>:null}
+   <Link href={`/dashboard/closers/bank-review?creator_id=${encodeURIComponent(creator)}`}>Payout review history</Link>
    <section className={styles.panel}><h2>{data.scope==="creator"?"Team commission totals":"Your commission totals"}</h2>
     <p>Earned: {teamMoney(data.totals.earnedCents)} · Unpaid: {teamMoney(data.totals.unpaidCents)} · Recovery due: {teamMoney(data.totals.recoveryCents)}</p>
     <p>Transfers recorded: {teamMoney(data.totals.releasedCents)} · Transfer reversals: {teamMoney(data.totals.reversedCents)}</p>

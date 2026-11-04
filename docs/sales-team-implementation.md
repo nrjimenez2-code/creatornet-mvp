@@ -2257,3 +2257,45 @@ and complete reviewed exception resolution remain required. No manual confirmati
 fallback is added. Current complete CI/build/browser, separately approved hosted/
 provider sandbox, distinct LIVE rollout/activation and actual BANK acceptance remain
 separate gates. Source/evidence hashes belong to the Sales Team 16 checkpoint.
+## F50: scoped outstanding payout discovery and review-history view (local candidate)
+
+20261104185509_sales_team_bank_exception_queue.sql adds a service-only bounded
+read RPC over completed transfer originals. It reuses statement authorization:
+creators and active appointed managers see creator scope; closers, including
+removed closers, retain only their own financial originals. Incomplete transfers
+are excluded. Cursor validation requires an accessible completed original;
+immutable request timestamps and UUIDs order pages of 1–50. Two scoped indexes
+support creator and closer selection. Only the visible page gets payout snapshots
+and latest-review markers. Acknowledged/escalated items remain outstanding and
+visible; newer observations/reversals make prior reviews historical. All retained
+function bodies/ACLs and financial owners stay unchanged. No BANK confirmation,
+review closure, provider access, alert dispatch or financial operation is added.
+
+GET /api/sales-team/bank-review/queue requires the complete retained schema chain
+and CREATOR_TEAM_BANK_QUEUE_SCHEMA_READY=true (default off). Verified teamRequest
+authentication supplies the actor; callers cannot choose actor or page size.
+Output is private/no-store and access/cursor errors are minimized. New-sales and
+review-write controls may stay off while these historical reads remain available.
+
+/dashboard/closers/bank-review is linked from commission statements and reads the
+queue plus the existing F49 paginated history. It shows recorded observation and
+review times, reversals, historical applicability and outstanding/unconfirmed
+status. Refresh reads stored evidence only. Identity/relationship changes unmount
+the previous scoped reader and abort pending requests. History pagination refuses
+to mix changed state digests; explicit refresh is required. This view is read-only:
+user-facing acknowledgement/escalation actions and complete exception resolution
+remain unfinished. It does not infer deposit identity, bank health or freshness.
+
+Local focused evidence: 46 tests in five suites (21 new SQL/API/UI tests plus
+retained statement/review-API checks), full TypeScript and changed-file lint pass.
+Native PostgreSQL17.11 cn_queue17_c: five cases across three independent sessions
+cover timezone equality, repeatable-read/MVCC, committed manager removal, unchanged
+financial rows and service-only execution. Provider transport is fixture-only;
+zero provider writes. First native attempt lacked the synthetic environment;
+second was blocked by sandbox loopback EACCES. Neither ran cases. The approved
+third attempt passed and the local server smart-stopped normally. Local security
+advisors are collected separately; exit0 with --fail-on none is not a clean gate.
+Current full fallback/build and hosted CI are separate gates. No hosted migration,
+feature activation, authenticated financial browser, provider, LIVE or confirmed
+BANK acceptance is established. Automatic bank association/consent/health/refresh,
+scoped alerts, complete review actions/resolution and prior launch gates remain.
