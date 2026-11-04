@@ -2376,3 +2376,51 @@ API fallback historical until the complete wrapper contract schema is accepted.
 This does not change F49's body/ACL/digest, enable either policy or activate UI.
 The follow-up supersedes the preliminary eight-case native/built F51 source;
 final receipts separately identify its revision and gates still outstanding.
+## F52: durable scoped in-app payout alerts (local candidate)
+
+The separate `sales_team_bank_alerts_v1` history captures newly recorded completed
+transfer originals, beneficiary payout observations, reversal projections and
+F49 review records in the same transaction as their retained source owner. It
+does not repurpose tip notifications. The SQL policy defaults off and installation
+does not backfill earlier originals, enroll consent or infer bank health. Failed
+or canceled payout observations use the retained snapshot reason; no elapsed-time
+threshold, bank deposit association or BANK confirmation is inferred.
+
+The private capture trigger uses the existing creator transaction lock and
+requires read committed when enabled. It compares the latest financial-state
+signal for that original, excluding check identity and observation time, so
+repeated same-state reads do not produce alerts. A later return to an earlier
+state produces a new event. Each immutable review is a separate event; same-ID
+review retries keep the retained F49/F51 identity and do not emit a duplicate.
+The policy digest fences new functions, their ACLs, enabled trigger definitions
+and the retained F49 contract. If an enabled contract loses authority, capture
+fails closed with its source transaction. Disabling the policy before a source
+transaction leaves the retained source owner operational without new alerts.
+
+Service-only read/mark entry points reuse current statement authorization.
+Creators and currently appointed active managers see creator scope. Closers,
+including removed closers, see only their own originals in that relationship;
+removed managers lose creator scope on the next read/write. Reads have immutable
+scoped cursors and SQL bounds 1–50 (HTTP fixes pages at 20). Historical events
+identify whether their recorded financial state still applies. Personal immutable
+read receipts are idempotent by actor/alert, do not reorder or hide alerts, and
+never acknowledge, resolve or close a payout exception. A committed revocation or
+policy loss during the creator-lock wait prevents a new read receipt.
+
+`CREATOR_TEAM_BANK_ALERTS_SCHEMA_READY` and
+`CREATOR_TEAM_BANK_ALERT_READS_READY` default off, as does the SQL policy. The new
+page is linked from commission statements and payout review history. It isolates
+account/relationship state, rejects pagination that crosses access scopes,
+refreshes the action session only on an explicit mark-read action, and sends no
+automatic POST on mount, remount, refresh or uncertain outcomes. The page reads
+saved history; it does not call Stripe/banks or deliver email, SMS or external
+alerts. Empty history does not prove complete historical coverage or bank receipt.
+
+Local focused/native receipts are owned by Sales Team 18. Native proof uses a
+disposable PostgreSQL 17.11 structural clone and fake provider; it is not hosted,
+historical security, real authenticated financial browser, provider, LIVE or BANK
+acceptance. Complete current fallback/build and other launch gates remain separate.
+Consent/provenance, provider-authoritative bank/deposit mapping, bank health and
+refresh/revocation, alerting for those future owners, complete reviewed exception
+resolution, installed/history compatibility and separately approved sandbox/LIVE
+acceptance remain open. No hosting, provider, money or scheduler activation occurs.

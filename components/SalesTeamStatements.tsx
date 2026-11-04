@@ -39,6 +39,7 @@ export default function SalesTeamStatements(){
   {error?<p role="alert">{error}</p>:null}<button disabled={loading} onClick={refresh}>Refresh statement</button>
   {data?<>{data.membershipStatus==="removed"?<p>Team access was removed. Your existing commission agreements and this statement remain available.</p>:null}
    <Link href={`/dashboard/closers/bank-review?creator_id=${encodeURIComponent(creator)}`}>Payout review history</Link>
+   <Link href={`/dashboard/closers/bank-alerts?creator_id=${encodeURIComponent(creator)}`}>Payout alerts</Link>
    <section className={styles.panel}><h2>{data.scope==="creator"?"Team commission totals":"Your commission totals"}</h2>
     <p>Earned: {teamMoney(data.totals.earnedCents)} · Unpaid: {teamMoney(data.totals.unpaidCents)} · Recovery due: {teamMoney(data.totals.recoveryCents)}</p>
     <p>Transfers recorded: {teamMoney(data.totals.releasedCents)} · Transfer reversals: {teamMoney(data.totals.reversedCents)}</p>

@@ -38,6 +38,7 @@ function ExceptionQueue({creator,userId}:{creator:string;userId:string}){
  useEffect(()=>{const timer=window.setTimeout(()=>void read(null),0);return()=>{window.clearTimeout(timer);active.current?.abort();};},[read]);
  return <main className={styles.page}><div className={styles.content}>
   <Link href={`/dashboard/closers/earnings?creator_id=${encodeURIComponent(creator)}`}>← Commission statements</Link><h1>Payout review history</h1>
+  <Link href={`/dashboard/closers/bank-alerts?creator_id=${encodeURIComponent(creator)}`}>Payout alerts</Link>
   <p>These completed transfers still await confirmed bank receipt. An acknowledgement or escalation does not confirm a deposit or close an item.</p>
   <p>Refreshing reads recorded history only; it does not check Stripe or your bank.</p>
   {error?<p role="alert">{error}</p>:null}<button disabled={loading} onClick={()=>void read(null)}>Refresh payout reviews</button>

@@ -124,3 +124,5 @@ export const teamBankReviewReady = (env: TeamEnvironment = process.env) => teamB
 export const teamBankQueueSchemaReady = (env: TeamEnvironment = process.env) => teamBankReviewSchemaReady(env) && env.CREATOR_TEAM_BANK_QUEUE_SCHEMA_READY === "true";
 export const teamBankReviewActionsSchemaReady = (env: TeamEnvironment = process.env) => teamBankReviewSchemaReady(env) && env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_SCHEMA_READY === "true" && env.CREATOR_TEAM_BANK_REVIEW_ACTION_CONTRACT_SCHEMA_READY === "true";
 export const teamBankReviewActionsReady = (env: TeamEnvironment = process.env) => teamBankReviewActionsSchemaReady(env) && teamBankReviewReady(env) && env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_READY === "true";
+export const teamBankAlertsSchemaReady = (env: TeamEnvironment = process.env) => teamBankQueueSchemaReady(env) && env.CREATOR_TEAM_BANK_ALERTS_SCHEMA_READY === "true";
+export const teamBankAlertsReadReady = (env: TeamEnvironment = process.env) => teamBankAlertsSchemaReady(env) && env.CREATOR_TEAM_BANK_ALERT_READS_READY === "true";
