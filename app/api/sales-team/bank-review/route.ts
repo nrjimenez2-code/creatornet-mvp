@@ -1,5 +1,5 @@
 import {NextRequest} from "next/server";
-import {teamId,teamBankReviewSchemaReady,teamBankReviewReady,TeamSalesError} from "@/lib/salesTeams/policy";
+import {teamId,teamBankReviewSchemaReady,teamBankReviewReady,teamBankReviewActionsSchemaReady,teamBankReviewActionsReady,TeamSalesError} from "@/lib/salesTeams/policy";
 import {teamError,teamJson,teamRequest,teamRpc} from "@/lib/salesTeams/server";
 
 function errorResponse(error:unknown){
@@ -8,6 +8,8 @@ function errorResponse(error:unknown){
   BANK_REVIEW_ACCESS_DENIED:{message:"This payout review is unavailable to your account.",status:403},
   TEAM_STATEMENT_ACCESS_DENIED:{message:"This payout review is unavailable to your account.",status:403},
   BANK_REVIEW_STATE_CHANGED:{message:"The payout observation changed. Refresh before recording a new review.",status:409},
+  BANK_REVIEW_ACTION_STATE_CHANGED:{message:"The payout observation changed and this review was not recorded. Refresh before recording a new review.",status:409},
+  BANK_REVIEW_ACTION_ISOLATION_REQUIRED:{message:"Recording this review requires transaction reconciliation. Keep the original request.",status:409},
   ORIGINAL_BANK_REVIEW_REQUIRED:{message:"Resume the original review request.",status:409},
   BANK_REVIEW_AUTHORITY_REQUIRED:{message:"Recording payout reviews is currently held.",status:409},
   INVALID_BANK_REVIEW_CURSOR:{message:"Refresh the payout review history.",status:400}
@@ -20,10 +22,11 @@ export async function GET(req:NextRequest){
  try{
   if(!teamBankReviewSchemaReady())throw new TeamSalesError("BANK_REVIEW_NOT_ENABLED","Payout review history is not available yet.",404);
   const {admin,user}=await teamRequest(req),cursor=req.nextUrl.searchParams.get("cursor");
-  return teamJson(await teamRpc(admin,"read_sales_team_bank_exception_v1",{
+  const result=await teamRpc<Record<string,unknown>>(admin,teamBankReviewActionsSchemaReady()?"read_sales_team_bank_review_view_v1":"read_sales_team_bank_exception_v1",{
    p_creator_id:teamId(req.nextUrl.searchParams.get("creator_id")),p_actor_id:user.id,
    p_request_id:teamId(req.nextUrl.searchParams.get("request_id")),p_cursor:cursor?teamId(cursor):null,p_limit:20
-  }));
+  });
+  return teamJson({...result,canReview:teamBankReviewActionsReady()&&result.canReview===true});
  }catch(error){return errorResponse(error);}
 }
 
@@ -43,7 +46,7 @@ export async function POST(req:NextRequest){
   if(Object.keys(input).some(key=>!["creator_id","request_id","review_id","action","state_sha256"].includes(key))||
    !["acknowledged","escalated"].includes(String(input.action))||typeof input.state_sha256!=="string"||!/^[a-f0-9]{64}$/.test(input.state_sha256))
    throw new TeamSalesError("INVALID_BANK_REVIEW","Choose an acknowledgement or escalation for the current payout observation.",400);
-  return teamJson(await teamRpc(admin,"record_sales_team_bank_exception_review_v1",{
+  return teamJson(await teamRpc(admin,teamBankReviewActionsSchemaReady()?"record_sales_team_bank_review_action_v1":"record_sales_team_bank_exception_review_v1",{
    p_review_id:teamId(input.review_id),p_creator_id:teamId(input.creator_id),p_actor_id:user.id,
    p_request_id:teamId(input.request_id),p_action:input.action,p_state_sha256:input.state_sha256
   }));

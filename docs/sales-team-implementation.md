@@ -2299,3 +2299,68 @@ Current full fallback/build and hosted CI are separate gates. No hosted migratio
 feature activation, authenticated financial browser, provider, LIVE or confirmed
 BANK acceptance is established. Automatic bank association/consent/health/refresh,
 scoped alerts, complete review actions/resolution and prior launch gates remain.
+
+## F51: explicit payout review actions and guarded original-request retry (local candidate)
+
+The F50 view now lets currently authorized creators/appointed active managers
+acknowledge or escalate a recorded observation through F49's immutable owner.
+Neither action confirms BANK, closes/hides an item, releases money, checks a
+provider or sends an external alert. Removed closers retain read-only own history.
+
+20261104200116_sales_team_bank_review_actions.sql adds two service-only wrappers.
+read_sales_team_bank_review_view_v1 returns the exact F49 history plus canReview,
+based on current role, current review-policy contract and read-committed isolation.
+record_sales_team_bank_review_action_v1 delegates to the unchanged F49 write owner
+but requires read committed. The retained bodies, ACLs and write-contract digest
+are unchanged; policy is not enabled or reauthorized. GET uses the new wrapper
+only with CREATOR_TEAM_BANK_REVIEW_ACTIONS_SCHEMA_READY=true; otherwise legacy
+history stays readable with canReview=false. Display capability additionally
+requires the existing write gate and CREATOR_TEAM_BANK_REVIEW_ACTIONS_READY=true.
+Both new gates default off. Capability is presentation only; POST still verifies
+same Origin, authenticated actor, frozen fields/body bounds and SQL authority.
+
+A real native three-session counterexample showed that legacy F49
+BANK_REVIEW_STATE_CHANGED under repeatable read can occur for a duplicate after
+the original commits: the waiting transaction retains an older snapshot. The UI
+therefore never treats that legacy code as proof of non-commit. Only the new
+read-committed wrapper emits BANK_REVIEW_ACTION_STATE_CHANGED after rolling back a
+stale new intent. Unsupported isolation returns a distinct hold. Legacy POST
+fallback remains available when the new schema gate is off; its errors retain
+pending intent. Historical reads remain available in held/unsupported states.
+
+The UI uses getActionSession only for explicit actions and checks the current
+rendered identity before dispatch. One bounded versioned actor/creator/original
+intent (UUID/action/state hash) is saved to sessionStorage before POST. Persistence
+failure sends no POST. No submission occurs on mount, remount or refresh. Ambiguous
+network/response failures, legacy stale-state errors, authority loss, changed
+stored intent or cleanup failure retain the same original. Explicit retry never
+adopts a new action/hash/ID. Only matching confirmed success/reuse clears pending,
+or the distinct guarded non-commit rejection, which also holds that displayed
+hash until a fresh read. Account/relationship changes unmount the scoped view;
+late responses cannot update the new account. TeamApiError preserves existing
+message behavior while exposing only status/code for this guarded decision.
+
+Focused checks cover SQL policy/role/isolation, API gates/auth/Origin, saved intent,
+uncertain response and shared-auth UI regressions. Native cn_review_actions17_b:
+eight cases across three independent PostgreSQL17.11 sessions, preserved retained
+contracts, committed revocation, policy loss, same-ID reuse after a newer
+observation, isolation holds, unchanged financial rows and zero provider writes.
+The earlier six-case native a receipt predates the guarded wrapper. A separate
+cn_review_isolation17_a preserves the counterexample. All task native servers
+smart-stopped normally; no databases were dropped.
+
+The first post-guard focused batch had155/157 passing: two isolation cases wrongly
+attempted purchase-fixture creation under repeatable read/serializable; the existing
+TEAM_PURCHASE_ADMISSION_REQUIRES_READ_COMMITTED safeguard correctly rejected it.
+The fixture was corrected without changing that guard. Native cases seed under
+read committed before entering other isolation levels and prove history remains
+readable while submissions are held. Failed receipts remain failed.
+
+A browser fixture of the actual React components with synthetic identity/session
+and a local stateful API exercised acknowledgement, committed-but-uncertain
+response, explicit same-ID retry, refreshed history and escalation. Three POSTs
+produced two synthetic review records, with bankConfirmed=false/outstanding=true.
+This is presentation/request-render evidence, not real auth/API-to-hosted-data,
+provider or financial browser acceptance. No hosted schema/control was changed.
+Current full fallback/hosted CI and the remaining bank consent/health/association,
+scoped alert, complete reviewed resolution, sandbox and LIVE/BANK gates remain.

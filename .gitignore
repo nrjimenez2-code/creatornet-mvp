@@ -187,3 +187,4 @@ supabase/migrations/*
 !supabase/migrations/20261031195130_sales_team_purchase_earnings_range.sql
 !supabase/migrations/20261031201235_sales_team_bank_exception_reviews.sql
 !supabase/migrations/20261104185509_sales_team_bank_exception_queue.sql
+!supabase/migrations/20261104200116_sales_team_bank_review_actions.sql

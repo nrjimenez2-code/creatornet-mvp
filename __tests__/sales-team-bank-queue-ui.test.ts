@@ -5,6 +5,7 @@ const identity={userId:"member" as string|null,loading:false,session:{access_tok
 let query="creator_id=creator";
 jest.mock("@/lib/useUser",()=>({useUser:()=>identity}));
 jest.mock("next/navigation",()=>({useSearchParams:()=>new URLSearchParams(query)}));
+jest.mock("@/lib/actionSession",()=>({getActionSession:jest.fn()}));
 import SalesTeamBankExceptions from "@/components/SalesTeamBankExceptions";
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let root:Root,container:HTMLDivElement;const fetchMock=jest.fn(),originalFetch=global.fetch;

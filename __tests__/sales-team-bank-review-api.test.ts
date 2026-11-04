@@ -1,6 +1,6 @@
 import {NextRequest} from "next/server";
 import {GET,POST} from "../app/api/sales-team/bank-review/route";
-import {teamBankReviewSchemaReady,teamBankReviewReady,TeamSalesError} from "../lib/salesTeams/policy";
+import {teamBankReviewSchemaReady,teamBankReviewReady,teamBankReviewActionsSchemaReady,teamBankReviewActionsReady,TeamSalesError} from "../lib/salesTeams/policy";
 const auth=jest.fn(),rpc=jest.fn();
 jest.mock("@/lib/salesTeams/server",()=>({
  teamRequest:(...args:unknown[])=>auth(...args),teamRpc:(...args:unknown[])=>rpc(...args),
@@ -47,4 +47,30 @@ test.each(["acknowledged","escalated"])("%s sends only frozen intent and verifie
 test.each([{...body,actor_id:creator},{...body,action:"confirmed"},{...body,action:"resolved"},{...body,state_sha256:"wrong"},{...body,request_id:"wrong"},[],null])("invalid or caller-spoofed intent is rejected before SQL",async value=>{enabled();expect((await POST(write(value))).status).toBe(400);expect(rpc).not.toHaveBeenCalled();});
 test.each([["BANK_REVIEW_ACCESS_DENIED",403],["TEAM_STATEMENT_ACCESS_DENIED",403],["BANK_REVIEW_STATE_CHANGED",409],["ORIGINAL_BANK_REVIEW_REQUIRED",409],["BANK_REVIEW_AUTHORITY_REQUIRED",409]])("%s returns a minimized actionable response",async(code,status)=>{
  enabled();rpc.mockRejectedValue({message:code+" acct_private ba_private req_private"});const response=await POST(write());expect(response.status).toBe(status);expect(JSON.stringify(await response.json())).not.toMatch(/acct_|ba_|req_/);
+});
+
+test("action schema and presentation gates default off without changing F49's write gate",()=>{
+ expect(teamBankReviewActionsSchemaReady({})).toBe(false);expect(teamBankReviewActionsReady({})).toBe(false);
+ enabled();expect(teamBankReviewActionsReady()).toBe(false);expect(teamBankReviewReady()).toBe(true);
+});
+test("legacy history fallback adds a false capability and never calls the new wrapper",async()=>{
+ enabled();rpc.mockResolvedValue({state:{bankConfirmed:false},canReview:true});const response=await GET(read());
+ expect((await response.json()).canReview).toBe(false);expect(rpc.mock.calls[0][1]).toBe("read_sales_team_bank_exception_v1");
+});
+test("new scoped wrapper derives actor from auth; all three write/capability gates must agree",async()=>{
+ enabled();process.env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_SCHEMA_READY="true";process.env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_READY="true";
+ rpc.mockResolvedValue({state:{bankConfirmed:false},canReview:true});const response=await GET(read());
+ expect((await response.json()).canReview).toBe(true);expect(rpc).toHaveBeenCalledWith({fixture:true},"read_sales_team_bank_review_view_v1",{p_creator_id:creator,p_actor_id:actor,p_request_id:request,p_cursor:null,p_limit:20});
+ process.env.CREATOR_TEAM_BANK_REVIEW_READY="false";expect((await (await GET(read())).json()).canReview).toBe(false);
+});
+test.each([false,null,undefined,"true"])("SQL capability %s is never promoted by enabled UI gates",async canReview=>{
+ enabled();process.env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_SCHEMA_READY="true";process.env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_READY="true";
+ rpc.mockResolvedValue({canReview});expect((await (await GET(read())).json()).canReview).toBe(false);
+});
+test("new-schema submissions use the guarded wrapper, with no change to frozen intent or verified actor",async()=>{
+ enabled();process.env.CREATOR_TEAM_BANK_REVIEW_ACTIONS_SCHEMA_READY="true";expect((await POST(write())).status).toBe(200);
+ expect(rpc).toHaveBeenCalledWith({fixture:true},"record_sales_team_bank_review_action_v1",{p_creator_id:creator,p_actor_id:actor,p_request_id:request,p_review_id:review,p_action:"acknowledged",p_state_sha256:body.state_sha256});
+});
+test.each(["BANK_REVIEW_ACTION_STATE_CHANGED","BANK_REVIEW_ACTION_ISOLATION_REQUIRED"])("%s preserves a distinct minimized guarded error",async code=>{
+ enabled();rpc.mockRejectedValue({message:code+" acct_private ba_private"});const result=await POST(write());expect(result.status).toBe(409);const data=await result.json();expect(data.code).toBe(code);expect(JSON.stringify(data)).not.toMatch(/acct_|ba_/);
 });

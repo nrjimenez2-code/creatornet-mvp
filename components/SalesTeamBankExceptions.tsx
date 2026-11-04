@@ -4,6 +4,7 @@ import {useSearchParams} from "next/navigation";
 import {useCallback,useEffect,useRef,useState} from "react";
 import {useUser} from "@/lib/useUser";
 import {useTeamApi} from "@/lib/salesTeams/client";
+import SalesTeamBankReviewActions from "@/components/SalesTeamBankReviewActions";
 import {teamMoney,teamPayoutObservationStatus} from "@/lib/salesTeams/statements";
 import {bankExceptionReasons,type BankExceptionState,type BankExceptionQueue,type BankExceptionDetail} from "@/lib/salesTeams/bankExceptions";
 import styles from "../app/dashboard/closers/bookings.module.css";
@@ -18,11 +19,12 @@ export default function SalesTeamBankExceptions(){
  const {userId,loading}=useUser(),params=useSearchParams(),creator=params.get("creator_id")||userId||"";
  if(loading)return <main aria-busy="true" className={styles.page}>Loading payout review history…</main>;
  if(!userId)return <main className={styles.page}><h1>Payout review history</h1><p>Sign in to view your own financial history.</p><Link href="/auth">Sign in</Link></main>;
- return <ExceptionQueue key={JSON.stringify([userId,creator])} creator={creator}/>;
+ return <ExceptionQueue key={JSON.stringify([userId,creator])} creator={creator} userId={userId}/>;
 }
-function ExceptionQueue({creator}:{creator:string}){
+function ExceptionQueue({creator,userId}:{creator:string;userId:string}){
  const api=useTeamApi(),active=useRef<AbortController|null>(null);
  const [data,setData]=useState<BankExceptionQueue|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null),[selected,setSelected]=useState<string|null>(null);
+ const [notice,setNotice]=useState<string|null>(null);
  const read=useCallback(async(cursor:string|null)=>{
   active.current?.abort();const current=new AbortController();active.current=current;setLoading(true);setError(null);
   try{
@@ -39,6 +41,7 @@ function ExceptionQueue({creator}:{creator:string}){
   <p>These completed transfers still await confirmed bank receipt. An acknowledgement or escalation does not confirm a deposit or close an item.</p>
   <p>Refreshing reads recorded history only; it does not check Stripe or your bank.</p>
   {error?<p role="alert">{error}</p>:null}<button disabled={loading} onClick={()=>void read(null)}>Refresh payout reviews</button>
+  {notice?<p role="status">{notice}</p>:null}
   {loading?<p role="status">Loading payout reviews…</p>:null}
   {data?<>{data.membershipStatus==="removed"?<p>Team access was removed. Only your own financial history remains available.</p>:null}
    <p>List read at {new Date(data.readAt).toLocaleString()}. Newer observations may change review applicability; refresh to see the latest recorded state.</p>
@@ -49,11 +52,11 @@ function ExceptionQueue({creator}:{creator:string}){
     <button onClick={()=>setSelected(entry.state.requestId)} disabled={loading}>View review history</button>
    </article>):<p>No completed transfer originals are recorded for your access to this relationship. This does not confirm a bank deposit.</p>}
    {data.hasMore&&data.nextCursor?<button disabled={loading} onClick={()=>void read(data.nextCursor)}>Load older transfers</button>:null}
-   {selected?<ExceptionDetail key={selected} creator={creator} request={selected}/>:null}
+   {selected?<ExceptionDetail key={selected} creator={creator} request={selected} userId={userId} onRecorded={()=>{setNotice("Review recorded. Bank receipt remains unconfirmed and the item remains outstanding.");void read(null);}}/>:null}
   </>:null}
  </div></main>;
 }
-function ExceptionDetail({creator,request}:{creator:string;request:string}){
+function ExceptionDetail({creator,request,userId,onRecorded}:{creator:string;request:string;userId:string;onRecorded:()=>void}){
  const api=useTeamApi(),active=useRef<AbortController|null>(null),snapshot=useRef<BankExceptionDetail|null>(null);
  const [data,setData]=useState<BankExceptionDetail|null>(null),[loading,setLoading]=useState(true),[error,setError]=useState<string|null>(null);
  const read=useCallback(async(cursor:string|null)=>{
@@ -75,6 +78,7 @@ function ExceptionDetail({creator,request}:{creator:string;request:string}){
    {review.action==="escalated"?"Escalated":"Acknowledged"} by {review.actorRole==="owner"?"creator":"manager"} · {new Date(review.reviewedAt).toLocaleString()}.
    {review.appliesToCurrentState?" Applies to the current recorded state.":" Historical review; the recorded state has changed."}
   </li>)}</ol>:<p>No review recorded for this transfer.</p>}
-   {data.hasMoreHistory&&data.nextCursor?<button disabled={loading} onClick={()=>void read(data.nextCursor)}>Load older reviews</button>:null}</>:null}
+   {data.hasMoreHistory&&data.nextCursor?<button disabled={loading} onClick={()=>void read(data.nextCursor)}>Load older reviews</button>:null}
+   <SalesTeamBankReviewActions key={JSON.stringify([userId,creator,request])} userId={userId} creator={creator} request={request} stateSha256={data.stateSha256} canReview={!loading&&data.canReview===true} onRecorded={onRecorded}/></>:null}
  </section>;
 }
