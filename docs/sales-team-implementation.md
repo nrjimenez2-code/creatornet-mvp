@@ -2364,3 +2364,15 @@ This is presentation/request-render evidence, not real auth/API-to-hosted-data,
 provider or financial browser acceptance. No hosted schema/control was changed.
 Current full fallback/hosted CI and the remaining bank consent/health/association,
 scoped alert, complete reviewed resolution, sandbox and LIVE/BANK gates remain.
+F51 follow-up migration20261104202340_sales_team_bank_review_action_contract.sql
+adds a separate default-off service-owned action policy and private digest/ready
+helpers. The digest covers both new wrapper bodies/ACLs, its helpers and the
+retained F49 contract. Capability and guarded submission require its exact current
+contract; the guarded submission rechecks after delegating the retained insert,
+so authority loss during a creator-lock wait or insert rolls back the review.
+Service callers cannot enable policy or execute private helpers. The additional
+CREATOR_TEAM_BANK_REVIEW_ACTION_CONTRACT_SCHEMA_READY gate defaults off and keeps
+API fallback historical until the complete wrapper contract schema is accepted.
+This does not change F49's body/ACL/digest, enable either policy or activate UI.
+The follow-up supersedes the preliminary eight-case native/built F51 source;
+final receipts separately identify its revision and gates still outstanding.

@@ -82,7 +82,7 @@ test("only a proven state-changed rejection clears original; stale displayed has
  fetchMock.mockResolvedValueOnce({ok:true,status:200,json:async()=>({reviewId:review2,recorded:true,bankConfirmed:false,outstanding:true})});await click("Escalate observation");
  expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toMatchObject({review_id:review2,action:"escalated",state_sha256:"b".repeat(64)});expect(recorded).toHaveBeenCalledTimes(1);
 });
-test.each([["BANK_REVIEW_AUTHORITY_REQUIRED",409],["ORIGINAL_BANK_REVIEW_REQUIRED",409],["BANK_REVIEW_STATE_CHANGED",409],["BANK_REVIEW_ACTION_ISOLATION_REQUIRED",409],["BANK_REVIEW_ACTION_STATE_CHANGED",500]])("%s/%s cannot clear an uncertain original",async(code,status)=>{
+test.each([["BANK_REVIEW_ACTION_AUTHORITY_REQUIRED",409],["BANK_REVIEW_AUTHORITY_REQUIRED",409],["ORIGINAL_BANK_REVIEW_REQUIRED",409],["BANK_REVIEW_STATE_CHANGED",409],["BANK_REVIEW_ACTION_ISOLATION_REQUIRED",409],["BANK_REVIEW_ACTION_STATE_CHANGED",500]])("%s/%s cannot clear an uncertain original",async(code,status)=>{
  fetchMock.mockResolvedValueOnce({ok:false,status,json:async()=>({code,error:"Needs reconciliation"})});await render();await click("Acknowledge observation");
  expect(window.sessionStorage.getItem(key)).not.toBeNull();expect(recorded).not.toHaveBeenCalled();expect(button("Retry original review request")).toBeDefined();
 });

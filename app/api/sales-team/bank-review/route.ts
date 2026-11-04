@@ -10,6 +10,7 @@ function errorResponse(error:unknown){
   BANK_REVIEW_STATE_CHANGED:{message:"The payout observation changed. Refresh before recording a new review.",status:409},
   BANK_REVIEW_ACTION_STATE_CHANGED:{message:"The payout observation changed and this review was not recorded. Refresh before recording a new review.",status:409},
   BANK_REVIEW_ACTION_ISOLATION_REQUIRED:{message:"Recording this review requires transaction reconciliation. Keep the original request.",status:409},
+  BANK_REVIEW_ACTION_AUTHORITY_REQUIRED:{message:"Recording this review is held pending contract reconciliation. Keep the original request.",status:409},
   ORIGINAL_BANK_REVIEW_REQUIRED:{message:"Resume the original review request.",status:409},
   BANK_REVIEW_AUTHORITY_REQUIRED:{message:"Recording payout reviews is currently held.",status:409},
   INVALID_BANK_REVIEW_CURSOR:{message:"Refresh the payout review history.",status:400}
