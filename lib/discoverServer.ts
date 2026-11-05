@@ -400,6 +400,9 @@ export async function createDiscoverSession(
         .flatMap((e) => e.topics ?? []),
     ]),
   ];
+  // Viewer topics are constant throughout this session. Normalize once rather
+  // than once for each candidate topic; retain each post's match priority.
+  const declaredTopicSet = new Set(normalizeTopics(declaredTopics));
   const audiences = Object.fromEntries(
     inventory.map((p) => {
       const match = matchInterestTopics({
@@ -411,7 +414,7 @@ export async function createDiscoverSession(
       });
       return [
         p.id,
-        match.topics.find((t) => normalizeTopics(declaredTopics).includes(t)) ??
+        match.topics.find((t) => declaredTopicSet.has(t)) ??
           match.categories.find((c) => declared.includes(c)) ??
           declared[0] ??
           "general",
