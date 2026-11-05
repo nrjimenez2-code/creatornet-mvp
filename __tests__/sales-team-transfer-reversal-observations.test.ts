@@ -105,7 +105,9 @@ test.each(["amount","transfer_destination","transfer_balance","transfer_created"
  if(change==="amount")p.reversal.amountCents=101;if(change==="transfer_destination")p.transfer.destinationId="acct_foreign";if(change==="transfer_balance")p.transfer.balanceId="txn_foreign";if(change==="transfer_created")p.transfer.created--;
  if(change==="aggregate")p.transfer.amountReversedCents=0;if(change==="reversal")p.reversal.id="trr_foreign";if(change==="key")p.idempotencyKey="foreign";if(change==="metadata")p.reversal.metadata={};
  if(change==="balance_owner")p.balance.sourceId="trr_foreign";if(change==="balance_amount")p.balance.amountCents=101;if(change==="balance_fee")p.balance.feeDetails=[];if(change==="balance_net")p.balance.netCents=100;if(change==="balance_type")(p.balance as unknown as Record<string,unknown>).balanceType="issuing";
- if(change==="balance_available")p.balance.availableOn=Math.floor(Date.now()/1000)+1;if(change==="duplicate_request")p.reversalReadRequestIds[0]=p.transferReadRequestIds[0];if(change==="context")p.context={...c.context,mode:"live"};if(change==="stale")p.readStartedAt-=30000;
+ // Stay beyond the 25-second proof-consumption window; a one-second margin
+ // can become available while the database validates the proof.
+ if(change==="balance_available")p.balance.availableOn=Math.floor(Date.now()/1000)+60;if(change==="duplicate_request")p.reversalReadRequestIds[0]=p.transferReadRequestIds[0];if(change==="context")p.context={...c.context,mode:"live"};if(change==="stale")p.readStartedAt-=30000;
  if(change==="private")(p as unknown as Record<string,unknown>).private="synthetic private provider field";
  await denied(()=>complete(p),/REQUIRED|DIFFERS|PRIVATE_PROVIDER_DATA/);expect((await db.query("select count(*)::int n from sales_team_transfer_reversal_completions_v1")).rows).toEqual([{n:0}]);expect((await db.query("select creator_reversed_cents::int principal,actual_transfer_cost_cents::int fee from sales_team_creator_balances_v1")).rows).toEqual([{principal:0,fee:0}]);
 });

@@ -2424,3 +2424,34 @@ Consent/provenance, provider-authoritative bank/deposit mapping, bank health and
 refresh/revocation, alerting for those future owners, complete reviewed exception
 resolution, installed/history compatibility and separately approved sandbox/LIVE
 acceptance remain open. No hosting, provider, money or scheduler activation occurs.
+
+## F53: installed monthly shared-purchase compatibility (local candidate)
+
+Sales Team 19 integrates the exact staged Sales Team 18 migration
+`20261104213012_sales_team_monthly_shared_compatibility.sql` (SHA256
+`2f377993d1a8411e9847d1ad3b5755fc25e7492a329c2610c3450e8340be9fc2`).
+The installed `guard_monthly_mentorship_purchase_v1` requires legacy membership
+identity for monthly products, which independently verified team receipts do not
+have. The pinned guard body/ACL remains intact. A qualified trigger exception
+requires the accepted team monthly agreement, immutable purchase binding,
+verified first capture, original order and exact purchase identity. The retained
+F11 service/immutable-row guard still applies. A post-write fence rolls back all
+shared effects if the enabled contract loses authority during the write.
+
+The new SQL policy defaults off. Common operation admission holds new monthly
+customer, intent, confirmation and setup dispatch at both original journal claim
+and final pre-POST assertion. Bound/unknown original reconciliation and retained
+cancellation/refund/recovery owners remain in place. No historical adoption,
+backfill, fake legacy membership or direct access flag is introduced. Four
+financial contract digests now cover these dependencies; previously configured
+digests require review and must not be treated as compatible automatically.
+
+Portable repository regressions pin the approved installed guard body, reproduce
+the held monthly fulfillment failure with its earlier receipt retained, restore
+that same receipt into Library, and exercise dispatch/reconciliation, forged
+identities, legacy non-adoption, policy privileges and retained guard fences.
+The structural fixtures do not reproduce the complete installed schema/history.
+Sales Team 18's native multi-session proof remains limited to its exact staged
+migration and recorded structural environment. Current coherent-source checks
+and remaining installed/browser/hosted/provider/sandbox/LIVE/BANK gates are
+separate. No hosted install, activation or provider write is authorized here.

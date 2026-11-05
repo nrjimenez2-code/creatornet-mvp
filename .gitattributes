@@ -1,0 +1,3 @@
+# Preserve the exact pinned SQL bytes across Windows and Unix checkouts.
+/test-support/fixtures/sales-team-installed-monthly-guard.sql -text
+/supabase/migrations/20261104213012_sales_team_monthly_shared_compatibility.sql -text
