@@ -19,6 +19,7 @@ export default function AvatarCropDialog({ photoUrl, uploading, uploadError, onC
   const frameRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; center: CropCenter } | null>(null);
+  const preparedCropRef = useRef<{ identity: string; blob: Blob } | null>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
   const [frameSize, setFrameSize] = useState(256);
   const [center, setCenter] = useState<CropCenter>({ x: 0, y: 0 });
@@ -67,6 +68,12 @@ export default function AvatarCropDialog({ photoUrl, uploading, uploadError, onC
     setPreparing(true);
     setError(null);
     try {
+      const identity = JSON.stringify([photoUrl, dimensions.width, dimensions.height,
+        layout.center.x, layout.center.y, layout.sourceSize]);
+      if (preparedCropRef.current?.identity === identity) {
+        await onSave(preparedCropRef.current.blob);
+        return;
+      }
       const canvas = document.createElement("canvas");
       canvas.width = OUTPUT_SIZE;
       canvas.height = OUTPUT_SIZE;
@@ -86,6 +93,7 @@ export default function AvatarCropDialog({ photoUrl, uploading, uploadError, onC
       const blob = await new Promise<Blob>((resolve, reject) => {
         canvas.toBlob((result) => result ? resolve(result) : reject(new Error("Could not prepare this photo.")), "image/png");
       });
+      preparedCropRef.current = { identity, blob };
       await onSave(blob);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not prepare this photo.");
@@ -172,7 +180,7 @@ export default function AvatarCropDialog({ photoUrl, uploading, uploadError, onC
       {error || uploadError ? <p role="alert" className={styles.error}>{error || uploadError}</p> : null}
       <div className={styles.actions}>
         <button type="button" className={styles.cancel} disabled={uploading || preparing} onClick={onCancel}>Cancel</button>
-        <button type="button" className={styles.save} disabled={!layout || !!error || uploading || preparing} onClick={saveCrop}>
+        <button type="button" className={styles.save} disabled={!layout || uploading || preparing} onClick={saveCrop}>
           {uploading || preparing ? "Saving…" : "Save photo"}
         </button>
       </div>

@@ -153,8 +153,18 @@ describe("auth tripwires", () => {
     expect(() => read("app/api/stripe/confirm/route.ts")).toThrow();
   });
 
-  test("presign refuses types outside the policy", () => {
-    expect(read("app/api/upload/presign/route.ts")).toMatch(/isAllowedUpload\(folder, contentType\)/);
+  test('both upload entry points refuse types outside the policy', () => {
+    const legacy = read('app/api/upload/presign/route.ts');
+    expect(legacy).toMatch(/isAllowedUpload\(folder, contentType\)/);
+    expect(legacy).toContain('UPLOAD_CLIENT_REFRESH_REQUIRED');
+    expect(legacy).not.toMatch(/createPresignedUploadUrl|admitRequest\(/);
+    const http = read('lib/uploadTrackingHttp.ts');
+    const parse = http.indexOf('parseUploadAdmission(body');
+    expect(parse).toBeGreaterThanOrEqual(0);
+    expect(http.indexOf('runtime.begin(input)')).toBeGreaterThan(parse);
+    const policy = read('lib/uploadTrackingProtocol.ts');
+    expect(policy).toMatch(/purpose === "video"\) return isAllowedUpload\("videos", value\)/);
+    expect(policy).toMatch(/purpose === "thumbnail"\) return isAllowedUpload\("thumbnails", value\)/);
   });
 
   test("analytics RPC migration checks the owner", () => {

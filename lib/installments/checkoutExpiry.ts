@@ -5,6 +5,20 @@ import { assertAgreementId, type ExactAgreementStore } from "./agreementStore";
 import { assertExactInstallmentEnvironment } from "./checkoutPreparation";
 import type { ExactLifecycleStore, LifecycleResult } from "./lifecycleEvents";
 
+/** Shared terminal-intent check. Caller must independently bind and verify the
+ * expired Checkout before supplying its intent ID and accepted fee contract. */
+export function inspectExpiredCheckoutPaymentIntent(pi:Stripe.PaymentIntent, expected:{
+  paymentIntentId:string;customerId:string;liveMode:boolean;amountCents:number;feeCents:number;destinationId:string
+}):boolean {
+  const id=(v:string|{id:string}|null|undefined)=>typeof v==="string"?v:v?.id;
+  if(!/^pi_[A-Za-z0-9]+$/.test(expected.paymentIntentId)||pi.id!==expected.paymentIntentId||
+    pi.livemode!==expected.liveMode||id(pi.customer)!==expected.customerId||pi.currency!=="usd"||
+    pi.amount!==expected.amountCents||pi.application_fee_amount!==expected.feeCents||
+    id(pi.transfer_data?.destination)!==expected.destinationId||pi.transfer_data?.amount!=null)
+    throw Error("Checkout expiry evidence differs");
+  return pi.status==="canceled"&&pi.amount_received===0&&pi.amount_capturable===0;
+}
+
 /** Expiry is an abandonment observation, not buyer debt forgiveness or a refund.
  * Records a durable subscription review hold so the existing admin stop workflow
  * can clean up the isolated held subscription. Never expires/cancels/charges here.
@@ -47,10 +61,8 @@ export async function observeExpiredExactCheckoutSandbox(args: {
   if (piId) {
     requireThat(/^pi_[a-zA-Z0-9]+$/.test(piId));
     const pi = await readStripe(() => args.stripe.paymentIntents.retrieve(piId));
-    requireThat(pi.id === piId && pi.livemode === false && id(pi.customer) === a.customerId && pi.currency === "usd" &&
-      pi.amount === first.amountCents && pi.application_fee_amount === first.fees.totalCreatorDeductionCents &&
-      id(pi.transfer_data?.destination ?? null) === a.terms.destinationId && pi.transfer_data?.amount == null);
-    settled = pi.status === "canceled" && pi.amount_received === 0 && pi.amount_capturable === 0;
+    settled = inspectExpiredCheckoutPaymentIntent(pi,{paymentIntentId:piId,customerId:a.customerId!,liveMode:false,
+      amountCents:first.amountCents,feeCents:first.fees.totalCreatorDeductionCents,destinationId:a.terms.destinationId});
   }
   await args.lifecycleEventStore.hold(a.id, args.eventId, a.subscriptionId, null);
   const saved = await args.lifecycleEventStore.observe({ agreementId: a.id, eventId: args.eventId, objectId: a.subscriptionId, read },

@@ -4,6 +4,9 @@ import { CommercePageClient } from "./CommercePageClient";
 import { exactAdminEnabled } from "@/lib/installments/adminActions";
 import Link from "next/link";
 import { requireAdminPage } from "@/lib/admin/server";
+import { membershipAdminReady } from "@/lib/membershipAdmin";
+import { buyerMentorshipAdminReady } from "@/lib/mentorshipInstallmentAdmin";
+import { fullRefundReviewAdminReady } from "@/lib/fullRefundReviewAdmin";
 
 // Money data must never come from a stale cache.
 export const dynamic = "force-dynamic";
@@ -19,6 +22,12 @@ export default async function CommercePage() {
   const initialData = await fetchCommerceInitialData();
   return (
     <AdminDataProvider initialData={initialData}>
+      {fullRefundReviewAdminReady() && <Link href="/admin/commerce/full-refunds"
+        className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review full-payment refunds →</Link>}
+      {buyerMentorshipAdminReady() && <Link href="/admin/commerce/buyer-installments"
+        className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review buyer installment billing →</Link>}
+      {membershipAdminReady() && <Link href="/admin/commerce/memberships"
+        className="mb-4 mr-5 inline-block text-sm font-semibold text-[#7c5cbf]">Review monthly billing →</Link>}
       {exactAdminEnabled(process.env) && <Link href="/admin/commerce/installments"
         className="mb-4 inline-block text-sm font-semibold text-[#7c5cbf]">Review staging installments →</Link>}
       <CommercePageClient />

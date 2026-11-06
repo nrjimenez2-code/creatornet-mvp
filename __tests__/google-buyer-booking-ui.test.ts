@@ -119,3 +119,11 @@ test.each(['2026-10-01T10:00:00Z','2026-10-05T19:00:00Z'])("a confirmed booking 
   expect(container.textContent).toContain('Booking confirmed');
   expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(false);
 });
+
+test("a booking that has started keeps its confirmation and cannot be rescheduled",async()=>{
+  query=new URLSearchParams('reservation_id=reservation');
+  nowSpy.mockReturnValue(Date.parse(slot.start));
+  await act(async()=>root.render(createElement(Page)));
+  expect(container.textContent).toContain('Booking confirmed');
+  expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(false);
+});

@@ -3,7 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { assertAgreementId, operationHash } from "./agreementStore";
 import { assertExactInstallmentEnvironment } from "./checkoutPreparation";
-import { assertRecoveryHeldInvoiceUsingContract, HELD_INSTALLMENT_VERSION, type HeldInvoicePreparationContract } from "./heldInvoice";
+import { assertRecoveryHeldInvoiceUsingContract, HELD_INSTALLMENT_VERSION, type HeldInvoicePreparationContract,type BuyerHeldInvoiceAuthorization } from "./heldInvoice";
 import { parseRenewalAuthorization, type RenewalAuthorization } from "./invoiceStore";
 import { reconcileExactRenewalReceiptSandbox, verifyExactRetryHistorySandbox } from "./renewal";
 import { reconcileExactRetryReceiptSandbox } from "./paymentRetry";
@@ -85,15 +85,18 @@ type BankReader = {
 };
 /** Shared read-only inspector. The owner/context/hold/admission and prior history
  * checks are caller obligations, including a fresh SQL recheck before release. */
-export async function inspectExactBankChallenge(stripe: BankReader, c: BankContext,
-  contract: Pick<HeldInvoicePreparationContract, "expectedLiveMode" | "collectionVersion" | "metadata">, publicKey: string) {
+export async function inspectExactBankChallenge(stripe: BankReader,
+  c:Pick<BankContext,"paymentIntentId"|"paymentMethodId"> & {authorization:RenewalAuthorization|BuyerHeldInvoiceAuthorization},
+  contract: Pick<HeldInvoicePreparationContract, "expectedLiveMode" | "collectionVersion" | "metadata">, publicKey: string,
+  options:{requiredBillingCountry?:"US"}={}) {
   try {
     const a = c.authorization, live = contract.expectedLiveMode;
     check(new RegExp(`^pk_${live ? "live" : "test"}_[a-zA-Z0-9]+$`).test(publicKey));
     const pm = await stripe.paymentMethods.retrieve(c.paymentMethodId);
     check(pm.id === c.paymentMethodId && pm.livemode === live && pm.type === "card" && id(pm.customer) === a.customerId);
+    if(options.requiredBillingCountry)check(pm.billing_details.address?.country===options.requiredBillingCountry);
     const invoice = await stripe.invoices.retrieve(a.invoiceId);
-    const payment = assertRecoveryHeldInvoiceUsingContract(invoice, a, contract); check(invoice.status === "open");
+    const payment = assertRecoveryHeldInvoiceUsingContract<RenewalAuthorization|BuyerHeldInvoiceAuthorization>(invoice, a, contract); check(invoice.status === "open");
     const links = await stripe.invoicePayments.list({ invoice: a.invoiceId, limit: 100 });
     check(!links.has_more && links.data.length === 1); const link = links.data[0];
     check(link.livemode === live && link.is_default === true && id(link.invoice) === a.invoiceId && link.currency === "usd" &&

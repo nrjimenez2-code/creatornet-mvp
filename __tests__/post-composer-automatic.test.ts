@@ -6,33 +6,42 @@ jest.mock("@/lib/supabaseClient", () => ({ createClient: () => ({ storage: { fro
 jest.mock("@/lib/useUser", () => ({ useUser: () => ({ userId: "creator" }) }));
 import PostComposer from "@/components/PostComposer";
 let root: Root, container: HTMLDivElement, mockFetch: jest.Mock;
-let generationFails = false, uploadFails = false;
+let generationFails = false, uploadFails = false, thumbnailVerificationFails = false, postFails = false;
+let putCount = 0;
 let uploadStatuses:number[] = [], verificationFails = false;
 let uploadHeaders: Array<[string, string]> = [];
 const originalFetch = globalThis.fetch, originalXHR = globalThis.XMLHttpRequest;
 const originalCreateURL = URL.createObjectURL, originalRevokeURL = URL.revokeObjectURL;
 let createSpy: jest.SpyInstance, canvasSpy: jest.SpyInstance, blobSpy: jest.SpyInstance;
 beforeEach(async () => {
-  generationFails = false; uploadFails = false;
-  uploadStatuses=[];verificationFails=false;
-  uploadHeaders = [];
+  generationFails = false; uploadFails = false; thumbnailVerificationFails = false; postFails = false; putCount = 0;
+  uploadStatuses=[];verificationFails=false;uploadHeaders=[];
   container = document.createElement("div"); document.body.appendChild(container); root = createRoot(container);
+  const admitted = new Map<string, { key: string }>();
   mockFetch = jest.fn(async (url: string, init?: RequestInit) => {
     if (url === "/api/stripe/connect/status") return { ok: true, json: async () => ({ onboarding_complete: true, tipping_enabled: true }) };
     if (url === "/api/products") return { ok: true, json: async () => ({ items: [] }) };
-    if (url === "/api/upload/presign") {
-      const body=JSON.parse(String(init?.body)),publicUrl=`https://cdn.test/${body.folder}/asset`;
-      if(body.verifyExisting)return {ok:!verificationFails,json:async()=>verificationFails?{error:"Upload verification refused"}:{alreadyUploaded:true,publicUrl}};
-      return { ok: !uploadFails, json: async () => uploadFails ? { error: "Upload refused" } : { uploadUrl: "https://upload.test", publicUrl } };
+    if (url === "/api/upload/admit") {
+      const input = JSON.parse(String(init?.body)); const folder = input.purpose === "thumbnail" ? "thumbnails" : "videos";
+      const key = `${folder}/${input.attemptId}`; admitted.set(input.attemptId, { key });
+      return { ok: !uploadFails, status: uploadFails ? 503 : 200, json: async () => uploadFails ? { error: "Upload refused" } : {
+        attemptId: input.attemptId, key, publicUrl: `https://cdn.test/${folder}/asset`,
+        capability: { provider: "r2", uploadUrl: "https://upload.test" },
+      } };
     }
-    if (url === "/api/posts") return { ok: true, json: async () => ({ success: true }) };
+    if (url.startsWith("/api/upload/")) {
+      const key = admitted.get(url.split("/")[3])!.key;
+      const failed = verificationFails || thumbnailVerificationFails && key.startsWith("thumbnails/");
+      return { ok: !failed, status: failed ? 409 : 200, json: async () => failed ? { error: "Verification pending" } : { objectObserved: true, key } };
+    }
+    if (url === "/api/posts") return { ok: !postFails, json: async () => postFails ? { error: "Publishing unavailable" } : { success: true } };
     throw new Error("Unexpected request " + url);
   });
   globalThis.fetch = mockFetch;
   globalThis.XMLHttpRequest = class {
     status = 200; upload = {}; onload?: () => void;
     open() {} setRequestHeader(name: string, value: string) { uploadHeaders.push([name, value]); } abort() {}
-    send() { this.status=uploadStatuses.shift()??200;queueMicrotask(() => this.onload?.()); }
+    send() { putCount++; this.status=uploadStatuses.shift()??200;queueMicrotask(() => this.onload?.()); }
   } as unknown as typeof XMLHttpRequest;
   URL.createObjectURL = () => "blob:test"; URL.revokeObjectURL = jest.fn();
   const create = document.createElement.bind(document);
@@ -71,17 +80,17 @@ test("a public video can publish with empty title/caption and an automatically u
   const body = JSON.parse(String(postRequest()![1].body));
   expect(body).toMatchObject({ title: null, content: "", classification_version: 1, poster_url: "https://cdn.test/thumbnails/asset", hashtags: [] });
   expect(body).not.toHaveProperty("interests"); expect(body).not.toHaveProperty("topics");
-  const presigns = mockFetch.mock.calls.filter(([url]) => url === "/api/upload/presign").map(([, init]) => JSON.parse(String(init.body)));
+  const presigns = mockFetch.mock.calls.filter(([url]) => url === "/api/upload/admit").map(([, init]) => JSON.parse(String(init.body)));
   expect(presigns).toEqual([
-    expect.objectContaining({ folder: "videos", contentType: "video/mp4", size: 5 }),
-    expect.objectContaining({ folder: "thumbnails", contentType: "image/jpeg", size: 6 }),
+    expect.objectContaining({ purpose: "video", contentType: "video/mp4", size: 5 }),
+    expect.objectContaining({ purpose: "thumbnail", contentType: "image/jpeg", size: 6 }),
   ]);
   expect(uploadHeaders).toEqual([["Content-Type", "video/mp4"], ["If-None-Match", "*"], ["Content-Type", "image/jpeg"], ["If-None-Match", "*"]]);
   expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:test");
 });
 test("an unknown browser MIME uses the same fallback for signing and upload", async () => {
   await pick("Public video", ""); await submit();
-  const presign = mockFetch.mock.calls.find(([url]) => url === "/api/upload/presign");
+  const presign = mockFetch.mock.calls.find(([url]) => url === "/api/upload/admit");
   expect(JSON.parse(String(presign![1].body))).toMatchObject({ contentType: "video/mp4", size: 5 });
   expect(uploadHeaders[0]).toEqual(["Content-Type", "video/mp4"]);
   expect(uploadHeaders.some(([name]) => name.toLowerCase() === "content-length")).toBe(false);
@@ -89,15 +98,19 @@ test("an unknown browser MIME uses the same fallback for signing and upload", as
 
 test("conditional PUT conflicts recover only the same stable upload operation",async()=>{
   uploadStatuses=[412,200];await pick();await submit();
-  const calls=mockFetch.mock.calls.filter(([url])=>url==="/api/upload/presign").map(([,init])=>JSON.parse(String(init.body)));
+  const calls=mockFetch.mock.calls.filter(([url])=>url==="/api/upload/admit").map(([,init])=>JSON.parse(String(init.body)));
   expect(calls[0]).toMatchObject({uploadContract:"create-only-v1",operationId:expect.any(String)});
-  expect(calls[1]).toEqual({...calls[0],verifyExisting:true});
+  expect(calls).toHaveLength(2); // The second admission is the generated thumbnail.
+  const completions=mockFetch.mock.calls.filter(([url])=>String(url).endsWith("/complete"));
+  expect(completions[0][0]).toBe(`/api/upload/${calls[0].attemptId}/complete`);
+  expect(JSON.parse(String(completions[0][1].body))).toEqual({outcome:"uploaded"});
   expect(postRequest()).toBeDefined();expect(uploadHeaders.filter(([name])=>name==="If-None-Match")).toHaveLength(2);
 });
 test("an unverified 412 never publishes or creates a replacement upload",async()=>{
   uploadStatuses=[412];verificationFails=true;await pick();await submit();
-  expect(postRequest()).toBeUndefined();expect(container.textContent).toContain("Upload verification refused");
+  expect(postRequest()).toBeUndefined();expect(container.textContent).toContain("Verification pending");
   expect(uploadHeaders.filter(([name])=>name==="If-None-Match")).toHaveLength(1);
+  expect(mockFetch.mock.calls.filter(([url])=>url==="/api/upload/admit")).toHaveLength(1);
 });
 
 test("caption hashtags and character counts remain visible and reach the automatic submission", async () => {
@@ -121,6 +134,33 @@ test("failed uploads leave the picked file available and do not publish a dead U
 });
 test("premium-only selection does not replace the required public video", async () => {
   await pick("Premium video"); expect(button().disabled).toBe(true); expect(postRequest()).toBeUndefined();
+});
+
+test.each(["verification", "publishing"])("%s failure can retry admitted video and generated poster while admission is paused", async (failure) => {
+  const error = jest.spyOn(console, "error").mockImplementation(() => {});
+  thumbnailVerificationFails = failure === "verification"; postFails = failure === "publishing";
+  await pick(); await submit();
+  expect(container.querySelector('[role="alert"]')).not.toBeNull();
+  expect(putCount).toBe(2); expect(blobSpy).toHaveBeenCalledTimes(1);
+  const admissions = mockFetch.mock.calls.filter(([url]) => url === "/api/upload/admit");
+  expect(admissions).toHaveLength(2);
+  const attemptIds = admissions.map(([, init]) => JSON.parse(String(init.body)).attemptId);
+  thumbnailVerificationFails = false; postFails = false; uploadFails = true;
+  await submit();
+  expect(mockFetch.mock.calls.filter(([url]) => url === "/api/upload/admit")).toHaveLength(2);
+  expect(putCount).toBe(2); expect(blobSpy).toHaveBeenCalledTimes(1);
+  for (const id of attemptIds) expect(mockFetch.mock.calls.filter(([url]) => url === `/api/upload/${id}/complete`).length).toBeGreaterThanOrEqual(2);
+  expect(button().disabled).toBe(true); expect(container.querySelector('[role="alert"]')).toBeNull();
+  error.mockRestore();
+});
+
+test("changing the video invalidates its generated poster", async () => {
+  const error = jest.spyOn(console, "error").mockImplementation(() => {});
+  postFails = true;
+  await pick(); await submit(); await pick(); await submit();
+  expect(blobSpy).toHaveBeenCalledTimes(2); expect(putCount).toBe(4);
+  expect(mockFetch.mock.calls.filter(([url]) => url === "/api/upload/admit")).toHaveLength(4);
+  error.mockRestore();
 });
 
 test("automatic free-video tips clear premium selection and preserve mutually exclusive payment controls", async () => {

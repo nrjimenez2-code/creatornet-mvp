@@ -47,3 +47,14 @@ test("previews a tall image and saves the centered square crop only after confir
   expect(drawImage).toHaveBeenCalledWith(image, 0, 480.5, 924, 924, 0, 0, 512, 512);
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ type: "image/png" }));
 });
+
+test("unchanged crop retries reuse the same Blob; changing the crop creates a new one",async()=>{
+  await act(async()=>root.render(createElement(AvatarCropDialog,{photoUrl:"blob:retry",uploading:false,uploadError:"Verification pending",onCancel,onSave})));
+  const image=container.querySelector("img")!;Object.defineProperties(image,{naturalWidth:{value:900},naturalHeight:{value:1600}});
+  await act(async()=>image.dispatchEvent(new Event("load")));
+  const save=Array.from(container.querySelectorAll("button")).find(b=>b.textContent==="Save photo")!;
+  await act(async()=>save.click());await act(async()=>save.click());
+  expect(onSave.mock.calls[0][0]).toBe(onSave.mock.calls[1][0]);expect(drawImage).toHaveBeenCalledTimes(1);
+  await act(async()=>container.querySelector('[role=group]')!.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true})));
+  await act(async()=>save.click());expect(onSave.mock.calls[2][0]).not.toBe(onSave.mock.calls[0][0]);expect(drawImage).toHaveBeenCalledTimes(2);
+});

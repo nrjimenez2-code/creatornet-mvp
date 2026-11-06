@@ -3,6 +3,8 @@ import {
   HELD_INSTALLMENT_VERSION,
   prepareHeldInstallmentInvoice,
   type HeldInvoiceAuthorization,
+  type BuyerHeldInvoiceAuthorization,type HeldInvoicePreparationContract,prepareHeldInvoiceUsingContract,
+  heldInvoicePreparationRequests,assertPaidHeldInvoiceUsingContract,assertRecoveryHeldInvoiceUsingContract,
 } from "../lib/installments/heldInvoice";
 
 const authorization: HeldInvoiceAuthorization = {
@@ -79,6 +81,60 @@ function fixture(a = authorization) {
   };
   return { api, stripe: api as unknown as Stripe, subscription, invoice, line, intent, linked, calls };
 }
+
+describe("buyer-owned identity in the shared invoice algorithm",()=>{
+  function buyerFixture(){
+    const {bookingPaymentId:ignored,...money}=authorization;void ignored;
+    const a:BuyerHeldInvoiceAuthorization={...money,planId:"10000000-0000-4000-8000-000000000001",paymentNumber:3,
+      protocol:"buyer-mentorship-installments-v1",buyerReservationId:"10000000-0000-4000-8000-000000000001",
+      buyerRequestId:"10000000-0000-4000-8000-000000000002"};
+    const f=fixture({...authorization,planId:a.planId,paymentNumber:3});
+    const c:HeldInvoicePreparationContract<BuyerHeldInvoiceAuthorization>={expectedLiveMode:false,collectionVersion:"buyer-mentorship-collection-v1",
+      idempotencyPrefix:"original-buyer-operation",metadata:{creatornet_installment_version:a.protocol},assertSubscription:jest.fn((s,auth)=>{
+        expect(s.id).toBe(auth.subscriptionId);expect(s.customer).toBe(auth.customerId);
+        expect(s.pause_collection?.behavior).toBe("keep_as_draft");expect(s.metadata).toEqual({creatornet_installment_reservation_id:a.buyerReservationId});
+      })};
+    Object.assign(f.subscription,{metadata:{creatornet_installment_reservation_id:a.buyerReservationId}});
+    const original=f.api.invoices.update.getMockImplementation()!;
+    f.api.invoices.update.mockImplementation(async(...args)=>{Object.assign(f.invoice,{metadata:heldInvoicePreparationRequests(a,c).configure.metadata});return original(...args);});
+    return {a,c,f};
+  }
+  test("reuses final-cent/fee preparation with real buyer identities and no booking metadata",async()=>{
+    const {a,c,f}=buyerFixture();expect((await prepareHeldInvoiceUsingContract(f.stripe,a,c)).amountCents).toBe(66634);
+    const request=heldInvoicePreparationRequests(a,c);
+    expect(request.configure.metadata).toMatchObject({creatornet_installment_reservation_id:a.buyerReservationId,creatornet_installment_request_id:a.buyerRequestId});
+    expect(request.configure.metadata).not.toHaveProperty("booking_payment_id");expect(request.adjustment.lines[0].metadata).not.toHaveProperty("booking_payment_id");
+    expect(f.api.invoices.addLines).toHaveBeenCalledWith("in_test",request.adjustment,{idempotencyKey:"original-buyer-operation:final-cent"});
+    expect(f.api.invoices.pay).not.toHaveBeenCalled();expect(f.api.paymentIntents.confirm).not.toHaveBeenCalled();
+    await prepareHeldInvoiceUsingContract(f.stripe,a,c);expect(f.api.invoices.addLines).toHaveBeenCalledTimes(1);expect(f.api.invoices.finalizeInvoice).toHaveBeenCalledTimes(1);
+  });
+  test("legacy public preparation still rejects buyer protocol",()=>{
+    const {a,f}=buyerFixture();expect(()=>prepareHeldInstallmentInvoice(f.stripe,a as unknown as HeldInvoiceAuthorization)).toThrow("public entry");
+    expect(f.calls).toEqual([]);
+  });
+  test("mixed booking/buyer authorization is rejected",async()=>{
+    const {a,c,f}=buyerFixture();await expect(prepareHeldInvoiceUsingContract(f.stripe,{...a,bookingPaymentId:"made_up"} as unknown as BuyerHeldInvoiceAuthorization,c)).rejects.toThrow("buyer identity");
+    expect(f.calls).toEqual([]);
+  });
+  test("buyer contract cannot inject a booking identity",async()=>{
+    const {a,c,f}=buyerFixture();await expect(prepareHeldInvoiceUsingContract(f.stripe,a,{...c,metadata:{booking_payment_id:"made_up"}})).rejects.toThrow("cannot adopt");
+    expect(f.api.invoices.update).not.toHaveBeenCalled();
+  });
+  test("adjustment cannot be adopted from another buyer",async()=>{
+    const {a,c,f}=buyerFixture();await prepareHeldInvoiceUsingContract(f.stripe,a,c);
+    (f.invoice.lines.data[1] as any).metadata.creatornet_installment_reservation_id="10000000-0000-4000-8000-000000000099";
+    await expect(prepareHeldInvoiceUsingContract(f.stripe,a,c)).rejects.toThrow("unrecognized final");
+  });
+  test("shared paid/recovery readers retain exact buyer identity",async()=>{
+    const {a,c,f}=buyerFixture();await prepareHeldInvoiceUsingContract(f.stripe,a,c);
+    Object.assign(f.invoice,{attempted:true,attempt_count:1});
+    expect(assertRecoveryHeldInvoiceUsingContract(f.invoice as unknown as Stripe.Invoice,a,c).amountCents).toBe(66634);
+    Object.assign(f.invoice,{status:"paid",amount_paid:f.invoice.amount_due,amount_remaining:0});
+    expect(assertPaidHeldInvoiceUsingContract(f.invoice as unknown as Stripe.Invoice,a,c).amountCents).toBe(66634);
+    (f.invoice as any).metadata.booking_payment_id="legacy";
+    expect(()=>assertPaidHeldInvoiceUsingContract(f.invoice as unknown as Stripe.Invoice,a,c)).toThrow("identity changed");
+  });
+});
 
 describe("held exact-cent invoice preparation — no collection", () => {
   test("classic trial-ending invoice uses its line service period, not the prior invoice header period", async () => {

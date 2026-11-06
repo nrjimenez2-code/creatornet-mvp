@@ -7,6 +7,7 @@ import { useRequireUser, useUser } from "@/lib/useUser";
 import Link from "next/link";
 import styles from "./profile-editor.module.css";
 import { DEFAULT_AVATAR_URL } from "@/lib/utils";
+import { uploadTrackedFile } from "@/lib/trackedUploadClient";
 import AvatarCropDialog from "@/components/AvatarCropDialog";
 import { EditorSkeleton } from "@/components/loading/Skeletons";
 import BioMentionEditor from "@/components/BioMentionEditor";
@@ -159,23 +160,12 @@ export default function EditProfilePage() {
     try {
       if (!userId) throw new Error("No user");
 
-      const filePath = `${userId}/avatar-${Date.now()}-${Math.random().toString(36).slice(2)}.png`;
-
-      const { error: uploadErr } = await supabase.storage
-        .from("avatars")
-        .upload(filePath, croppedPhoto, {
-          cacheControl: "3600",
-          upsert: false,
-          contentType: "image/png",
-        });
-
-      if (uploadErr) {
-        throw uploadErr;
-      }
-
-      const { data } = supabase.storage.from("avatars").getPublicUrl(filePath);
-      const publicUrl = data.publicUrl;
-
+      const uploaded = await uploadTrackedFile({
+        file: croppedPhoto, filename: "avatar.png", contentType: "image/png",
+        purpose: "avatar", ownerId: userId, supabase,
+      });
+      const publicUrl = uploaded.publicUrl;
+      if (!publicUrl) throw new Error("The uploaded photo could not be verified.");
 
       const { error: profileErr } = await supabase
         .from("profiles")

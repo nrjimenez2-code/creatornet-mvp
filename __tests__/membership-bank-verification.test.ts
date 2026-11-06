@@ -13,7 +13,9 @@ function harness(replacement = false) {
   Object.assign(f.paymentIntent, { status: "requires_action", confirmation_method: "automatic", capture_method: "automatic",
     on_behalf_of: null, canceled_at: null, next_action: { type: "use_stripe_sdk", use_stripe_sdk: {} },
     payment_method: replacement ? "pm_replacement" : "pm_fixture", client_secret: f.paymentIntent.id + "_secret_fixture" });
-  const card = { ...f.paymentMethod, id: String(f.paymentIntent.payment_method) };
+  const card = { ...f.paymentMethod, id: String(f.paymentIntent.payment_method), billing_details: {
+    ...f.paymentMethod.billing_details, address: { country: "US", line1: "123 Test Street", line2: null,
+      city: "Phoenix", state: "AZ", postal_code: "85001" } } };
   const b = { version: "monthly-bank-context-v1", membershipId: f.a.id, buyerId: f.a.buyer_id,
     operationId: "40000000-0000-4000-8000-000000000001", invoiceId: f.invoice.id, paymentIntentId: f.paymentIntent.id,
     paymentMethodId: card.id, originalPaymentMethodId: f.proof.paymentMethodId, customerId: f.customer.id, subscriptionId: f.subscription.id,
@@ -60,6 +62,37 @@ test.each([false, true])("steps 1/5/8: original bank capability for replacement=
   expect(h.f.a).toEqual(before); expect(h.stripe.invoices.pay).not.toHaveBeenCalled(); expect(h.stripe.invoices.update).not.toHaveBeenCalled();
   expect(h.stripe.paymentIntents.confirm).not.toHaveBeenCalled(); expect(h.stripe.paymentIntents.create).not.toHaveBeenCalled();
   expect(h.stripe.subscriptions.update).not.toHaveBeenCalled();
+});
+test.each([false, true].flatMap(replacement => ["CA", null, undefined].map(country => ({ replacement, country }))))(
+  "US launch: country $country blocks unpaid bank capability for replacement=$replacement", async ({ replacement, country }) => {
+    const h = harness(replacement), original = copy({ agreement: h.f.a, context: h.b, operation: h.operation });
+    Object.assign(h.card.billing_details.address, { country });
+    await expect(h.challenge()).rejects.toThrow("US billing");
+    expect({ agreement: h.f.a, context: h.b, operation: h.operation }).toEqual(original);
+    expect(h.stripe.invoices.pay).not.toHaveBeenCalled(); expect(h.stripe.invoices.update).not.toHaveBeenCalled();
+    expect(h.stripe.paymentIntents.confirm).not.toHaveBeenCalled(); expect(h.stripe.paymentIntents.create).not.toHaveBeenCalled();
+    expect(h.stripe.subscriptions.update).not.toHaveBeenCalled();
+    h.card.billing_details.address.country = "US";
+    expect((await h.challenge()).clientSecret).toBe(h.f.paymentIntent.client_secret);
+    expect({ agreement: h.f.a, context: h.b, operation: h.operation }).toEqual(original);
+  });
+test.each([false, true])("US launch: card drift during payment inspection blocks bank release for replacement=%s", async replacement => {
+  const h = harness(replacement), retrieve = h.stripe.paymentIntents.retrieve.getMockImplementation()!;
+  h.stripe.paymentIntents.retrieve.mockImplementationOnce(async () => {
+    const pi = await retrieve(); h.card.billing_details.address.country = "CA"; return pi;
+  });
+  await expect(h.challenge()).rejects.toThrow("US billing");
+  expect(h.stripe.paymentMethods.retrieve).toHaveBeenCalledWith(h.b.paymentMethodId);
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled(); expect(h.stripe.paymentIntents.confirm).not.toHaveBeenCalled();
+});
+test.each([false, true])("manual first receipt permits the same saved bank challenge for replacement=%s", async replacement => {
+  const h = harness(replacement);
+  h.f.a.stripe_checkout_session_id = null; h.f.proof.checkoutSessionId = null;
+  Object.assign(h.f.proof, { manualPayment: { attemptId: "40000000-0000-4000-8000-000000000011",
+    confirmationOperationId: "40000000-0000-4000-8000-000000000012" } });
+  expect((await h.challenge()).status).toBe("bank_verification_ready");
+  expect(h.stripe.invoices.pay).not.toHaveBeenCalled();
+  expect(h.stripe.paymentIntents.confirm).not.toHaveBeenCalled();
 });
 test.each(["key_mode", "key_missing", "card_owner", "card_id", "card_mode", "invoice_id", "invoice_default", "invoice_amount",
   "link_payment", "link_paid", "link_extra", "payment_id", "payment_owner", "payment_amount", "payment_received", "payment_capturable",
