@@ -3,13 +3,20 @@ import type Stripe from "stripe";
 import type {SupabaseClient} from "@supabase/supabase-js";
 import {assertAgreementId,type ExactAgreementStore} from "./agreementStore";
 import {assertExactInstallmentEnvironment} from "./checkoutPreparation";
-import {assertRecoveryHeldInvoiceUsingContract,HELD_INSTALLMENT_VERSION,type HeldInvoicePreparationContract} from "./heldInvoice";
+import {assertRecoveryHeldInvoiceUsingContract,HELD_INSTALLMENT_VERSION,type HeldInvoicePreparationContract,type BuyerHeldInvoiceAuthorization} from "./heldInvoice";
 import {parseRenewalAuthorization,type RenewalAuthorization} from "./invoiceStore";
 import {CARD_SETUP_CONSENT_TEXT,CARD_SETUP_CONSENT_VERSION} from "./buyerRecoveryView";
 export {CARD_SETUP_CONSENT_TEXT,CARD_SETUP_CONSENT_VERSION} from "./buyerRecoveryView";
 
 export type CardSetup=Readonly<{id:string;buyerId:string;agreementId:string;invoiceId:string;originalPaymentIntentId:string;
   authorization:RenewalAuthorization;createdAt:number;expiresAt:number;sessionId:string|null;setupIntentId:string|null;paymentMethodId:string|null}>;
+/** Internal proof context from a durable buyer operation, never client input.
+ * It cannot be passed to the legacy agreement store or sandbox entrypoints. */
+export type BuyerCardSetup=Omit<CardSetup,"agreementId"|"authorization"> & Readonly<{
+  buyerReservationId:string;buyerRequestId:string;agreementId?:never;
+  authorization:BuyerHeldInvoiceAuthorization & {paymentMethodId:string};
+}>;
+type CardSetupProof=CardSetup|BuyerCardSetup;
 export interface ExactCardSetupStore {
   reserve(id:string,agreementId:string,invoiceId:string,buyerId:string,consentVersion:string):Promise<CardSetup>;
   current(id:string,buyerId:string):Promise<CardSetup>;
@@ -84,8 +91,19 @@ function gate(args:Input) {
   requireThat([args.env.CREATOR_EXACT_INSTALLMENTS_CARD_SETUP_READY,args.env.CREATOR_EXACT_INSTALLMENTS_RECOVERY_READY,
     args.env.CREATOR_EXACT_INSTALLMENTS_STOP_COORDINATION_READY].every(v=>v==="true"),"setup is not enabled");
 }
-const meta=(r:CardSetup)=>({card_setup_version:CARD_SETUP_CONSENT_VERSION,card_setup_request_id:r.id,installment_plan_id:r.agreementId});
-function hasMeta(v:Stripe.Metadata|null|undefined,r:CardSetup) {return Object.entries(meta(r)).every(([key,value])=>v?.[key]===value);}
+function meta(r:CardSetupProof):Record<string,string> {
+  if("buyerReservationId" in r) {
+    const a=r.authorization;
+    requireThat(!("agreementId" in r) && !("bookingPaymentId" in a) && a.protocol==="buyer-mentorship-installments-v1" &&
+      r.buyerReservationId===a.buyerReservationId && r.buyerRequestId===a.buyerRequestId && a.planId===r.buyerReservationId &&
+      r.invoiceId===a.invoiceId,"buyer setup identity differs");
+    for(const value of [r.id,r.buyerId,r.buyerReservationId,r.buyerRequestId])assertAgreementId(value);
+    return {card_setup_version:CARD_SETUP_CONSENT_VERSION,card_setup_request_id:r.id,installment_plan_id:r.buyerReservationId,
+      creatornet_installment_reservation_id:r.buyerReservationId,creatornet_installment_request_id:r.buyerRequestId};
+  }
+  return {card_setup_version:CARD_SETUP_CONSENT_VERSION,card_setup_request_id:r.id,installment_plan_id:r.agreementId};
+}
+function hasMeta(v:Stripe.Metadata|null|undefined,r:CardSetupProof) {return (!("buyerReservationId" in r)||v?.booking_payment_id==null) && Object.entries(meta(r)).every(([key,value])=>v?.[key]===value);}
 async function context(args:Input) {
   gate(args);const r=await args.store.current(args.requestId,args.buyerId);
   const a=await args.agreementStore.load(r.agreementId), auth=r.authorization;
@@ -105,11 +123,14 @@ type CardReader={invoices:{retrieve(id:string):Promise<Stripe.Invoice>};
   invoicePayments:{list(p:Stripe.InvoicePaymentListParams):Promise<Stripe.ApiList<Stripe.InvoicePayment>>};
   paymentIntents:{retrieve(id:string):Promise<Stripe.PaymentIntent>};subscriptions:{retrieve(id:string):Promise<Stripe.Subscription>}};
 /** Existing decline/hold checks, shared with the context-scoped transport. */
-export async function inspectExactCardSetupUnpaid(stripe:CardReader,r:CardSetup,
-  contract:Pick<HeldInvoicePreparationContract,"expectedLiveMode"|"collectionVersion"|"metadata">) {
+export async function inspectExactCardSetupUnpaid(stripe:CardReader,r:{invoiceId:string;originalPaymentIntentId:string;
+  authorization:RenewalAuthorization|(BuyerHeldInvoiceAuthorization & {paymentMethodId:string})},
+  contract:Pick<HeldInvoicePreparationContract,"expectedLiveMode"|"collectionVersion"|"metadata">,originalDefaultPaymentMethodId?:string) {
   const auth=r.authorization,live=contract.expectedLiveMode;
+  const originalDefault=originalDefaultPaymentMethodId??auth.paymentMethodId;
+  requireThat(/^pm_[A-Za-z0-9]+$/.test(originalDefault),"original default missing");
   const invoice=await stripe.invoices.retrieve(r.invoiceId);
-  const payment=assertRecoveryHeldInvoiceUsingContract(invoice,auth,contract);
+  const payment=assertRecoveryHeldInvoiceUsingContract<RenewalAuthorization|(BuyerHeldInvoiceAuthorization & {paymentMethodId:string})>(invoice,auth,contract);
   requireThat(invoice.status==="open","invoice no longer unpaid");
   const links=await stripe.invoicePayments.list({invoice:r.invoiceId,limit:100});
   requireThat(!links.has_more&&links.data.length===1,"ambiguous invoice payment");
@@ -127,20 +148,24 @@ export async function inspectExactCardSetupUnpaid(stripe:CardReader,r:CardSetup,
   const sub=await stripe.subscriptions.retrieve(auth.subscriptionId);
   requireThat(sub.id===auth.subscriptionId&&sub.livemode===live&&id(sub.customer)===auth.customerId&&
     ["active","past_due"].includes(sub.status)&&sub.ended_at===null&&sub.pause_collection?.behavior==="keep_as_draft"&&
-    sub.pause_collection.resumes_at===null&&id(sub.default_payment_method)===auth.paymentMethodId&&
+    sub.pause_collection.resumes_at===null&&id(sub.default_payment_method)===originalDefault&&
     sub.payment_settings?.save_default_payment_method==="off","subscription hold/default changed");
 }
-export function assertExactCardSetupSession(s:Stripe.Checkout.Session,r:CardSetup,live=false,metadata:Record<string,string>={}) {
+export function assertExactCardSetupSession(s:Stripe.Checkout.Session,r:CardSetupProof,live=false,metadata:Record<string,string>={}) {
   requireThat((live?/^cs_(?!test_)[a-zA-Z0-9_]+$/:/^cs_test_[a-zA-Z0-9]+$/).test(s.id)&&s.livemode===live&&s.mode==="setup"&&s.ui_mode==="hosted"&&
     id(s.customer)===r.authorization.customerId&&s.client_reference_id===r.id&&hasMeta(s.metadata,r)&&
     Object.entries(metadata).every(([k,v])=>s.metadata?.[k]===v)&&
     s.payment_intent===null&&s.subscription===null&&s.invoice===null&&s.payment_status==="no_payment_required"&&
     (s.amount_total===null||s.amount_total===0)&&s.payment_method_types.length===1&&s.payment_method_types[0]==="card"&&
     s.expires_at===r.expiresAt&&s.created>=r.createdAt&&s.created<=r.expiresAt,"setup Checkout differs");
+  if("buyerReservationId" in r)requireThat(s.billing_address_collection==="required","replacement billing address not required");
 }
-export function exactCardSetupParams(r:CardSetup,origin:string,metadata:Record<string,string>={}):Stripe.Checkout.SessionCreateParams {
-  const returnUrl=`${origin}/payments/recovery/${r.agreementId}`,m={...meta(r),...metadata};
+export function exactCardSetupParams(r:CardSetupProof,origin:string,metadata:Record<string,string>={}):Stripe.Checkout.SessionCreateParams {
+  const buyer="buyerReservationId" in r;
+  const returnUrl=buyer?`${origin}/payments/mentorship/${r.buyerRequestId}`:`${origin}/payments/recovery/${r.agreementId}`,identity=meta(r),m={...identity,...metadata};
+  requireThat(Object.entries(identity).every(([key,value])=>m[key]===value),"setup metadata overrides identity");
   return {mode:"setup",ui_mode:"hosted",customer:r.authorization.customerId,client_reference_id:r.id,payment_method_types:["card"],
+    ...(buyer?{billing_address_collection:"required" as const}:{}),
     expires_at:r.expiresAt,success_url:returnUrl,cancel_url:returnUrl,metadata:m,setup_intent_data:{metadata:m},
     custom_text:{submit:{message:CARD_SETUP_CONSENT_TEXT}}};
 }
@@ -202,7 +227,7 @@ export async function verifyExactCardSetupSandbox(args:Input):Promise<{status:"s
  * or caller-supplied card identity is evidence; binding remains a separate RPC. */
 export async function inspectExactSavedCard(stripe:{checkout:{sessions:{retrieve(id:string):Promise<Stripe.Checkout.Session>}};
   setupIntents:{retrieve(id:string):Promise<Stripe.SetupIntent>};paymentMethods:{retrieve(id:string):Promise<Stripe.PaymentMethod>}},
-  r:CardSetup,now:number,live=false,metadata:Record<string,string>={}):Promise<{status:"setup_pending"}|{status:"card_saved_payment_not_attempted";setupIntentId:string;paymentMethodId:string}> {
+  r:CardSetupProof,now:number,live=false,metadata:Record<string,string>={}):Promise<{status:"setup_pending"}|{status:"card_saved_payment_not_attempted";setupIntentId:string;paymentMethodId:string}> {
     requireThat(r.sessionId,"no bound setup Checkout");
     const s=await stripe.checkout.sessions.retrieve(r.sessionId);assertExactCardSetupSession(s,r,live,metadata);
     requireThat(s.id===r.sessionId&&(s.status==="open"||s.status==="complete"),"invalid setup session state");
@@ -217,5 +242,6 @@ export async function inspectExactSavedCard(stripe:{checkout:{sessions:{retrieve
     const pmId=id(setup.payment_method);requireThat(pmId&&/^pm_[a-zA-Z0-9]+$/.test(pmId),"missing saved card");
     const pm=await stripe.paymentMethods.retrieve(pmId);
     requireThat(pm.id===pmId&&pm.livemode===live&&pm.type==="card"&&id(pm.customer)===r.authorization.customerId,"saved card ownership differs");
+    if("buyerReservationId" in r)requireThat(pm.billing_details?.address?.country==="US","replacement card requires US billing address");
     return {status:"card_saved_payment_not_attempted",setupIntentId:setupId,paymentMethodId:pmId};
 }

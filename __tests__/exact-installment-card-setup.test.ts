@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import {exactRenewalFixture} from "../test-support/exact-renewal-fixture";
 import {prepareHeldInstallmentInvoice} from "../lib/installments/heldInvoice";
 import {CARD_SETUP_CONSENT_TEXT,CARD_SETUP_CONSENT_VERSION,prepareExactCardSetupSandbox,verifyExactCardSetupSandbox,
-  createExactCardSetupStore,readExactCardSetupRedirectSandbox,type CardSetup,type ExactCardSetupStore} from "../lib/installments/cardRecovery";
+  createExactCardSetupStore,readExactCardSetupRedirectSandbox,exactCardSetupParams,inspectExactSavedCard,type BuyerCardSetup,type CardSetup,type ExactCardSetupStore} from "../lib/installments/cardRecovery";
 
 async function fixture() {
   const f=exactRenewalFixture();await prepareHeldInstallmentInvoice(f.args.stripe,f.a);f.setPhase("dispatching");
@@ -30,6 +30,38 @@ async function fixture() {
   f.calls.length=0;jest.clearAllMocks();
   return {f,record:()=>record,setRecord:(change:Partial<CardSetup>)=>{record={...record,...change};},session,setup,pm,store,sessions,api,env,args,complete};
 }
+async function buyerSetupFixture() {
+  const f=await fixture(),legacy=f.record();
+  const {agreementId,authorization,...base}=legacy;
+  const {bookingPaymentId,...original}=authorization;
+  const r:BuyerCardSetup={...base,buyerReservationId:agreementId,buyerRequestId:"cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    authorization:{...original,protocol:"buyer-mentorship-installments-v1",buyerReservationId:agreementId,buyerRequestId:"cccccccc-cccc-4ccc-8ccc-cccccccccccc"},sessionId:f.session.id};
+  const params=exactCardSetupParams(r,f.env.NEXT_PUBLIC_SITE_URL);
+  Object.assign(f.session,{status:"complete",setup_intent:f.setup.id,metadata:params.metadata,billing_address_collection:"required"});
+  f.setup.metadata=params.metadata as Stripe.Metadata;
+  f.pm.billing_details={...f.pm.billing_details,address:{country:"US"} as Stripe.Address};
+  return {f,r,params};
+}
+test("buyer setup shares parameters with genuine reservation return path and required billing collection",async()=>{
+  const {f,r,params}=await buyerSetupFixture();
+  expect(params.success_url).toBe(`${f.env.NEXT_PUBLIC_SITE_URL}/payments/mentorship/${r.buyerRequestId}`);
+  expect(params.cancel_url).toBe(params.success_url);expect(params.billing_address_collection).toBe("required");
+  expect(params.mode).toBe("setup");expect(params.metadata).not.toHaveProperty("booking_payment_id");
+  expect(()=>exactCardSetupParams(r,f.env.NEXT_PUBLIC_SITE_URL,{card_setup_request_id:"other"})).toThrow("overrides identity");
+  noPayment(f);
+});
+test.each(["US","CA","missing country","address optional","wrong buyer request","fabricated agreement"])("buyer replacement card verification: %s",async scenario=>{
+  const {f,r}=await buyerSetupFixture();
+  if(scenario==="CA")f.pm.billing_details.address!.country="CA";
+  if(scenario==="missing country")f.pm.billing_details.address=null;
+  if(scenario==="address optional")f.session.billing_address_collection="auto";
+  if(scenario==="wrong buyer request")f.setup.metadata={...f.setup.metadata,creatornet_installment_request_id:"other"};
+  if(scenario==="fabricated agreement")Object.assign(r,{agreementId:r.buyerReservationId});
+  const result=inspectExactSavedCard(f.args.stripe,r,f.args.now());
+  if(scenario==="US")await expect(result).resolves.toEqual({status:"card_saved_payment_not_attempted",setupIntentId:f.setup.id,paymentMethodId:f.pm.id});
+  else await expect(result).rejects.toThrow();
+  expect(f.store.verify).not.toHaveBeenCalled();noPayment(f);
+});
 function noPayment(f:Awaited<ReturnType<typeof fixture>>) {
   for(const method of [f.api.invoices.pay,f.api.invoices.update,f.api.invoices.finalizeInvoice,f.api.invoices.addLines,
     f.api.paymentIntents.confirm,f.api.subscriptions.update,f.api.setupIntents.confirm,f.api.paymentMethods.attach]) expect(method).not.toHaveBeenCalled();

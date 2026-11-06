@@ -28,6 +28,21 @@ test("step 8: disabling new checkout leaves captured-payment confirmation availa
   mockCheckoutReady = false; expect((await POST(req({ action: "confirm", payoff_id: f.p.id }), ctx)).status).toBe(200);
   expect(mockConfirm).toHaveBeenCalledWith(f.a.id, f.a.buyer_id, f.p.id); expect(mockPrepare).not.toHaveBeenCalled();
 });
+
+test("manual buyer launch gate blocks new hosted payoff while retaining original recovery", async () => {
+  const prior = process.env.CREATOR_MONTHLY_MANUAL_BUYER_READY;
+  process.env.CREATOR_MONTHLY_MANUAL_BUYER_READY = "true";
+  try {
+    const quote = await GET(new NextRequest(context.siteOrigin + "/api/memberships/" + f.a.id + "/payoff"), ctx);
+    expect(quote.status).toBe(200); expect(await quote.json()).toMatchObject({ checkoutEnabled: false });
+    expect((await POST(req(), ctx)).status).toBe(409); expect(mockPrepare).not.toHaveBeenCalled();
+    expect((await POST(req({ action: "confirm", payoff_id: f.p.id }), ctx)).status).toBe(200);
+    expect(mockConfirm).toHaveBeenCalledWith(f.a.id, f.a.buyer_id, f.p.id);
+  } finally {
+    if (prior === undefined) delete process.env.CREATOR_MONTHLY_MANUAL_BUYER_READY;
+    else process.env.CREATOR_MONTHLY_MANUAL_BUYER_READY = prior;
+  }
+});
 test("step 2: disabling new checkout does not hide an owned existing payoff's recovery view", async () => {
   mockCheckoutReady = false; expect((await GET(new NextRequest(context.siteOrigin + "/api/memberships/" + f.a.id + "/payoff"), ctx)).status).toBe(200);
   expect(mockQuote).toHaveBeenCalledWith(f.a.id, f.a.buyer_id); expect(mockPrepare).not.toHaveBeenCalled();

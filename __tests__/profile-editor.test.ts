@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 const replace = jest.fn(); const refresh = jest.fn();
 const read = jest.fn(); const write = jest.fn(); const upload = jest.fn();
 const update = jest.fn(() => ({ eq: write }));
-const client = { from: () => ({ select: () => ({ eq: () => ({ returns: () => ({ maybeSingle: read }) }) }), update }), storage: { from: () => ({ upload, getPublicUrl: () => ({ data: { publicUrl: 'https://example.test/new.png' } }) }) } };
+const client = { from: () => ({ select: () => ({ eq: () => ({ returns: () => ({ maybeSingle: read }) }) }), update }), storage: { from: () => ({ uploadToSignedUrl: upload, getPublicUrl: () => ({ data: { publicUrl: 'https://example.test/new.png' } }) }) } };
 jest.mock('@/lib/supabaseBrowser', () => ({ createBrowserClient: () => client }));
 jest.mock('@/lib/useUser', () => ({ useUser: () => ({session:null}), useRequireUser: () => ({ userId:'viewer', loading:false }) }));
 jest.mock('next/navigation', () => ({ useRouter: () => ({ replace, refresh }) }));
@@ -20,14 +20,25 @@ jest.mock('@/components/AvatarCropDialog', () => ({
 import Page from '@/app/profile/edit/page';
 (globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true;
 let container: HTMLDivElement; let root: Root;
+const originalFetch=globalThis.fetch;
+let admissionPaused=false;
 const profile = {username:'noah', bio:'hello', tagline:'preserve this', avatar_url:'https://example.test/old.png'};
 beforeEach(() => {
   process.env.NEXT_PUBLIC_PROFILE_WEBSITE_READY='true';
+  admissionPaused=false;
+  const admitted=new Map<string,string>();
+  globalThis.fetch=jest.fn(async(url,init)=>{
+    if(url==='/api/upload/admit') {
+      const body=JSON.parse(String(init?.body));const key=`viewer/${body.attemptId}.png`;admitted.set(body.attemptId,key);
+      return {ok:!admissionPaused,status:admissionPaused?503:200,json:async()=>admissionPaused?{error:'New uploads are paused for maintenance.'}:{attemptId:body.attemptId,key,publicUrl:'https://example.test/new.png',capability:{provider:'supabase',key,bucket:'avatars',token:'signed-token'}}} as Response;
+    }
+    return {ok:true,status:200,json:async()=>({objectObserved:true,key:admitted.get(String(url).split('/')[3])})} as Response;
+  });
   jest.clearAllMocks(); read.mockResolvedValue({data:profile,error:null}); write.mockResolvedValue({error:null,count:1}); upload.mockResolvedValue({error:null});
   URL.createObjectURL=jest.fn(()=>'blob:test-avatar'); URL.revokeObjectURL=jest.fn();
   container=document.createElement('div'); document.body.appendChild(container); root=createRoot(container);
 });
-afterEach(async()=>{await act(async()=>root.unmount());container.remove();jest.restoreAllMocks();delete process.env.NEXT_PUBLIC_PROFILE_WEBSITE_READY;});
+afterEach(async()=>{globalThis.fetch=originalFetch;await act(async()=>root.unmount());container.remove();jest.restoreAllMocks();delete process.env.NEXT_PUBLIC_PROFILE_WEBSITE_READY;});
 const render=()=>act(async()=>root.render(createElement(Page)));
 const submit=()=>act(async()=>{container.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));});
 async function choose(file: File) { const input=container.querySelector<HTMLInputElement>('input[type=file]')!; Object.defineProperty(input,'files',{value:[file], configurable:true}); await act(async()=>input.dispatchEvent(new Event('change',{bubbles:true}))); }
@@ -47,7 +58,7 @@ test('photo waits for crop confirmation, then uploads a square PNG for this view
  await render();await choose(new File(['image'],'avatar.png',{type:'image/png'}));expect(upload).not.toHaveBeenCalled();expect(container.querySelector('[data-testid=crop-dialog]')).not.toBeNull();
  const save=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Save photo')!;
  await act(async()=>save.click());
- expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^viewer\/avatar-.*\.png$/),expect.any(Blob),{cacheControl:'3600',upsert:false,contentType:'image/png'});
+ expect(upload).toHaveBeenCalledWith(expect.stringMatching(/^viewer\/[0-9a-f-]+\.png$/),'signed-token',expect.any(Blob),{cacheControl:'3600',upsert:false,contentType:'image/png'});
  expect(update).toHaveBeenCalledWith({avatar_url:'https://example.test/new.png'});expect(write).toHaveBeenCalledWith('id','viewer');expect(container.querySelector('img')!.src).toBe('https://example.test/new.png');expect(container.querySelector('[role=status]')!.textContent).toContain('photo is live');
 });
 test('oversized uploads are rejected before storage access',async()=>{
@@ -94,4 +105,11 @@ test('schema gate hides website editing and never writes the missing column',asy
 });
 test('a zero-row update is a save failure, not a successful navigation',async()=>{
  await render();write.mockResolvedValue({error:null,count:0});await submit();expect(replace).not.toHaveBeenCalled();expect(container.querySelector('[role=alert]')!.textContent).toContain('could not be saved');
+});
+
+test('maintenance pause refuses a new avatar before storage or profile writes',async()=>{
+ admissionPaused=true;await render();await choose(new File(['image'],'avatar.png',{type:'image/png'}));
+ const save=Array.from(container.querySelectorAll('button')).find(b=>b.textContent==='Save photo')!;await act(async()=>save.click());
+ expect(upload).not.toHaveBeenCalled();expect(update).not.toHaveBeenCalled();expect(container.querySelector('[role=alert]')!.textContent).toContain('paused');
+ expect(container.querySelector('img')!.src).toBe(profile.avatar_url);
 });

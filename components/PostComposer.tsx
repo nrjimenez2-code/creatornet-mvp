@@ -1,8 +1,9 @@
 // components/PostComposer.tsx
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabaseClient";
+import { uploadTrackedFile } from "@/lib/trackedUploadClient";
 import { AUTOMATIC_POST_CLASSIFICATION_VERSION } from "@/lib/automaticPostMetadata";
 import { Video, LockKeyhole } from "lucide-react";
 import { useUser } from "@/lib/useUser";
@@ -14,6 +15,7 @@ import { readProductDelivery, type ProductDelivery } from "@/lib/productDelivery
 import { extractHashtags } from "@/lib/hashtags";
 import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
 import { readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
+import { readMentorshipInstallmentOptions } from "@/lib/mentorshipInstallmentOptions";
 import { MONTHLY_MENTORSHIP_VERSION, MAX_MEMBERSHIP_MINIMUM_MONTHS, describeMonthlyMentorship,
   readMonthlyMentorshipTerms, type MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 
@@ -30,6 +32,7 @@ type Product = {
   price_cents: number | null;
   membership_terms?: MonthlyMentorshipTerms | null;
   fixed_service_months?: number | null;
+  installment_options?: number[];
   external_url: string | null;
   active: boolean;
   created_at: string;
@@ -56,6 +59,7 @@ async function createProductViaAPI(input: {
   scheduling_url?: string;
   membership_terms?: MonthlyMentorshipTerms | null;
   fixed_service_months?: number | null;
+  installment_options?: number[];
 }): Promise<Product> {
   const res = await fetch("/api/products", {
     method: "POST",
@@ -71,6 +75,7 @@ async function createProductViaAPI(input: {
       scheduling_url: input.scheduling_url,
       membership_terms: input.membership_terms ?? null,
       ...(input.fixed_service_months != null ? { fixed_service_months: input.fixed_service_months } : {}),
+      ...(input.installment_options?.length ? { installment_options: input.installment_options } : {}),
     }),
   });
 
@@ -81,7 +86,7 @@ async function createProductViaAPI(input: {
   return data.product as Product;
 }
 
-async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean; premiumDelivery: boolean; premiumDeliveryReady: boolean }> {
+async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean; mentorshipInstallments: boolean; premiumDelivery: boolean; premiumDeliveryReady: boolean }> {
   const res = await fetch("/api/products", {
     method: "GET",
     credentials: "include",
@@ -91,7 +96,7 @@ async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships
     throw new Error("Failed to load post settings");
   }
   const raw = (data?.items ?? []) as (Product & { product_id?: string })[];
-  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true, premiumDelivery: data?.capabilities?.premiumDelivery === true, premiumDeliveryReady: data?.capabilities?.premiumDeliveryReady === true };
+  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true, mentorshipInstallments: data?.capabilities?.mentorshipInstallments === true, premiumDelivery: data?.capabilities?.premiumDelivery === true, premiumDeliveryReady: data?.capabilities?.premiumDeliveryReady === true };
 }
 
 /** Accept ANY https URL; auto-prefix missing scheme. */
@@ -112,11 +117,6 @@ function normalizeBookingUrl(u: string): string | null {
 /* ------------------------------------------------------------------ */
 
 type UploadProgressCb = (loaded: number, total: number) => void;
-
-// Abort an upload only after this long with ZERO progress — not a flat wall-clock
-// cap, since a large file on a slow connection legitimately takes minutes.
-const UPLOAD_STALL_TIMEOUT_MS = 30_000;
-const UPLOAD_MAX_ATTEMPTS = 3;
 
 async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
   const objectUrl = URL.createObjectURL(videoFile);
@@ -173,154 +173,26 @@ async function generateVideoThumbnail(videoFile: File): Promise<File | null> {
   }
 }
 
-/**
- * PUT a file to a presigned URL via XHR so we can (a) report real upload
- * progress, (b) check the HTTP status and fail on a non-2xx response — plain
- * fetch treats a 403/5xx as success, which silently saved dead URLs — and
- * (c) abort on a genuine stall rather than a flat wall-clock cap.
- */
-class PublicUploadConflict extends Error {}
-function putFileWithProgress(
-  uploadUrl: string,
-  file: File,
-  contentType: string,
-  onProgress?: UploadProgressCb
-): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    let stallTimer: ReturnType<typeof setTimeout> | undefined;
-    let settled = false;
-
-    const settle = (err?: Error) => {
-      if (settled) return;
-      settled = true;
-      if (stallTimer) clearTimeout(stallTimer);
-      if (err) reject(err);
-      else resolve();
-    };
-
-    const armStall = () => {
-      if (stallTimer) clearTimeout(stallTimer);
-      stallTimer = setTimeout(() => {
-        if (settled) return;
-        settled = true; // claim the result before abort() fires onabort
-        try {
-          xhr.abort();
-        } catch {
-          /* ignore */
-        }
-        reject(
-          new Error("Upload stalled — no progress. Check your connection and try again.")
-        );
-      }, UPLOAD_STALL_TIMEOUT_MS);
-    };
-
-    xhr.open("PUT", uploadUrl, true);
-    xhr.setRequestHeader("Content-Type", contentType);
-    xhr.setRequestHeader("If-None-Match", "*");
-    // The browser sets Content-Length for this File body; scripts must not set it.
-
-    xhr.upload.onprogress = (e) => {
-      armStall(); // real progress → restart the stall clock
-      if (onProgress && e.lengthComputable) onProgress(e.loaded, e.total);
-    };
-    xhr.onload = () => xhr.status === 412 ? settle(new PublicUploadConflict("Upload needs verification.")) :
-      xhr.status >= 200 && xhr.status < 300
-        ? settle()
-        : settle(new Error(`Storage rejected the upload (HTTP ${xhr.status}).`));
-    xhr.onerror = () => settle(new Error("Network error during upload."));
-    xhr.onabort = () => settle(new Error("Upload aborted."));
-
-    armStall();
-    xhr.send(file);
-  });
-}
-
 async function uploadToR2(
-  file: File,
-  folder: "videos" | "thumbnails",
-  onProgress?: UploadProgressCb
+  file: File, folder: "videos" | "thumbnails", ownerId: string,
+  onProgress?: UploadProgressCb,
 ): Promise<string> {
-  let lastErr: unknown = null;
-  const contentType = (file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4")).trim().toLowerCase();
-  const operationId = crypto.randomUUID();
-  const payload = {filename:file.name,contentType,folder,size:file.size,operationId,uploadContract:"create-only-v1"};
-
-  for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
-    // Fresh presign per attempt — presigned URLs are short-lived.
-    const res = await fetch("/api/upload/presign", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(payload),
-    });
-
-    if (!res.ok) {
-      // Auth/validation failures won't fix themselves on retry — surface now.
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { error?: string })?.error ?? "Failed to get upload URL");
-    }
-
-    const { uploadUrl, publicUrl } = (await res.json()) as {
-      uploadUrl: string;
-      publicUrl: string;
-    };
-
-    try {
-      await putFileWithProgress(uploadUrl, file, contentType, onProgress);
-      return publicUrl;
-    } catch (e) {
-      if (e instanceof PublicUploadConflict) {
-        const verified = await fetch("/api/upload/presign", {method:"POST",headers:{"Content-Type":"application/json"},credentials:"include",body:JSON.stringify({...payload,verifyExisting:true})});
-        const recovered = await verified.json().catch(() => ({}));
-        if (verified.ok && recovered.alreadyUploaded === true && recovered.publicUrl === publicUrl) return publicUrl;
-        throw new Error(recovered.error ?? "Upload could not be verified. Please try again.");
-      }
-      lastErr = e;
-      if (attempt < UPLOAD_MAX_ATTEMPTS) {
-        // Linear backoff, then re-presign and retry.
-        await new Promise((r) => setTimeout(r, attempt * 1000));
-      }
-    }
-  }
-
-  throw lastErr instanceof Error
-    ? lastErr
-    : new Error("Upload failed after multiple attempts.");
+  const result = await uploadTrackedFile({
+    file, filename: file.name, ownerId, purpose: folder === "videos" ? "video" : "thumbnail",
+    contentType: file.type || (folder === "thumbnails" ? "image/jpeg" : "video/mp4"), onProgress,
+  });
+  if (!result.publicUrl) throw new Error("The uploaded file could not be verified.");
+  return result.publicUrl;
 }
-
-/* ------------------------------------------------------------------ */
-/* Supabase upload — private premium files only                      */
-/* ------------------------------------------------------------------ */
-
-const SIMPLE_UPLOAD_MAX = 20 * 1024 * 1024;
 
 async function uploadPremiumToSupabase(
-  supabase: ReturnType<typeof createClient>,
-  file: File,
-  userId: string
+  supabase: ReturnType<typeof createClient>, file: File, ownerId: string,
 ): Promise<string> {
-  const ext = file.name.split(".").pop() ?? "mp4";
-  const path = `${userId}/${Date.now()}.${ext}`;
-  const contentType = file.type || "video/mp4";
-
-  if (file.size <= SIMPLE_UPLOAD_MAX) {
-    const { error } = await supabase.storage
-      .from("premium")
-      .upload(path, file, { cacheControl: "3600", upsert: false, contentType });
-    if (error) throw error;
-  } else {
-    const { data: signed, error: signErr } = await supabase.storage
-      .from("premium")
-      .createSignedUploadUrl(path);
-    if (signErr) throw signErr;
-    const { error: upErr } = await supabase.storage
-      .from("premium")
-      .uploadToSignedUrl(signed.path, signed.token, file, { contentType });
-    if (upErr) throw upErr;
-  }
-
-  return path;
+  const result = await uploadTrackedFile({
+    file, filename: file.name, contentType: file.type || "video/mp4",
+    purpose: "premium", ownerId, supabase,
+  });
+  return result.key;
 }
 
 /* ------------------------------------------------------------------ */
@@ -328,6 +200,7 @@ async function uploadPremiumToSupabase(
 /* ------------------------------------------------------------------ */
 
 export default function PostComposer({ onPosted }: Props) {
+  const thumbnailRef = useRef<{ source: File; result: File | null } | null>(null);
   const supabase = createClient();
 
   const { userId } = useUser();
@@ -365,6 +238,8 @@ export default function PostComposer({ onPosted }: Props) {
   const [fixedServiceOffersEnabled, setFixedServiceOffersEnabled] = useState(false);
   const [newProdFixedService, setNewProdFixedService] = useState(false);
   const [newProdServiceMonths, setNewProdServiceMonths] = useState("");
+  const [mentorshipInstallmentsEnabled, setMentorshipInstallmentsEnabled] = useState(false);
+  const [newProdInstallmentOptions, setNewProdInstallmentOptions] = useState<number[]>([]);
 
   // Assets
   const [videoFile, setVideoFile] = useState<File | null>(null); // promo/public
@@ -394,7 +269,7 @@ export default function PostComposer({ onPosted }: Props) {
     (async () => {
       try {
         const result = await fetchMyProducts();
-        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); setProductsLoadFailedFor(null); setProductsLoadedFor(userId); }
+        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setMentorshipInstallmentsEnabled(result.mentorshipInstallments); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); setProductsLoadFailedFor(null); setProductsLoadedFor(userId); }
       } catch {
         if (!cancelled) setProductsLoadFailedFor(userId);
       }
@@ -475,6 +350,8 @@ export default function PostComposer({ onPosted }: Props) {
         creator_id: userId ?? undefined,
         scheduling_url: newProdType === "call" ? newProdSchedulingUrl.trim() : undefined,
         fixed_service_months: serviceMonths,
+        installment_options: newProdType === "mentorship" && !isMonthly && mentorshipInstallmentsEnabled
+          ? readMentorshipInstallmentOptions(newProdInstallmentOptions, newProdType, false, dollarsToCents(newProdPrice)) : [],
         membership_terms: newProdType === "mentorship" && newProdMonthly
           ? readMonthlyMentorshipTerms({ version: MONTHLY_MENTORSHIP_VERSION, minimumMonths: newProdMinimumMonths, autoRenew: newProdAutoRenew }, "mentorship") : null,
       });
@@ -490,6 +367,7 @@ export default function PostComposer({ onPosted }: Props) {
 
       setNewProdOpen(false);
       setNewProdTitle("");
+      setNewProdInstallmentOptions([]);
       setNewProdPrice("");
       setNewProdType("video");
       setNewProdSchedulingUrl("");
@@ -521,17 +399,20 @@ export default function PostComposer({ onPosted }: Props) {
       // 1) promo video → R2 (zero egress)
       setUploadStage("Uploading video");
       setUploadPct(0);
-      const video_url = await uploadToR2(videoFile, "videos", (loaded, total) =>
+      const video_url = await uploadToR2(videoFile, "videos", userId, (loaded, total) =>
         setUploadPct(Math.round((loaded / total) * 100))
       );
 
       // 2) generate the public poster; a failed generation preserves the null-poster fallback.
       let poster_url: string | null = null;
-      const thumbnailSource = await generateVideoThumbnail(videoFile);
+      if (thumbnailRef.current?.source !== videoFile) {
+        thumbnailRef.current = { source: videoFile, result: await generateVideoThumbnail(videoFile) };
+      }
+      const thumbnailSource = thumbnailRef.current.result;
       if (thumbnailSource) {
         setUploadStage("Uploading thumbnail");
         setUploadPct(0);
-        poster_url = await uploadToR2(thumbnailSource, "thumbnails", (loaded, total) =>
+        poster_url = await uploadToR2(thumbnailSource, "thumbnails", userId, (loaded, total) =>
           setUploadPct(Math.round((loaded / total) * 100))
         );
       }
@@ -600,6 +481,7 @@ export default function PostComposer({ onPosted }: Props) {
       setCaption("");
       setPriceDollars("");
       setVideoFile(null);
+      thumbnailRef.current = null;
       setPremiumFile(null);
       setProductId(null);
       setAttachBuy(false);
@@ -861,6 +743,15 @@ export default function PostComposer({ onPosted }: Props) {
                     <p className="text-xs text-white/60">Leaving this off does not add a timed-access limit or change any existing offer.</p>
                   </div>
                 )}
+                {mentorshipInstallmentsEnabled && newProdType === "mentorship" && !newProdMonthly && <fieldset className="space-y-3 rounded-lg border border-white/20 p-3 text-sm">
+                  <legend className="px-1">Payment choices at checkout</legend>
+                  <p>Pay in full is always available. Select the monthly payment plans you approve for this fixed total.</p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{Array.from({ length: 23 }, (_, index) => index + 2).map(count =>
+                    <label key={count} className="flex items-center gap-2"><input type="checkbox" checked={newProdInstallmentOptions.includes(count)}
+                      onChange={event => setNewProdInstallmentOptions(previous => event.target.checked
+                        ? [...previous, count].sort((a, b) => a - b) : previous.filter(value => value !== count))} />{count} payments</label>)}</div>
+                  <p className="text-xs text-white/60">The total stays the same. Any remaining cents are included in the final payment. Each payment must be at least $0.50. Service duration is separate.</p>
+                </fieldset>}
                 {newProdType === "call" && <div className="space-y-2 text-sm">
                   <SchedulingConnections purpose="session" value={newProdSchedulingUrl} onSelect={setNewProdSchedulingUrl} />
                   <label className="block">Private paid-call scheduling link

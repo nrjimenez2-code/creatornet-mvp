@@ -44,6 +44,8 @@ export async function runMembershipOperation<T extends ProviderObject>(args: {
   create(request: MembershipProviderRequest, options: { idempotencyKey: string; maxNetworkRetries: 0 }): Promise<T>;
   retrieve(id: string): Promise<T>;
   validate(object: T): void;
+  /** Recovery under a closed sales gate may only use an exact saved operation. */
+  existingOnly?: boolean;
 }) {
   [args.agreementId, args.actorId].forEach(assertMembershipId);
   if (!["CREATOR_MONTHLY_MENTORSHIPS_LEDGER_SCHEMA_READY", "CREATOR_MONTHLY_MENTORSHIPS_OPERATIONS_SCHEMA_READY",
@@ -51,6 +53,24 @@ export async function runMembershipOperation<T extends ProviderObject>(args: {
   const context = jsonSnapshot(args.context), request = jsonSnapshot(args.request);
   const observe = async () => { if (!isDeepStrictEqual(jsonSnapshot(await args.observeContext()), context)) throw Error("Monthly payment context changed"); };
   await observe();
+  let original: { id: string; agreement_revision: number; dispatched_at: string; status: string } | null = null;
+  if (args.existingOnly) {
+    // The application role has SELECT only on this unique journal identity.
+    // Never turn a missing later bootstrap stage into new admission while closed.
+    const saved = await args.admin.from('monthly_mentorship_operations_v1')
+      .select('id,agreement_id,kind,scope_key,request,agreement_revision,dispatched_at,status')
+      .eq('agreement_id', args.agreementId).eq('kind', args.kind).eq('scope_key', args.scope).maybeSingle();
+    const row = saved.data;
+    if (saved.error || !row || row.agreement_id !== args.agreementId || row.kind !== args.kind ||
+        row.scope_key !== args.scope || !isDeepStrictEqual(jsonSnapshot(row.request), request) ||
+        !Number.isSafeInteger(row.agreement_revision) || row.agreement_revision < 0 ||
+        typeof row.dispatched_at !== 'string' || !Number.isFinite(Date.parse(row.dispatched_at)) ||
+        !['dispatched', 'complete'].includes(row.status)) {
+      throw Error('Original monthly operation requires reconciliation; new admission is closed');
+    }
+    assertMembershipId(row.id);
+    original = { id: row.id, agreement_revision: row.agreement_revision, dispatched_at: row.dispatched_at, status: row.status };
+  }
   const { data: op, error } = await args.admin.rpc("claim_monthly_mentorship_operation_v1", {
     p_agreement_id: args.agreementId, p_actor_id: args.actorId, p_kind: args.kind, p_scope: args.scope,
     p_revision: args.revision, p_context: context, p_request: request,
@@ -58,6 +78,10 @@ export async function runMembershipOperation<T extends ProviderObject>(args: {
   if (error || !op || op.agreement_id !== args.agreementId || op.kind !== args.kind || op.scope_key !== args.scope ||
       !isDeepStrictEqual(jsonSnapshot(op.request), request)) throw Error("Monthly operation could not be claimed safely");
   assertMembershipId(op.id);
+  if (original && (op.id !== original.id || op.agreement_revision !== original.agreement_revision ||
+      op.dispatched_at !== original.dispatched_at || original.status === 'complete' && op.status !== 'complete')) {
+    throw Error('Original monthly operation identity changed; provider activity is refused');
+  }
   await observe();
   if (op.status === "complete") {
     if (typeof op.provider_id !== "string") throw Error("Monthly operation result is missing");

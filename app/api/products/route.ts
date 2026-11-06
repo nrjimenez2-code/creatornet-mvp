@@ -11,6 +11,7 @@ import { paidCallsReady, validPaidCallTarget } from "@/lib/paidCalls";
 import { isCreatorSellReady } from "@/lib/creatorStripeConnect";
 import { fixedServiceSchemaReady, fixedServiceOffersReady, readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
 import { readMonthlyMentorshipTerms, membershipCommitment, type MonthlyMentorshipTerms } from "@/lib/membershipTerms";
+import { readMentorshipInstallmentOptions, mentorshipInstallmentSchemaReady, mentorshipInstallmentOffersReady } from "@/lib/mentorshipInstallmentOptions";
 const membershipSchemaReady = () => process.env.CREATOR_MONTHLY_MENTORSHIPS_SCHEMA_READY === "true";
 const membershipOffersReady = () => membershipSchemaReady() && process.env.CREATOR_MONTHLY_MENTORSHIPS_READY === "true";
 function dollarsToCents(d: unknown): number | null {
@@ -34,6 +35,7 @@ type ProductRow = {
   plan_months: number;
   membership_terms?: MonthlyMentorshipTerms | null;
   fixed_service_months?: number | null;
+  installment_options?: number[];
   stripe_price_id: string | null;
   fulfillment: Fulfillment;
   discord_channel_id: string | null;
@@ -77,6 +79,7 @@ export async function GET() {
       "created_at",
       ...(membershipSchemaReady() ? ["membership_terms"] : []),
       ...(fixedServiceSchemaReady() ? ["fixed_service_months"] : []),
+      ...(mentorshipInstallmentSchemaReady() ? ["installment_options"] : []),
       ...(premiumSchemaReady() ? ["delivery_revision"] : []),
     ].join(", ");
 
@@ -96,7 +99,7 @@ export async function GET() {
       ...row,
       id: row.id ?? row.product_id,
     }));
-    return NextResponse.json({ success: true, items, capabilities: { monthlyMemberships: membershipOffersReady(), paidCalls: paidCallsReady(), fixedServiceDuration: fixedServiceOffersReady(), premiumDelivery: premiumSchemaReady(), premiumDeliveryReady: premiumPostingReady() } },
+    return NextResponse.json({ success: true, items, capabilities: { monthlyMemberships: membershipOffersReady(), paidCalls: paidCallsReady(), fixedServiceDuration: fixedServiceOffersReady(), mentorshipInstallments: mentorshipInstallmentOffersReady(), premiumDelivery: premiumSchemaReady(), premiumDeliveryReady: premiumPostingReady() } },
       { headers: { "Cache-Control": "private, no-store" } });
   } catch (e: any) {
     return NextResponse.json({ success: false, error: publicMessage("products", e, "Server error") }, { status: 500 });
@@ -165,6 +168,16 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Choose valid monthly mentorship terms and a monthly USD price." }, { status: 400 });
     }
 
+    let installmentOptions: number[];
+    try {
+      installmentOptions = readMentorshipInstallmentOptions(body?.installment_options, type, !!membershipTerms, price_cents);
+      if (installmentOptions.length && plan_months !== 1) throw Error("Use approved choices, not a legacy installment price");
+    } catch {
+      return NextResponse.json({ success: false, error: "Choose valid installment options for a fixed-price mentorship." }, { status: 400 });
+    }
+    if (installmentOptions.length && !mentorshipInstallmentOffersReady()) {
+      return NextResponse.json({ success: false, error: "Buyer-selected mentorship installments are not enabled yet." }, { status: 409 });
+    }
     let fixedServiceMonths: number | null;
     try {
       fixedServiceMonths = readFixedServiceOfferMonths(body?.fixed_service_months, type, !!membershipTerms);
@@ -269,6 +282,7 @@ export async function POST(req: Request) {
       external_url: null as string | null,
       ...(membershipSchemaReady() ? { membership_terms: membershipTerms } : {}),
       ...(fixedServiceSchemaReady() ? { fixed_service_months: fixedServiceMonths } : {}),
+      ...(mentorshipInstallmentSchemaReady() ? { installment_options: installmentOptions } : {}),
     };
 
     const sel = [
@@ -286,6 +300,7 @@ export async function POST(req: Request) {
       "created_at",
       ...(membershipSchemaReady() ? ["membership_terms"] : []),
       ...(fixedServiceSchemaReady() ? ["fixed_service_months"] : []),
+      ...(mentorshipInstallmentSchemaReady() ? ["installment_options"] : []),
     ].join(", ");
 
     const insertRes = await (premiumSchemaReady() ? supabaseAdmin : supabase).from("products").insert([insertRow]).select(sel).single();
