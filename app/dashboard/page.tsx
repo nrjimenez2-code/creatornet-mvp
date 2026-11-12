@@ -21,8 +21,18 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
   const activeTab: Tab = searchParams?.get("tab") === "following" ? "following" : "discover";
   // Bumped after a successful post: remounts FeedList so the new post shows up.
   const [feedRefreshKey, setFeedRefreshKey] = useState(0);
-  const [openTipPostId, setOpenTipPostId] = useState<string | null>(null);
-  const [resumeTipId, setResumeTipId] = useState<string | null>(null);
+  const returnedPostId = searchParams?.get("postId") || null;
+  const returnedTipId = searchParams?.get("tipId") || null;
+  const tipReturnKey = returnedPostId && (searchParams?.get("tip") === "1" || returnedTipId)
+    ? JSON.stringify([returnedPostId, returnedTipId]) : null;
+  const [tipReturn, setTipReturn] = useState<{ key: string | null; postId: string | null; tipId: string | null }>({ key: null, postId: null, tipId: null });
+  // Remember an arriving return before rendering the feed. Cleaning its URL
+  // rearms an identical future return while keeping the current modal open.
+  if (tipReturn.key !== tipReturnKey) {
+    setTipReturn({ key: tipReturnKey,
+      postId: tipReturnKey ? returnedPostId : tipReturn.postId,
+      tipId: tipReturnKey ? returnedTipId : tipReturn.tipId });
+  }
 
   function setActiveTab(tab: Tab) {
     if (tab === activeTab) return;
@@ -41,11 +51,6 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
     const postId = searchParams?.get("postId");
     if (postId) {
       setHighlightPostId(postId);
-      const returnedTipId = searchParams?.get("tipId");
-      if (searchParams?.get("tip") === "1" || returnedTipId) {
-        setOpenTipPostId(postId);
-        setResumeTipId(returnedTipId);
-      }
       // Remove postId from URL after setting it
       const url = new URL(window.location.href);
       url.searchParams.delete("postId");
@@ -84,9 +89,8 @@ function DashboardContent({ highlightPostId, setHighlightPostId }: { highlightPo
         <div className="dashboard-feed-column h-[100dvh] min-h-0 flex flex-col items-stretch pt-0 pb-14 lg:py-0 overflow-hidden">
           <div className="flex-1 min-h-0 w-full overflow-hidden">
 
-            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={openTipPostId} resumeTipId={resumeTipId} onTipReturnClosed={() => {
-              setOpenTipPostId(null);
-              setResumeTipId(null);
+            <FeedList key={`${activeTab}:${feedRefreshKey}`} activeTab={activeTab} onChangeTab={setActiveTab} highlightPostId={highlightPostId} openTipPostId={tipReturn.postId} resumeTipId={tipReturn.tipId} onTipReturnClosed={() => {
+              setTipReturn((current) => ({ ...current, postId: null, tipId: null }));
             }} />
           </div>
         </div>

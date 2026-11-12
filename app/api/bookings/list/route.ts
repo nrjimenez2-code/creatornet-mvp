@@ -7,6 +7,7 @@ import { assertExactInstallmentEnvironment } from "@/lib/installments/checkoutPr
 import { readContextCheckoutPayments } from "@/lib/installments/contextCheckoutApp";
 import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 import { readBookingSchedulingStatus } from "@/lib/bookingSchedulingStatus";
+import { readTeamBookings } from "@/lib/salesTeams/server";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -22,6 +23,7 @@ type BookingRow = {
 };
 
 export async function GET(req: NextRequest) {
+  if (req.nextUrl.searchParams.has("creator_id")) return readTeamBookings(req);
   const supabase = await createServerSupabase();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 

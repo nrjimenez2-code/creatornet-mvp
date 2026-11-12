@@ -5,25 +5,46 @@ import { googleCalendarConfig, schedulingOrigin } from "@/lib/schedulingConfig";
 import { googleBookingConnectionFromUrl, isBookingId } from "@/lib/googleBookingUrl";
 import { paidCallsReady, readPaidCallAccess, verifyPaidCallCapture } from "@/lib/paidCalls";
 import { getStripe } from "@/lib/stripeClient";
+import {readTeamGoogleContext,readTeamCalendarReservation,type TeamCalendarContext} from "@/lib/salesTeams/calendar";
+import {readOriginalBooking,originalBookingHeld} from "@/lib/salesTeams/bookingRecovery";
 
-export type GoogleBookingIntent = { attributionId?: string; purchaseId?: string; reservationId?: string };
+export type GoogleBookingIntent = { attributionId?: string; purchaseId?: string; reservationId?: string; teamBookingId?: string };
 export type GoogleBookingAccess = { connectionId: string; creatorId: string; buyerId: string; postId: string;
-  attributionId: string; purchaseId: string | null; reservationId: string };
+  attributionId: string | null; purchaseId: string | null; reservationId: string; teamBookingId?:string;teamContext?:TeamCalendarContext };
 function reservationId(attribution: string): string {
   const value = createHash("sha256").update(`google-booking:${attribution}`).digest("hex");
   return `${value.slice(0,8)}-${value.slice(8,12)}-5${value.slice(13,16)}-a${value.slice(17,20)}-${value.slice(20,32)}`;
 }
 /** Every booking starts from a verified setup intent or a captured paid-call purchase. */
 export async function authorizeGoogleBooking(connectionId: string, buyerId: string, intent: GoogleBookingIntent): Promise<GoogleBookingAccess> {
+  return authorize(connectionId,buyerId,intent,false);
+}
+async function authorize(connectionId:string,buyerId:string,intent:GoogleBookingIntent,originalReservation:boolean):Promise<GoogleBookingAccess>{
   googleCalendarConfig();
-  if (!isBookingId(connectionId) || [intent.attributionId,intent.purchaseId,intent.reservationId].filter(Boolean).length!==1) throw new Error("Open this calendar from your booking or purchase");
+  if (!isBookingId(connectionId) || [intent.attributionId,intent.purchaseId,intent.reservationId,intent.teamBookingId].filter(Boolean).length!==1) throw new Error("Open this calendar from your booking or purchase");
   if(intent.reservationId){
     if(!isBookingId(intent.reservationId))throw new Error("Booking not found");
-    const stored=await db.from("google_booking_reservations_v1").select("attribution_id,purchase_id").eq("id",intent.reservationId).eq("buyer_id",buyerId).eq("connection_id",connectionId).maybeSingle();
+    const stored=await db.from("google_booking_reservations_v1").select("*").eq("id",intent.reservationId).eq("buyer_id",buyerId).eq("connection_id",connectionId).maybeSingle();
     if(stored.error||!stored.data)throw new Error("Booking not found");
-    const access=await authorizeGoogleBooking(connectionId,buyerId,stored.data.purchase_id?{purchaseId:stored.data.purchase_id}:{attributionId:stored.data.attribution_id});
+    const installed=stored.data.team_calendar_binding_id!=null;
+    if(installed&&stored.data.team_calendar_binding_id!==intent.reservationId.toLowerCase())throw new Error("Booking attribution changed");
+    const team=await readTeamCalendarReservation(db,intent.reservationId,buyerId,installed);
+    if(installed&&!team)throw new Error("Booking attribution changed");
+    if(team){
+      if(team.connectionId!==connectionId.toLowerCase()||stored.data.attribution_id!==null||stored.data.purchase_id!==null)throw new Error("Booking attribution changed");
+      const context=["held","failed"].includes(stored.data.status)?await readTeamGoogleContext(db,team.bookingId,buyerId,connectionId):undefined;
+      if(context&&context.reservationId!==intent.reservationId.toLowerCase())throw new Error("Open your current assigned calendar to choose another time");
+      return {connectionId,creatorId:team.calendarOwnerId,buyerId,postId:team.postId,attributionId:null,purchaseId:null,
+        reservationId:intent.reservationId,teamBookingId:team.bookingId,...context?{teamContext:context}:{}};
+    }
+    const access=await authorize(connectionId,buyerId,stored.data.purchase_id?{purchaseId:stored.data.purchase_id}:{attributionId:stored.data.attribution_id},true);
     if(access.reservationId!==intent.reservationId)throw new Error("Booking attribution changed");
     return access;
+  }
+  if(intent.teamBookingId){
+    const context=await readTeamGoogleContext(db,intent.teamBookingId,buyerId,connectionId);
+    return {connectionId,creatorId:context.calendarOwnerId,buyerId,postId:context.postId,attributionId:null,purchaseId:null,
+      reservationId:context.reservationId,teamBookingId:context.bookingId,teamContext:context};
   }
   const connection = await db.from("scheduling_connections_v1").select("creator_id,status").eq("id",connectionId).eq("provider","google").maybeSingle();
   if (connection.error || !connection.data || connection.data.status !== "connected" || connection.data.creator_id === buyerId) throw new Error("This creator's calendar is unavailable");
@@ -51,6 +72,7 @@ export async function authorizeGoogleBooking(connectionId: string, buyerId: stri
       .eq("id",intent.attributionId).eq("user_id",buyerId).eq("creator_id",creatorId).maybeSingle();
     if(attribution.error || !attribution.data || !attribution.data.setup_session_id.startsWith("cs_")) throw new Error("Complete booking setup before choosing a time");
     postId=attribution.data.post_id;attributionId=attribution.data.id;
+    if(!originalReservation && (await readOriginalBooking(db,{creatorId,buyerId,postId,attributionId})).state==='team')throw originalBookingHeld();
     const post=await db.from("posts").select("creator_id,booking_url,allow_booking,active,hidden_at,removed_at").eq("id",postId).maybeSingle();
     if(post.error || !post.data || post.data.creator_id!==creatorId || !post.data.allow_booking || post.data.active===false || post.data.hidden_at || post.data.removed_at ||
       googleBookingConnectionFromUrl(post.data.booking_url ?? "",schedulingOrigin())!==connectionId) throw new Error("This video is not accepting bookings on this calendar");

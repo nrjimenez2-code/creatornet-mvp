@@ -1,0 +1,24 @@
+{
+  "scope": "Exact retained pure-helper predecessor definitions from an approved November12 catalog read; isolated ACL fixture only, not an installed schema or migration recipe",
+  "capturedDate": "2026-11-12",
+  "helpers": [
+    {
+      "signature": "public.fixed_service_end_v1(bigint,integer)",
+      "sourcePath": "supabase/proposals/096-independent-fixed-service.sql",
+      "primaryReceipt": "20260911190533",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}",
+      "sha256": "6ab96f17f2b4f2f2a92c90082ea48c49ac16d6395c3a8d9eb1c887818d912f0d",
+      "definition": "CREATE OR REPLACE FUNCTION public.fixed_service_end_v1(p_anchor bigint, p_months integer)\n RETURNS bigint\n LANGUAGE plpgsql\n IMMUTABLE\n SET search_path TO 'pg_catalog'\nAS $function$\ndeclare origin timestamp; target timestamp; last_day integer; result bigint;\nbegin\n  if p_anchor is null or p_anchor not between 1 and 253402300799 or p_months is null or p_months<1 then\n    raise exception 'Invalid fixed service duration'; end if;\n  origin:=to_timestamp(p_anchor) at time zone 'UTC';\n  target:=date_trunc('month',origin)+make_interval(months=>p_months);\n  last_day:=extract(day from target+interval '1 month - 1 day')::integer;\n  target:=target+make_interval(days=>least(extract(day from origin)::integer,last_day)-1)+(origin-date_trunc('day',origin));\n  result:=extract(epoch from target at time zone 'UTC')::bigint;\n  if result<=p_anchor or result>253402300799 then raise exception 'Service duration exceeds supported dates'; end if;\n  return result;\nend;\n$function$\n"
+    },
+    {
+      "signature": "public.valid_monthly_fee_snapshot_v1(jsonb,integer)",
+      "sourcePath": "supabase/proposals/078-monthly-mentorship-receipts.sql",
+      "primaryReceipt": "20260911190140",
+      "owner": "postgres",
+      "acl": "{postgres=X/postgres}",
+      "sha256": "f28f2ece809bd411c2b7402c8abc80de0c1c599a9faafe358ab7fd0de6c41e63",
+      "definition": "CREATE OR REPLACE FUNCTION public.valid_monthly_fee_snapshot_v1(p jsonb, p_gross integer)\n RETURNS boolean\n LANGUAGE plpgsql\n IMMUTABLE\n SET search_path TO 'pg_catalog'\nAS $function$\ndeclare v_processing bigint;\nbegin\n  if p is null or jsonb_typeof(p)<>'object' or p_gross<50 or\n    jsonb_typeof(p->'processingFeeEnabled') is distinct from 'boolean' or\n    not coalesce((p->>'processingFeeBasisPoints') ~ '^\\d+$',false) or\n    not coalesce((p->>'processingFeeFixedCents') ~ '^\\d+$',false) or\n    (p->>'processingFeeBasisPoints')::bigint>10000 or length(coalesce(p->>'feeScheduleVersion',''))=0 then return false; end if;\n  v_processing := case when (p->>'processingFeeEnabled')::boolean then\n    round(p_gross::numeric*(p->>'processingFeeBasisPoints')::numeric/10000)::bigint+(p->>'processingFeeFixedCents')::bigint else 0 end;\n  return coalesce(p->>'grossAmountCents'=p_gross::text and\n    p->>'platformFeeCents'=round(p_gross::numeric*1200/10000)::bigint::text and\n    p->>'processingFeeCents'=v_processing::text and\n    (p->>'totalCreatorDeductionCents')::bigint=round(p_gross::numeric*1200/10000)::bigint+v_processing and\n    (p->>'creatorNetCents')::bigint=p_gross-(p->>'totalCreatorDeductionCents')::bigint and\n    (p->>'creatorNetCents')::bigint>=0 and ((p->>'processingFeeEnabled')::boolean or\n      ((p->>'processingFeeBasisPoints')::bigint=0 and (p->>'processingFeeFixedCents')::bigint=0)),false);\nexception when invalid_text_representation or numeric_value_out_of_range then return false;\nend;\n$function$\n"
+    }
+  ]
+}

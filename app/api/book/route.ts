@@ -3,6 +3,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { attributedBookingUrl } from "@/lib/discoverBookings";
+import { routeTeamBooking,teamRoutingEnabled } from "@/lib/salesTeams/routing";
+import { teamError, teamRequest } from "@/lib/salesTeams/server";
+import { readOriginalBooking,originalBookingHeld } from "@/lib/salesTeams/bookingRecovery";
+import { TeamSalesError } from "@/lib/salesTeams/policy";
+import type { NextRequest } from "next/server";
 
 /**
  * Server-only Supabase credentials.
@@ -31,8 +36,29 @@ export async function GET(req: Request) {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE, {
       auth: { persistSession: false },
     });
+    // An enrolled team must use a verified buyer and durable assignment before
+    // any explicit post URL or legacy router can be considered.
+    const enrolled=await teamRoutingEnabled(admin,creatorId);
+    const token=searchParams.get("cn_attribution");
+    let verified:Awaited<ReturnType<typeof teamRequest>>|null=null;
+    try { verified=await teamRequest(req as NextRequest,false,true); }
+    catch(error) { if(token||enrolled||req.headers.has('authorization')||!(error instanceof TeamSalesError)||error.status!==401)return teamError(error); }
+    if(verified){
+      try{
+        const original=await readOriginalBooking(admin,{creatorId,buyerId:verified.user.id,postId,attributionId:token,lead:!token});
+        if(original.state==='team'&&!enrolled)throw originalBookingHeld();
+      }catch(error){return teamError(error);}
+    }
+    if(enrolled){
+      try{
+        const {user}=verified!;
+        const routed=await routeTeamBooking(admin,{creatorId,buyerId:user.id,postId,
+          source:token?{kind:"attribution",id:token}:{kind:"lead"}});
+        return NextResponse.redirect(new URL(attributedBookingUrl(routed.booking_url,token),req.url),
+          {status:302,headers:{"Cache-Control":"private, no-store"}});
+      }catch(error){return teamError(error);}
+    }
     let attribution:string|null=null;
-    const token=searchParams.get('cn_attribution');
     if(process.env.DISCOVER_V4_ENABLED==='true' && token && /^[a-f0-9-]{36}$/.test(token)){
       const {data:a,error}=await admin.from('discover_booking_attribution_v1').select('id')
         .eq('id',token).eq('creator_id',creatorId).eq('post_id',postId).maybeSingle();

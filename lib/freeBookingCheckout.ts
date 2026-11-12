@@ -4,7 +4,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { premiumPostingReady } from "@/lib/premiumReadiness";
 import { isSafeBookingTarget } from "@/lib/bookingUrl";
-import { recordBookingSetup, attributedBookingUrl } from "@/lib/discoverBookings";
+import { recordBookingSetup, completedBookingRedirect } from "@/lib/discoverBookings";
 import { completedFreeBooking } from "@/lib/freeBookingReceipt";
 export { completedFreeBooking } from "@/lib/freeBookingReceipt";
 export type FreeBookingRow={id:string;buyer_id:string;creator_id:string;post_id:string;destination:string;checkout_origin:string;stripe_session_id:string|null;status:string};
@@ -22,7 +22,7 @@ export async function completeFreeBooking(admin:SupabaseClient,session:Stripe.Ch
  if(update.error || !update.data) throw Error("Free booking completion unavailable.");
  // Scheduling remains a separate event. Completion records attribution only.
  const attribution=await recordBookingSetup(session);
- return {kind:"booking",booking_attribution_only:true,booking_redirect_url:attributedBookingUrl(row.destination,attribution),post_id:row.post_id,creator_id:row.creator_id};
+ return {kind:"booking",booking_attribution_only:true,booking_redirect_url:await completedBookingRedirect(row.destination,session,attribution),post_id:row.post_id,creator_id:row.creator_id};
 }
 export async function createFreeBooking(admin:SupabaseClient,stripe:Stripe,input:{buyerId:string;creatorId:string;postId:string;destination:string;site:string}){
  if(!premiumPostingReady()) throw Error("New video checkout is not enabled yet.");

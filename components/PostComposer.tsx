@@ -14,6 +14,7 @@ import { readProductDelivery, type ProductDelivery } from "@/lib/productDelivery
 import { extractHashtags } from "@/lib/hashtags";
 import { fixedServiceDescription } from "@/lib/fixedServiceTerms";
 import { readFixedServiceOfferMonths } from "@/lib/fixedServiceOffers";
+import { readMentorshipInstallmentOptions } from "@/lib/mentorshipInstallmentOptions";
 import { MONTHLY_MENTORSHIP_VERSION, MAX_MEMBERSHIP_MINIMUM_MONTHS, describeMonthlyMentorship,
   readMonthlyMentorshipTerms, type MonthlyMentorshipTerms } from "@/lib/membershipTerms";
 
@@ -30,6 +31,7 @@ type Product = {
   price_cents: number | null;
   membership_terms?: MonthlyMentorshipTerms | null;
   fixed_service_months?: number | null;
+  installment_options?: number[];
   external_url: string | null;
   active: boolean;
   created_at: string;
@@ -56,6 +58,7 @@ async function createProductViaAPI(input: {
   scheduling_url?: string;
   membership_terms?: MonthlyMentorshipTerms | null;
   fixed_service_months?: number | null;
+  installment_options?: number[];
 }): Promise<Product> {
   const res = await fetch("/api/products", {
     method: "POST",
@@ -71,6 +74,7 @@ async function createProductViaAPI(input: {
       scheduling_url: input.scheduling_url,
       membership_terms: input.membership_terms ?? null,
       ...(input.fixed_service_months != null ? { fixed_service_months: input.fixed_service_months } : {}),
+      ...(input.installment_options?.length ? { installment_options: input.installment_options } : {}),
     }),
   });
 
@@ -81,7 +85,7 @@ async function createProductViaAPI(input: {
   return data.product as Product;
 }
 
-async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean; premiumDelivery: boolean; premiumDeliveryReady: boolean }> {
+async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships: boolean; paidCalls: boolean; fixedServiceDuration: boolean; mentorshipInstallments: boolean; premiumDelivery: boolean; premiumDeliveryReady: boolean }> {
   const res = await fetch("/api/products", {
     method: "GET",
     credentials: "include",
@@ -91,7 +95,7 @@ async function fetchMyProducts(): Promise<{ items: Product[]; monthlyMemberships
     throw new Error("Failed to load post settings");
   }
   const raw = (data?.items ?? []) as (Product & { product_id?: string })[];
-  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true, premiumDelivery: data?.capabilities?.premiumDelivery === true, premiumDeliveryReady: data?.capabilities?.premiumDeliveryReady === true };
+  return { items: raw.map((p) => ({ ...p, id: p.id ?? p.product_id })), monthlyMemberships: data?.capabilities?.monthlyMemberships === true, paidCalls: data?.capabilities?.paidCalls === true, fixedServiceDuration: data?.capabilities?.fixedServiceDuration === true, mentorshipInstallments: data?.capabilities?.mentorshipInstallments === true, premiumDelivery: data?.capabilities?.premiumDelivery === true, premiumDeliveryReady: data?.capabilities?.premiumDeliveryReady === true };
 }
 
 /** Accept ANY https URL; auto-prefix missing scheme. */
@@ -365,6 +369,8 @@ export default function PostComposer({ onPosted }: Props) {
   const [fixedServiceOffersEnabled, setFixedServiceOffersEnabled] = useState(false);
   const [newProdFixedService, setNewProdFixedService] = useState(false);
   const [newProdServiceMonths, setNewProdServiceMonths] = useState("");
+  const [mentorshipInstallmentsEnabled, setMentorshipInstallmentsEnabled] = useState(false);
+  const [newProdInstallmentOptions, setNewProdInstallmentOptions] = useState<number[]>([]);
 
   // Assets
   const [videoFile, setVideoFile] = useState<File | null>(null); // promo/public
@@ -394,7 +400,7 @@ export default function PostComposer({ onPosted }: Props) {
     (async () => {
       try {
         const result = await fetchMyProducts();
-        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); setProductsLoadFailedFor(null); setProductsLoadedFor(userId); }
+        if (!cancelled) { setProducts(result.items); setMonthlyMembershipsReady(result.monthlyMemberships); setPaidCallsEnabled(result.paidCalls); setFixedServiceOffersEnabled(result.fixedServiceDuration); setMentorshipInstallmentsEnabled(result.mentorshipInstallments); setPremiumDeliveryEnabled(result.premiumDelivery); setPremiumPostingEnabled(result.premiumDeliveryReady); setProductsLoadFailedFor(null); setProductsLoadedFor(userId); }
       } catch {
         if (!cancelled) setProductsLoadFailedFor(userId);
       }
@@ -475,6 +481,8 @@ export default function PostComposer({ onPosted }: Props) {
         creator_id: userId ?? undefined,
         scheduling_url: newProdType === "call" ? newProdSchedulingUrl.trim() : undefined,
         fixed_service_months: serviceMonths,
+        installment_options: newProdType === "mentorship" && !isMonthly && mentorshipInstallmentsEnabled
+          ? readMentorshipInstallmentOptions(newProdInstallmentOptions, newProdType, false, dollarsToCents(newProdPrice)) : [],
         membership_terms: newProdType === "mentorship" && newProdMonthly
           ? readMonthlyMentorshipTerms({ version: MONTHLY_MENTORSHIP_VERSION, minimumMonths: newProdMinimumMonths, autoRenew: newProdAutoRenew }, "mentorship") : null,
       });
@@ -490,6 +498,7 @@ export default function PostComposer({ onPosted }: Props) {
 
       setNewProdOpen(false);
       setNewProdTitle("");
+      setNewProdInstallmentOptions([]);
       setNewProdPrice("");
       setNewProdType("video");
       setNewProdSchedulingUrl("");
@@ -861,6 +870,15 @@ export default function PostComposer({ onPosted }: Props) {
                     <p className="text-xs text-white/60">Leaving this off does not add a timed-access limit or change any existing offer.</p>
                   </div>
                 )}
+                {mentorshipInstallmentsEnabled && newProdType === "mentorship" && !newProdMonthly && <fieldset className="space-y-3 rounded-lg border border-white/20 p-3 text-sm">
+                  <legend className="px-1">Payment choices at checkout</legend>
+                  <p>Pay in full is always available. Select the monthly payment plans you approve for this fixed total.</p>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">{Array.from({ length: 23 }, (_, index) => index + 2).map(count =>
+                    <label key={count} className="flex items-center gap-2"><input type="checkbox" checked={newProdInstallmentOptions.includes(count)}
+                      onChange={event => setNewProdInstallmentOptions(previous => event.target.checked
+                        ? [...previous, count].sort((a, b) => a - b) : previous.filter(value => value !== count))} />{count} payments</label>)}</div>
+                  <p className="text-xs text-white/60">The total stays the same. Any remaining cents are included in the final payment. Each payment must be at least $0.50. Service duration is separate.</p>
+                </fieldset>}
                 {newProdType === "call" && <div className="space-y-2 text-sm">
                   <SchedulingConnections purpose="session" value={newProdSchedulingUrl} onSelect={setNewProdSchedulingUrl} />
                   <label className="block">Private paid-call scheduling link

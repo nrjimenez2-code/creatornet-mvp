@@ -3,6 +3,7 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
 import { getPaymentDisputeState } from "@/lib/paymentDisputes";
+import {teamSharedCashReady} from "@/lib/salesTeams/policy";
 
 function objectId(value: string | { id: string } | null | undefined): string | null {
   return typeof value === "string" ? value : value?.id ?? null;
@@ -109,13 +110,21 @@ export async function reconcileTipDisputeRecovery(args: {
   }
   const availableToReverse = Math.max(0, originalTransfer.amount - originalTransfer.amount_reversed);
   const reversalTarget = Math.min(dispute.amount, availableToReverse);
-  const upsert = await admin.rpc("record_tip_dispute_recovery", {
+  const sharedCash = teamSharedCashReady();
+  const recordRecovery = () => admin.rpc(sharedCash ? "record_tip_dispute_with_cash_v1" : "record_tip_dispute_recovery", {
     p_dispute_id: dispute.id, p_tip_id: tipId, p_payment_intent_id: paymentIntentId,
     p_charge_id: chargeId, p_transfer_id: transferId,
     p_disputed_amount_cents: dispute.amount, p_event_created: eventCreated,
     p_reversal_amount_cents: reversalTarget, p_dispute_status: dispute.status,
   });
+  let upsert = await recordRecovery();
+  if (sharedCash && !upsert.error && upsert.data === false && dispute.status === "won") {
+    const [composition,cash] = await Promise.all([import("@/lib/salesTeams/context"),import("@/lib/salesTeams/cashFunding")]);
+    await cash.protectSharedCash(composition.createTeamPaymentContext(), {kind: "tip_restoration", id: dispute.id}, null);
+    upsert = await recordRecovery();
+  }
   if (upsert.error) throw new Error(`Tip dispute recovery write failed: ${upsert.error.message}`);
+  if (sharedCash && upsert.data !== true) throw new Error("Original tip restoration remains held");
   const existing = await admin.from("tip_dispute_recoveries").select("*")
     .eq("stripe_dispute_id", dispute.id).maybeSingle();
   if (existing.error || !existing.data) throw new Error("Tip dispute recovery could not be reloaded.");
@@ -140,6 +149,10 @@ export async function reconcileTipDisputeRecovery(args: {
         String(tipResult.data.currency), frozenAmount, dispute.livemode,
       );
       if (!restorationId) {
+        if (sharedCash) {
+          const admitted = await admin.rpc("sales_team_shared_cash_admitted_v1", {p_source_kind: "tip_restoration", p_source_id: dispute.id});
+          if (admitted.error || admitted.data !== true) throw Error("Protected tip restoration funds require review");
+        }
         const transfer = await stripe.transfers.create({
           amount: frozenAmount,
           currency: String(tipResult.data.currency || dispute.currency),

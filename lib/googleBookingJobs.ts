@@ -7,6 +7,10 @@ import { getGoogleBookingEvent, createGoogleBookingEvent, changeGoogleBookingEve
   assertGoogleBookingTimeAvailable, GoogleCalendarError } from "@/lib/googleCalendarProvider";
 import { authorizeGoogleBooking } from "@/lib/googleBookingAccess";
 import type { BookingAvailability } from "@/lib/bookingAvailability";
+import {readTeamCalendarReservation,recoverUnsentTeamCalendarJob} from "@/lib/salesTeams/calendar";
+import {teamCalendarReady} from "@/lib/salesTeams/policy";
+
+class TeamCalendarUnsentRecovered extends Error {}
 
 /** One job per invocation keeps the external operation inside its five-minute lease. */
 export async function processNextGoogleBookingJob(): Promise<{ processed: boolean; retry?: boolean }> {
@@ -21,6 +25,7 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
   let settings: { title: string; availability: BookingAvailability; conflict_calendar_ids: string[] };
   let connectionId = "";
   let buyerEmail = "";
+  let teamBound=false;
   try {
     await processGoogleBookingOperation(job, {
       now: Date.now,
@@ -33,9 +38,21 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
         const reservation = await db.from("google_booking_reservations_v1").select("*").eq("id", id).single();
         if (reservation.error || !reservation.data) throw new Error("Reservation unavailable");
         const r = reservation.data; connectionId = r.connection_id;
+        let teamOwner:string|null=null;
+        if(r.team_calendar_binding_id){
+          if(r.team_calendar_binding_id!==r.id)throw new Error("Original team appointment identity changed");
+          teamBound=true;
+          // Persisted marker proves the schema exists even during a deliberate
+          // new-activity shutdown. Original reads/cancellation must still work.
+          const original=await readTeamCalendarReservation(db,r.id,r.buyer_id,true);
+          if(!original||original.connectionId!==r.connection_id||original.postId!==r.original_post_id)throw new Error("Original team appointment identity changed");
+          teamOwner=original.calendarOwnerId;
+          if(await recoverUnsentTeamCalendarJob(db,job.id,worker,true))throw new TeamCalendarUnsentRecovered();
+        }
         const connection = await db.from("scheduling_connections_v1").select("creator_id,status").eq("id", connectionId).eq("provider", "google").single();
         if (connection.error || !connection.data || !["connected", ...(job.action === "cancel" ? ["disconnecting"] : [])].includes(connection.data.status))
           throw new Error("Google Calendar is not connected");
+        if(teamOwner&&connection.data.creator_id!==teamOwner)throw new Error("Original team calendar owner changed");
         const config = await db.from("google_booking_settings_v1").select("title,availability,conflict_calendar_ids").eq("connection_id", connectionId).single();
         if (config.error || !config.data) throw new Error("Google booking settings unavailable");
         settings = config.data as typeof settings;
@@ -74,6 +91,7 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
         { start, end, timeZone: settings.availability.timeZone }, reservation.eventEtag ?? undefined),
       cancelEvent: reservation => cancelGoogleBookingEvent(token, reservation.calendarId, reservation.id),
       beginMutation: async current => {
+        if(teamBound&&current.action!=="cancel"&&!teamCalendarReady())throw new Error("New team calendar activity is held");
         const result=await db.rpc("begin_google_booking_mutation_v1",{p_job:current.id,p_worker:worker});
         if(result.error)throw new Error("Could not start calendar mutation");
       },
@@ -96,6 +114,7 @@ export async function processNextGoogleBookingJob(): Promise<{ processed: boolea
     });
     return { processed: true };
   } catch (cause) {
+    if(cause instanceof TeamCalendarUnsentRecovered)return {processed:true};
     if(cause instanceof GoogleCalendarError && cause.requiresReconnect && connectionId && token){
       try{await refreshRejectedGoogleAccessToken(connectionId,token);}catch{/* The connection helper records a revoked grant; keep the job reserved. */}
     }

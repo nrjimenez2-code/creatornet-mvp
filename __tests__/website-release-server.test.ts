@@ -68,3 +68,31 @@ test("emergency hide still works during Discord failure and preserves exact feat
   expect(fetch).not.toHaveBeenCalled(); expect(rpc).toHaveBeenCalledWith("update_website_release_v1", expect.objectContaining({ p_actor: "owner", p_hidden: true, p_features: flags, p_revision: 0 }));
   await expect(updateReleaseSettings("owner", 0, false, flags, "https://discord.gg/bKC8q4z6B")).rejects.toThrow(/Discord/);
 });
+
+test("team continuation requires the exact buyer-accepted agreement, never another owned selector",async()=>{
+  const env={...process.env};
+  try{
+    process.env.CREATOR_SALES_TEAM_SCHEMA_READY="true";process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY="true";
+    const id="11111111-1111-4111-8111-111111111111";
+    const req=new NextRequest(`https://site.test/api/sales-team/sales/${id}/payment?purchase_id=${id}`);
+    replies.sales_team_sale_agreements_v1={data:null,error:null};replies.purchases={data:{id},error:null};
+    expect(await hasOwnedContinuation(req,user("buyer"))).toBe(false);
+    expect(from).toHaveBeenLastCalledWith("sales_team_sale_agreements_v1");
+    replies.sales_team_sale_agreements_v1.data={id};expect(await hasOwnedContinuation(req,user("buyer"))).toBe(true);
+    expect(await hasOwnedContinuation(new NextRequest(`https://site.test/purchase/team/${id}/payment?purchase_id=${id}`),user("buyer"))).toBe(false);
+    delete process.env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY;expect(await hasOwnedContinuation(req,user("buyer"))).toBe(false);
+  }finally{process.env=env;}
+});
+
+test("recipient continuations require their own saved setup or accepted financial obligation",async()=>{
+ const env={...process.env};
+ try{
+  for(const key of ["CREATOR_SALES_TEAM_SCHEMA_READY","CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY","CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY","CREATOR_TEAM_RECIPIENT_SCHEMA_READY"])process.env[key]="true";
+  const req=new NextRequest("https://site.test/api/sales-team/recipient?user_id=someone-else&purchase_id=11111111-1111-4111-8111-111111111111");
+  rpc.mockResolvedValue({data:false,error:null});expect(await hasOwnedContinuation(req,user("closer"))).toBe(false);
+  expect(rpc).toHaveBeenLastCalledWith("sales_team_recipient_continuation_v1",{p_actor_id:"closer"});
+  rpc.mockResolvedValue({data:true,error:null});expect(await hasOwnedContinuation(req,user("closer"))).toBe(true);
+  rpc.mockResolvedValue({data:true,error:Error("unavailable")});expect(await hasOwnedContinuation(req,user("closer"))).toBe(false);
+  delete process.env.CREATOR_TEAM_RECIPIENT_SCHEMA_READY;expect(await hasOwnedContinuation(req,user("closer"))).toBe(false);
+ }finally{process.env=env;}
+});

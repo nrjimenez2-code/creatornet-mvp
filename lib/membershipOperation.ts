@@ -33,6 +33,9 @@ function jsonSnapshot<T>(input: T): T {
   return copy(input) as T;
 }
 
+/** Shared immutable request snapshot for separately versioned provider adapters. */
+export { jsonSnapshot as snapshotProviderJson };
+
 /** Private execution boundary, not an HTTP endpoint. Callbacks must use the
  * pinned, account-observed Stripe client and validate all returned identities,
  * amounts, destination, context, and hold/payment state. No default dispatcher

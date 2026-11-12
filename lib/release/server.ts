@@ -4,6 +4,7 @@ import type { User } from "@supabase/supabase-js";
 import { adminClient, AdminAuthError } from "@/lib/admin/server";
 import { getAuthenticatedUser } from "@/lib/supabaseConnectAuth";
 import { requireAdminMfa } from "@/lib/adminMfa";
+import { teamSaleSchemaReady, teamRecipientSchemaReady } from "@/lib/salesTeams/policy";
 import { dependenciesMet, SETTINGS_ID, validDiscordInvite, validFlags, validPublicPage, type ReleaseSettings } from "./policy";
 
 export async function loadReleaseSettings(): Promise<ReleaseSettings | null> {
@@ -39,6 +40,20 @@ export async function hasOwnedContinuation(req: NextRequest, user: User | null):
   if (!verifiedIdentity(user)) return false;
   try {
     const db = adminClient();
+    if (["/dashboard/closers/payouts", "/api/sales-team/recipient"].includes(req.nextUrl.pathname)) {
+      if (!teamRecipientSchemaReady()) return false;
+      const original = await db.rpc("sales_team_recipient_continuation_v1", { p_actor_id: user.id });
+      return !original.error && original.data === true;
+    }
+    const teamSale = /^\/purchase\/team\/([a-f0-9-]{36})$|^\/api\/sales-team\/sales\/([a-f0-9-]{36})(?:\/payment)?$/i.exec(req.nextUrl.pathname);
+    if ((req.nextUrl.pathname.startsWith("/purchase/team/") || req.nextUrl.pathname.startsWith("/api/sales-team/sales/")) && !teamSale) return false;
+    if (teamSale) {
+      if (!teamSaleSchemaReady()) return false;
+      // A draft or invitation is not an admitted payment continuation. Keep
+      // the exact accepted agreement and authenticated buyer as authority.
+      const agreement = await db.from("sales_team_sale_agreements_v1").select("id").eq("id", teamSale[1] ?? teamSale[2]).eq("buyer_id", user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
+      return !agreement.error && Boolean(agreement.data);
+    }
     if (req.nextUrl.pathname.startsWith("/api/checkout-link/")) {
       const row = await db.from("discover_checkout_links_v1").select("id").eq("id", req.nextUrl.pathname.split("/").pop()).eq("buyer_id", user.id).abortSignal(AbortSignal.timeout(5000)).maybeSingle();
       return !row.error && Boolean(row.data);

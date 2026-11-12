@@ -96,3 +96,25 @@ test("blank HEAD has no body, and API/action denials remain unchanged", async ()
   expect((await request("/api/admin/releases/public-page", { method: "PATCH" })).status).toBe(401);
   expect((await request("/", { method: "POST", headers: { "next-action": "forged" } })).status).toBe(403);
 });
+
+test("team invitations and draft sales retain private controls; owned accepted sales can continue",async()=>{
+  identity.mockResolvedValue({id:"closer",email_confirmed_at:"yes"});
+  expect((await request("/api/sales-team?creator_id=creator&invitation=token")).status).toBe(403);
+  expect(await (await request("/dashboard/closers/team?invitation=token")).text()).toContain("Coming soon.");
+  const sale="11111111-1111-4111-8111-111111111111";
+  expect((await request(`/api/sales-team/sales/${sale}`)).status).toBe(403);
+  continuation.mockResolvedValueOnce(true);
+  const response=await request(`/purchase/team/${sale}`);
+  expect(response.headers.get("x-middleware-next")).toBe("1");
+  expect(response.headers.get("x-middleware-request-x-creatornet-public-shell")).toBe("1");
+  expect((await request(`/api/sales-team/sales/${sale}`,{method:"POST"})).status).toBe(403);
+});
+
+test.each(["/api/sales-team/settlement", "/api/sales-team/surplus"])("private-site team cron %s reaches its handler without admitting adjacent routes", async endpoint => {
+  load.mockResolvedValue(null);
+  expect((await request(endpoint)).headers.get("x-middleware-next")).toBe("1");
+  expect(identity).not.toHaveBeenCalled(); expect(load).not.toHaveBeenCalled();
+  expect((await request(endpoint, { method: "POST" })).status).toBe(401);
+  expect((await request(endpoint + "/extra")).status).toBe(401);
+  expect((await request(endpoint, { headers: { "next-action": "forged" } })).status).toBe(403);
+});

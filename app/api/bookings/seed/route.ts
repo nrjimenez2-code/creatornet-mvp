@@ -4,6 +4,8 @@ import { publicMessage } from "@/lib/apiError";
 import { createServerClient } from "@/lib/supabaseServer";
 import { createClient } from "@supabase/supabase-js";
 import { premiumSchemaReady } from "@/lib/premiumReadiness";
+import { routeTeamBooking,teamRoutingEnabled } from "@/lib/salesTeams/routing";
+import { teamError } from "@/lib/salesTeams/server";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -68,7 +70,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Fallback: try cookies via server client
-    if (!userId) {
+    if (!userId && !bearerHeader) {
       try {
         console.error("[bookings-seed] 📝 Trying cookies via server client");
         const supabase = createServerClient();
@@ -124,6 +126,16 @@ export async function POST(req: NextRequest) {
         error: postErr,
       });
       return NextResponse.json({ error: "post_not_found" }, { status: 404 });
+    }
+
+    if(await teamRoutingEnabled(admin,post.creator_id)){
+      try{
+        if(req.headers.get("origin")!==new URL(req.url).origin)
+          return NextResponse.json({error:"Use the CreatorNet booking page."},{status:403});
+        const routed=await routeTeamBooking(admin,{creatorId:post.creator_id,buyerId:userId,postId:post.id});
+        return NextResponse.json({ok:true,booking_id:routed.booking_id,scheduling_status:routed.scheduling_status},
+          {headers:{"Cache-Control":"private, no-store"}});
+      }catch(error){return teamError(error);}
     }
 
     // Fetch product details for logging

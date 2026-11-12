@@ -66,4 +66,3 @@ do $$ declare signature text; routine regprocedure; begin
 end $$;
 notify pgrst,'reload schema';
 commit;
-

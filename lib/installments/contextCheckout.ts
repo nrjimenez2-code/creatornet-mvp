@@ -68,10 +68,19 @@ export function readContextCheckoutState(value: unknown, r: ExactContextReservat
 
 export function assertContextCheckoutSession(s: Stripe.Checkout.Session, r: ExactContextReservation,
   attempt: ContextCheckoutAttempt, deps: ContextCheckoutDependencies, expectedId: string | null, paid: boolean | "observe_unpaid") {
-  const p = attempt.request.params, gross = p.line_items![0].price_data!.unit_amount!;
+  return assertFixedTotalCheckoutSession(s,{params:attempt.request.params,customerId:deps.customerId,
+    expectedLiveMode:r.context.mode==="live",firstDispatchAt:attempt.claimed_at,purchaseConsentRequired:Boolean(r.terms.purchaseConsentVersion)},expectedId,paid);
+}
+
+/** Provider-only request comparison shared by creator booking and buyer-owned
+ * reservations. It supplies no ownership, publication or abandonment authority. */
+export function assertFixedTotalCheckoutSession(s:Stripe.Checkout.Session,args:{params:Stripe.Checkout.SessionCreateParams;
+  customerId:string;expectedLiveMode:boolean;firstDispatchAt:string;purchaseConsentRequired:boolean},
+  expectedId:string|null,paid:boolean|"observe_unpaid") {
+  const p = args.params, gross = p.line_items![0].price_data!.unit_amount!;
   contextStripeId(s.id, "cs");
-  check(s.object === "checkout.session" && (expectedId === null || s.id === expectedId) && s.livemode === (r.context.mode === "live") &&
-    s.customer === deps.customerId && s.mode === "payment" &&
+  check(s.object === "checkout.session" && (expectedId === null || s.id === expectedId) && s.livemode === args.expectedLiveMode &&
+    s.customer === args.customerId && s.mode === "payment" &&
     (paid === "observe_unpaid" ? s.status === "open" || s.status === "expired" : s.status === (paid ? "complete" : "open")) &&
     s.payment_status === (paid === true ? "paid" : "unpaid") && s.currency === "usd" && s.amount_subtotal === gross && s.amount_total === gross &&
     s.total_details?.amount_discount === 0 && s.total_details.amount_tax === 0 && s.total_details.amount_shipping === 0 &&
@@ -81,8 +90,8 @@ export function assertContextCheckoutSession(s: Stripe.Checkout.Session, r: Exac
     isDeepStrictEqual(s.payment_method_types, ["card"]) && isDeepStrictEqual(s.metadata, p.metadata) &&
     isDeepStrictEqual(s.custom_text?.submit, p.custom_text?.submit) &&
     s.consent_collection?.payment_method_reuse_agreement?.position === "auto" && Number.isSafeInteger(s.created) &&
-    s.created >= Math.floor(Date.parse(attempt.claimed_at) / 1000) && s.created <= Math.floor(Date.now() / 1000));
-  if (r.terms.purchaseConsentVersion) {
+    s.created >= Math.floor(Date.parse(args.firstDispatchAt) / 1000) && s.created <= Math.floor(Date.now() / 1000));
+  if (args.purchaseConsentRequired) {
     check(p.consent_collection?.terms_of_service === "required" && s.consent_collection?.terms_of_service === "required");
     if (paid === true) check(s.consent?.terms_of_service === "accepted");
   }

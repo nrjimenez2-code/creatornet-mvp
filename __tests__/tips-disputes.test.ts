@@ -3,6 +3,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createMockClient, type Op } from "./__mocks__/supabaseQueryMock";
 
 jest.mock("@/lib/paymentDisputes", () => ({ getPaymentDisputeState: jest.fn() }));
+const cashGate=jest.fn(),protectCash=jest.fn();
+jest.mock("@/lib/salesTeams/policy",()=>({teamSharedCashReady:()=>cashGate()}));
+jest.mock("@/lib/salesTeams/context",()=>({createTeamPaymentContext:()=>({scope:"synthetic tip cash fixture"})}));
+jest.mock("@/lib/salesTeams/cashFunding",()=>({protectSharedCash:(...args:unknown[])=>protectCash(...args)}));
 
 import { reconcileTipDisputeRecovery } from "@/lib/tipDisputes";
 
@@ -17,9 +21,11 @@ let recovery: Record<string, unknown> | null;
 let dispute: Record<string, unknown>;
 let admin: SupabaseClient;
 let stripe: Stripe;
+let cashFunded:boolean,admissionRevoked:boolean;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  cashGate.mockReturnValue(false);cashFunded=false;admissionRevoked=false;protectCash.mockImplementation(async()=>{cashFunded=true;});
   recovery = null;
   dispute = { id: "dp_tip", amount: 500, currency: "usd", livemode: false, status: "under_review" };
   providerReversals = [];
@@ -44,7 +50,7 @@ beforeEach(() => {
       id: tipId, creator_id: "creator", stripe_destination_account_id: "acct_creator", currency: "usd",
     }, error: null };
     if (op.table === "tip_dispute_recoveries" && op.kind === "select") return { data: recovery, error: null };
-    if (op.table === "record_tip_dispute_recovery") {
+    if (op.table === "record_tip_dispute_recovery" || op.table === "record_tip_dispute_with_cash_v1") {
       const args = op.payload as Record<string, unknown>;
       if (recovery && Number(recovery.stripe_event_created) > Number(args.p_event_created)) return { data: false, error: null };
       recovery = {
@@ -59,8 +65,9 @@ beforeEach(() => {
         restoration_transfer_id: recovery?.restoration_transfer_id ?? null,
         restoration_status: recovery?.restoration_status ?? null,
       };
-      return { data: true, error: null };
+      return { data: op.table!=="record_tip_dispute_with_cash_v1" || args.p_dispute_status!=="won" || cashFunded, error: null };
     }
+    if(op.table==="sales_team_shared_cash_admitted_v1")return {data:cashFunded&&!admissionRevoked,error:null};
     if (op.table === "record_tip_dispute_recovery_progress") {
       const args = op.payload as Record<string, unknown>;
       if (!recovery) throw new Error("Missing recovery fixture");
@@ -108,6 +115,22 @@ async function reconcile(eventCreated = 100) {
     paymentIntentId: "pi_tip", chargeId: "ch_tip", eventCreated,
   });
 }
+
+test("a tip restoration acquires shared cash before its one original transfer",async()=>{
+  await reconcile();cashGate.mockReturnValue(true);dispute.status="won";
+  await reconcile(101);await reconcile(102);
+  expect(protectCash).toHaveBeenCalledTimes(1);expect(createTransfer).toHaveBeenCalledTimes(1);
+  expect(protectCash).toHaveBeenCalledWith(expect.anything(),{kind:"tip_restoration",id:"dp_tip"},null);
+  expect(createTransfer).toHaveBeenCalledWith(expect.anything(),{idempotencyKey:"creatornet-tip-dispute-restore:dp_tip"});
+});
+test("insufficient shared cash leaves the original tip restoration unsent",async()=>{
+  await reconcile();cashGate.mockReturnValue(true);dispute.status="won";protectCash.mockRejectedValueOnce(Error("Protected shared cash unavailable"));
+  await expect(reconcile(101)).rejects.toThrow(/shared cash/);expect(createTransfer).not.toHaveBeenCalled();expect(createReversal).toHaveBeenCalledTimes(1);
+});
+test("cash admission is checked again immediately before tip restoration dispatch",async()=>{
+  await reconcile();cashGate.mockReturnValue(true);dispute.status="won";admissionRevoked=true;
+  await expect(reconcile(101)).rejects.toThrow(/Protected tip restoration/);expect(createTransfer).not.toHaveBeenCalled();
+});
 
 test("reverses a tip transfer once and restores it once after a won dispute", async () => {
   await reconcile();

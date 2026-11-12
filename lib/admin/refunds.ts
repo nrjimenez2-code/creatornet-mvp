@@ -227,6 +227,9 @@ export async function previewAdminRefund(
 ): Promise<AdminRefundPreview> {
   validateRefundInput(input);
   const source = await store.getSourceContext(input.paymentFeeLedgerId);
+  if (source.ledger.salesTeamSaleId) {
+    throw new RefundWorkflowError(409, "This team payment needs its separate-charge refund workflow and commission reconciliation.");
+  }
   if (!source.ledger.stripePaymentIntentId) {
     throw new RefundWorkflowError(422, "This payment is not linked to Stripe.");
   }
@@ -354,6 +357,7 @@ export async function processRefundOperation(
   operationId: string,
 ): Promise<RefundProcessResult> {
   const token = randomUUID();
+  await store.preparePlatformCash?.(operationId);
   const claim = await store.claimOperation(operationId, token);
   const current = await store.getOperation(operationId);
   if (!current) throw new RefundWorkflowError(404, "Refund operation not found.");
@@ -381,6 +385,7 @@ export async function processRefundOperation(
     if (operation.stripeRefundId) {
       refund = await stripe.refunds.retrieve(operation.stripeRefundId);
     } else {
+      await store.assertPlatformCash?.(operation.id);
       refund = await stripe.refunds.create(
         {
           payment_intent: operation.stripePaymentIntentId,
@@ -450,6 +455,7 @@ export async function processRefundOperation(
       }
     }
     if (feeRefundNeeded > 0) {
+      await store.assertPlatformCash?.(operation.id);
       const feeRefund = await stripe.applicationFees.createRefund(
         operation.stripeApplicationFeeId,
         {

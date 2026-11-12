@@ -21,7 +21,7 @@ jest.mock("../lib/installments/contextRuntime", () => ({ createExactContextAdmin
 jest.mock("../lib/installments/contextServer", () => ({ exactContextServerConfig: jest.fn(() => ({ approvedContext: "synthetic" })) }));
 jest.mock("../lib/stripeClient", () => ({ getStripe: jest.fn(() => ({})) }));
 jest.mock("../lib/admin/refunds", () => ({ previewAdminRefund: jest.fn(), createAndProcessAdminRefund: jest.fn(), processRefundOperation: jest.fn(),
-  publicRefundOperation: jest.fn((v: unknown) => v), RefundWorkflowError: class extends Error {} }));
+  publicRefundOperation: jest.fn((v: unknown) => v), RefundWorkflowError: class extends Error {constructor(public status:number,message:string){super(message);}} }));
 const input = { paymentFeeLedgerId: ledger, amountCents: 10000, reasonCode: "creator_non_delivery" as const, responsibility: "creator" as const,
   internalNotes: null, idempotencyKey: "synthetic-existing-admin-request", expectedRefundedBeforeCents: 0, expectedApplicationFeeRefundedBeforeCents: 0 };
 const response = { disposition: "completed", operation: { id: operation } };
@@ -51,6 +51,13 @@ test.each([undefined, null, "exact-cents-held-v1"])("#1/#3 preserves existing re
   expect((await POST(request(input))).status).toBe(200);
   expect(createAndProcessAdminRefund).toHaveBeenCalledWith(store, {}, actor, input);
   expect(exactContextServerConfig).not.toHaveBeenCalled(); expect(runtimeRun).not.toHaveBeenCalled();
+});
+test.each(["preview", "create", "retry"])("team %s cannot enter destination-charge refund processing",async kind=>{
+ source.mockResolvedValue({ledger:{id:ledger,salesTeamSaleId:reservation,stripePaymentIntentId:"pi_teamOriginal"}});
+ const base={admin:admin as never,actorId:actor};
+ const result=kind==="retry"?executeAdminRefundAction(base,{kind:"retry",operationId:operation}):kind==="preview"?executeAdminRefundAction(base,{kind:"preview",input}):executeAdminRefundAction(base,{kind:"create",input});
+ await expect(result).rejects.toThrow(/separate-charge refund workflow/);
+ expect(runtimeRun).not.toHaveBeenCalled();expect(createAndProcessAdminRefund).not.toHaveBeenCalled();expect(processRefundOperation).not.toHaveBeenCalled();expect(previewAdminRefund).not.toHaveBeenCalled();
 });
 test("#1/#3 missing context configuration cannot fall back to legacy refunds", async () => {
   jest.mocked(exactContextServerConfig).mockImplementation(() => { throw Error("Not enabled"); });

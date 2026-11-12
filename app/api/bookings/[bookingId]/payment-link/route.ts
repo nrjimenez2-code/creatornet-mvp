@@ -10,6 +10,8 @@ import { randomUUID } from "crypto";
 import { getCheckoutSiteUrl } from "@/lib/checkoutSiteUrl";
 import { handoffExactCheckoutLink } from "@/lib/installments/checkoutLink";
 import { withBuyerCheckoutLink } from "@/lib/discoverCheckoutLinks";
+import { prepareTeamCheckout } from "@/lib/salesTeams/checkout";
+import { teamSchemaReady } from "@/lib/salesTeams/policy";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -37,6 +39,11 @@ export async function POST(
   const { bookingId } = await params;
   if (!bookingId) {
     return NextResponse.json({ error: "Missing booking id" }, { status: 400 });
+  }
+
+  const teamInput = await req.clone().json().catch(() => null);
+  if (teamInput && typeof teamInput === "object" && "approved_option_id" in teamInput) {
+    return prepareTeamCheckout(req, bookingId);
   }
 
   const headerToken = extractBearerToken(req.headers.get("authorization"));
@@ -103,6 +110,12 @@ export async function POST(
 
     if (booking.creator_id !== user.id) {
       return NextResponse.json({ error: "You do not own this booking" }, { status: 403 });
+    }
+
+    if (teamSchemaReady()) {
+      const assignment = await admin.from("sales_team_assignments_v1").select("booking_id").eq("booking_id", booking.id).maybeSingle();
+      if (assignment.error) throw assignment.error;
+      if (assignment.data) return NextResponse.json({ error: "Choose a creator-approved team sales option for this assigned booking.", code: "TEAM_PAYMENT_OPTION_REQUIRED" }, { status: 409 });
     }
 
     const { data: post, error: postError } = await admin

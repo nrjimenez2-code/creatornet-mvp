@@ -9,6 +9,7 @@ import { exactContextServerConfig } from "../installments/contextServer";
 import { CONTEXT_RESERVATION_VERSION } from "../installments/contextReservation";
 import { HELD_INSTALLMENT_VERSION } from "../installments/heldInvoice";
 import { assertAgreementId } from "../installments/agreementStore";
+import {RefundWorkflowError} from "./refunds";
 
 type Base = { admin: SupabaseClient; actorId: string; env?: Record<string, string | undefined> };
 type Preview = { kind: "preview"; input: RefundRequestInput };
@@ -18,7 +19,7 @@ export function executeAdminRefundAction(base: Base, action: Change): Promise<Re
 /** #1/#3: the existing authenticated, same-origin admin endpoints all select
  * one workflow here. No new screen, request fields, fee math or buyer policy. */
 export async function executeAdminRefundAction(base: Base, action: Preview | Change): Promise<AdminRefundPreview | RefundProcessResult> {
-  const env = base.env ?? process.env, store = createSupabaseRefundStore(base.admin, env);
+  const env = base.env ?? process.env, store = createSupabaseRefundStore(base.admin, env, base.actorId);
   let ledgerId: string;
   if (action.kind === "retry") {
     const op = await store.getOperation(action.operationId);
@@ -26,6 +27,9 @@ export async function executeAdminRefundAction(base: Base, action: Preview | Cha
   } else ledgerId = action.input.paymentFeeLedgerId;
   assertAgreementId(ledgerId);
   const source = await store.getSourceContext(ledgerId);
+  if (source.ledger.salesTeamSaleId) {
+    throw new RefundWorkflowError(409, "This team payment needs its separate-charge refund workflow and commission reconciliation.");
+  }
   if (source.ledger.bookingPaymentId) {
     // select(*) also supports the earlier deployed schema, where the protocol
     // column is absent. No missing-table/lookup error is swallowed as legacy.

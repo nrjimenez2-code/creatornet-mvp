@@ -81,3 +81,29 @@ test("signed-out feed keeps its join action", async () => {
   await act(async () => root.render(createElement(DashboardPage)));
   expect(container.querySelector('a[href="/auth"]')?.textContent).toContain("Join CreatorNet");
 });
+
+test("URL cleanup preserves the returned tip and its dismissal, and a later identical return reopens it", async () => {
+  searchParams.set("postId", "returned-post"); searchParams.set("tipId", "existing-tip");
+  await act(async () => root.render(createElement(DashboardPage)));
+  searchParams.delete("postId"); searchParams.delete("tipId");
+  await act(async () => root.render(createElement(DashboardPage)));
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("returned-post");
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-resume-tip-id")).toBe("existing-tip");
+  await act(async () => (container.querySelector("[data-feed-tab] button") as HTMLButtonElement).click());
+  searchParams.set("tab", "following");
+  await act(async () => root.render(createElement(DashboardPage)));
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("");
+  searchParams.set("postId", "returned-post"); searchParams.set("tipId", "existing-tip");
+  await act(async () => root.render(createElement(DashboardPage)));
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("returned-post");
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-resume-tip-id")).toBe("existing-tip");
+});
+
+test("closing a return does not reopen on unrelated query changes before cleanup", async () => {
+  searchParams.set("postId", "returned-post"); searchParams.set("tip", "1");
+  await act(async () => root.render(createElement(DashboardPage)));
+  await act(async () => (container.querySelector("[data-feed-tab] button") as HTMLButtonElement).click());
+  searchParams.set("tab", "following");
+  await act(async () => root.render(createElement(DashboardPage)));
+  expect(container.querySelector("[data-feed-tab]")?.getAttribute("data-open-tip-post-id")).toBe("");
+});

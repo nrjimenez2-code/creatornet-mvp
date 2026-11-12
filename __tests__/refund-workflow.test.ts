@@ -176,6 +176,27 @@ describe("durable refund processing", () => {
     expect(stripe.refunds.create).not.toHaveBeenCalled();
     expect(stripe.applicationFees.createRefund).not.toHaveBeenCalled();
   });
+  test("shared cash preparation failure cannot claim or send a legacy refund", async () => {
+    const state = fakeStore(operation()), stripe = fakeStripe();
+    state.store.preparePlatformCash = jest.fn().mockRejectedValue(Error("Protected shared funds unavailable"));
+    await expect(processRefundOperation(state.store, stripe as never, state.current().id)).rejects.toThrow(/shared funds/);
+    expect(state.store.claimOperation).not.toHaveBeenCalled();expect(stripe.refunds.create).not.toHaveBeenCalled();
+  });
+  test("revoked cash admission before the first POST retains the original operation", async () => {
+    const state = fakeStore(operation()), stripe = fakeStripe();
+    state.store.assertPlatformCash = jest.fn().mockRejectedValue(Error("Fresh protected cash required"));
+    expect((await processRefundOperation(state.store, stripe as never, state.current().id)).disposition).toBe("needs_reconciliation");
+    expect(stripe.refunds.create).not.toHaveBeenCalled();expect(stripe.applicationFees.createRefund).not.toHaveBeenCalled();
+    expect(state.current().id).toBe(operation().id);
+  });
+  test("a held application-fee leg resumes its original without another customer refund", async () => {
+    const state = fakeStore(operation()), stripe = fakeStripe();
+    state.store.assertPlatformCash = jest.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(Error("Cash changed before fee POST")).mockResolvedValue(undefined);
+    expect((await processRefundOperation(state.store, stripe as never, state.current().id)).disposition).toBe("needs_reconciliation");
+    expect(stripe.refunds.create).toHaveBeenCalledTimes(1);expect(stripe.applicationFees.createRefund).not.toHaveBeenCalled();
+    expect((await processRefundOperation(state.store, stripe as never, state.current().id)).disposition).toBe("completed");
+    expect(stripe.refunds.create).toHaveBeenCalledTimes(1);expect(stripe.applicationFees.createRefund).toHaveBeenCalledTimes(1);
+  });
   test("a held refund proceeds only on a later admitted retry with its original idempotency key", async () => {
     const state = fakeStore(operation());
     jest.mocked(state.store.coordinateInstallmentRefund).mockResolvedValueOnce("reconciliation_required").mockResolvedValue("held");

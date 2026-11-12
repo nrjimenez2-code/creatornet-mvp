@@ -6,53 +6,79 @@ import {useUser} from "@/lib/useUser";
 import {BookingSkeleton,BookingSlotsSkeleton} from "@/components/loading/Skeletons";
 
 type Slot={start:string;end:string};
-type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null;recoveryCode?:string|null;connectionStatus?:string|null};
+type Reservation=Slot & {id:string;status:string;revision:number;desiredStart?:string|null;desiredEnd?:string|null;recoveryCode?:string|null;connectionStatus?:string|null;canReschedule?:boolean;assignmentChanged?:boolean;rebookingUrl?:string|null};
 type Options={title:string;timeZone:string;durationMinutes:number;slots:Slot[];reservation:Reservation|null};
 function BookingEntry() {
   const params=useParams<{connection:string}>();const query=useSearchParams();const {userId,session,loading}=useUser();
-  return <BuyerCalendar key={`${userId}:${params.connection}:${query.get("cn_attribution")}:${query.get("purchase_id")}`}
-    connection={params.connection} attributionId={query.get("cn_attribution")??undefined} purchaseId={query.get("purchase_id")??undefined}
+  const teamBookingId=query.get("team_booking_id")??undefined;
+  const attributionId=teamBookingId?undefined:query.get("cn_attribution")??undefined;
+  const purchaseId=teamBookingId||attributionId?undefined:query.get("purchase_id")??undefined;
+  return <BuyerCalendar key={`${userId}:${params.connection}:${teamBookingId}:${attributionId}:${purchaseId}:${query.get("reservation_id")}`}
+    connection={params.connection} teamBookingId={teamBookingId} attributionId={attributionId} purchaseId={purchaseId}
     reservationId={query.get("reservation_id")??undefined} userId={userId} token={session?.access_token} loading={loading}/>;
 }
-function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId,token,loading}:{connection:string;attributionId?:string;purchaseId?:string;reservationId?:string;userId:string|null;token?:string;loading:boolean}) {
+function BuyerCalendar({connection,teamBookingId,attributionId,purchaseId,reservationId,userId,token,loading}:{connection:string;teamBookingId?:string;attributionId?:string;purchaseId?:string;reservationId?:string;userId:string|null;token?:string;loading:boolean}) {
   const [options,setOptions]=useState<Options|null>(null);const [reservation,setReservation]=useState<Reservation|null>(null);
   const [week,setWeek]=useState(0);const [selected,setSelected]=useState("");const [error,setError]=useState<string|null>(null);
   const [busy,setBusy]=useState(false);const [cancelPrompt,setCancelPrompt]=useState(false);const [rescheduling,setRescheduling]=useState(false);const [checking,setChecking]=useState(false);
+  const [manageUrl,setManageUrl]=useState<string|null>(null);const [statusUnavailable,setStatusUnavailable]=useState(false);
   const [base]=useState(()=>Date.now());const request=useRef(0);const statusInFlight=useRef(false);
+  const [clock,setClock]=useState(()=>Date.now());
+  const invalidateRequests=useCallback(()=>{request.current++;},[]);
   const headers=useCallback(():Record<string,string>=>token?{Authorization:`Bearer ${token}`}:{},[token]);
   const fetchOptions=useCallback(async()=>{
-    if(!userId)return;const id=++request.current;setChecking(true);setSelected("");
+    if(!userId)return;const id=++request.current;let currentStatusRead=false;setChecking(true);setSelected("");
     try {
       if(reservationId) {
         const response=await fetch(`/api/scheduling/google/reservations/${reservationId}`,{cache:"no-store",credentials:"include",headers:headers()});
         const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not check booking status");
-        if(id===request.current){setReservation(body.reservation);setError(null);}
+        currentStatusRead=true;
+        if(id===request.current){setReservation(body.reservation);setStatusUnavailable(false);setError(null);setManageUrl(null);}
+        if(body.reservation.rebookingUrl||body.reservation.canReschedule===false)return;
         if(!["held","failed"].includes(body.reservation.status))return;
       }
       const start=base+week*7*86400000;
-      const query=new URLSearchParams({start:new Date(start).toISOString(),end:new Date(start+7*86400000).toISOString(),...(attributionId?{cn_attribution:attributionId}:{}),...(purchaseId?{purchase_id:purchaseId}:{}),...(!attributionId&&!purchaseId&&reservationId?{reservation_id:reservationId}:{})});
+      const query=new URLSearchParams({start:new Date(start).toISOString(),end:new Date(start+7*86400000).toISOString(),...(teamBookingId?{team_booking_id:teamBookingId}:{}),...(attributionId?{cn_attribution:attributionId}:{}),...(purchaseId?{purchase_id:purchaseId}:{}),...(!teamBookingId&&!attributionId&&!purchaseId&&reservationId?{reservation_id:reservationId}:{})});
       const response=await fetch(`/api/scheduling/google/book/${connection}?${query}`,{cache:"no-store",credentials:"include",headers:headers()});
-      const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not load available times");
-      if(id===request.current){setOptions(body);setReservation(body.reservation);setError(null);}
-    }catch(cause){if(id===request.current){setOptions(null);setError(cause instanceof Error?cause.message:"Could not load available times");}}
+      const body=await response.json();if(!response.ok){if(id===request.current)setManageUrl(originalAppointmentUrl(body));throw new Error(body.error||"Could not load available times");}
+      if(id===request.current){setOptions(body);setReservation(body.reservation);setStatusUnavailable(false);setManageUrl(null);setError(null);}
+    }catch(cause){if(id===request.current){setOptions(null);if(!currentStatusRead)setStatusUnavailable(true);setError(cause instanceof Error?cause.message:"Could not load available times");}}
     finally{if(id===request.current)setChecking(false);}
-  },[userId,connection,attributionId,purchaseId,reservationId,week,base,headers]);
-  useEffect(()=>{if(!loading)void fetchOptions();return()=>{request.current++;};},[loading,fetchOptions]);
+  },[userId,connection,teamBookingId,attributionId,purchaseId,reservationId,week,base,headers]);
   useEffect(()=>{
+    let active=true;
+    // Start the external read after the effect is installed, so Strict Mode
+    // cleanup can invalidate it before it changes the current buyer's state.
+    queueMicrotask(()=>{if(active&&!loading)void fetchOptions();});
+    return()=>{active=false;invalidateRequests();};
+  },[loading,fetchOptions,invalidateRequests]);
+  useEffect(()=>{
+    const start=Date.parse(reservation?.start??"");if(!Number.isFinite(start)||start<=clock)return;
+    const timer=window.setTimeout(()=>setClock(Date.now()),Math.max(0,Math.min(start-Date.now(),2147483647)));
+    return()=>window.clearTimeout(timer);
+  },[reservation?.start,clock]);
+  useEffect(()=>{
+    // Keep unsubmitted team attempts on the canonical intent. Next reflects
+    // replaceState into search params, which would remount this as management.
+    if(teamBookingId&&!reservationId&&reservation&&["held","failed"].includes(reservation.status))return;
     if(reservation && reservationId!==reservation.id){const url=new URL(window.location.href);url.searchParams.set("reservation_id",reservation.id);window.history.replaceState(null,"",url);}
-  },[reservation,reservationId]);
+  },[reservation,reservationId,teamBookingId]);
   const pending=!!reservation&&["creating","rescheduling","canceling"].includes(reservation.status);
+  // Reschedule permission describes an existing appointment. Fresh, verified
+  // options may instead retry a proven-unsent attempt on its original identity.
+  const choosingTime=!!options&&(!reservation||reservation.status==="held"||
+    (reservation.status==="failed"&&(!teamBookingId||!!reservation.rebookingUrl)));
   const checkReservation=useCallback(async()=>{
-    if(!reservation||statusInFlight.current)return;
-    statusInFlight.current=true;
+    if(!reservation||statusInFlight.current||busy||checking)return;
+    statusInFlight.current=true;const id=++request.current;
     try {
       const response=await fetch(`/api/scheduling/google/reservations/${reservation.id}`,{cache:"no-store",credentials:"include",headers:headers()});
       const body=await response.json();if(!response.ok)throw new Error(body.error||"Could not check booking status");
-      setReservation(body.reservation);setError(null);
-      if(body.reservation.status==="failed")void fetchOptions();
-    }catch(cause){setError(cause instanceof Error?cause.message:"Could not check booking status");}
+      if(id===request.current){setReservation(body.reservation);setStatusUnavailable(false);setManageUrl(null);setError(null);
+        if(body.reservation.status==="failed")void fetchOptions();}
+    }catch(cause){if(id===request.current){setStatusUnavailable(true);setError(cause instanceof Error?cause.message:"Could not check booking status");}}
     finally{statusInFlight.current=false;}
-  },[reservation,headers,fetchOptions]);
+  },[reservation,headers,fetchOptions,busy,checking]);
   useEffect(()=>{
     if(!pending)return;
     const interval=window.setInterval(()=>{if(document.visibilityState!=="hidden")void checkReservation();},10000);
@@ -60,23 +86,23 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
   },[pending,checkReservation]);
   async function book() {
     const slot=options?.slots.find(value=>value.start===selected);if(!slot)return;
-    setBusy(true);setError(null);
+    const id=++request.current;setChecking(false);setBusy(true);setError(null);
     try {
-      const response=await fetch(`/api/scheduling/google/book/${connection}`,{method:"POST",credentials:"include",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({...slot,attributionId,purchaseId,...(!attributionId&&!purchaseId&&reservationId?{reservationId}:{})})});
-      const body=await response.json();if(!response.ok||!body.reservation)throw new Error(body.error||"Could not reserve that time");
-      setReservation(body.reservation);setSelected("");
-    }catch(cause){setError(cause instanceof Error?cause.message:"Could not reserve that time. Check availability before trying again.");}
+      const response=await fetch(`/api/scheduling/google/book/${connection}`,{method:"POST",credentials:"include",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({...slot,teamBookingId,attributionId,purchaseId,...(!teamBookingId&&!attributionId&&!purchaseId&&reservationId?{reservationId}:{})})});
+      const body=await response.json();if(!response.ok||!body.reservation){setManageUrl(originalAppointmentUrl(body));setOptions(null);throw new Error(body.error||"Could not reserve that time");}
+      if(id===request.current){setReservation(body.reservation);setStatusUnavailable(false);setManageUrl(null);setSelected("");}
+    }catch(cause){if(id===request.current)setError(cause instanceof Error?cause.message:"Could not reserve that time. Check availability before trying again.");}
     finally{setBusy(false);}
   }
   async function cancelBooking() {
-    if(!reservation)return;setBusy(true);setError(null);
+    if(!reservation)return;const id=++request.current;setChecking(false);setBusy(true);setError(null);
     try {
       const response=await fetch(`/api/scheduling/google/reservations/${reservation.id}`,{method:"DELETE",credentials:"include",headers:{...headers(),"Content-Type":"application/json"},body:JSON.stringify({revision:reservation.revision})});
       const body=await response.json();if(!response.ok||!body.reservation)throw new Error(body.error||"Could not request cancellation");
-      setReservation(body.reservation);setCancelPrompt(false);
-    }catch(cause){setError(cause instanceof Error?cause.message:"Could not request cancellation");}finally{setBusy(false);}
+      if(id===request.current){setReservation(body.reservation);setStatusUnavailable(false);setCancelPrompt(false);}
+    }catch(cause){if(id===request.current)setError(cause instanceof Error?cause.message:"Could not request cancellation");}finally{setBusy(false);}
   }
-  const returnQuery=new URLSearchParams({...attributionId?{cn_attribution:attributionId}:{},...purchaseId?{purchase_id:purchaseId}:{},...reservationId?{reservation_id:reservationId}:{}});
+  const returnQuery=new URLSearchParams({...teamBookingId?{team_booking_id:teamBookingId}:{},...attributionId?{cn_attribution:attributionId}:{},...purchaseId?{purchase_id:purchaseId}:{},...reservationId?{reservation_id:reservationId}:{}});
   const signInUrl="/auth?next="+encodeURIComponent(`/scheduling/book/${connection}?${returnQuery}`);
   const zone=Intl.DateTimeFormat().resolvedOptions().timeZone;
   const format=(value:string)=>new Intl.DateTimeFormat(undefined,{dateStyle:"full",timeStyle:"short",timeZone:zone}).format(new Date(value));
@@ -85,17 +111,22 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
   return <main className="mx-auto max-w-2xl space-y-5 p-6 text-white">
     <h1 className="text-2xl font-semibold">{options?.title??"Book your call"}</h1>
     {error&&<p role="alert" className="rounded border border-red-300/40 p-3">{error}</p>}
-    {reservation?.connectionStatus==="reconnect_required"&&<p role="status">The creator needs to reconnect Google Calendar. Your booking and any pending request are saved; updates can resume after reconnection.</p>}
+    {manageUrl&&<a className="block underline" href={manageUrl}>Manage your original appointment</a>}
+    {statusUnavailable&&reservation&&<p role="status">Current status is unavailable. The last recorded booking status is shown below. Check status before making another request.</p>}
+    {reservation?.assignmentChanged&&<p role="status">This appointment stays with its original closer. Cancel it before booking with your current assigned closer.</p>}
+    {reservation?.connectionStatus==="reconnect_required"&&<p role="status">The {reservation.canReschedule===undefined?"creator":"call host"} needs to reconnect Google Calendar. Your booking and any pending request are saved; updates can resume after reconnection.</p>}
     {reservation?.status==="failed"&&["google_booking_time_passed","google_booking_time_unavailable"].includes(reservation.recoveryCode??"")&&<p role="status">Your previous time could not be booked. No event was created in Google Calendar. Choose another available time.</p>}
-    {reservation&&!["held","failed"].includes(reservation.status)?<section className="space-y-3 rounded-xl border border-white/20 p-4">
-      <h2 className="text-lg font-semibold">{reservation.status==="confirmed"?"Booking confirmed":reservation.status==="canceled"?"Booking canceled":reservation.status==="canceling"?"Confirming cancellation":reservation.status==="rescheduling"?"Confirming your new time":"Confirming with Google Calendar"}</h2>
+    {reservation&&!choosingTime?<section className="space-y-3 rounded-xl border border-white/20 p-4">
+      <h2 className="text-lg font-semibold">{reservation.status==="confirmed"?"Booking confirmed":reservation.status==="canceled"?"Booking canceled":reservation.status==="failed"?"Booking not confirmed":reservation.status==="held"?"Time held":reservation.status==="canceling"?"Confirming cancellation":reservation.status==="rescheduling"?"Confirming your new time":"Confirming with Google Calendar"}</h2>
       {reservation.status==="confirmed"&&["google_booking_time_passed","google_booking_time_unavailable"].includes(reservation.recoveryCode??"")&&<p role="status">The requested new time could not be booked. Your original booking is unchanged.</p>}
       {reservation.recoveryCode==="google_booking_changed_externally"&&<p role="status">This booking changed in Google Calendar before your reschedule finished. The booking shown here reflects Google Calendar. {reservation.status==="confirmed"?"You can choose another time using Reschedule booking.":"The booking was canceled."}</p>}
       <p>{reservation.status==="rescheduling"?"Current time: ":""}{format(reservation.start)}</p>
       {reservation.status==="rescheduling"&&reservation.desiredStart&&<p>Requested new time: {format(reservation.desiredStart)}</p>}<p className="text-sm text-white/70">Time zone: {zone}</p>
-      {reservation.status==="confirmed"&&!rescheduling && (cancelPrompt?<div className="space-y-3"><p>Cancel this booking? The creator will receive the cancellation.</p><button type="button" disabled={busy} className="rounded border border-red-300 px-3 py-2" onClick={()=>void cancelBooking()}>{busy?"Requesting cancellation…":"Confirm cancellation"}</button><button type="button" disabled={busy} className="ml-3 underline" onClick={()=>setCancelPrompt(false)}>Keep booking</button></div>:<button type="button" className="underline" onClick={()=>setCancelPrompt(true)}>Cancel booking</button>)}
-      {reservation.status==="confirmed"&&Date.parse(reservation.start)>Date.now()&&!cancelPrompt&&(rescheduling?<GoogleReschedulePicker id={reservation.id} revision={reservation.revision} token={token} onClose={()=>{setRescheduling(false);void checkReservation();}} onChanged={next=>{setReservation(next);setRescheduling(false);}}/>:<button type="button" className="ml-3 underline" onClick={()=>setRescheduling(true)}>Reschedule booking</button>)}
-      {pending&&<><p role="status">Your request is saved. This page updates when Google confirms it. You can safely return to this booking link.</p><button type="button" className="underline" onClick={()=>void checkReservation()}>Check status</button></>}
+      {reservation.status==="confirmed"&&!rescheduling && (cancelPrompt?<div className="space-y-3"><p>Cancel this booking? The call host will receive the cancellation.</p><button type="button" disabled={busy} className="rounded border border-red-300 px-3 py-2" onClick={()=>void cancelBooking()}>{busy?"Requesting cancellation…":"Confirm cancellation"}</button><button type="button" disabled={busy} className="ml-3 underline" onClick={()=>setCancelPrompt(false)}>Keep booking</button></div>:<button type="button" className="underline" onClick={()=>setCancelPrompt(true)}>Cancel booking</button>)}
+      {reservation.status==="confirmed"&&reservation.canReschedule!==false&&Date.parse(reservation.start)>clock&&!cancelPrompt&&(rescheduling?<GoogleReschedulePicker id={reservation.id} revision={reservation.revision} token={token} onClose={()=>{setRescheduling(false);void checkReservation();}} onChanged={next=>{request.current++;setChecking(false);setReservation(current=>({...current,...next}));setRescheduling(false);}}/>:<button type="button" className="ml-3 underline" onClick={()=>setRescheduling(true)}>Reschedule booking</button>)}
+      {pending&&<p role="status">Your request is saved. This page updates when Google confirms it. You can safely return to this booking link.</p>}
+      {reservation.rebookingUrl&&["canceled","failed"].includes(reservation.status)&&!statusUnavailable&&<a href={reservation.rebookingUrl} className="block underline">Book with your current assigned closer</a>}
+      {(pending||statusUnavailable||reservation.assignmentChanged||reservation.canReschedule===false)&&<button type="button" className="underline" onClick={()=>void checkReservation()}>Check status</button>}
     </section>:<>
       {checking?<BookingSlotsSkeleton/>:options&&<>
         <p>{options.durationMinutes}-minute call. Times shown in {zone}.</p>
@@ -109,5 +140,9 @@ function BuyerCalendar({connection,attributionId,purchaseId,reservationId,userId
       {!checking&&<button type="button" disabled={busy} className="block underline" onClick={()=>void fetchOptions()}>Refresh availability</button>}
     </>}
   </main>;
+}
+function originalAppointmentUrl(body:{code?:string;manageUrl?:unknown}):string|null{
+  if(body.code!=="TEAM_CALENDAR_ORIGINAL_APPOINTMENT_PENDING"||typeof body.manageUrl!=="string")return null;
+  try{const url=new URL(body.manageUrl,window.location.origin);return url.origin===window.location.origin&&/^\/scheduling\/book\/[a-f0-9-]{36}$/i.test(url.pathname)&&url.searchParams.has("reservation_id")?url.pathname+url.search:null;}catch{return null;}
 }
 export default function GoogleBuyerBookingPage(){return <Suspense fallback={<BookingSkeleton slots/>}><BookingEntry/></Suspense>;}

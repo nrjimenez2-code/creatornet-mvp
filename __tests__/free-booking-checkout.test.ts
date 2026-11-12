@@ -1,7 +1,7 @@
 import type Stripe from "stripe";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createMockClient } from "./__mocks__/supabaseQueryMock";
-jest.mock("@/lib/discoverBookings",()=>({recordBookingSetup:jest.fn(async()=>({id:"attribution"})),attributedBookingUrl:(url:string)=>url}));
+jest.mock("@/lib/discoverBookings",()=>({recordBookingSetup:jest.fn(async()=>"attribution"),completedBookingRedirect:jest.fn(async(url:string)=>url)}));
 import { completedFreeBooking, completeFreeBooking, createFreeBooking } from "@/lib/freeBookingCheckout";
 import { recordBookingSetup } from "@/lib/discoverBookings";
 const base={id:"cs_test_synthetic",mode:"payment",status:"complete",payment_status:"no_payment_required",amount_total:0,currency:"usd",payment_intent:null,subscription:null,

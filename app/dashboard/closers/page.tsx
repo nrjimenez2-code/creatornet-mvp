@@ -410,6 +410,7 @@ export default function ClosersManagerPage() {
       <header className={styles.header}>
         <h1>Booking destinations</h1>
         <p>Route calls to your sales team, one booking at a time.</p>
+        <Link href="/dashboard/closers/team">Sales team access and commissions</Link>
       </header>
       <SchedulingConnections />
       <GoogleBookingsList />

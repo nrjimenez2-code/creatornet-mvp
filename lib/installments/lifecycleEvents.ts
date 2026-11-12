@@ -122,13 +122,26 @@ export async function observeExactDisputeSandbox(args:Common&{disputeId:string;p
     a.terms.firstPaymentFeeSchedule).payments[r.paymentNumber-1];
   requireThat(expected&&r.amountCents===expected.amountCents&&r.applicationFeeCents===expected.fees.totalCreatorDeductionCents&&
     id(d.charge)===r.chargeId,"credited dispute terms differ");
+  const capture=await inspectInstallmentDisputeCapture({paymentIntentId:args.paymentIntentId,customerId:a.customerId,
+    destinationId:a.terms.destinationId,expectedLiveMode:false,receipt:r,stripe:args.stripe});
+  return {status:await args.lifecycleEventStore.dispute({agreementId:a.id,eventId:args.eventId,objectId:d.id,read:snapshot},
+    {...capture,disputedCents:d.amount,status:d.status,eventCreated:args.eventCreated})};
+}
+
+
+/** Shared original-capture inspection for dispute audit. Receipt ownership and
+ * accepted economics are established by each protocol before this read-only call. */
+export async function inspectInstallmentDisputeCapture(args:{paymentIntentId:string;customerId:string;destinationId:string;
+  expectedLiveMode:boolean;receipt:import("./refundEvent").ExactRefundReceipt;
+  stripe:Pick<Stripe,"paymentIntents"|"charges"|"balanceTransactions">}) {
+  const r=args.receipt;
   const pi=await readStripe(()=>args.stripe.paymentIntents.retrieve(args.paymentIntentId));
-  requireThat(pi.id===args.paymentIntentId&&pi.livemode===false&&pi.status==="succeeded"&&id(pi.customer)===a.customerId&&
+  requireThat(pi.id===args.paymentIntentId&&pi.livemode===args.expectedLiveMode&&pi.status==="succeeded"&&id(pi.customer)===args.customerId&&
     id(pi.latest_charge)===r.chargeId&&pi.currency==="usd"&&pi.amount===r.amountCents&&pi.amount_received===r.amountCents&&
-    pi.application_fee_amount===r.applicationFeeCents&&id(pi.transfer_data?.destination)===a.terms.destinationId&&
+    pi.application_fee_amount===r.applicationFeeCents&&id(pi.transfer_data?.destination)===args.destinationId&&
     pi.transfer_data?.amount==null,"captured dispute payment differs");
   const charge=await readStripe(()=>args.stripe.charges.retrieve(r.chargeId));
-  requireThat(charge.id===r.chargeId&&charge.livemode===false&&id(charge.payment_intent)===pi.id&&id(charge.customer)===a.customerId&&
+  requireThat(charge.id===r.chargeId&&charge.livemode===args.expectedLiveMode&&id(charge.payment_intent)===pi.id&&id(charge.customer)===args.customerId&&
     charge.paid===true&&charge.captured===true&&charge.status==="succeeded"&&charge.currency==="usd"&&
     charge.amount===r.amountCents&&charge.amount_captured===r.amountCents&&charge.payment_method_details?.type==="card"&&
     id(charge.balance_transaction)===r.balanceTransactionId,"captured dispute charge differs");
@@ -136,8 +149,7 @@ export async function observeExactDisputeSandbox(args:Common&{disputeId:string;p
   requireThat(balance.id===r.balanceTransactionId&&id(balance.source)===r.chargeId&&balance.currency==="usd"&&
     balance.type==="charge"&&balance.amount===r.amountCents&&balance.fee===r.actualStripeFeeCents&&balance.net===balance.amount-balance.fee,
   "original balance audit differs");
-  return {status:await args.lifecycleEventStore.dispute({agreementId:a.id,eventId:args.eventId,objectId:d.id,read:snapshot},
-    {paymentIntentId:pi.id,chargeId:charge.id,grossCents:r.amountCents,disputedCents:d.amount,status:d.status,eventCreated:args.eventCreated})};
+  return {paymentIntentId:pi.id,chargeId:charge.id,grossCents:r.amountCents};
 }
 
 /** Observe, never mutate a subscription. A changed/canceled schedule fences new
