@@ -5,6 +5,8 @@ import { isSafeBookingTarget } from "@/lib/bookingUrl";
 import { attributedBookingUrl } from "@/lib/discoverBookings";
 import { routeTeamBooking,teamRoutingEnabled } from "@/lib/salesTeams/routing";
 import { teamError, teamRequest } from "@/lib/salesTeams/server";
+import { readOriginalBooking,originalBookingHeld } from "@/lib/salesTeams/bookingRecovery";
+import { TeamSalesError } from "@/lib/salesTeams/policy";
 import type { NextRequest } from "next/server";
 
 /**
@@ -36,10 +38,20 @@ export async function GET(req: Request) {
     });
     // An enrolled team must use a verified buyer and durable assignment before
     // any explicit post URL or legacy router can be considered.
-    if(await teamRoutingEnabled(admin,creatorId)){
+    const enrolled=await teamRoutingEnabled(admin,creatorId);
+    const token=searchParams.get("cn_attribution");
+    let verified:Awaited<ReturnType<typeof teamRequest>>|null=null;
+    try { verified=await teamRequest(req as NextRequest,false,true); }
+    catch(error) { if(token||enrolled||req.headers.has('authorization')||!(error instanceof TeamSalesError)||error.status!==401)return teamError(error); }
+    if(verified){
       try{
-        const {user}=await teamRequest(req as NextRequest);
-        const token=searchParams.get("cn_attribution");
+        const original=await readOriginalBooking(admin,{creatorId,buyerId:verified.user.id,postId,attributionId:token,lead:!token});
+        if(original.state==='team'&&!enrolled)throw originalBookingHeld();
+      }catch(error){return teamError(error);}
+    }
+    if(enrolled){
+      try{
+        const {user}=verified!;
         const routed=await routeTeamBooking(admin,{creatorId,buyerId:user.id,postId,
           source:token?{kind:"attribution",id:token}:{kind:"lead"}});
         return NextResponse.redirect(new URL(attributedBookingUrl(routed.booking_url,token),req.url),
@@ -47,7 +59,6 @@ export async function GET(req: Request) {
       }catch(error){return teamError(error);}
     }
     let attribution:string|null=null;
-    const token=searchParams.get('cn_attribution');
     if(process.env.DISCOVER_V4_ENABLED==='true' && token && /^[a-f0-9-]{36}$/.test(token)){
       const {data:a,error}=await admin.from('discover_booking_attribution_v1').select('id')
         .eq('id',token).eq('creator_id',creatorId).eq('post_id',postId).maybeSingle();

@@ -9,6 +9,8 @@ import styles from "../app/dashboard/closers/bookings.module.css";
 import SalesTeamOfferControls from "@/components/SalesTeamOfferControls";
 import SalesTeamBookingCheckout from "@/components/SalesTeamBookingCheckout";
 import SalesTeamBookedOfferControls from "@/components/SalesTeamBookedOfferControls";
+import TeamAppointmentStatus from "@/components/TeamAppointmentStatus";
+import type {TeamAppointment} from "@/lib/salesTeams/calendarTypes";
 import {MemberTermsControl,DestinationWeightControl,BookingAssignmentControl} from "@/components/SalesTeamManagementControls";
 
 type Member={id:string;user_id:string;role:"manager"|"closer";is_closer:boolean;status:string;commission_bps:number;hold_days:number;renewal_rule:string;commission_revision:number;accepted_commission_revision:number|null};
@@ -17,7 +19,7 @@ type Team={creatorId:string;role:"owner"|"manager"|"closer";membershipId:string|
  targets:{id:string;name:string|null;booking_url:string;weight:number;active:boolean;is_active:boolean}[];
  bindings:{target_id:string;membership_id:string}[];readiness:{membershipId:string;ready:boolean}[]};
 type Booking={booking:{id:string;status:string;created_at:string};post:{title:string|null}|null;buyer:{full_name:string|null;username:string|null}|null;
- assignment:{membership_id:string;source:string;accepted_sale_id:string|null}|null};
+ assignment:{membership_id:string;source:string;accepted_sale_id:string|null}|null;scheduling?:TeamAppointment[]};
 type TeamChoice={creator_id:string;role:string;status:string};
 
 export default function SalesTeamDashboard(){
@@ -113,6 +115,7 @@ export default function SalesTeamDashboard(){
    </>:null}
    <section className={styles.panel}><h2>{manage?"Team bookings":"Your assigned bookings"}</h2>{bookings.length?bookings.map(item=><article key={item.booking.id} className={styles.panel}>
     <h3>{item.post?.title||"Booked offer"}</h3><p>{item.buyer?.full_name||item.buyer?.username||"Customer"} · {item.booking.status==="booked"?"Lead saved; scheduling confirmation is separate":item.booking.status.replaceAll("_"," ")}</p>
+    <TeamAppointmentStatus appointments={item.scheduling}/>
     <p>{item.assignment?`Assigned closer: ${item.assignment.membership_id} (${item.assignment.source})`:"Awaiting explicit closer assignment"}{item.assignment?.accepted_sale_id?" · Sale attribution fixed":""}</p>
     {manage&&!item.assignment?.accepted_sale_id?<BookingAssignmentControl bookingId={item.booking.id} current={item.assignment?.membership_id||null}
      eligible={team.members.filter(m=>m.status==="active"&&m.is_closer&&team.readiness.some(r=>r.membershipId===m.id&&r.ready))} disabled={busy||!team.enabled} onChange={change}/>:null}

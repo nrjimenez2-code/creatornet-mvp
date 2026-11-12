@@ -6,7 +6,7 @@ const functionSource=(sql:string,name:string)=>{const starts=[`create function p
 /** Structural fixture plus the real shared ledger constraints, delivery tables,
  * immutable/binding functions and legacy earnings functions. It deliberately
  * does not claim a full historical composer/CTA migration or hosted schema test. */
-export async function teamSharedDatabase(db:PGlite){
+export async function teamSharedDatabase(db:PGlite,install=true){
  await teamCaptureDatabase(db);
  await db.exec(`alter table products add column deliver_url text,add column discord_invite_url text,add column whop_listing_url text,add column external_url text;
   update products set deliver_url='https://fixture.invalid/original-course';
@@ -33,6 +33,6 @@ export async function teamSharedDatabase(db:PGlite){
   create trigger team_fixture_binding_immutable before update or delete on purchase_deliveries for each row execute function immutable_product_delivery_v1();
   create trigger purchase_delivery_bind after insert or update on purchases for each row execute function bind_purchase_delivery_v1();
   grant select,insert,update on private_video_assets,product_delivery_revisions,product_delivery_videos,checkout_delivery_snapshots,purchase_deliveries to service_role;`);
- await db.exec(source("supabase/migrations/20261022234208_sales_team_shared_fulfillment.sql"));
+ if(install)await db.exec(source("supabase/migrations/20261022234208_sales_team_shared_fulfillment.sql"));
  return db;
 }

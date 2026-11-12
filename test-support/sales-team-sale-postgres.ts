@@ -30,7 +30,7 @@ export async function salesTeamSaleDatabase(db:PGlite,options:{sharedAdmission?:
  }
  return db;
 }
-export async function enableTeamSalesFixture(db:PGlite){
+export async function enableTeamSalesFixture(db:PGlite,options:{assignBooking?:boolean}={}){
  await db.exec(`update public.sales_team_controls_v1 set access_enabled=true,new_sales_enabled=true;
  update public.sales_team_financial_config_v1 set context='{"version":"exact-payment-context-v1","mode":"test","platformAccountId":"acct_platform","supabaseProjectRef":"abcdefghijklmnopqrst","siteOrigin":"https://fixture.vercel.app"}',
  processing_fees='{"enabled":true,"basisPoints":290,"fixedCents":30,"version":"fixture-v1"}',fee_disclosure_version='fixture-fees-v1',commission_disclosure_version='fixture-commissions-v1',
@@ -38,7 +38,7 @@ export async function enableTeamSalesFixture(db:PGlite){
  insert into public.sales_team_recipients_v1(user_id,account_id,platform_account_id,mode,country,currency,transfers_active,payouts_ready,ownership_verified,verified_at,evidence)
  values('${id(1)}','acct_creator','acct_platform','test','US','usd',true,true,true,now(),'{}');`);
  const member=await addTeamMember(db,2);
- await db.query("select public.assign_sales_team_booking_v1($1,$2,null)",[teamSaleBooking,id(10)]);
+ if(options.assignBooking!==false)await db.query("select public.assign_sales_team_booking_v1($1,$2,null)",[teamSaleBooking,id(10)]);
  return member;
 }
 export async function approveTeamOffer(db:PGlite,counts:number[]=[],request=id(30),actor=1){

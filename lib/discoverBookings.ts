@@ -2,7 +2,7 @@ import "server-only";
 import type Stripe from "stripe";
 import { supabaseAdmin as admin } from "@/lib/supabaseAdmin";
 import { discoverEnabled, recordDiscoverEvent } from "@/lib/discoverServer";
-import { googleBookingConnectionFromUrl } from "@/lib/googleBookingUrl";
+import { googleBookingConnectionFromUrl, isBookingId } from "@/lib/googleBookingUrl";
 import { getSiteUrl } from "@/lib/siteUrl";
 import { schedulingOrigin } from "@/lib/schedulingConfig";
 import { completedFreeBooking } from "@/lib/freeBookingReceipt";
@@ -13,6 +13,13 @@ export async function recordBookingSetup(
 ): Promise<string | null> {
   const analyticsEnabled=discoverEnabled()||process.env.GOOGLE_CALENDAR_ENABLED==="true";
   if (!analyticsEnabled && !teamSchemaReady()) return null;
+  if(session.mode==="setup"&&session.status==="complete"&&session.metadata&&session.metadata.kind!=="booking"&&teamSchemaReady()&&
+    (session.metadata.post_id||session.metadata.postId||session.metadata.booking_redirect_url||session.metadata.bookingRedirectUrl)){
+    // Preserve a recoverable original-session failure for an enrolled creator;
+    // do not silently acknowledge an unsupported historical team setup.
+    await routeCompletedTeamBooking(admin,session,null);
+    return null;
+  }
   if (
     (session.mode !== "setup" && !completedFreeBooking(session)) ||
     session.status !== "complete" || !session.metadata ||
@@ -87,6 +94,10 @@ export function attributedBookingUrl(
     } catch {
       // Optional scheduling configuration must not break other booking providers.
     }
+  }
+  if (googleConnection && isBookingId(url.searchParams.get("team_booking_id"))) {
+    url.searchParams.delete("cn_attribution");
+    return url.toString();
   }
   if ((url.origin === origin && url.pathname === "/api/book") || googleConnection)
     url.searchParams.set("cn_attribution", attributionId);

@@ -191,6 +191,9 @@ supabase/migrations/*
 !supabase/migrations/20261104202340_sales_team_bank_review_action_contract.sql
 !supabase/migrations/20261104205001_sales_team_bank_alerts.sql
 !supabase/migrations/20261104213012_sales_team_monthly_shared_compatibility.sql
+!supabase/migrations/20261106012534_sales_team_discover_confirmed_losses.sql
+!supabase/migrations/20261106181247_sales_team_exact_calendar_ownership.sql
 
 # Local Sales Team 19 verification receipts, runners and caches.
 /work/sales-team-19/
+!supabase/migrations/20261112162358_sales_team_pure_helper_service_permissions.sql

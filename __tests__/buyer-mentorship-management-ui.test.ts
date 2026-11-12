@@ -10,13 +10,17 @@ const initial:BuyerMentorshipManagementView={requestId:"10000000-0000-4000-8000-
   paymentCount:3,serviceMonths:10,serviceEndsAt:null,financialReview:false,debitStopped:false,payments:[{paymentNumber:2,amountCents:3333,dueAt:1789920000,
     invoiceId:"in_original",outcome:"action_required",canVerifyBank:true,canCheck:true}]};
 let root:Root,container:HTMLDivElement;
+let clock:jest.SpyInstance<number,[]>;
 beforeEach(async()=>{
+  // Mounted schedules and later quote fixtures must describe the same second.
+  // Keep real timers while preventing a wall-clock boundary from changing dueAt.
+  const fixtureNow=Date.now();clock=jest.spyOn(Date,"now").mockReturnValue(fixtureNow);
   localStorage.clear();
   (globalThis as Record<string,unknown>).IS_REACT_ACT_ENVIRONMENT=true;fetchMock.mockReset();sdk.mockReset();sdk.mockResolvedValue(undefined);global.fetch=fetchMock;
   container=document.createElement("div");document.body.append(container);root=createRoot(container);
   await act(async()=>root.render(React.createElement(MentorshipPaymentManagement,{initial})));
 });
-afterEach(async()=>{await act(async()=>root.unmount());container.remove();});
+afterEach(async()=>{try{await act(async()=>root.unmount());}finally{container.remove();clock.mockRestore();}});
 const button=(text:string)=>Array.from(container.querySelectorAll("button")).find(b=>b.textContent===text)!;
 const click=async(text:string)=>act(async()=>button(text).click());
 const accept=async()=>act(async()=>container.querySelector<HTMLInputElement>("input")!.click());

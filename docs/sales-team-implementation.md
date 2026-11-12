@@ -2455,3 +2455,394 @@ Sales Team 18's native multi-session proof remains limited to its exact staged
 migration and recorded structural environment. Current coherent-source checks
 and remaining installed/browser/hosted/provider/sandbox/LIVE/BANK gates are
 separate. No hosted install, activation or provider write is authorized here.
+
+## Sales Team 20: historical migration identities
+
+On November 5, 2026, one separately approved read-only query on
+`rvkqxgghqitkwzdsuclz` found no migration-ledger entry for six exact local-file
+versions: `20260913004646`, `20260913010141`, `20260930175120`,
+`20261022234208`, `20261024210829` and `20261104213012`. It read no application
+records or migration bodies, used repeatable read with 5-second statement and
+2-second lock limits, and included rollback. That one-read approval is consumed.
+Missing local-file versions do not establish missing schema or permit replay.
+
+Original local installation receipts explain the three shared baseline aliases:
+
+| Local source version | Recorded production version | Migration |
+| --- | --- | --- |
+| `20260913004646` | `20260914215830` | `discover_taxonomy` |
+| `20260913010141` | `20260914215919` | `discover_verified_sales` |
+| `20260930175120` | `20261014214542` | `composer_premium_delivery_pr264_source_20260930175120` |
+
+The Discover execution and postcheck receipts are under
+`C:/Users/sandy/Documents/Codex/2026-09-14/we-re-finishing-your-original-1/outputs/`
+as `production-migration-execution.json` and `production-migration-postcheck.json`.
+They agree with [the release manifest](discover-release-migrations.json) and
+[the production release record](discover-production-release.md).
+Composer installation is recorded in
+`C:/Users/sandy/Documents/Codex/2026-10-14/usd/outputs/pr264-db-installation-verification.json`
+and its adjacent `pr264-db-provider-migration-history.json`. It records one
+dispatch, source SHA256
+`b22f828b41be4d8f07363749fa2516754b12c52158b5be8a071ebc96390f719e`
+and preserved rows/catalog within its October 14 scope. Current committed Git
+blob hashes for all three baseline SQL files match their original receipts.
+
+These are historical installation identities, not a fresh check of the applied
+aliases, current schema/security equivalence or complete historical financial
+compatibility. The other three missing local team versions do not establish
+their hosted outcome under another identity. No installation, history repair,
+replay or activation follows from this reconciliation. Preserve the existing
+release-controls alias recorded above as well. Sales Team 20's query, raw result
+and reconciliation receipts are in the Website project's
+`outputs/sales-team-20/`; no repeated hosted alias lookup was needed.
+
+## Sales Team 21: combined payment/refund lifecycle regressions
+
+The user selected the first proposed local package on November 5, 2026. The
+portable monthly compatibility suite now installs the six previously inspected
+purchase-trigger bodies, three inspected legacy accounting delegates behind
+their retained F11 public guards, and the source-matched installed Discover
+ledger trigger/reconciliation owner. The saved bodies have a pinned canonical
+fixture digest. Discovery tables, grants and taxonomy dependencies remain
+structural, and orders retain the inspected integer amount type. No hosted
+lookup, migration installation, provider operation or application change follows.
+
+The new synthetic lifecycle harness uses the real later-payment preparation,
+confirmation, independent capture, fulfillment, financial-inspection and refund
+responsibility owners against an in-memory provider. Installment and monthly
+cases cover three captures, original Library/delivery identity, cumulative
+commission and creator earnings, partial and full later refunds, refunds of all
+receipts, processing deficits, dispute holds and won/lost outcomes. Replayed
+captures, fulfillment, inspections and legacy-helper denials must not duplicate
+financial credit or the purchase milestone. Refunds retain one Discover event
+and reduce its net amount/validity; the separate post purchase counter changes
+once when all retained principal is gone.
+
+**Pre-F54 confirmed-loss Discover finding:** the inspected legacy routine
+aggregates paid ledger gross less refunds and excludes nonzero
+`disputed_amount_cents`. Team shared synchronization instead records confirmed
+dispute loss in `team_loss_subtotal_cents`. The combined lost-dispute cases prove
+the loss, reduced earnings/commission and denied entitlement, but do not accept
+the unchanged Discover revenue as correct. They retain event-identity/cardinality
+checks; terminal lost-dispute revenue/validity needs its own reviewed correction
+and regression. Capture, refund and hold/win cases asserted the full projection.
+The F54 local correction below supersedes this local reporting gap. Current
+hosted installation and dormant historical projections remain separate gates.
+
+Check receipts and the final source manifest belong to the Website project's
+`outputs/sales-team-21/`. The earlier Sales Team 20 historical-identity note is
+preserved. Complete installed/history/RLS, real authenticated financial browser,
+calendar/capacity, hosted CI, commercial/provider decisions, separately approved
+sandbox/LIVE activation and the actual confirmed-BANK journey remain separate.
+
+## F54: Discover confirmed team losses (local candidate)
+
+The user selected this correction after the combined lifecycle regressions
+identified missing dispute losses in Discover revenue. The CLI-created forward
+migration `20261106012534_sales_team_discover_confirmed_losses.sql` (SHA256
+`2c1fe80d0fe7f1c96102d147d355841993368e3eebb5337cd84a8f05e830573d`)
+changes only the per-ledger principal expression in
+`reconcile_discover_sale_v1(uuid)`. Team rows subtract the greater of refunded
+principal and the existing combined team loss basis, once. Ordinary legacy rows
+retain gross less refunds, and the original paid/disputed filter remains.
+Holds do not invent loss; fees, reserves and deficits do not change this
+principal projection. Original event identities, timestamps, attribution,
+upsert/cardinality and booking-projection replacement remain with their owner.
+
+The apply-once migration requires exact predecessor/trigger-function hashes,
+the ordinary enabled immediate ledger trigger, required column shapes and three
+validated team-constraint fingerprints. It checks browser/service execution
+boundaries and retains actual function OID, owner, ACL and invoker security.
+Unknown catalog definitions abort before replacement; late failure rolls back.
+It changes no financial row, purchase, entitlement, counter, grant or policy.
+All five inspected financial/monthly contract digests remain unchanged; no
+digest is broadened or automatically reapproved.
+
+Disposable PGlite and native PostgreSQL 17.11 checks cover guard failures,
+rollback, identity/ACL preservation and the repaired installment/monthly loss
+projections. The native fixture mirrors source privileges and expected definer
+ownership; neither copied bodies nor that fixture prove current hosted ACL/RLS
+equivalence. Local security-advisor output includes structural-fixture findings
+and is not complete installed security acceptance. The corrected native runner
+smart-stops only its own separate output-folder cluster.
+
+Portable regressions assert partial/complete losses, refund/loss arrival orders,
+no double subtraction, original milestone identity/time, legacy behavior,
+browser denial and projection-only reconciliation with financial rows unchanged.
+The full fallback also exposed an unchanged mentorship UI test's second-boundary
+race: mounted schedule and mocked quote independently calculated tomorrow. Its
+test now fixes `Date.now` per case, restores it at teardown and keeps real timers
+and every consent/persistence assertion. Application validation is unchanged.
+
+No implicit historical refresh is included. Replacing the routine corrects future
+reconciliations; untouched stored events need a separately reviewed bounded
+projection-only repair. Never replay money operations to refresh reporting.
+No hosted installation, provider operation, feature/scheduler activation,
+deployment or LIVE/BANK acceptance occurred. Receipts remain in the Website
+project's `outputs/sales-team-21/`; current-source checks and all other launch
+gates remain explicit in its handoff.
+
+## Sales Team 22: pre-installation legacy history regressions
+
+The user selected package 2 on November 6, 2026. Two portable suites now seed
+synthetic ordinary purchase/earnings, legacy monthly agreement/invoice and
+immutable delivery histories before candidate installation. One fixture stops
+before F11; the other stops before F53 and then installs F53/F54 separately.
+These are independent bounded predecessor fixtures, not a replay of the entire
+historical migration chain. Existing builder callers retain installation by
+default. Saved routine/trigger bodies and their pinned fixture digest remain.
+
+Before F11, a real retained one-time earnings owner credits the purchase, and
+the retained refund owners record a nonzero partial refund. Monthly invoice
+credit is explicitly seeded historical state, with its separate agreement and
+purchase, zero installment entitlement flags and original subscription identity.
+F11 preserves every original row column and the five renamed helper OIDs,
+bodies, ownership and security configuration. Tests assert its intended
+service-only wrapper/delegate privileges, retained legacy triggers, empty team
+identities/reserves and disabled fulfillment. Invalid legacy split/refund
+updates still fail after the constraint branches are rebuilt.
+
+Before F53/F54, populated history and retained catalog inventories are captured
+once and compared after each candidate. Table/column ACLs, fixture RLS/policies,
+legacy routine and trigger identities/security, original financial records,
+balances, Discover event identities/times and immutable delivery all survive.
+The source-derived Discover ACL fixture is established before inventory; direct
+candidate execution cannot silently repair privileges during installation.
+The monthly compatibility policy remains off. No historical adoption occurs.
+
+Subsequent service calls exercise once-only credit/reversal, cumulative partial
+and full refunds, duplicate/decreasing refund observations, original purchase/
+order/subscription/Library identities, invoice versus one-time debit ownership,
+and unrelated balance preservation. Monthly identity/adoption and entitlement
+forgeries, delivery replacement/update/deletion and browser finance/delivery
+access remain denied. Current offer changes do not replace frozen purchased
+links or video revisions.
+
+The initial new suite exposed missing structural purchase fee columns. The
+fixture now extracts 019's existing idempotent purchase-column prerequisite
+block, stopping before its ACL changes; it does not install all of 019. No
+assertion, application safeguard, migration bytes, dependency or provider pin
+was changed. A later query-row generic repairs test typing only; configured-
+module and CommonJS JavaScript are byte-identical to the passing scoped run.
+
+The expanded local run passed 94/94 tests across five suites, including 33 new
+history cases, both affected existing suites and clock-isolation safeguards.
+Exact source manifests, final type/lint receipts, runtime-equivalence proof and
+bounded Sol/Medium plus Astra/High read-only reviews are under the Website
+project's `outputs/sales-team-22/`. All earlier runbook bytes are preserved.
+The CI selector and its full-suite fallback are unchanged. Scoped local checks
+do not replace required current CI; Sales21's 12,910-test receipt retains its
+recorded earlier source/environment scope. No new full-suite/build is claimed.
+
+This is synthetic local preservation/security coverage, not complete installed
+or historical schema/RLS equivalence, hosted or native acceptance, real browser
+authentication, external calendar/provider evidence, LIVE or BANK confirmation.
+Full compatibility/security, package-3 calendar design/selection, commercial and
+provider decisions, hosted CI and separately approved sandbox/activation/BANK
+acceptance remain open. No hosted query/write, financial/provider operation,
+history repair, deployment, activation or shared startup-guide edit occurred.
+## F55 — Exact team Google Calendar ownership (Sales Team 23, November 7, 2026)
+
+This default-off local candidate binds a canonical booking and its immutable
+source, buyer, content creator, assignment revision, closer, destination and
+individually owned Google account/calendar to the existing native reservation.
+It creates no legacy attribution, purchase, parallel capacity pool or financial
+entry. Original calendar event ownership remains the call host's identity.
+
+Reassignment preserves the original appointment. Buyers keep cancellation and
+status recovery; managers gain no calendar cancellation permission. The original
+appointment blocks replacement until authoritative cancellation or proven-unsent
+failure. Membership/destination revocation fences new admissions and final
+mutation markers; attempted outcomes retain original identities and occupancy.
+
+The buyer page carries team intent through sign-in, availability, submission and
+saved management links. A reassigned appointment shows its original host and
+cancellation path, with rescheduling disabled. Fresh status failures retain the
+last recorded result with a warning. Request ordering prevents older status
+reads from overwriting newer cancellation or rescheduling responses. Replacement
+links use the database's complete release predicate and are hidden during a
+new-work shutdown. Persisted team markers retain original identity reads even
+when schema readiness is off; ordinary pre-F55 schemas remain readable.
+
+Installation pins predecessor definitions, owners and exact service-only ACLs,
+including administration/assignment/readiness and recovery/wakeup functions.
+The retained attribution, recovery and reconnect triggers must have their exact
+relation, function, shape and enabled state. Their later drift disables new
+admission through the contract digest. No installed contract is normalized or
+silently repaired. Historical ordinary reservations retain null team markers;
+late binding/adoption remains prohibited.
+
+Source-built local tests cover the database, helper, worker, API route, rendered
+buyer page and team-list isolation, including revocation during asynchronous
+enrichment. Native PostgreSQL 17.11 receipts measure shared buffered ordinary/team
+capacity, all three authority writers against final mutation in both lock
+orders, both original/requested reschedule ranges, uncertain cancellation and
+replacement after authoritative cancellation. Evidence and exact source/check
+manifests are under the Website project's outputs/sales-team-23 directory.
+The native cluster was created only for these fixtures and is stopped.
+
+This is local synthetic proof. Exact external Calendly/Cal.com callback binding,
+complete installed/historical/shared-schema acceptance, real authenticated
+financial-browser acceptance, hosted CI/sandbox, provider BANK/deposit and
+consent/lifecycle contracts, durable enrollment/health/ingestion/exception owners,
+commercial approvals and separately authorized LIVE/feature/scheduler activation
+remain open. Local checks do not replace CI or demonstrate BANK receipt. This
+section authorizes no hosted migration, history repair, provider action, money
+operation, deployment or public release. The original F54 historical Discover
+projection decision remains separately bounded; no financial replay is allowed.
+## F55 continuation — Native routing admission (Sales Team 24, November 9, 2026)
+
+New team scheduling is fenced to the selected native Google candidate. The
+shared router checks calendar flags and native runtime configuration before
+seeding, then accepts only the exact stored absolute/relative native destination
+and issues a canonical team-intent URL. Unsupported providers, query/fragment
+variants and missing configuration cannot fall back to an external/legacy link.
+The assignment API returns acknowledgement only, and its automatic branch uses
+the same runtime preflight. Explicit manager reassignment remains separate.
+
+The uninstalled F55 candidate replaces the pinned assignment owner in place,
+preserving identity, ACL, creator/booking lock order, manager authority and the
+accepted-sale freeze. Automatic admission requires enabled/digest-matching
+calendar policy, creator routing enrollment, a matching immutable canonical
+booking source and an active Book post. The weighted scan skips unsupported,
+disconnected, wrong-owner, expired-watch and self-host destinations. An existing
+unsupported assignment is held for explicit manager review; retries never
+silently change its closer. Failed admission rolls back lead/source/assignment,
+routing turn and audit. The original seed owner is now pinned in preflight and
+ongoing readiness. No predecessor or hosted contract is normalized.
+
+Selection is a current snapshot, not a calendar lease. Reservation and final
+provider dispatch retain their authority checks. Original appointment recovery
+and buyer cancellation remain available after reassignment and calendar-policy
+shutdown; manager assignment does not cancel or transfer the appointment.
+
+Historical kind-less setup confirmation checks the actual post owner, including
+the supported post-only/camel-case form. Verified non-enrolled bookings retain
+legacy recovery. An enrolled or conflicting original is held against its
+original session rather than receiving a raw URL or invented team source.
+Unrelated setup traffic without booking markers stays outside this classifier.
+
+Local synthetic database and API checks cover mixed-provider weighting, invalid-
+pool rollback, shutdown/direct-admission boundaries and original cancellation.
+New native PostgreSQL receipts measure creator-lock serialization for disable,
+duplicate and alias seeds, plus stale selection after an independent connection
+disconnect. Existing capacity/revocation and reschedule/cancellation cases were
+rechecked against the changed F55 bytes. Exact receipts and current source/check
+manifests are under the Website project's outputs/sales-team-24 directory.
+
+The inherited source passed a measured default Turbopack build after local
+loopback diagnostics exposed sandbox EACCES. That receipt predates these routing
+edits; current checks/build have their own manifests. A catalog-only hosted read
+found the team prerequisites absent and all sixteen present native routine
+hashes different from the source-built pins, so installation remains held.
+Stripe's original case was read once with fresh approval: still In progress,
+latest November 5 response escalated to specialists, with no mapping contract.
+That case-load/read approval is consumed. These observations are not hosted
+compatibility, provider, authenticated financial-browser, LIVE or BANK proof.
+No hosted write, migration/history repair, provider mutation, message, financial
+operation, release, feature/scheduler activation or public launch occurred.
+
+### F55 continuation — Sales Team 25, November 9, 2026
+
+The completed-source replay boundary now requires an installed, service-only
+original-booking resolver before application release. It reads immutable exact
+Checkout Session ownership independently of all new-work flags. A successful
+legacy negative permits ordinary fallback; missing RPC/schema/ACL, read failure,
+contradiction, unsupported isolation or ambiguous sessionless historical lead
+holds the request. Neither a missing marker nor enrollment shutdown proves a
+negative. This is a release prerequisite, not permission to install it hosted.
+
+F55 requires empty prior team-source history under bounded NOWAIT parent locks;
+preexisting team sources stop for explicit history review without adoption or
+backfill. Exact attribution/free aliases derive immutable source_session_id;
+synthetic paid-call attribution and literal lead remain distinct. Creator then
+session serialization, booking identity locks, reciprocal alias validation and
+identity/delete guards preserve the original canonical booking. Alias provider/
+status updates take no new creator lock. Stronger snapshot isolation is rejected
+at identity/admission boundaries rather than treating stale snapshots as proof.
+
+Positive completed-session recovery reads the current exact native destination
+without seeding an alias or assignment and preserves canonical team_booking_id.
+If current enrollment, database controls or runtime readiness are off, it holds
+against the original source. An authenticated /api/book attribution/lead request
+checks original ownership even with schema/new-work flags off; anonymous public
+requests without any original identity retain the ordinary public router.
+
+Raw/checked new ordinary native admission is fenced transactionally against an
+original team source, reciprocal session or literal lead. Source creation is
+also blocked by an outstanding ordinary appointment, including uncertain jobs.
+Direct writes arriving under native locks use fail-fast admission; public
+checked admission keeps creator/session before calendar locks. Existing ordinary
+reservation identity remains fixed while original status/cancel and provider
+reconciliation continue. Separately purchased calls retain their independently
+verified purchase and canonical paid-call:<purchase_id> attribution owner.
+
+The previously reviewed explicit LF/CRLF predecessor fingerprint allowlist is
+integrated; installed definitions are hashed unmodified. Strict original owner,
+invoker, ACL and enabled-trigger checks remain. The team-source immutability
+predecessor is now checked explicitly too. No historical migration bytes, receipt
+alias, accepted term or original financial identity was changed.
+
+Local mocked/PGlite/native checks and the required full fallback/build are
+recorded with exact scope under Website/outputs/sales-team-25. In-progress or
+passing local results do not close hosted predecessor/ACL/history, real roles,
+provider/authenticated acceptance, commercial decisions, LIVE or BANK gates.
+No push/PR/merge/deployment, hosted write, provider action, message, money replay,
+feature/scheduler activation or public release is authorized by this patch.
+### F55 retained clear-trigger installer contract — Sales Team 26, November 12, 2026
+
+The explicitly approved v2 compatibility check is integrated locally. The retained
+clear_google_booking_recovery_v1 trigger accepts exactly its owner self EXECUTE
+entry, optionally with direct owner-granted, non-grantable service_role EXECUTE.
+Effective service access must equal that direct entry. Empty/service-only ACLs,
+browser/PUBLIC/other-role access, grant options, other grantors and owner/body/
+invoker/trigger drift remain installation blockers. Installation neither grants
+nor revokes this retained permission. Its real capability with table TRIGGER
+privilege remains acknowledged; historical grant provenance is still UNKNOWN.
+
+The integrated migration equals the approved v2 SQL byte-for-byte; all SQL after
+the parent preflight is unchanged from Sales Team 25. Existing exact-source,
+native capacity/revocation and lifecycle receipts retain only their proven
+runtime scope. New installer regressions preserve both accepted catalogs and
+triggers, reject incomplete/expanded permissions and changed definitions, and
+check rollback without predecessor normalization. Current check receipts and
+source manifests are under Website/outputs/sales-team-26; consult their actual
+terminal results rather than treating this paragraph as a test pass.
+
+This completes one local installer compatibility choice only. Exact ordered
+hosted dependency/history/shared-schema/ACL/RLS acceptance, current hosted CI,
+real authenticated/provider sandbox, commercial approvals, provider BANK and
+consent/lifecycle contracts, and separate activation remain open. The prior
+hosted catalog read and original Stripe case read/follow-up are consumed. No
+hosted grants/writes, provider action/message, payment/replay, deployment,
+feature/scheduler activation or public release is authorized by this change.
+
+### Exact pure-helper prerequisite permissions — Sales Team 26, November 12, 2026
+
+The separately approved local contract permits non-grantable service_role
+EXECUTE on two exact existing pure shared helpers: fixed_service_end_v1(bigint,
+integer) and valid_monthly_fee_snapshot_v1(jsonb,integer). Their UTC date/JSON fee
+calculations read no application rows. Existing bodies, owners, identities and
+invoker callers stay unchanged. Browser execution remains denied. This is a real
+backend capability increase, separate from the earlier clear-trigger decision.
+
+The new CLI-generated local migration 20261112162358_sales_team_pure_helper_service_permissions.sql
+pins both owner-only predecessors before either grant and checks both outcomes
+atomically. Unknown definitions, owner/invoker/config/ACL drift, missing service
+schema USAGE or stronger isolation stop. A future authorized installation needs
+a controlled single-writer window without concurrent role/admin maintenance.
+It neither provisions a financial context nor activates any workflow.
+
+The observed hosted baseline denies service execution of both helpers. Missing
+buyer receipt/activation invoker owners call them, so object presence alone
+would not make those prerequisite workflows usable. Permanent tests reproduce
+the permission denials and compare service calculations after the integrated
+patch while retaining exact owner/body/OID and browser denial. This is isolated
+synthetic helper proof, not full installed first-capture or provider acceptance.
+
+The source plan now distinguishes16 missing prerequisite owner files from52
+team source files, preserving five reconciled historical baseline aliases.
+The prerequisite attempt-history copy and later shared-cash history copy require
+their own exact history/write review. Current evidence and actual check results
+are under Website/outputs/sales-team-26. No hosted grants/migration/history change,
+provider action, payment/replay, deployment or activation is authorized here.

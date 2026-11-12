@@ -1,3 +1,5 @@
 # Preserve the exact pinned SQL bytes across Windows and Unix checkouts.
 /test-support/fixtures/sales-team-installed-monthly-guard.sql -text
 /supabase/migrations/20261104213012_sales_team_monthly_shared_compatibility.sql -text
+/supabase/migrations/20261106012534_sales_team_discover_confirmed_losses.sql -text
+/supabase/migrations/20261106181247_sales_team_exact_calendar_ownership.sql -text

@@ -127,3 +127,101 @@ test.each(['2026-10-01T10:00:00Z','2026-10-05T19:00:00Z'])("a confirmed booking 
   expect(container.textContent).toContain('Booking confirmed');
   expect(Array.from(container.querySelectorAll('button')).some(button=>button.textContent==='Reschedule booking')).toBe(false);
 });
+
+test('team intent survives sign-in and takes precedence over legacy setup',async()=>{
+ userId=null;query=new URLSearchParams('team_booking_id=team&cn_attribution=old&purchase_id=old-purchase');
+ await act(async()=>root.render(createElement(Page)));
+ const next=new URL(container.querySelector('a')!.href).searchParams.get('next')!;
+ expect(next).toContain('team_booking_id=team');expect(next).not.toContain('cn_attribution');expect(next).not.toContain('purchase_id');
+ expect(fetchMock).not.toHaveBeenCalled();
+});
+test('team intent propagates through availability and explicit booking without legacy identities',async()=>{
+ query=new URLSearchParams('team_booking_id=team&cn_attribution=old&purchase_id=old-purchase');
+ await act(async()=>root.render(createElement(Page)));
+ expect(fetchMock.mock.calls[0][0]).toContain('team_booking_id=team');expect(fetchMock.mock.calls[0][0]).not.toContain('cn_attribution');
+ await act(async()=>{(container.querySelector('input[type=radio]') as HTMLInputElement).click();});await click('Book this time');
+ expect(JSON.parse(fetchMock.mock.calls.find(([,init])=>init?.method==='POST')![1].body)).toEqual({...slot,teamBookingId:'team'});
+});
+test('changing the canonical team booking resets the previous buyer context',async()=>{
+ query=new URLSearchParams('team_booking_id=first');await act(async()=>root.render(createElement(Page)));
+ query=new URLSearchParams('team_booking_id=second');await act(async()=>root.render(createElement(Page)));
+ expect(fetchMock.mock.calls.at(-1)![0]).toContain('team_booking_id=second');
+});
+test.each(['GET','POST'])('an original appointment conflict exposes its controlled management link after %s',async method=>{
+ query=new URLSearchParams('team_booking_id=team');
+ const manage='/scheduling/book/11111111-1111-4111-8111-111111111111?reservation_id=original';
+ const conflict={ok:false,json:async()=>({error:'Cancel your original appointment first',code:'TEAM_CALENDAR_ORIGINAL_APPOINTMENT_PENDING',manageUrl:manage})};
+ if(method==='GET')fetchMock.mockResolvedValueOnce(conflict);
+ await act(async()=>root.render(createElement(Page)));
+ if(method==='POST'){
+  fetchMock.mockResolvedValueOnce(conflict);await act(async()=>{(container.querySelector('input[type=radio]') as HTMLInputElement).click();});await click('Book this time');
+ }
+ expect(container.querySelector('a')?.getAttribute('href')).toBe(manage);expect(container.textContent).toContain('Manage your original appointment');
+ expect(container.querySelector('input[type=radio]')).toBeNull();
+});
+test('a reassigned confirmed appointment retains buyer cancellation and hides rescheduling and replacement',async()=>{
+ query=new URLSearchParams('team_booking_id=team&reservation_id=reservation');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'confirmed',revision:0,...slot,assignmentChanged:true,canReschedule:false,rebookingUrl:'/replacement'}})});
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.textContent).toContain('Booking confirmed');expect(container.textContent).toContain('original closer');
+ expect(container.textContent).toContain('Cancel booking');expect(container.textContent).not.toContain('Reschedule booking');
+ expect(container.querySelector('a')).toBeNull();expect(fetchMock.mock.calls).toHaveLength(1);
+});
+test.each(['canceled','failed'])('authoritatively released %s appointments show the current closer link',async status=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status,revision:1,...slot,canReschedule:false,rebookingUrl:'/replacement'}})});
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.querySelector('a')?.getAttribute('href')).toBe('/replacement');expect(container.querySelector('input[type=radio]')).toBeNull();
+ expect(container.textContent).not.toContain('Confirming with Google Calendar');
+});
+test('status read failures retain the recorded appointment with an explicit freshness warning',async()=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'creating',revision:0,...slot,canReschedule:false}})});
+ await act(async()=>root.render(createElement(Page)));
+ fetchMock.mockRejectedValueOnce(new Error('Status service unavailable'));await click('Check status');
+ expect(container.textContent).toContain('Confirming with Google Calendar');expect(container.textContent).toContain('Current status is unavailable');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{id:'reservation',status:'confirmed',revision:0,...slot,canReschedule:false}})});await click('Check status');
+ expect(container.textContent).toContain('Booking confirmed');expect(container.textContent).not.toContain('Current status is unavailable');
+});
+test('a delayed status read cannot overwrite a newer cancellation response',async()=>{
+ query=new URLSearchParams('reservation_id=reservation');
+ const original={id:'reservation',status:'confirmed',revision:0,...slot,canReschedule:false};
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:original})});await act(async()=>root.render(createElement(Page)));
+ let resolveStatus!:(value:unknown)=>void;
+ fetchMock.mockImplementationOnce(()=>new Promise(resolve=>{resolveStatus=resolve;}));await click('Check status');
+ await click('Cancel booking');fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({reservation:{...original,status:'canceling',revision:1}})});await click('Confirm cancellation');
+ expect(container.textContent).toContain('Confirming cancellation');
+ await act(async()=>{resolveStatus({ok:true,json:async()=>({reservation:original})});});
+ expect(container.textContent).toContain('Confirming cancellation');expect(container.textContent).not.toContain('Booking confirmed');
+});
+test('a fresh team link offers times for a proven-unsent same-closer retry',async()=>{
+ query=new URLSearchParams('team_booking_id=team');
+ window.history.replaceState(null,'','/scheduling/book/connection?'+query);
+ const failed={id:'reservation',status:'failed',revision:0,...slot,canReschedule:false,rebookingUrl:'/scheduling/book/connection?team_booking_id=team'};
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({title:'Call',timeZone:'UTC',durationMinutes:30,slots:[slot],reservation:failed})});
+ await act(async()=>root.render(createElement(Page)));
+ // Next synchronizes replaceState back into useSearchParams. Model that update
+ // before interacting, so an accidental switch to management cannot hide here.
+ query=new URLSearchParams(window.location.search);await act(async()=>root.render(createElement(Page)));
+ expect(container.querySelector('input[type=radio]')).not.toBeNull();expect(container.textContent).not.toContain('Book with your current assigned closer');
+ expect(window.location.search).not.toContain('reservation_id');
+ await act(async()=>{(container.querySelector('input[type=radio]') as HTMLInputElement).click();});await click('Book this time');
+ expect(JSON.parse(fetchMock.mock.calls.find(([,init])=>init?.method==='POST')![1].body)).toEqual({...slot,teamBookingId:'team'});
+ expect(container.textContent).toContain('Confirming with Google Calendar');
+ expect(window.location.search).toContain('reservation_id=reservation');
+});
+test('a failed team attempt with unresolved jobs cannot offer another time',async()=>{
+ query=new URLSearchParams('team_booking_id=team');
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({title:'Call',timeZone:'UTC',durationMinutes:30,slots:[slot],reservation:{id:'reservation',status:'failed',revision:0,...slot,canReschedule:false,rebookingUrl:null}})});
+ await act(async()=>root.render(createElement(Page)));
+ expect(container.querySelector('input[type=radio]')).toBeNull();expect(container.textContent).toContain('Booking not confirmed');expect(container.querySelector('a')).toBeNull();
+});
+test('a failed fresh options read retains recorded status and hides stale replacement authority',async()=>{
+ query=new URLSearchParams('team_booking_id=team');
+ window.history.replaceState(null,'','/scheduling/book/connection?'+query);
+ fetchMock.mockResolvedValueOnce({ok:true,json:async()=>({title:'Call',timeZone:'UTC',durationMinutes:30,slots:[slot],reservation:{id:'reservation',status:'failed',revision:0,...slot,canReschedule:false,rebookingUrl:'/replacement'}})});
+ await act(async()=>root.render(createElement(Page)));
+ fetchMock.mockRejectedValueOnce(new Error('Current appointment unavailable'));await click('Refresh availability');
+ query=new URLSearchParams(window.location.search);await act(async()=>root.render(createElement(Page)));
+ expect(container.textContent).toContain('Booking not confirmed');expect(container.textContent).toContain('Current status is unavailable');expect(container.querySelector('a')).toBeNull();
+});

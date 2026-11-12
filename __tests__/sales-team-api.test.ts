@@ -14,6 +14,9 @@ const request=(body:Record<string,unknown>,headers:Record<string,string>={})=>ne
  method:"POST",headers:{origin:"https://creatornet.example","content-type":"application/json",...headers},body:JSON.stringify({creator_id:creator,...body})});
 beforeEach(()=>{
  jest.clearAllMocks();process.env.CREATOR_SALES_TEAM_SCHEMA_READY="true";process.env.CREATOR_SALES_TEAM_READY="true";
+ process.env.CREATOR_TEAM_CALENDAR_SCHEMA_READY='true';process.env.CREATOR_TEAM_CALENDAR_READY='true';
+ process.env.SCHEDULING_OAUTH_ORIGIN='https://creatornet.example';process.env.GOOGLE_CALENDAR_ENABLED='true';process.env.GOOGLE_CALENDAR_CLIENT_ID='fixture-id';
+ process.env.GOOGLE_CALENDAR_CLIENT_SECRET='fixture-secret';process.env.SCHEDULING_TOKEN_ENCRYPTION_KEY='ab'.repeat(32);
  mockAuth.mockResolvedValue({data:{user:{id:actor,email:"member@example.test"}},error:null});mockCookieAuth.mockResolvedValue({data:{user:{id:actor}},error:null});
  mockRpc.mockImplementation(async(name:string)=>({data:name==="sales_team_actor_role_v1"?"manager":{id:target},error:null}));
  mockFrom.mockReturnValue({select:()=>({eq:()=>({eq:()=>({eq:()=>({maybeSingle:async()=>({data:{id:target,user_id:actor,creator_id:creator,role:"manager",status:"active"},error:null})})})})})});
@@ -43,6 +46,25 @@ test("a closer cannot invoke management and cross-creator denial is explicit",as
 test("assignment uses no caller-supplied creator, destination or commission identity",async()=>{
  expect((await assign(request({booking_id:target,actor_id:creator,target_id:creator,commission_bps:9000})) ).status).toBe(200);
  expect(mockRpc).toHaveBeenCalledWith("assign_sales_team_booking_v1",{p_booking_id:target,p_actor_id:actor,p_membership_id:null});
+});
+test('assignment responses never give buyers a raw destination or provider response',async()=>{
+ mockRpc.mockResolvedValueOnce({data:{assignment:{booking_id:target,membership_id:actor},booking_url:'https://calendly.com/replacement/call',reused:true,provider_secret:'private'},error:null});
+ const response=await assign(request({booking_id:target}));
+ expect(response.status).toBe(200);expect(response.headers.get('cache-control')).toContain('no-store');
+ expect(await response.json()).toEqual({ok:true});
+ expect(mockRpc).toHaveBeenCalledWith('assign_sales_team_booking_v1',{p_booking_id:target,p_actor_id:actor,p_membership_id:null});
+});
+test('automatic assignments respect the runtime calendar shutdown while explicit manager reassignment remains available',async()=>{
+ process.env.CREATOR_TEAM_CALENDAR_READY='false';
+ const denied=await assign(request({booking_id:target}));expect(denied.status).toBe(409);expect(mockRpc).not.toHaveBeenCalled();
+ expect(await denied.json()).toMatchObject({code:'TEAM_CALENDAR_NOT_ENABLED'});
+ expect((await assign(request({booking_id:target,membership_id:actor}))).status).toBe(200);
+ expect(mockRpc).toHaveBeenCalledWith('assign_sales_team_booking_v1',{p_booking_id:target,p_actor_id:actor,p_membership_id:actor});
+});
+test('unsupported assigned destinations report controlled manager review without exposing the SQL response',async()=>{
+ mockRpc.mockResolvedValueOnce({data:null,error:Error('TEAM_CALENDAR_DESTINATION_REVIEW_REQUIRED')});
+ const response=await assign(request({booking_id:target}));expect(response.status).toBe(409);
+ expect(await response.json()).toEqual({error:'The assigned calendar needs manager review.',code:'TEAM_CALENDAR_DESTINATION_REVIEW_REQUIRED'});
 });
 test("unknown commands and absent commission terms fail before any mutation",async()=>{
  expect((await POST(request({action:"make_admin"}))).status).toBe(400);

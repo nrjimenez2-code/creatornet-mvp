@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServerSupabase } from "@/lib/supabaseClient";
 import { allowRequest } from "@/lib/rateLimit";
 import { TeamSalesError, teamId, teamSchemaReady, teamSalesReady, type TeamRole, type MembershipAccess } from "./policy";
+import {readTeamBookingScheduling} from "./calendar";
 
 export const teamJson = (data: unknown, status=200) => NextResponse.json(data,{status,headers:{"Cache-Control":"private, no-store"}});
 export function teamError(error:unknown) {
@@ -12,6 +13,8 @@ export function teamError(error:unknown) {
   const known:Record<string,string>={TEAM_ACCESS_DISABLED:"Team access is not enabled.",TEAM_SALES_DISABLED:"New team sales are not enabled.",
     OWNER_REQUIRED:"Only the creator can appoint or remove managers.",TEAM_MANAGER_REQUIRED:"Team management permission is required.",
     NO_ELIGIBLE_TEAM_DESTINATION:"No eligible closer has an active, linked booking destination.",ASSIGNED_MEMBER_UNAVAILABLE:"This booking needs manager reassignment before routing.",
+    TEAM_CALENDAR_NOT_ENABLED:"The team calendar is temporarily unavailable.",TEAM_CALENDAR_DESTINATION_REVIEW_REQUIRED:"The assigned calendar needs manager review.",
+    TEAM_CALENDAR_EXACT_SOURCE_REQUIRED:"The original booking source needs review before scheduling.",TEAM_ROUTING_NOT_ENABLED:"Team routing is not enabled for this creator.",
     SALE_ATTRIBUTION_FROZEN:"This sale was accepted. Its closer attribution is fixed.",HISTORICAL_PAYMENT_NOT_ASSIGNABLE:"Existing payments cannot receive new commission attribution.",
     REVIEW_CURRENT_COMMISSION_TERMS:"Review and accept the current commission terms.",INVITATION_UNAVAILABLE:"This invitation is unavailable or belongs to another verified email.",
     INVITER_NO_LONGER_AUTHORIZED:"The invitation's sender no longer has permission. Request a new invitation.",
@@ -30,8 +33,8 @@ export function teamError(error:unknown) {
   console.error("[sales-team] operation failed",{code:(error as {code?:string})?.code});
   return teamJson({error:"The team operation needs review. Refresh the team to check its current state.",code:"TEAM_REVIEW_REQUIRED"},409);
 }
-export async function teamRequest(req:NextRequest,mutation=false) {
-  if(!teamSchemaReady())throw new TeamSalesError("TEAM_NOT_ENABLED","Sales teams are not enabled.",404);
+export async function teamRequest(req:NextRequest,mutation=false,originalBookingRecovery=false) {
+  if(!teamSchemaReady()&&!originalBookingRecovery)throw new TeamSalesError("TEAM_NOT_ENABLED","Sales teams are not enabled.",404);
   if(mutation&&!teamSalesReady())throw new TeamSalesError("TEAM_SALES_DISABLED","New team activity is not enabled.");
   if(mutation&&req.headers.get("origin")!==new URL(req.url).origin)throw new TeamSalesError("SAME_ORIGIN_REQUIRED","Use this CreatorNet page to make changes.",403);
   const admin=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
@@ -86,14 +89,28 @@ export async function readTeamBookings(req:NextRequest){
       admin.from("profiles").select("id,username,full_name,avatar_url").in("id",buyers),
     ]);
     for(const result of [assignmentRows,postRows,buyerRows])if(result.error)throw result.error;
+    const scheduling=await readTeamBookingScheduling(admin,creator,user.id,bookings);
+    // Scheduling may perform asynchronous reads. Fetch current assignment and
+    // booking identity afterwards, before the final actor/readiness recheck.
+    const [freshAssignments,freshBookings]=await Promise.all([
+      admin.from("sales_team_assignments_v1").select("booking_id,membership_id,target_id,source,assigned_at,revision,accepted_sale_id").eq("creator_id",creator).in("booking_id",ids),
+      admin.from("bookings").select("id,buyer_id,post_id").eq("creator_id",creator).in("id",ids),
+    ]);
+    if(freshAssignments.error)throw freshAssignments.error;if(freshBookings.error)throw freshBookings.error;
     // Recheck revocation and assignment before returning customer details.
     const current=await teamAccess(admin,creator,user.id);
     if(current.role!==role||current.member?.id!==member?.id)throw new TeamSalesError("TEAM_ACCESS_CHANGED","Your team access has changed.",403);
     if(role==="closer")await requireCloserReady(admin,current.member);
-    const assignments=new Map((assignmentRows.data||[]).map(row=>[row.booking_id,row]));
-    return teamJson({role,bookings:bookings.filter(b=>role!=="closer"||assignments.get(b.id)?.membership_id===member?.id).map(booking=>({
+    const assignments=new Map((freshAssignments.data||[]).map(row=>[row.booking_id,row]));
+    const identities=new Map((freshBookings.data||[]).map(row=>[row.id,row]));
+    return teamJson({role,bookings:bookings.filter(b=>{
+      const fresh=identities.get(b.id);
+      return fresh?.buyer_id===b.buyer_id&&fresh?.post_id===b.post_id&&(role!=="closer"||assignments.get(b.id)?.membership_id===member?.id);
+    }).map(booking=>({
       booking,assignment:assignments.get(booking.id)||null,post:postRows.data?.find(p=>p.id===booking.post_id)||null,
       buyer:buyerRows.data?.find(b=>b.id===booking.buyer_id)||null,
+      scheduling:(scheduling.get(booking.id)?.scheduling||[]).map(item=>({...item,previousAssignment:
+        item.assignmentRevision!==assignments.get(booking.id)?.revision||item.membershipId!==assignments.get(booking.id)?.membership_id||item.targetId!==assignments.get(booking.id)?.target_id})),
     }))});
   }catch(error){return teamError(error);}
 }

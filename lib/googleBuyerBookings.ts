@@ -4,21 +4,30 @@ import { authorizeGoogleBooking, type GoogleBookingIntent, type GoogleBookingAcc
 import { readWithGoogleAccessToken } from "@/lib/googleCalendarRead";
 import { getGoogleBusyIntervals,getGoogleBusyIntervalsExcludingEvent,getGoogleBookingEvent } from "@/lib/googleCalendarProvider";
 import { availableBookingSlots, validateBookingAvailability, type BookingAvailability, type BookingInterval } from "@/lib/bookingAvailability";
+import {readTeamCalendarReservation,readTeamGoogleContext,reserveTeamGoogleCalendar} from "@/lib/salesTeams/calendar";
 
 type Settings = { calendar_id:string; conflict_calendar_ids:string[]; availability:BookingAvailability; title:string };
-export type GoogleBuyerReservation = { id:string; status:string; start:string; end:string; revision:number; desiredStart:string|null; desiredEnd:string|null; recoveryCode?:string|null; connectionStatus?:string|null };
+export type GoogleBuyerReservation = { id:string; status:string; start:string; end:string; revision:number; desiredStart:string|null; desiredEnd:string|null; recoveryCode?:string|null; connectionStatus?:string|null;
+ canReschedule?:boolean;assignmentChanged?:boolean;rebookingUrl?:string|null };
 async function settings(connectionId:string):Promise<Settings> {
   const row=await db.from("google_booking_settings_v1").select("calendar_id,conflict_calendar_ids,availability,title").eq("connection_id",connectionId).eq("active",true).single();
   if(row.error || !row.data)throw new Error("Booking hours are unavailable");
   const value=row.data as Settings;validateBookingAvailability(value.availability);return value;
 }
 export async function readGoogleBuyerReservation(id:string,buyer:string):Promise<GoogleBuyerReservation|null> {
-  const result=await db.from("google_booking_reservations_v1").select("id,status,starts_at,ends_at,revision,desired_starts_at,desired_ends_at,recovery_code,scheduling_connections_v1(status)").eq("id",id).eq("buyer_id",buyer).maybeSingle();
+  // Star keeps pre-F55 schemas readable while detecting persisted obligations
+  // even when the schema-readiness flag is deliberately closed.
+  const result=await db.from("google_booking_reservations_v1").select("*,scheduling_connections_v1(status)").eq("id",id).eq("buyer_id",buyer).maybeSingle();
   if(result.error)throw new Error("Could not check your booking");
   const row=result.data;
   const relation:unknown=row?.scheduling_connections_v1;
   const connected=(Array.isArray(relation)?relation[0]:relation) as {status?:string}|null;
-  return row?{id:row.id,status:row.status,start:row.starts_at,end:row.ends_at,revision:Number(row.revision),desiredStart:row.desired_starts_at??null,desiredEnd:row.desired_ends_at??null,recoveryCode:row.recovery_code??null,connectionStatus:connected?.status??null}:null;
+  const installed=row?.team_calendar_binding_id!=null;
+  if(installed&&row.team_calendar_binding_id!==id.toLowerCase())throw new Error("Original team appointment identity changed");
+  const team=row?await readTeamCalendarReservation(db,id,buyer,installed):null;
+  if(installed&&!team)throw new Error("Original team appointment identity changed");
+  return row?{id:row.id,status:row.status,start:row.starts_at,end:row.ends_at,revision:Number(row.revision),desiredStart:row.desired_starts_at??null,desiredEnd:row.desired_ends_at??null,recoveryCode:row.recovery_code??null,connectionStatus:connected?.status??null,
+   ...(team?{canReschedule:team.canReschedule,assignmentChanged:team.assignmentChanged,rebookingUrl:team.rebookingUrl}:{})}:null;
 }
 async function slots(access:GoogleBookingAccess,config:Settings,range:BookingInterval) {
   const from=Date.parse(range.start),to=Date.parse(range.end);
@@ -32,9 +41,15 @@ async function slots(access:GoogleBookingAccess,config:Settings,range:BookingInt
 export async function getGoogleBookingOptions(connectionId:string,buyer:string,intent:GoogleBookingIntent,range:BookingInterval) {
   const access=await authorizeGoogleBooking(connectionId,buyer,intent);
   const config=await settings(connectionId);
+  if(access.teamContext&&access.teamContext.calendarId!==config.calendar_id)throw new Error("The assigned calendar changed");
   const reservation=await readGoogleBuyerReservation(access.reservationId,buyer);
+  const choices=reservation && !["held","failed"].includes(reservation.status)?[]:await slots(access,config,range);
+  if(access.teamContext){
+    const current=await readTeamGoogleContext(db,access.teamContext.bookingId,buyer,connectionId);
+    if(JSON.stringify(current)!==JSON.stringify(access.teamContext))throw new Error("The assigned calendar changed");
+  }
   return {title:config.title,timeZone:config.availability.timeZone,durationMinutes:config.availability.durationMinutes,
-    reservation,slots:reservation && !["held","failed"].includes(reservation.status)?[]:await slots(access,config,range)};
+    reservation,slots:choices};
 }
 export async function submitGoogleBooking(connectionId:string,buyer:string,intent:GoogleBookingIntent,start:string,end:string) {
   const access=await authorizeGoogleBooking(connectionId,buyer,intent);
@@ -44,13 +59,19 @@ export async function submitGoogleBooking(connectionId:string,buyer:string,inten
     return previous;
   }
   const config=await settings(connectionId);
+  if(access.teamContext&&access.teamContext.calendarId!==config.calendar_id)throw new Error("The assigned calendar changed");
   const options=await slots(access,config,{start,end});
   if(!options.some(slot=>Date.parse(slot.start)===Date.parse(start)&&Date.parse(slot.end)===Date.parse(end)))throw new Error("That time is no longer available");
-  const reserved=await db.rpc("reserve_google_booking_checked_v1",{p_id:access.reservationId,p_connection:connectionId,p_buyer:buyer,p_post:access.postId,
-    p_start:start,p_end:end,p_attribution:access.attributionId,p_purchase:access.purchaseId,p_calendar:config.calendar_id,p_policy:config.availability});
-  if(reserved.error)throw new Error("That time or calendar configuration changed. Choose a time again.");
-  const queued=await db.rpc("enqueue_google_booking_create_v1",{p_id:access.reservationId,p_buyer:buyer});
-  if(queued.error)throw new Error("Could not queue your booking. Check its status before trying again.");
+  if(access.teamBookingId){
+    if(!access.teamContext)throw new Error("Refresh your assigned calendar before choosing a time");
+    await reserveTeamGoogleCalendar(db,access.teamContext,start,end,config.availability);
+  }else{
+    const reserved=await db.rpc("reserve_google_booking_checked_v1",{p_id:access.reservationId,p_connection:connectionId,p_buyer:buyer,p_post:access.postId,
+      p_start:start,p_end:end,p_attribution:access.attributionId,p_purchase:access.purchaseId,p_calendar:config.calendar_id,p_policy:config.availability});
+    if(reserved.error)throw new Error("That time or calendar configuration changed. Choose a time again.");
+    const queued=await db.rpc("enqueue_google_booking_create_v1",{p_id:access.reservationId,p_buyer:buyer});
+    if(queued.error)throw new Error("Could not queue your booking. Check its status before trying again.");
+  }
   return readGoogleBuyerReservation(access.reservationId,buyer);
 }
 export async function cancelGoogleBuyerBooking(id:string,buyer:string,revision:number) {
@@ -68,6 +89,11 @@ async function rescheduleOptions(id:string,buyer:string,range:BookingInterval) {
   const result=await db.from("google_booking_reservations_v1").select("*").eq("id",id).eq("buyer_id",buyer).maybeSingle();
   const row=result.data;
   if(result.error||!row||row.status!=="confirmed"||Date.parse(row.starts_at)<=Date.now())throw new Error("This booking cannot be rescheduled");
+  const installed=row.team_calendar_binding_id!=null;
+  if(installed&&row.team_calendar_binding_id!==id.toLowerCase())throw new Error("Original team appointment identity changed");
+  const team=await readTeamCalendarReservation(db,id,buyer,installed);
+  if(installed&&!team)throw new Error("Original team appointment identity changed");
+  if(team&&!team.canReschedule)throw new Error("This appointment stays with its original closer. Cancel it before booking with your current closer.");
   if(row.purchase_id)await authorizeGoogleBooking(row.connection_id,buyer,{purchaseId:row.purchase_id});
   const config=await settings(row.connection_id);
   if(config.calendar_id!==row.calendar_id)throw new Error("The booking calendar changed");
@@ -77,6 +103,7 @@ async function rescheduleOptions(id:string,buyer:string,range:BookingInterval) {
   const local=await db.rpc("google_reserved_intervals_v1",{p_connection:row.connection_id,p_start:expanded.start,p_end:expanded.end,p_exclude:id});
   if(local.error||!Array.isArray(local.data))throw new Error("Could not check reserved times");
   const busy=await readWithGoogleAccessToken(row.connection_id,token=>getGoogleBusyIntervalsExcludingEvent(token,row.calendar_id,config.conflict_calendar_ids,expanded,row.event_id));
+  if(team&&!(await readTeamCalendarReservation(db,id,buyer,installed))?.canReschedule)throw new Error("The assigned calendar changed");
   const policy={...config.availability,durationMinutes:(Date.parse(row.ends_at)-Date.parse(row.starts_at))/60000,
     bufferBeforeMinutes:row.buffer_before_minutes,bufferAfterMinutes:row.buffer_after_minutes};
   return {config,row,slots:availableBookingSlots(policy,range,[...local.data,...busy])};

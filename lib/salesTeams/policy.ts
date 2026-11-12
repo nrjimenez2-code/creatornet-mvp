@@ -6,6 +6,8 @@ export type TeamEnvironment = Record<string, string | undefined>;
 
 export const teamSchemaReady = (env: TeamEnvironment = process.env) => env.CREATOR_SALES_TEAM_SCHEMA_READY === "true";
 export const teamSalesReady = (env: TeamEnvironment = process.env) => teamSchemaReady(env) && env.CREATOR_SALES_TEAM_READY === "true";
+export const teamCalendarSchemaReady = (env: TeamEnvironment = process.env) => teamSchemaReady(env) && env.CREATOR_TEAM_CALENDAR_SCHEMA_READY === "true";
+export const teamCalendarReady = (env: TeamEnvironment = process.env) => teamCalendarSchemaReady(env) && teamSalesReady(env) && env.CREATOR_TEAM_CALENDAR_READY === "true";
 export const teamSaleSchemaReady = (env: TeamEnvironment = process.env) => teamSchemaReady(env) && env.CREATOR_TEAM_SALE_AGREEMENTS_SCHEMA_READY === "true";
 export const teamLedgerSchemaReady = (env: TeamEnvironment = process.env) => teamSaleSchemaReady(env) && env.CREATOR_TEAM_FINANCIAL_LEDGER_SCHEMA_READY === "true";
 export const teamCheckoutReady = (env: TeamEnvironment = process.env) => teamSalesReady(env) && teamSaleSchemaReady(env) && env.CREATOR_TEAM_SALES_CHECKOUT_READY === "true";
